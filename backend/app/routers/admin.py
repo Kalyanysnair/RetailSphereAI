@@ -12,6 +12,26 @@ from app.email_utils import send_staff_credentials_email
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
 
+class SendCouponEmailRequest(BaseModel):
+    email: str
+    coupon_code: str
+    discount_percent: int
+
+@router.post("/send-coupon-email", status_code=status.HTTP_200_OK)
+def send_coupon_email_endpoint(payload: SendCouponEmailRequest, background_tasks: BackgroundTasks):
+    from app.email_utils import send_coupon_discount_email
+    email_clean = payload.email.strip()
+    if not email_clean:
+        raise HTTPException(status_code=400, detail="Target email address is required.")
+    
+    background_tasks.add_task(
+        send_coupon_discount_email,
+        to_email=email_clean,
+        coupon_code=payload.coupon_code.strip(),
+        discount_percent=payload.discount_percent
+    )
+    return {"message": f"Coupon email dispatch scheduled for {email_clean}."}
+
 def generate_strong_password(length: int = 12) -> str:
     specials = "@#$%&*"
     chars = [

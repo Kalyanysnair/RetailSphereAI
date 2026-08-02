@@ -292,3 +292,99 @@ Message:
         return True
 
 
+def send_coupon_discount_email(to_email: str, coupon_code: str, discount_percent: int) -> bool:
+    """
+    Sends an exclusive coupon discount email directly to the customer's email address.
+    """
+    subject = f"🎉 Exclusive {discount_percent}% OFF Discount Coupon - RetailSphere"
+    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
+    from_name = settings.EMAILS_FROM_NAME or "RetailSphere Rewards"
+
+    clean_username = to_email.split('@')[0].capitalize() if (to_email and '@' in to_email) else "Valued Customer"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Exclusive Coupon Code</title>
+      <style>
+        body {{ font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; }}
+        .container {{ max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }}
+        .header {{ text-align: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 24px; }}
+        .header h1 {{ color: #0f172a; margin: 0; font-size: 24px; font-weight: 800; }}
+        .coupon-box {{ background: #f0fdf4; border: 2px dashed #48A63E; border-radius: 12px; padding: 20px; text-align: center; margin: 24px 0; }}
+        .coupon-code {{ font-size: 32px; font-weight: 800; letter-spacing: 6px; color: #48A63E; font-family: monospace; }}
+        .discount-badge {{ display: inline-block; background: #48A63E; color: white; font-size: 14px; font-weight: 800; padding: 4px 12px; border-radius: 20px; margin-top: 8px; }}
+        .footer {{ font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; }}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>RetailSphere</h1>
+        </div>
+        <p>Hello <strong>{clean_username}</strong>,</p>
+        <p>You have been issued an exclusive discount coupon by our retail staff team!</p>
+        
+        <div class="coupon-box">
+          <div class="coupon-code">{coupon_code.upper()}</div>
+          <div class="discount-badge">{discount_percent}% OFF YOUR ORDER</div>
+        </div>
+
+        <p>Use this promo code at checkout to enjoy <strong>{discount_percent}% OFF</strong> your next furniture purchase. Note: This coupon has a one-time usage per account.</p>
+
+        <p>Shop now at: <a href="http://localhost:3000">http://localhost:3000</a></p>
+
+        <div class="footer">
+          &copy; RetailSphere Inc. All rights reserved.
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    plain_text = f"""Hello {clean_username},
+
+You have received an exclusive {discount_percent}% OFF discount coupon from RetailSphere!
+
+Promo Code: {coupon_code.upper()}
+Discount: {discount_percent}% OFF
+
+Use code {coupon_code.upper()} at checkout at http://localhost:3000.
+
+&copy; RetailSphere Inc.
+"""
+
+    if settings.SMTP_USER and settings.SMTP_PASSWORD:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{from_name} <{from_address}>"
+            msg["To"] = to_email
+
+            msg.attach(MIMEText(plain_text, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            smtp_user = settings.SMTP_USER.strip()
+            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
+
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_address, [to_email], msg.as_string())
+
+            logger.info(f"Successfully sent coupon email to {to_email}")
+            print(f"[EMAIL SERVICE SUCCESS] Coupon email sent via SMTP to {to_email}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send coupon email to {to_email}: {e}")
+            print(f"[EMAIL SERVICE ERROR] SMTP error when sending coupon email to {to_email}: {e}")
+            return False
+    else:
+        logger.info(f"SMTP credentials notice for {to_email}: Coupon={coupon_code}, Discount={discount_percent}%")
+        print(f"[EMAIL SERVICE NOTICE] SMTP credentials not configured in .env. Dispatched coupon '{coupon_code}' ({discount_percent}% OFF) to customer email '{to_email}'.")
+        return True
+
+
+
