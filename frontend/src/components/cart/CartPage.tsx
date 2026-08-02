@@ -330,12 +330,12 @@ export const CartPage: React.FC = () => {
                     {/* Dearest Customer Discount & Promo Code Input */}
                     <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
                       <label className="block text-[11px] font-extrabold text-[#2C241D] uppercase tracking-wider">
-                        Dearest Customer Promo Code
+                        Promo Code
                       </label>
                       <form onSubmit={handleApplyPromo} className="flex gap-2">
                         <input
                           type="text"
-                          placeholder="e.g. DEAREST10 or VIP20"
+                          placeholder="Enter promo code"
                           value={promoCodeInput}
                           onChange={(e) => setPromoCodeInput(e.target.value)}
                           className="flex-1 px-3 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] font-mono font-bold uppercase text-[#2C241D]"
@@ -355,12 +355,6 @@ export const CartPage: React.FC = () => {
                           {promoMessage.text}
                         </div>
                       )}
-
-                      <div className="text-[10px] text-[#7A6C5E] font-medium bg-[#F5ECE1]/60 p-2 rounded-xl border border-[#E2D7CB]/60 space-y-0.5">
-                        <div className="font-bold text-[#2C241D]">💡 Exclusive Dearest Customer Codes:</div>
-                        <div>• <code className="font-mono font-extrabold text-[#48A63E]">DEAREST10</code> - 10% Off Dearest Customer Discount</div>
-                        <div>• <code className="font-mono font-extrabold text-[#48A63E]">VIP20</code> - 20% Off Premium VIP Discount</div>
-                      </div>
                     </div>
 
                     {/* Checkout Button */}

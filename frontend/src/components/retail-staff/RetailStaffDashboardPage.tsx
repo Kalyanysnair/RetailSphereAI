@@ -2649,7 +2649,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Coupon Promo Code *</label>
                 <input
                   type="text"
-                  placeholder="e.g. DEAREST25 or VIP30"
+                  placeholder="Enter promo code"
                   value={newCouponCode}
                   onChange={(e) => setNewCouponCode(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] font-mono font-bold uppercase text-[#2C241D]"
