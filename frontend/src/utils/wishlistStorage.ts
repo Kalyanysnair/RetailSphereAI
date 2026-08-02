@@ -17,14 +17,42 @@ export interface WishlistItem {
 
 const BASE_WISHLIST_KEY = 'retailsphere_wishlist';
 
+const PRODUCT_NAME_TO_ID_MAP: Record<string, string> = {
+  'Nordic Bouclé Curved Lounge Sofa': 'rec-1',
+  'Minimalist Teak Wood 6-Seater Dining Set': 'rec-2',
+  'Calacatta Italian Marble Coffee Table': 'rec-3',
+  'Royal Velvet Wingback Accent Armchair': 'rec-4',
+  'Executive Teak Desk with Cable Management': 'rec-5',
+  'Bespoke Modular Sectional Sofa': 'rec-6',
+  'Empress Velvet Upholstered King Bed': 'rec-7',
+  'Art Deco Brass & Brushed Steel Console': 'rec-8',
+  'Executive Ergonomic Leather Office Chair': 'rec-9',
+  'Artisan Rattan & Teak Sun Lounger Daybed': 'rec-10',
+  'Architectural Marble Coffee Table': 'rec-11',
+  'Scandinavian Floating Media Console': 'rec-12',
+};
+
+function repairWishlistItemIds(items: WishlistItem[]): { items: WishlistItem[]; modified: boolean } {
+  let modified = false;
+  const repaired = items.map(item => {
+    const correctId = PRODUCT_NAME_TO_ID_MAP[item.name];
+    if (correctId && item.id !== correctId) {
+      modified = true;
+      return { ...item, id: correctId };
+    }
+    return item;
+  });
+  return { items: repaired, modified };
+}
+
 function getWishlistKey(): string {
   try {
     const rawUser = localStorage.getItem('user');
     if (rawUser) {
       const parsed = JSON.parse(rawUser);
-      const userIdentifier = parsed.email || parsed.id || parsed.user_id;
+      const userIdentifier = parsed.email || parsed.customer_email || parsed.user_email || parsed.username || parsed.id || parsed.user_id;
       if (userIdentifier) {
-        return `${BASE_WISHLIST_KEY}_${userIdentifier}`;
+        return `${BASE_WISHLIST_KEY}_${userIdentifier.toString().toLowerCase().trim()}`;
       }
     }
   } catch {
@@ -37,10 +65,14 @@ export function getWishlistItems(): WishlistItem[] {
   try {
     const key = getWishlistKey();
     const raw = localStorage.getItem(key);
-    if (!raw) {
-      return [];
+    const items: WishlistItem[] = raw ? JSON.parse(raw) : [];
+    const { items: repaired, modified } = repairWishlistItemIds(items);
+    if (modified) {
+      try {
+        localStorage.setItem(key, JSON.stringify(repaired));
+      } catch {}
     }
-    return JSON.parse(raw);
+    return repaired;
   } catch {
     return [];
   }
