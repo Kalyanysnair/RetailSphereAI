@@ -26,8 +26,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80&rect=0,50,650,550',
+      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80&rect=200,100,550,500'
     ],
     rating: 4.9,
     reviewCount: 128,
@@ -51,8 +51,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1530018607912-eff2daa1bac4?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80&rect=50,50,600,550',
+      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80&rect=150,100,500,500'
     ],
     rating: 4.85,
     reviewCount: 94,
@@ -76,8 +76,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80&rect=0,0,600,550',
+      'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80&rect=100,100,500,500'
     ],
     rating: 4.95,
     reviewCount: 67,
@@ -100,8 +100,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
     ],
     rating: 4.75,
     reviewCount: 52,
@@ -124,8 +124,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1517502884422-41eaead166d4?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80&rect=0,0,650,550',
+      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80&rect=150,100,500,500'
     ],
     rating: 4.85,
     reviewCount: 41,
@@ -149,8 +149,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'Low Stock',
     imageUrl: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80&rect=150,50,550,500'
     ],
     rating: 5.0,
     reviewCount: 38,
@@ -174,8 +174,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1540518614846-7eded433c457?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
     ],
     rating: 4.9,
     reviewCount: 83,
@@ -197,8 +197,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
     ],
     rating: 4.92,
     reviewCount: 64,
@@ -221,8 +221,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80&rect=100,50,550,550'
     ],
     rating: 4.8,
     reviewCount: 195,
@@ -244,8 +244,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1530018607912-eff2daa1bac4?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
     ],
     rating: 4.88,
     reviewCount: 52,
@@ -267,8 +267,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
     ],
     rating: 4.7,
     reviewCount: 98,
@@ -290,8 +290,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80',
     additionalImages: [
-      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80'
+      'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
+      'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
     ],
     rating: 4.82,
     reviewCount: 74,

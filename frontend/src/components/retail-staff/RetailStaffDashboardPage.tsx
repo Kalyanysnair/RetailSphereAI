@@ -1400,10 +1400,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Main Product Photo URL</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Primary Front-View Photo URL</label>
                 <input
                   type="url"
-                  placeholder="https://images.unsplash.com/photo-..."
+                  placeholder="https://images.unsplash.com/photo-... (Front Angle)"
                   value={newProdImage}
                   onChange={(e) => setNewProdImage(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
@@ -1412,10 +1412,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Additional Photo 2 URL</label>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Side Angle View Photo URL</label>
                   <input
                     type="url"
-                    placeholder="https://images.unsplash.com/photo-..."
+                    placeholder="https://images.unsplash.com/photo-... (Side Perspective)"
                     value={newProdImage1}
                     onChange={(e) => setNewProdImage1(e.target.value)}
                     className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
@@ -1423,10 +1423,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Additional Photo 3 URL</label>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Detail / Craftsmanship Photo URL</label>
                   <input
                     type="url"
-                    placeholder="https://images.unsplash.com/photo-..."
+                    placeholder="https://images.unsplash.com/photo-... (Close-up Detail)"
                     value={newProdImage2}
                     onChange={(e) => setNewProdImage2(e.target.value)}
                     className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"

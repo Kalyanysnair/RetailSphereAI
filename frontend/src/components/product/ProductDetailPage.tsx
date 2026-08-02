@@ -187,26 +187,34 @@ export const ProductDetailPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* 3 Photos Thumbnail Selector Strip */}
+              {/* 3 Photos Thumbnail Selector Strip (Angle Views of Same Product) */}
               <div className="grid grid-cols-3 gap-3">
-                {allImages.map((img, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setSelectedImage(img || '')}
-                    className={`relative aspect-[4/3] rounded-2xl overflow-hidden border-2 transition-all cursor-pointer shadow-xs ${
-                      selectedImage === img
-                        ? 'border-[#38A132] ring-4 ring-[#38A132]/20 scale-[1.02]'
-                        : 'border-[#E2D7CB] opacity-75 hover:opacity-100 hover:border-[#38A132]/50'
-                    }`}
-                  >
-                    <img src={img} alt={`Angle ${idx + 1}`} className="w-full h-full object-cover" />
-                    {selectedImage === img && (
-                      <div className="absolute inset-0 bg-[#38A132]/10 flex items-center justify-center">
-                        <span className="bg-[#38A132] text-white p-1 rounded-full text-[10px] shadow-sm font-extrabold">✓</span>
+                {allImages.map((img, idx) => {
+                  const angleLabel = idx === 0 ? 'Front View' : idx === 1 ? 'Side Angle' : 'Detail View';
+                  const isSelected = selectedImage === img;
+
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedImage(img || '')}
+                      className={`relative aspect-[4/3] rounded-2xl overflow-hidden border-2 transition-all cursor-pointer shadow-xs group ${
+                        isSelected
+                          ? 'border-[#38A132] ring-4 ring-[#38A132]/20 scale-[1.02]'
+                          : 'border-[#E2D7CB] opacity-80 hover:opacity-100 hover:border-[#38A132]/50'
+                      }`}
+                    >
+                      <img src={img} alt={angleLabel} className="w-full h-full object-cover" />
+                      <div className="absolute bottom-0 inset-x-0 bg-black/60 backdrop-blur-xs text-white text-[10px] font-extrabold py-0.5 text-center">
+                        {angleLabel}
                       </div>
-                    )}
-                  </button>
-                ))}
+                      {isSelected && (
+                        <div className="absolute top-1.5 right-1.5 bg-[#38A132] text-white w-4 h-4 rounded-full text-[9px] shadow-sm flex items-center justify-center font-extrabold">
+                          ✓
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Guarantees Strip */}
