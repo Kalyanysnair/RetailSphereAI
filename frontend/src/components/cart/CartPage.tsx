@@ -10,6 +10,9 @@ import {
   clearCart
 } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
+import { openRazorpayCheckout } from '../../services/razorpay';
+import { saveStoredRetailOrder } from '../../utils/retailOrdersStorage';
+import { payCustomOrder } from '../../services/api_production';
 
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
@@ -46,9 +49,50 @@ export const CartPage: React.FC = () => {
   const grandTotal = subtotal + shippingFee;
   const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
 
-  const handleCheckout = () => {
-    clearCart();
-    setIsOrderPlaced(true);
+  const handleCheckout = async () => {
+    const rawUser = localStorage.getItem('user');
+    const userObj = rawUser ? JSON.parse(rawUser) : null;
+
+    await openRazorpayCheckout({
+      amount: grandTotal,
+      name: 'RetailSphere Furniture Store',
+      description: `Payment for ${totalItemCount} furniture items`,
+      prefill: {
+        name: userObj?.full_name || 'Valued Customer',
+        email: userObj?.email || 'customer@retailsphere.com',
+      },
+      onSuccess: async (paymentId) => {
+        console.log('Razorpay Payment Successful:', paymentId);
+
+        // Update custom orders status in PostgreSQL database
+        for (const item of items) {
+          if (item.id.startsWith('custom-')) {
+            const numericId = parseInt(item.id.replace('custom-', ''), 10);
+            if (!isNaN(numericId)) {
+              await payCustomOrder(numericId);
+            }
+          }
+        }
+
+        saveStoredRetailOrder({
+          customerName: userObj?.full_name || 'Valued Customer',
+          email: userObj?.email || 'customer@retailsphere.com',
+          itemsCount: totalItemCount,
+          totalAmount: grandTotal,
+          orderStatus: 'Paid',
+          paymentStatus: 'Paid',
+          items: items.map(i => ({
+            id: i.id,
+            name: i.name,
+            price: i.price,
+            quantity: i.quantity,
+            imageUrl: i.imageUrl
+          }))
+        });
+        clearCart();
+        setIsOrderPlaced(true);
+      },
+    });
   };
 
   return (

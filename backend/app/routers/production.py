@@ -219,6 +219,20 @@ def cancel_custom_order(order_id: int, db: Session = Depends(get_db)):
     db.refresh(order)
     return {"message": f"Order #{order_id} has been cancelled successfully", "order_id": order_id}
 
+# 2d. Record Payment for Custom Order
+@router.put("/custom-orders/{order_id}/pay")
+def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
+    order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id).first()
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
+
+    order.payment_status = "Paid"
+    order.order_status = "Paid"
+    order.is_locked = True
+    db.commit()
+    db.refresh(order)
+    return {"message": f"Payment completed for Custom Order #{order_id}", "order_id": order_id, "payment_status": "Paid"}
+
 # 3. Add Worker
 @router.post("/workers", status_code=status.HTTP_201_CREATED)
 def create_worker(payload: WorkerCreatePayload, db: Session = Depends(get_db)):

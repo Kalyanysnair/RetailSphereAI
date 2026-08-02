@@ -61,6 +61,7 @@ export interface RetailOrder {
 
 import { fetchInventoryFromDB, createProductInDB, updateStockInDB, fetchQueriesFromDB, createStaffQueryInDB, fetchNotificationsFromDB } from '../../services/api';
 import { addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
+import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
 
 export const INITIAL_PRODUCTS: RetailProduct[] = [];
 export const INITIAL_ORDERS: RetailOrder[] = [];
@@ -162,7 +163,19 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
 
   // Orders State
-  const [orderList, setOrderList] = useState<RetailOrder[]>(INITIAL_ORDERS);
+  const [orderList, setOrderList] = useState<RetailOrder[]>(() => getStoredRetailOrders() as any);
+
+  useEffect(() => {
+    const handleRetailOrdersUpdate = () => {
+      setOrderList(getStoredRetailOrders() as any);
+    };
+    window.addEventListener('retail-orders-updated', handleRetailOrdersUpdate);
+    window.addEventListener('storage', handleRetailOrdersUpdate);
+    return () => {
+      window.removeEventListener('retail-orders-updated', handleRetailOrdersUpdate);
+      window.removeEventListener('storage', handleRetailOrdersUpdate);
+    };
+  }, []);
 
   // Modals
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
@@ -1084,7 +1097,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Email</th>
                           <th className="py-3 px-4">Items</th>
                           <th className="py-3 px-4">Total Amount</th>
-                          <th className="py-3 px-4">Status</th>
+                          <th className="py-3 px-4">Payment Status</th>
+                          <th className="py-3 px-4">Order Status</th>
                           <th className="py-3 px-4 text-right">Update Order Status</th>
                         </tr>
                       </thead>
@@ -1096,6 +1110,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             <td className="py-4 px-4 text-[#6B5C4D]">{ord.email}</td>
                             <td className="py-4 px-4 text-[#6B5C4D]">{ord.itemsCount} Items</td>
                             <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{ord.totalAmount.toLocaleString('en-IN')}</td>
+                            <td className="py-4 px-4">
+                              <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Paid</span>
+                              </span>
+                            </td>
                             <td className="py-4 px-4">
                               <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${ord.orderStatus === 'Delivered'
                                   ? 'bg-[#48A63E]/15 text-[#48A63E]'

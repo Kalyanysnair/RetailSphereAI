@@ -206,6 +206,7 @@ class CustomOrder(Base):
     reference_image = Column(String(255), nullable=True)
     estimated_price = Column(Numeric(10, 2), nullable=True)
     order_status = Column(String(50), default="Pending")
+    payment_status = Column(String(50), default="Pending", nullable=True)
     is_locked = Column(Boolean, default=False, nullable=True)
     order_date = Column(DateTime, default=datetime.utcnow, nullable=False)
 

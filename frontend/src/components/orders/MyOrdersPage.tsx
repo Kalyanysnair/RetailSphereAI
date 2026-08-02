@@ -14,11 +14,15 @@ import {
   Pencil,
   Lock,
   ShoppingBag,
-  AlertCircle
+  AlertCircle,
+  CreditCard,
+  CheckCircle2
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
-import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder } from '../../services/api_production';
+import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder } from '../../services/api_production';
+import { openRazorpayCheckout } from '../../services/razorpay';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
+import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
 
 interface OrderItem {
   id: string;
@@ -92,6 +96,17 @@ export const MyOrdersPage: React.FC = () => {
 
   const userName = userObj?.full_name || userObj?.username || 'Customer';
 
+  const formatOrderDate = (rawDate: string) => {
+    if (!rawDate) return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    try {
+      const d = new Date(rawDate);
+      if (isNaN(d.getTime())) return rawDate;
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    } catch {
+      return rawDate;
+    }
+  };
+
   // Load orders strictly fetched from Database API for the active logged-in user session
   const loadOrdersFromDB = async () => {
     setLoading(true);
@@ -158,7 +173,34 @@ export const MyOrdersPage: React.FC = () => {
         };
       });
 
-      setOrders(formatted);
+      const storedRetailOrders = getStoredRetailOrders();
+      const formattedRetailOrders: OrderData[] = storedRetailOrders.map((r, index) => ({
+        orderId: r.orderId,
+        numericId: 9000 + index,
+        type: 'standard',
+        date: r.orderDate,
+        status: r.paymentStatus === 'Paid' ? 'Paid' : r.orderStatus,
+        totalPrice: r.totalAmount,
+        isCustomBuild: false,
+        is_locked: true,
+        items: r.items.map((i) => ({
+          id: i.id,
+          name: i.name,
+          category: 'Ready-Made Store Furniture',
+          image: i.imageUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80',
+          price: i.price,
+          quantity: i.quantity,
+          specifications: `${i.quantity} Unit(s) • Ready-Made Store Purchase`,
+        })),
+        trackingTimeline: [
+          { stage: 'Order Placed & Paid', completed: true, current: false },
+          { stage: 'Warehouse Processing', completed: true, current: true },
+          { stage: 'Dispatched for Delivery', completed: false, current: false },
+          { stage: 'Delivered to Customer', completed: false, current: false },
+        ],
+      }));
+
+      setOrders([...formatted, ...formattedRetailOrders]);
     } catch (err) {
       console.error('Error fetching DB orders:', err);
       setOrders([]);
@@ -334,7 +376,7 @@ export const MyOrdersPage: React.FC = () => {
                             {firstItem?.name || 'Custom Build Order'}
                           </h4>
                           <span className="text-[11px] font-semibold text-[#7A6C5E] flex items-center gap-1">
-                            <Calendar className="w-3 h-3 text-[#8C7C6D]" /> {order.date}
+                            <Calendar className="w-3 h-3 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
                           </span>
                         </div>
                         {firstItem?.specifications && (
@@ -345,7 +387,7 @@ export const MyOrdersPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Right side: Price, Status Badge & Action */}
+                    {/* Right side: Price, Single Status Badge & Action Button */}
                     <div className="flex items-center gap-3 shrink-0 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-2 md:pt-0 border-[#EFE7DE]">
                       {order.totalPrice > 0 && (
                         <span className="text-sm font-extrabold text-[#38A132]">
@@ -353,19 +395,27 @@ export const MyOrdersPage: React.FC = () => {
                         </span>
                       )}
 
-                      <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                        order.status === 'Cancelled'
-                          ? 'bg-rose-500/15 text-rose-800 border border-rose-500/30'
-                          : order.status === 'Completed' || order.status === 'Delivered'
-                          ? 'bg-emerald-500/15 text-emerald-800 border border-emerald-500/30'
-                          : order.status === 'Approved' || order.status === 'In Production'
-                          ? 'bg-purple-500/15 text-purple-800 border border-purple-500/30'
-                          : 'bg-amber-500/15 text-amber-800 border border-amber-500/30'
-                      }`}>
-                        Status: {order.status}
-                      </span>
+                      {/* SINGLE STATUS BADGE */}
+                      {order.status === 'Cancelled' ? (
+                        <span className="px-3.5 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 text-xs font-extrabold flex items-center gap-1">
+                          <span>Status: Cancelled</span>
+                        </span>
+                      ) : order.status === 'Paid' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered' ? (
+                        <span className="px-3.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-extrabold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Payment Completed</span>
+                        </span>
+                      ) : (
+                        <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                          order.status === 'Approved'
+                            ? 'bg-purple-500/15 text-purple-800 border border-purple-500/30'
+                            : 'bg-amber-500/15 text-amber-800 border border-amber-500/30'
+                        }`}>
+                          Status: {order.status}
+                        </span>
+                      )}
 
-                      {/* CANCEL REQUEST BUTTON */}
+                      {/* CANCEL REQUEST BUTTON FOR UNPAID / PENDING ORDERS */}
                       {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'In Production' && order.status !== 'Paid' && (
                         <button
                           onClick={() => setCancelModalOrderId(order.numericId)}
@@ -377,11 +427,8 @@ export const MyOrdersPage: React.FC = () => {
                         </button>
                       )}
 
-                      {order.status === 'Cancelled' ? (
-                        <span className="px-3.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-extrabold flex items-center gap-1">
-                          <span>Request Cancelled</span>
-                        </span>
-                      ) : isEditable ? (
+                      {/* ACTION BUTTON: EDIT SPECS OR ADD TO CART */}
+                      {isEditable ? (
                         <Link
                           to="/dashboard#custom-order-form"
                           className="px-3.5 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F4ECE1] border border-[#E2D7CB] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
@@ -390,7 +437,7 @@ export const MyOrdersPage: React.FC = () => {
                           <Pencil className="w-3.5 h-3.5 text-[#38A132]" />
                           <span>Edit Specs</span>
                         </Link>
-                      ) : !cartItemIds.includes(`custom-${order.numericId}`) ? (
+                      ) : (order.status === 'Approved' || order.status === 'Quote Updated') && (
                         <button
                           onClick={() => {
                             addToCart({
@@ -400,19 +447,12 @@ export const MyOrdersPage: React.FC = () => {
                               price: order.totalPrice > 0 ? order.totalPrice : 50000,
                               imageUrl: firstItem?.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80'
                             });
+                            navigate('/cart');
                           }}
                           className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center gap-2 transition-all shadow-md shadow-[#38A132]/25 cursor-pointer"
                         >
-                          <ShoppingBag className="w-4 h-4" />
-                          <span>Add to Cart</span>
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => navigate('/cart')}
-                          className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center gap-2 transition-all shadow-md shadow-[#38A132]/25 cursor-pointer"
-                        >
                           <ShoppingBag className="w-4 h-4 text-white" />
-                          <span>Go to Cart</span>
+                          <span>Add to Cart</span>
                         </button>
                       )}
                     </div>

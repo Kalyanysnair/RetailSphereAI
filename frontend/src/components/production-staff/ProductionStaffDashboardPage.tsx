@@ -137,7 +137,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     setIsLoading(true);
     try {
       const [orderList, workerList] = await Promise.all([
-        fetchCustomOrders(statusFilter, true),
+        fetchCustomOrders('All', true),
         fetchWorkers()
       ]);
       setOrders(orderList);
@@ -153,7 +153,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadNotifs();
     loadQueries();
     loadData();
-  }, [statusFilter]);
+  }, []);
 
   const unreadNotifCount = notifications.filter(n => n.unread).length;
 
@@ -348,6 +348,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadData();
   };
 
+  const isPaidCustomOrder = (o: CustomOrderData) => {
+    const pStatus = (o.payment_status || '').toLowerCase().trim();
+    const oStatus = (o.order_status || '').toLowerCase().trim();
+    return pStatus === 'paid' || oStatus === 'paid' || oStatus === 'in production' || oStatus === 'completed';
+  };
+
   // Filtered orders
   const filteredOrders = orders.filter(o => {
     const query = searchQuery.toLowerCase().trim();
@@ -402,9 +408,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Sliders className="w-4.5 h-4.5" />
               <span className="text-sm">Custom Orders</span>
             </div>
-            {orders.filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed').length > 0 && (
+            {orders.filter(isPaidCustomOrder).length > 0 && (
               <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold ${activeTab === 'orders' ? 'bg-white/20 text-white' : 'bg-[#E2D6C8] text-[#4A3E32]'}`}>
-                {orders.filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed').length}
+                {orders.filter(isPaidCustomOrder).length}
               </span>
             )}
           </button>
@@ -421,9 +427,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <CheckCircle2 className="w-4.5 h-4.5 flex-shrink-0" />
               <span className="text-sm whitespace-nowrap">Custom Approvals</span>
             </div>
-            {orders.filter(o => o.payment_status !== 'Paid' && o.order_status !== 'Paid' && o.order_status !== 'In Production' && o.order_status !== 'Completed').length > 0 && (
+            {orders.filter(o => !isPaidCustomOrder(o)).length > 0 && (
               <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold flex-shrink-0 ${activeTab === 'approvals' ? 'bg-white/20 text-white' : 'bg-[#38A132]/15 text-[#38A132]'}`}>
-                {orders.filter(o => o.payment_status !== 'Paid' && o.order_status !== 'Paid' && o.order_status !== 'In Production' && o.order_status !== 'Completed').length}
+                {orders.filter(o => !isPaidCustomOrder(o)).length}
               </span>
             )}
           </button>
@@ -440,9 +446,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Layers className="w-4.5 h-4.5 flex-shrink-0" />
               <span className="text-sm whitespace-nowrap">Assign Tasks</span>
             </div>
-            {orders.filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed').length > 0 && (
+            {orders.filter(isPaidCustomOrder).length > 0 && (
               <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold flex-shrink-0 ${activeTab === 'assignments' ? 'bg-white/20 text-white' : 'bg-[#38A132]/15 text-[#38A132]'}`}>
-                {orders.filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed').length}
+                {orders.filter(isPaidCustomOrder).length}
               </span>
             )}
           </button>
@@ -745,9 +751,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                {filteredOrders.filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed').length > 0 ? (
+                {filteredOrders.filter(isPaidCustomOrder).length > 0 ? (
                   filteredOrders
-                    .filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed')
+                    .filter(isPaidCustomOrder)
                     .map((ord) => (
                     <div
                       key={ord.custom_order_id}
@@ -887,7 +893,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                 <div className="space-y-4">
                   {orders
-                    .filter(o => o.payment_status !== 'Paid' && o.order_status !== 'Paid' && o.order_status !== 'In Production' && o.order_status !== 'Completed')
+                    .filter(o => !isPaidCustomOrder(o))
                     .filter((o) => (approvalFilter === 'All' ? true : o.order_status === approvalFilter))
                     .length === 0 ? (
                     <div className="bg-white p-12 rounded-3xl border border-[#E2D7CB] text-center space-y-3">
@@ -897,7 +903,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     </div>
                   ) : (
                     orders
-                      .filter(o => o.payment_status !== 'Paid' && o.order_status !== 'Paid' && o.order_status !== 'In Production' && o.order_status !== 'Completed')
+                      .filter(o => !isPaidCustomOrder(o))
                       .filter((o) => (approvalFilter === 'All' ? true : o.order_status === approvalFilter))
                       .map((ord) => (
                         <div
@@ -1004,7 +1010,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         >
                           <option value="">-- Choose Order to Assign --</option>
                           {orders
-                            .filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed')
+                            .filter(isPaidCustomOrder)
                             .map((o) => (
                               <option key={o.custom_order_id} value={o.custom_order_id}>
                                 #{o.custom_order_id} - {o.furniture_type} ({o.customer_name})
@@ -1057,12 +1063,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
                       <h4 className="font-extrabold text-sm text-[#2C241D]">Active Order & Technician Assignments</h4>
                       <span className="text-xs font-bold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-full">
-                        {orders.filter(o => (o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed') && o.assigned_workers && o.assigned_workers.length > 0).length} Assigned Builds
+                        {orders.filter(o => isPaidCustomOrder(o) && o.assigned_workers && o.assigned_workers.length > 0).length} Assigned Builds
                       </span>
                     </div>
 
                     <div className="space-y-4">
-                      {orders.filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed').length === 0 ? (
+                      {orders.filter(isPaidCustomOrder).length === 0 ? (
                         <div className="bg-white p-8 rounded-2xl border-2 border-dashed border-[#E2D7CB] text-center space-y-2">
                           <Layers className="w-8 h-8 text-[#A09080] mx-auto" />
                           <p className="font-extrabold text-sm text-[#2C241D]">No Paid Orders Pending Technician Assignment</p>
@@ -1070,7 +1076,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         </div>
                       ) : (
                         orders
-                          .filter(o => o.payment_status === 'Paid' || o.order_status === 'Paid' || o.order_status === 'In Production' || o.order_status === 'Completed')
+                          .filter(isPaidCustomOrder)
                           .map((ord) => (
                             <div key={ord.custom_order_id} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-3">
                               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1538,15 +1544,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 className="px-3.5 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1]"
               >
                 Cancel
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSavePriceOnly}
-                className="bg-amber-500 hover:bg-amber-600 px-4 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-sm flex items-center gap-1.5 cursor-pointer"
-              >
-                <DollarSign className="w-4 h-4" />
-                <span>Save Price Quote</span>
               </button>
 
               <button

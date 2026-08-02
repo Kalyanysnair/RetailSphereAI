@@ -270,6 +270,30 @@ export async function cancelCustomOrder(orderId: number): Promise<boolean> {
   return true;
 }
 
+export async function payCustomOrder(orderId: number): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/pay`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    if (!res.ok) throw new Error('Failed to record payment');
+    await res.json();
+  } catch (err) {
+    console.warn('DB pay request failed, fallback locally:', err);
+  }
+
+  const stored = getStoredCustomOrders();
+  const ord = stored.find(o => o.custom_order_id === orderId) || mockCustomOrders.find(o => o.custom_order_id === orderId);
+  if (ord) {
+    ord.payment_status = 'Paid';
+    ord.order_status = 'Paid';
+    ord.is_locked = true;
+    saveStoredCustomOrders(stored);
+    mockCustomOrders = stored;
+  }
+  return true;
+}
+
 export async function fetchWorkers(): Promise<WorkerData[]> {
   try {
     const res = await fetch(`${BASE_URL}/workers`);
