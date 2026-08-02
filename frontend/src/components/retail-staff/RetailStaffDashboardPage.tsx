@@ -504,8 +504,38 @@ export const RetailStaffDashboardPage: React.FC = () => {
     );
   };
 
-  // Filtered Products
-  const filteredProducts = productList.filter((item) => {
+  // Calculate map of ordered items count across all customer orders
+  const orderedQtyMap: Record<string, number> = {};
+  orderList.forEach((ord: any) => {
+    if (ord.items && Array.isArray(ord.items)) {
+      ord.items.forEach((item: any) => {
+        const nameKey = (item.name || '').toLowerCase().trim();
+        const idKey = (item.id || '').toLowerCase().trim();
+        if (nameKey) orderedQtyMap[nameKey] = (orderedQtyMap[nameKey] || 0) + (item.quantity || 1);
+        if (idKey) orderedQtyMap[idKey] = (orderedQtyMap[idKey] || 0) + (item.quantity || 1);
+      });
+    }
+  });
+
+  // Display products with stock automatically updated corresponding to customer orders done
+  const displayProducts = productList.map((p) => {
+    const nameKey = p.name.toLowerCase().trim();
+    const idKey = p.id.toLowerCase().trim();
+    const orderedQty = orderedQtyMap[nameKey] || orderedQtyMap[idKey] || 0;
+    const currentStock = Math.max(0, p.stockCount - orderedQty);
+    let currentStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
+    if (currentStock === 0) currentStatus = 'Out of Stock';
+    else if (currentStock < 5) currentStatus = 'Low Stock';
+
+    return {
+      ...p,
+      stockCount: currentStock,
+      status: currentStatus,
+    };
+  });
+
+  // Filtered Products for both Products and Inventory tabs
+  const filteredProducts = displayProducts.filter((item) => {
     if (categoryFilter !== 'All' && item.category !== categoryFilter) return false;
 
     if (priceRangeFilter === 'under30k' && item.price >= 30000) return false;
@@ -518,16 +548,16 @@ export const RetailStaffDashboardPage: React.FC = () => {
       return (
         item.name.toLowerCase().includes(q) ||
         item.sku.toLowerCase().includes(q) ||
-        item.material.toLowerCase().includes(q)
+        item.material.toLowerCase().includes(q) ||
+        item.category.toLowerCase().includes(q)
       );
     }
     return true;
   });
 
-
-  const totalInStock = productList.reduce((acc, i) => acc + i.stockCount, 0);
-  const lowStockCount = productList.filter((i) => i.stockCount < 5).length;
-  const pendingOrdersCount = orderList.filter((o) => o.orderStatus === 'Pending' || o.orderStatus === 'Processing').length;
+  const totalInStock = displayProducts.reduce((acc, i) => acc + i.stockCount, 0);
+  const lowStockCount = displayProducts.filter((i) => i.stockCount < 5).length;
+  const activeOrdersCount = orderList.length;
 
   return (
     <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
@@ -609,7 +639,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'orders' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
                   }`}>
-                  {pendingOrdersCount} Active
+                  {activeOrdersCount} Active
                 </span>
               </button>
 
@@ -873,7 +903,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Active Orders</span>
                       <ShoppingBag className="w-4 h-4 text-[#48A63E]" />
                     </div>
-                    <div className="text-2xl font-extrabold text-[#2C241D]">{pendingOrdersCount} Orders</div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{activeOrdersCount} Orders</div>
                     <div className="text-[11px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">
                       Pending Fulfillment
                     </div>
@@ -893,7 +923,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <span className="text-xs font-bold text-[#7A6C5E] mr-1 flex items-center gap-1.5 flex-shrink-0">
                           <SlidersHorizontal className="w-3.5 h-3.5 text-[#48A63E]" /> Category:
                         </span>
-                        {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio'].map((cat) => (
+                        {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office'].map((cat) => (
                           <button
                             key={cat}
                             onClick={() => setCategoryFilter(cat)}
@@ -1037,52 +1067,96 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {/* TAB 2: INVENTORY STOCK */}
               {activeTab === 'inventory' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <h2 className="text-base font-extrabold text-[#2C241D] border-b border-[#EFE7DE] pb-3">
-                    Live Inventory Stock Monitoring
+                  {/* Category & Price Filters & Search Bar at the Top */}
+                  <div className="space-y-3 border-b border-[#EFE7DE] pb-4">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                      {/* Category Filter */}
+                      <div className="flex items-center gap-2 w-full lg:w-auto overflow-x-auto">
+                        <span className="text-xs font-bold text-[#7A6C5E] mr-1 flex items-center gap-1.5 flex-shrink-0">
+                          <SlidersHorizontal className="w-3.5 h-3.5 text-[#48A63E]" /> Category:
+                        </span>
+                        {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office'].map((cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => setCategoryFilter(cat)}
+                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex-shrink-0 ${categoryFilter === cat
+                                ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20'
+                                : 'bg-[#F9F6F0] border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F2ECE1]'
+                              }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative w-full lg:w-64 flex-shrink-0">
+                        <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search title, SKU, material..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <h2 className="text-base font-extrabold text-[#2C241D]">
+                    Live Inventory Stock Monitoring ({filteredProducts.length} Items Displayed)
                   </h2>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {productList.map((prod) => (
-                      <div key={prod.id} className="p-4 rounded-2xl border border-[#E2D7CB] bg-[#F9F6F0] space-y-3 shadow-xs">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] font-mono font-bold text-[#7A6C5E]">{prod.sku}</span>
-                          <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${prod.status === 'In Stock'
-                              ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                              : prod.status === 'Low Stock'
-                                ? 'bg-amber-100 text-amber-800'
-                                : 'bg-rose-100 text-rose-700'
-                            }`}>
-                            {prod.status}
-                          </span>
-                        </div>
-
-                        <div>
-                          <h3 className="font-extrabold text-[#2C241D] text-sm">{prod.name}</h3>
-                          <p className="text-xs text-[#6B5C4D]">{prod.category} • {prod.material}</p>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-2 border-t border-[#E2D7CB]">
-                          <div>
-                            <span className="text-[11px] text-[#7A6C5E] block font-medium">Available Units</span>
-                            <span className="text-lg font-extrabold text-[#2C241D]">{prod.stockCount}</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => handleStockCountChange(prod.id, -1)}
-                              className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D]"
-                            >
-                              -
-                            </button>
-                            <button
-                              onClick={() => handleStockCountChange(prod.id, 1)}
-                              className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D]"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
+                    {filteredProducts.length === 0 ? (
+                      <div className="col-span-full py-12 text-center text-[#7A6C5E]">
+                        <Package className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
+                        <p className="font-extrabold text-sm text-[#2C241D]">No Inventory Products Found</p>
+                        <p className="text-xs text-[#7A6C5E] mt-1">No stock items matched your search query or category filter.</p>
                       </div>
-                    ))}
+                    ) : (
+                      filteredProducts.map((prod) => (
+                        <div key={prod.id} className="p-4 rounded-2xl border border-[#E2D7CB] bg-[#F9F6F0] space-y-3 shadow-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-mono font-bold text-[#7A6C5E]">{prod.sku}</span>
+                            <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${prod.status === 'In Stock'
+                                ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                : prod.status === 'Low Stock'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-rose-100 text-rose-700'
+                              }`}>
+                              {prod.status}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h3 className="font-extrabold text-[#2C241D] text-sm">{prod.name}</h3>
+                            <p className="text-xs text-[#6B5C4D]">{prod.category} • {prod.material}</p>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-2 border-t border-[#E2D7CB]">
+                            <div>
+                              <span className="text-[11px] text-[#7A6C5E] block font-medium">Available Units</span>
+                              <span className="text-lg font-extrabold text-[#2C241D]">{prod.stockCount}</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleStockCountChange(prod.id, -1)}
+                                className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D]"
+                              >
+                                -
+                              </button>
+                              <button
+                                onClick={() => handleStockCountChange(prod.id, 1)}
+                                className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D]"
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </div>
               )}
