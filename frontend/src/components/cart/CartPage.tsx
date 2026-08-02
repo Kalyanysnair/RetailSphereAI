@@ -13,7 +13,7 @@ import { getWishlistItems } from '../../utils/wishlistStorage';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { saveStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { payCustomOrder } from '../../services/api_production';
-import { validateStoredCoupon } from '../../utils/couponStorage';
+import { validateStoredCoupon, markCouponAsUsed } from '../../utils/couponStorage';
 
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
@@ -82,6 +82,7 @@ export const CartPage: React.FC = () => {
   const handleCheckout = async () => {
     const rawUser = localStorage.getItem('user');
     const userObj = rawUser ? JSON.parse(rawUser) : null;
+    const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
 
     await openRazorpayCheckout({
       amount: grandTotal,
@@ -102,6 +103,10 @@ export const CartPage: React.FC = () => {
               await payCustomOrder(numericId);
             }
           }
+        }
+
+        if (appliedDiscount && currentUserEmail) {
+          markCouponAsUsed(appliedDiscount.code, currentUserEmail);
         }
 
         saveStoredRetailOrder({

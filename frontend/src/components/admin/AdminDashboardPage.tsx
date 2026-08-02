@@ -54,7 +54,7 @@ export interface InventoryItem {
   image_url?: string;
 }
 
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, Coupon } from '../../utils/couponStorage';
+import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
 
 export const INITIAL_STAFF: StaffMember[] = [];
 export const INITIAL_INVENTORY: InventoryItem[] = [];
@@ -166,14 +166,19 @@ export const AdminDashboardPage: React.FC = () => {
   const [newCouponDesc, setNewCouponDesc] = useState('');
   const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
 
+  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
+
   const refreshCoupons = () => {
     setCouponsList(getStoredCoupons());
+    setAllotmentsList(getCouponAllotments());
   };
 
   useEffect(() => {
     window.addEventListener('coupons-updated', refreshCoupons);
+    window.addEventListener('allotments-updated', refreshCoupons);
     return () => {
       window.removeEventListener('coupons-updated', refreshCoupons);
+      window.removeEventListener('allotments-updated', refreshCoupons);
     };
   }, []);
 
@@ -1101,20 +1106,30 @@ export const AdminDashboardPage: React.FC = () => {
 
                           <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
                           <td className="py-3 px-4">
-                            <input
-                              id={`coupon-email-${coupon.id}`}
-                              type="text"
-                              placeholder="Enter user email or User ID..."
-                              defaultValue={coupon.targetUserEmail || ''}
-                              onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleUpdateCouponUserEmail(coupon.id, (e.target as HTMLInputElement).value);
-                                }
-                              }}
-                              className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
-                              title="Type customer email or User ID to assign coupon"
-                            />
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`coupon-email-${coupon.id}`}
+                                type="text"
+                                placeholder="Enter user email or User ID..."
+                                defaultValue={coupon.targetUserEmail || ''}
+                                onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleUpdateCouponUserEmail(coupon.id, (e.target as HTMLInputElement).value);
+                                  }
+                                }}
+                                className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
+                                title="Type customer email or User ID"
+                              />
+                              <button
+                                onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
+                                className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
+                                title="Send coupon to customer dashboard notification & dispatch email"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Send Email</span>
+                              </button>
+                            </div>
                           </td>
                           <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
                           <td className="py-4 px-4">
@@ -1127,29 +1142,91 @@ export const AdminDashboardPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-4 px-4 text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button
-                                onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer active:scale-95"
-                                title="Send coupon to customer dashboard notification & dispatch email"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                <span>Send Coupon & Email</span>
-                              </button>
-
-                              <button
-                                onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                                className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Remove Coupon</span>
-                              </button>
-                            </div>
+                            <button
+                              onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                              className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Remove Coupon</span>
+                            </button>
                           </td>
                         </tr>
                       ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Allotment & One-Time Usage Record Table */}
+              <div className="mt-8 border-t border-[#EFE7DE] pt-6 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                      <UserCheck className="w-4 h-4 text-[#48A63E]" />
+                      <span>Customer Coupon Allotment & One-Time Usage Records</span>
+                    </h4>
+                    <p className="text-[11px] text-[#7A6C5E] font-medium">Maintains complete record of users allotted coupons, usage status (Used / Unused), and single-use enforcement.</p>
+                  </div>
+                  <span className="text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-lg border border-[#48A63E]/20">
+                    {allotmentsList.length} Total Records
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4">Allotted Customer Email / User ID</th>
+                        <th className="py-3 px-4">Coupon Code</th>
+                        <th className="py-3 px-4">Discount</th>
+                        <th className="py-3 px-4">Allotted Date</th>
+                        <th className="py-3 px-4">Usage Status</th>
+                        <th className="py-3 px-4">Redeemed Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                      {allotmentsList.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-6 text-center text-[#8C7C6D] italic">
+                            No customer coupon allotments recorded yet. When a coupon is sent to a customer email, it will be tracked here.
+                          </td>
+                        </tr>
+                      ) : (
+                        allotmentsList.map((alt) => (
+                          <tr key={alt.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                            <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
+                              ✉️ {alt.targetUserEmail}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                              <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">
+                                {alt.couponCode}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                              {alt.discountPercent}% OFF
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
+                              {alt.allottedDate}
+                            </td>
+                            <td className="py-3.5 px-4">
+                              {alt.used ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
+                                  Used ✓ (Redeemed)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
+                                  Unused (Pending)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
+                              {alt.usedDate || '—'}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           )}

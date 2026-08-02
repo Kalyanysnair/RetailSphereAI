@@ -18,8 +18,19 @@ export interface CustomerNotification {
   read: boolean;
 }
 
+export interface CouponAllotment {
+  id: string;
+  couponCode: string;
+  discountPercent: number;
+  targetUserEmail: string;
+  allottedDate: string;
+  used: boolean;
+  usedDate?: string;
+}
+
 const COUPONS_STORAGE_KEY = 'retailsphere_coupons_v3';
 const CUSTOMER_NOTIFS_KEY = 'retailsphere_customer_notifications_v1';
+const ALLOTMENTS_STORAGE_KEY = 'retailsphere_coupon_allotments_v1';
 
 // Initial coupons with empty target email (to be assigned by retail staff as needed)
 const DEFAULT_COUPONS: Coupon[] = [
@@ -57,6 +68,96 @@ export const getStoredCoupons = (): Coupon[] => {
   }
 };
 
+export const getCouponAllotments = (): CouponAllotment[] => {
+  try {
+    const raw = localStorage.getItem(ALLOTMENTS_STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (err) {
+    return [];
+  }
+};
+
+export const recordCouponAllotment = (allotmentData: {
+  couponCode: string;
+  discountPercent: number;
+  targetUserEmail: string;
+}): CouponAllotment[] => {
+  const current = getCouponAllotments();
+  const cleanEmail = allotmentData.targetUserEmail.trim();
+  const cleanCode = allotmentData.couponCode.trim().toUpperCase();
+
+  if (!cleanEmail || !cleanCode) return current;
+
+  const existingIdx = current.findIndex(
+    a => a.couponCode === cleanCode && a.targetUserEmail.toLowerCase() === cleanEmail.toLowerCase()
+  );
+
+  const newAllotment: CouponAllotment = {
+    id: `alt-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    couponCode: cleanCode,
+    discountPercent: allotmentData.discountPercent,
+    targetUserEmail: cleanEmail,
+    allottedDate: new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+    used: existingIdx >= 0 ? current[existingIdx].used : false,
+    usedDate: existingIdx >= 0 ? current[existingIdx].usedDate : undefined,
+  };
+
+  let updated: CouponAllotment[];
+  if (existingIdx >= 0) {
+    current[existingIdx] = newAllotment;
+    updated = [...current];
+  } else {
+    updated = [newAllotment, ...current];
+  }
+
+  localStorage.setItem(ALLOTMENTS_STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event('allotments-updated'));
+  return updated;
+};
+
+export const markCouponAsUsed = (couponCode: string, userEmailOrId: string): boolean => {
+  const current = getCouponAllotments();
+  const cleanCode = couponCode.trim().toUpperCase();
+  const cleanEmail = userEmailOrId.trim().toLowerCase();
+
+  const idx = current.findIndex(
+    a => a.couponCode === cleanCode && a.targetUserEmail.toLowerCase() === cleanEmail
+  );
+
+  const usageTimestamp = new Date().toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  if (idx >= 0) {
+    current[idx].used = true;
+    current[idx].usedDate = usageTimestamp;
+  } else {
+    current.unshift({
+      id: `alt-${Date.now()}`,
+      couponCode: cleanCode,
+      discountPercent: 10,
+      targetUserEmail: userEmailOrId.trim(),
+      allottedDate: usageTimestamp,
+      used: true,
+      usedDate: usageTimestamp,
+    });
+  }
+
+  localStorage.setItem(ALLOTMENTS_STORAGE_KEY, JSON.stringify(current));
+  window.dispatchEvent(new Event('allotments-updated'));
+  return true;
+};
+
+export const hasUserUsedCoupon = (couponCode: string, userEmailOrId: string): boolean => {
+  const current = getCouponAllotments();
+  const cleanCode = couponCode.trim().toUpperCase();
+  const cleanEmail = userEmailOrId.trim().toLowerCase();
+
+  const found = current.find(
+    a => a.couponCode === cleanCode && a.targetUserEmail.toLowerCase() === cleanEmail
+  );
+  return !!(found && found.used);
+};
+
 export const addStoredCoupon = (newCouponData: {
   code: string;
   discountPercent: number;
@@ -67,7 +168,6 @@ export const addStoredCoupon = (newCouponData: {
   const cleanCode = newCouponData.code.trim().toUpperCase();
   const cleanEmail = (newCouponData.targetUserEmail || '').trim();
 
-  // Check if code already exists
   const existingIdx = current.findIndex(c => c.code === cleanCode);
 
   const newCoupon: Coupon = {
@@ -91,12 +191,16 @@ export const addStoredCoupon = (newCouponData: {
   localStorage.setItem(COUPONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new Event('coupons-updated'));
 
-  // Dispatch live notification & trigger email notification log for designated customer
   if (cleanEmail) {
     dispatchCustomerNotification({
       targetUserEmail: cleanEmail,
       couponCode: cleanCode,
       discountPercent: newCoupon.discountPercent,
+    });
+    recordCouponAllotment({
+      couponCode: cleanCode,
+      discountPercent: newCoupon.discountPercent,
+      targetUserEmail: cleanEmail,
     });
   }
 
@@ -131,6 +235,11 @@ export const updateCouponUserEmail = (idOrCode: string, newUserEmail: string): C
         couponCode: current[idx].code,
         discountPercent: current[idx].discountPercent,
       });
+      recordCouponAllotment({
+        couponCode: current[idx].code,
+        discountPercent: current[idx].discountPercent,
+        targetUserEmail: cleanEmail,
+      });
     }
   }
 
@@ -146,16 +255,25 @@ export const validateStoredCoupon = (code: string, userEmailOrId?: string): { va
     return { valid: false, message: `Invalid or expired coupon code "${code}".` };
   }
 
-  // Strict User Account Validation: Check if coupon is assigned to this user
+  const currentUserEmail = (userEmailOrId || '').trim().toLowerCase();
+
+  // Strict User Account Validation
   if (found.targetUserEmail) {
     const target = found.targetUserEmail.trim().toLowerCase();
-    const current = (userEmailOrId || '').trim().toLowerCase();
-    if (!current || target !== current) {
+    if (!currentUserEmail || target !== currentUserEmail) {
       return {
         valid: false,
-        message: `This coupon code is restricted to user "${found.targetUserEmail}". Please log in with that account to redeem.`,
+        message: `This coupon code is restricted to user account "${found.targetUserEmail}". Please log in with that account to redeem.`,
       };
     }
+  }
+
+  // Strict One-Time Usage Rule Check per user
+  if (currentUserEmail && hasUserUsedCoupon(cleanCode, currentUserEmail)) {
+    return {
+      valid: false,
+      message: `You have already redeemed coupon "${cleanCode}". This coupon code is limited to a one-time usage per customer.`,
+    };
   }
 
   return { valid: true, coupon: found, message: `${found.description} (${found.discountPercent}% Off) Applied!` };
@@ -216,6 +334,12 @@ export const sendCouponToCustomer = (couponIdOrCode: string, targetEmail: string
     targetUserEmail: cleanEmail,
     couponCode: promoCode,
     discountPercent,
+  });
+
+  recordCouponAllotment({
+    couponCode: promoCode,
+    discountPercent,
+    targetUserEmail: cleanEmail,
   });
 
   return {
