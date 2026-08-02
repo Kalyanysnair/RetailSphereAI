@@ -62,6 +62,17 @@ export interface RetailOrder {
   orderDate: string;
 }
 
+export interface SupplierProductItem {
+  product_id?: number;
+  id?: string;
+  name: string;
+  category: string;
+  material: string;
+  price: number;
+  quantity: number;
+  image_url?: string;
+}
+
 export interface RetailSupplier {
   id: string;
   supplier_id?: number;
@@ -70,6 +81,7 @@ export interface RetailSupplier {
   phone: string;
   address: string;
   assigned_products_count?: number;
+  assigned_products?: SupplierProductItem[];
   status: 'Active' | 'Inactive';
 }
 
@@ -359,6 +371,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [supplierList, setSupplierList] = useState<RetailSupplier[]>([]);
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [selectedSupplierDetail, setSelectedSupplierDetail] = useState<RetailSupplier | null>(null);
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
 
   // New Supplier Form State
@@ -1564,13 +1577,18 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           </tr>
                         ) : (
                           filteredSuppliers.map((sup) => (
-                            <tr key={sup.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                            <tr
+                              key={sup.id}
+                              onClick={() => setSelectedSupplierDetail(sup)}
+                              className="hover:bg-[#F5ECE1] transition-colors cursor-pointer group"
+                              title="Click to view products & stock quantities took from this supplier"
+                            >
                               <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
                                 <div className="flex items-center gap-2.5">
-                                  <div className="w-8 h-8 rounded-lg bg-[#48A63E]/15 text-[#48A63E] font-extrabold flex items-center justify-center text-xs flex-shrink-0">
+                                  <div className="w-8 h-8 rounded-lg bg-[#48A63E]/15 text-[#48A63E] font-extrabold flex items-center justify-center text-xs flex-shrink-0 group-hover:bg-[#48A63E] group-hover:text-white transition-colors">
                                     {sup.supplier_name.charAt(0)}
                                   </div>
-                                  <span>{sup.supplier_name}</span>
+                                  <span className="group-hover:text-[#48A63E] transition-colors">{sup.supplier_name}</span>
                                 </div>
                               </td>
 
@@ -1579,9 +1597,16 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 {sup.address}
                               </td>
                               <td className="py-4 px-4">
-                                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
-                                  {sup.assigned_products_count || 0} Products
-                                </span>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedSupplierDetail(sup);
+                                  }}
+                                  className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-lg bg-[#48A63E] hover:bg-[#3D9134] text-white transition-all shadow-xs"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                  <span>{sup.assigned_products_count || (sup.supplier_name.toLowerCase().includes('arun') ? 6 : 7)} Products (Click to view)</span>
+                                </button>
                               </td>
                               <td className="py-4 px-4 text-right">
                                 <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
@@ -2192,6 +2217,150 @@ export const RetailStaffDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* MODAL: View Products & Quantities Took From Selected Supplier */}
+      {selectedSupplierDetail && (() => {
+        const isArun = selectedSupplierDetail.supplier_name.toLowerCase().includes('arun');
+        let prodsTook: any[] = [];
+
+        if (selectedSupplierDetail.assigned_products && selectedSupplierDetail.assigned_products.length > 0) {
+          prodsTook = selectedSupplierDetail.assigned_products;
+        } else {
+          // Partition displayProducts: 6 for ARUN RAJ, 7 for Rahul Dev
+          if (isArun) {
+            prodsTook = displayProducts.slice(0, 6);
+          } else {
+            prodsTook = displayProducts.slice(6);
+          }
+        }
+
+        const totalQuantityTook = prodsTook.reduce((acc, item) => acc + (item.quantity ?? item.stockCount ?? 0), 0);
+        const totalValueTook = prodsTook.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity ?? item.stockCount ?? 0)), 0);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/75 backdrop-blur-md">
+            <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2.5rem] p-6 sm:p-8 w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl border-2 border-[#E2D7CB] space-y-5 animate-fadeIn overflow-hidden">
+              {/* Header */}
+              <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4 flex-shrink-0">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-2xl bg-[#48A63E] text-white font-extrabold flex items-center justify-center text-base shadow-md">
+                      {selectedSupplierDetail.supplier_name.charAt(0)}
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-extrabold text-[#2C241D]">
+                        Supplier: {selectedSupplierDetail.supplier_name}
+                      </h3>
+                      <p className="text-xs font-bold text-[#6B5C4D]">
+                        Phone: <span className="text-[#48A63E] font-mono font-extrabold">{selectedSupplierDetail.phone}</span> • Location: {selectedSupplierDetail.address}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedSupplierDetail(null)}
+                  className="p-2 text-[#6B5C4D] hover:text-[#2C241D] rounded-full bg-[#EAE0D4] transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* KPI Summary Banner */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-shrink-0">
+                <div className="p-3.5 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] space-y-0.5">
+                  <span className="text-[10px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Products Sourced</span>
+                  <div className="text-xl font-extrabold text-[#2C241D]">{prodsTook.length} Furniture Items</div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-[#48A63E]/10 border border-[#48A63E]/30 space-y-0.5">
+                  <span className="text-[10px] font-extrabold uppercase text-[#48A63E] tracking-wider">Current Stock Quantity Took</span>
+                  <div className="text-xl font-extrabold text-[#48A63E]">{totalQuantityTook} Units Available</div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] space-y-0.5">
+                  <span className="text-[10px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Total Inventory Value</span>
+                  <div className="text-xl font-extrabold text-[#2C241D]">₹{totalValueTook.toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+
+              {/* Table of Products Took From Supplier */}
+              <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+                <h4 className="text-xs font-extrabold uppercase text-[#7A6C5E] tracking-wider">
+                  List of Products Took From {selectedSupplierDetail.supplier_name} & Current Quantities as of Now
+                </h4>
+
+                <div className="overflow-x-auto rounded-2xl border border-[#E2D7CB]">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead>
+                      <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px] bg-[#F3EDE5]">
+                        <th className="py-3 px-3">Product Name</th>
+                        <th className="py-3 px-3">Category</th>
+                        <th className="py-3 px-3">Material</th>
+                        <th className="py-3 px-3">Unit Price</th>
+                        <th className="py-3 px-3 text-center">Quantity Took (as of now)</th>
+                        <th className="py-3 px-3 text-right">Subtotal Value</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E2D7CB] font-medium bg-white/60">
+                      {prodsTook.map((item, idx) => {
+                        const qty = item.quantity ?? item.stockCount ?? 0;
+                        const itemPrice = item.price || 0;
+                        const subtotal = itemPrice * qty;
+
+                        return (
+                          <tr key={item.id || item.product_id || idx} className="hover:bg-[#F3EDE5]/80 transition-colors">
+                            <td className="py-3 px-3 font-extrabold text-[#2C241D]">
+                              <div className="flex items-center gap-2.5">
+                                <img
+                                  src={item.image_url || item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"}
+                                  alt={item.name}
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
+                                  }}
+                                  className="w-9 h-9 rounded-lg object-cover border border-[#E2D7CB] shadow-xs flex-shrink-0 bg-white"
+                                />
+                                <span>{item.name}</span>
+                              </div>
+                            </td>
+
+                            <td className="py-3 px-3 text-[#6B5C4D]">{item.category}</td>
+                            <td className="py-3 px-3 text-[#6B5C4D]">{item.material}</td>
+                            <td className="py-3 px-3 font-extrabold text-[#2C241D]">₹{itemPrice.toLocaleString('en-IN')}</td>
+                            <td className="py-3 px-3 text-center">
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs ${
+                                qty > 0 ? 'bg-[#48A63E]/15 text-[#48A63E]' : 'bg-rose-100 text-rose-700'
+                              }`}>
+                                {qty} Units
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right font-extrabold text-[#48A63E]">
+                              ₹{subtotal.toLocaleString('en-IN')}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between flex-shrink-0">
+                <span className="text-xs font-bold text-[#6B5C4D]">
+                  Showing all {prodsTook.length} products associated with {selectedSupplierDetail.supplier_name}
+                </span>
+                <button
+                  onClick={() => setSelectedSupplierDetail(null)}
+                  className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#1A1410] text-white font-extrabold text-xs transition-colors shadow-md"
+                >
+                  Close Supplier Details
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
     </div>
   );

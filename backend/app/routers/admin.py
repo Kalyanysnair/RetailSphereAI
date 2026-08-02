@@ -455,6 +455,21 @@ def get_suppliers(db: Session = Depends(get_db)):
     res = []
     for s in suppliers:
         assigned_prods = db.query(models.Product).filter(models.Product.supplier_id == s.supplier_id).all()
+        products_list = []
+        for p in assigned_prods:
+            first_img = p.image
+            if not first_img and p.images:
+                first_img = p.images[0].image_url
+            products_list.append({
+                "product_id": p.product_id,
+                "name": p.product_name,
+                "category": p.category.category_name if p.category else "Furniture",
+                "material": p.material or "Standard",
+                "price": float(p.price or 0),
+                "quantity": p.stock_quantity or 0,
+                "image_url": first_img or "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"
+            })
+
         res.append({
             "id": f"sup-{s.supplier_id}",
             "supplier_id": s.supplier_id,
@@ -463,6 +478,7 @@ def get_suppliers(db: Session = Depends(get_db)):
             "phone": s.phone,
             "address": s.address,
             "assigned_products_count": len(assigned_prods),
+            "assigned_products": products_list,
             "status": "Active" if s.status else "Inactive"
         })
 
