@@ -522,7 +522,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
       };
 
       setProductList((prev) => [newItem, ...prev]);
-      setSuccessNotice(`Product "${newItem.name}" added to PostgreSQL Database successfully!`);
+      setSuccessNotice(`Product "${newItem.name}" added to catalog successfully!`);
     } catch (err) {
       console.warn('Could not save product to DB, adding locally:', err);
       let statusVal: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
