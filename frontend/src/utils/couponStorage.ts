@@ -5,7 +5,7 @@ export interface Coupon {
   description: string;
   status: 'Active' | 'Inactive';
   createdDate: string;
-  targetUserEmail?: string;
+  targetUserEmail: string;
 }
 
 export interface CustomerNotification {
@@ -18,41 +18,28 @@ export interface CustomerNotification {
   read: boolean;
 }
 
-const COUPONS_STORAGE_KEY = 'retailsphere_coupons_v1';
+const COUPONS_STORAGE_KEY = 'retailsphere_coupons_v2';
 const CUSTOMER_NOTIFS_KEY = 'retailsphere_customer_notifications_v1';
 
+// Initial coupons assigned to specific customer accounts
 const DEFAULT_COUPONS: Coupon[] = [
   {
     id: 'c-1',
-    code: 'DEAREST10',
+    code: 'SPECIAL10',
     discountPercent: 10,
-    description: 'Dearest Customer 10% Off Discount',
+    description: '10% Off Exclusive Customer Discount',
     status: 'Active',
     createdDate: '2026-08-01',
+    targetUserEmail: 'customer@retailsphere.com',
   },
   {
     id: 'c-2',
     code: 'VIP20',
     discountPercent: 20,
-    description: 'Premium VIP Customer 20% Off Discount',
+    description: '20% Off Premium VIP Discount',
     status: 'Active',
     createdDate: '2026-08-01',
-  },
-  {
-    id: 'c-3',
-    code: 'LOYAL15',
-    discountPercent: 15,
-    description: 'Loyal Member 15% Off Discount',
-    status: 'Active',
-    createdDate: '2026-08-01',
-  },
-  {
-    id: 'c-4',
-    code: 'WELCOME5',
-    discountPercent: 5,
-    description: 'Welcome Customer 5% Off Discount',
-    status: 'Active',
-    createdDate: '2026-08-01',
+    targetUserEmail: 'vip.client@retailsphere.com',
   },
 ];
 
@@ -74,10 +61,11 @@ export const addStoredCoupon = (newCouponData: {
   code: string;
   discountPercent: number;
   description: string;
-  targetUserEmail?: string;
+  targetUserEmail: string;
 }): Coupon[] => {
   const current = getStoredCoupons();
   const cleanCode = newCouponData.code.trim().toUpperCase();
+  const cleanEmail = newCouponData.targetUserEmail.trim();
 
   // Check if code already exists
   const existingIdx = current.findIndex(c => c.code === cleanCode);
@@ -89,7 +77,7 @@ export const addStoredCoupon = (newCouponData: {
     description: newCouponData.description.trim() || `${newCouponData.discountPercent}% Off Discount Coupon`,
     status: 'Active',
     createdDate: new Date().toISOString().split('T')[0],
-    targetUserEmail: newCouponData.targetUserEmail?.trim() || undefined,
+    targetUserEmail: cleanEmail,
   };
 
   let updated: Coupon[];
@@ -103,10 +91,10 @@ export const addStoredCoupon = (newCouponData: {
   localStorage.setItem(COUPONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new Event('coupons-updated'));
 
-  // If a target email or user ID is provided, dispatch a notification
-  if (newCouponData.targetUserEmail?.trim()) {
+  // Dispatch live notification & trigger email notification log for designated customer
+  if (cleanEmail) {
     dispatchCustomerNotification({
-      targetUserEmail: newCouponData.targetUserEmail.trim(),
+      targetUserEmail: cleanEmail,
       couponCode: cleanCode,
       discountPercent: newCoupon.discountPercent,
     });
@@ -125,15 +113,28 @@ export const removeStoredCoupon = (idOrCode: string): Coupon[] => {
   return updated;
 };
 
-export const validateStoredCoupon = (code: string): { valid: boolean; coupon?: Coupon; message?: string } => {
+export const validateStoredCoupon = (code: string, userEmailOrId?: string): { valid: boolean; coupon?: Coupon; message?: string } => {
   const cleanCode = code.trim().toUpperCase();
   const coupons = getStoredCoupons();
   const found = coupons.find(c => c.code === cleanCode && c.status === 'Active');
 
-  if (found) {
-    return { valid: true, coupon: found, message: `${found.description} (${found.discountPercent}% Off) Applied!` };
+  if (!found) {
+    return { valid: false, message: `Invalid or expired coupon code "${code}".` };
   }
-  return { valid: false, message: `Invalid or expired coupon code "${code}".` };
+
+  // Strict User Account Validation: Check if coupon is assigned to this user
+  if (found.targetUserEmail) {
+    const target = found.targetUserEmail.trim().toLowerCase();
+    const current = (userEmailOrId || '').trim().toLowerCase();
+    if (!current || target !== current) {
+      return {
+        valid: false,
+        message: `This coupon code is restricted to user "${found.targetUserEmail}". Please log in with that account to redeem.`,
+      };
+    }
+  }
+
+  return { valid: true, coupon: found, message: `${found.description} (${found.discountPercent}% Off) Applied!` };
 };
 
 export const getCustomerNotifications = (userEmailOrId?: string): CustomerNotification[] => {
@@ -161,7 +162,7 @@ export const dispatchCustomerNotification = (notifData: {
       targetUserEmail: notifData.targetUserEmail.trim(),
       couponCode: notifData.couponCode.trim().toUpperCase(),
       discountPercent: notifData.discountPercent,
-      message: `🎉 Exclusive ${notifData.discountPercent}% Discount Coupon Received! Use promo code ${notifData.couponCode.toUpperCase()} at checkout.`,
+      message: `🎉 Exclusive ${notifData.discountPercent}% Discount Coupon Issued! Use code ${notifData.couponCode.toUpperCase()} at checkout.`,
       createdDate: new Date().toLocaleString('en-IN'),
       read: false,
     };

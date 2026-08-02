@@ -54,12 +54,16 @@ export const CartPage: React.FC = () => {
     const code = promoCodeInput.trim().toUpperCase();
     if (!code) return;
 
-    const res = validateStoredCoupon(code);
+    const rawUser = localStorage.getItem('user');
+    const userObj = rawUser ? JSON.parse(rawUser) : null;
+    const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
+
+    const res = validateStoredCoupon(code, currentUserEmail);
     if (res.valid && res.coupon) {
       setAppliedDiscount({ code: res.coupon.code, percent: res.coupon.discountPercent });
       setPromoMessage({ type: 'success', text: res.message || 'Discount Applied!' });
     } else {
-      setPromoMessage({ type: 'error', text: res.message || 'Invalid or expired promo code.' });
+      setPromoMessage({ type: 'error', text: res.message || 'Invalid promo code or not assigned to your user account.' });
     }
   };
 

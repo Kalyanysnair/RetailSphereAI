@@ -179,7 +179,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   const handleCreateCouponSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCouponCode.trim() || !newCouponDiscount) return;
+    if (!newCouponCode.trim() || !newCouponDiscount || !newCouponUserEmail.trim()) return;
 
     const discountVal = parseInt(newCouponDiscount, 10) || 10;
     const targetEmail = newCouponUserEmail.trim();
@@ -188,15 +188,11 @@ export const AdminDashboardPage: React.FC = () => {
       code: newCouponCode,
       discountPercent: discountVal,
       description: newCouponDesc || `${discountVal}% Off Discount`,
-      targetUserEmail: targetEmail || undefined,
+      targetUserEmail: targetEmail,
     });
     setCouponsList(updated);
 
-    const bannerText = targetEmail
-      ? `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) issued to ${targetEmail}! Notification sent to user dashboard and email.`
-      : `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created & activated!`;
-
-    setSuccessBanner(bannerText);
+    setSuccessBanner(`Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) issued exclusively to ${targetEmail}! Notification sent to user dashboard & email.`);
     setNewCouponCode('');
     setNewCouponDiscount('');
     setNewCouponDesc('');
@@ -1481,15 +1477,16 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Target User Email or User ID (Optional)</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Target User Email or User ID *</label>
                 <input
                   type="text"
-                  placeholder="e.g. customer@gmail.com or USER-102"
+                  placeholder="e.g. customer@retailsphere.com or USER-102"
                   value={newCouponUserEmail}
                   onChange={(e) => setNewCouponUserEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs"
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
+                  required
                 />
-                <p className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Entering an Email ID or User ID dispatches the coupon code directly to the customer's dashboard notifications & email.</p>
+                <p className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Entering the customer's Email ID or User ID dispatches the coupon code directly to their dashboard notifications & email inbox.</p>
               </div>
 
               <div>
