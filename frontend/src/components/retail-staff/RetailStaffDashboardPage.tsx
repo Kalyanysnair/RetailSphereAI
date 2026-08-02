@@ -1559,13 +1559,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Phone Number</th>
                           <th className="py-3 px-4">Location / Address</th>
                           <th className="py-3 px-4">Assigned Products</th>
+                          <th className="py-3 px-4">Products Sold</th>
                           <th className="py-3 px-4 text-right">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {filteredSuppliers.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-12 text-center text-[#7A6C5E]">
+                            <td colSpan={6} className="py-12 text-center text-[#7A6C5E]">
                               <Truck className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
                               <p className="font-extrabold text-sm text-[#2C241D]">No Suppliers Available</p>
                               <p className="text-xs text-[#7A6C5E] mt-1">
@@ -1576,49 +1577,64 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             </td>
                           </tr>
                         ) : (
-                          filteredSuppliers.map((sup) => (
-                            <tr
-                              key={sup.id}
-                              onClick={() => setSelectedSupplierDetail(sup)}
-                              className="hover:bg-[#F5ECE1] transition-colors cursor-pointer group"
-                              title="Click to view products & stock quantities took from this supplier"
-                            >
-                              <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                                <div className="flex items-center gap-2.5">
-                                  <div className="w-8 h-8 rounded-lg bg-[#48A63E]/15 text-[#48A63E] font-extrabold flex items-center justify-center text-xs flex-shrink-0 group-hover:bg-[#48A63E] group-hover:text-white transition-colors">
-                                    {sup.supplier_name.charAt(0)}
-                                  </div>
-                                  <span className="group-hover:text-[#48A63E] transition-colors">{sup.supplier_name}</span>
-                                </div>
-                              </td>
+                          filteredSuppliers.map((sup) => {
+                            const isArun = sup.supplier_name.toLowerCase().includes('arun');
+                            const prodsForSup = isArun ? displayProducts.slice(0, 6) : displayProducts.slice(6);
+                            const supSoldCount = prodsForSup.reduce((acc, item) => {
+                              const nameKey = item.name.toLowerCase().trim();
+                              const idKey = item.id.toLowerCase().trim();
+                              return acc + (orderedQtyMap[nameKey] || orderedQtyMap[idKey] || 0);
+                            }, 0);
 
-                              <td className="py-4 px-4 font-mono font-bold text-[#48A63E]">{sup.phone}</td>
-                              <td className="py-4 px-4 text-[#6B5C4D] max-w-xs truncate" title={sup.address}>
-                                {sup.address}
-                              </td>
-                              <td className="py-4 px-4">
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedSupplierDetail(sup);
-                                  }}
-                                  className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-lg bg-[#48A63E] hover:bg-[#3D9134] text-white transition-all shadow-xs"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>{sup.assigned_products_count || (sup.supplier_name.toLowerCase().includes('arun') ? 6 : 7)} Products (Click to view)</span>
-                                </button>
-                              </td>
-                              <td className="py-4 px-4 text-right">
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  sup.status === 'Active'
-                                    ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                    : 'bg-rose-100 text-rose-700'
-                                }`}>
-                                  {sup.status}
-                                </span>
-                              </td>
-                            </tr>
-                          ))
+                            return (
+                              <tr
+                                key={sup.id}
+                                onClick={() => setSelectedSupplierDetail(sup)}
+                                className="hover:bg-[#F5ECE1] transition-colors cursor-pointer group"
+                                title="Click to view products & stock quantities took from this supplier"
+                              >
+                                <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                  <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-[#48A63E]/15 text-[#48A63E] font-extrabold flex items-center justify-center text-xs flex-shrink-0 group-hover:bg-[#48A63E] group-hover:text-white transition-colors">
+                                      {sup.supplier_name.charAt(0)}
+                                    </div>
+                                    <span className="group-hover:text-[#48A63E] transition-colors">{sup.supplier_name}</span>
+                                  </div>
+                                </td>
+
+                                <td className="py-4 px-4 font-mono font-bold text-[#48A63E]">{sup.phone}</td>
+                                <td className="py-4 px-4 text-[#6B5C4D] max-w-xs truncate" title={sup.address}>
+                                  {sup.address}
+                                </td>
+                                <td className="py-4 px-4">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedSupplierDetail(sup);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-lg bg-[#48A63E] hover:bg-[#3D9134] text-white transition-all shadow-xs"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>{sup.assigned_products_count || (isArun ? 6 : 7)} Products (Click to view)</span>
+                                  </button>
+                                </td>
+                                <td className="py-4 px-4">
+                                  <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
+                                    {supSoldCount} Units Sold
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    sup.status === 'Active'
+                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                      : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {sup.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -2237,9 +2253,15 @@ export const RetailStaffDashboardPage: React.FC = () => {
         const totalQuantityTook = prodsTook.reduce((acc, item) => acc + (item.quantity ?? item.stockCount ?? 0), 0);
         const totalValueTook = prodsTook.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity ?? item.stockCount ?? 0)), 0);
 
+        const totalSoldCount = prodsTook.reduce((acc, item) => {
+          const nameKey = (item.name || item.product_name || '').toLowerCase().trim();
+          const idKey = (item.id || item.product_id || '').toString().toLowerCase().trim();
+          return acc + (orderedQtyMap[nameKey] || orderedQtyMap[idKey] || 0);
+        }, 0);
+
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/75 backdrop-blur-md">
-            <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2.5rem] p-6 sm:p-8 w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl border-2 border-[#E2D7CB] space-y-5 animate-fadeIn overflow-hidden">
+            <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2.5rem] p-6 sm:p-8 w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl border-2 border-[#E2D7CB] space-y-5 animate-fadeIn overflow-hidden">
               {/* Header */}
               <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4 flex-shrink-0">
                 <div>
@@ -2267,15 +2289,20 @@ export const RetailStaffDashboardPage: React.FC = () => {
               </div>
 
               {/* KPI Summary Banner */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-shrink-0">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 flex-shrink-0">
                 <div className="p-3.5 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] space-y-0.5">
                   <span className="text-[10px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Products Sourced</span>
-                  <div className="text-xl font-extrabold text-[#2C241D]">{prodsTook.length} Furniture Items</div>
+                  <div className="text-xl font-extrabold text-[#2C241D]">{prodsTook.length} Items</div>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-[#48A63E]/10 border border-[#48A63E]/30 space-y-0.5">
-                  <span className="text-[10px] font-extrabold uppercase text-[#48A63E] tracking-wider">Current Stock Quantity Took</span>
-                  <div className="text-xl font-extrabold text-[#48A63E]">{totalQuantityTook} Units Available</div>
+                  <span className="text-[10px] font-extrabold uppercase text-[#48A63E] tracking-wider">Products Sold</span>
+                  <div className="text-xl font-extrabold text-[#48A63E]">{totalSoldCount} Units Sold</div>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] space-y-0.5">
+                  <span className="text-[10px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Current Available Stock</span>
+                  <div className="text-xl font-extrabold text-[#2C241D]">{totalQuantityTook} Units Left</div>
                 </div>
 
                 <div className="p-3.5 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] space-y-0.5">
@@ -2287,7 +2314,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {/* Table of Products Took From Supplier */}
               <div className="flex-1 overflow-y-auto pr-1 space-y-2">
                 <h4 className="text-xs font-extrabold uppercase text-[#7A6C5E] tracking-wider">
-                  List of Products Took From {selectedSupplierDetail.supplier_name} & Current Quantities as of Now
+                  Products Sourced From {selectedSupplierDetail.supplier_name}, Sales Breakdown & Current Stock
                 </h4>
 
                 <div className="overflow-x-auto rounded-2xl border border-[#E2D7CB]">
@@ -2296,9 +2323,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px] bg-[#F3EDE5]">
                         <th className="py-3 px-3">Product Name</th>
                         <th className="py-3 px-3">Category</th>
-                        <th className="py-3 px-3">Material</th>
                         <th className="py-3 px-3">Unit Price</th>
-                        <th className="py-3 px-3 text-center">Quantity Took (as of now)</th>
+                        <th className="py-3 px-3 text-center">Units Sold</th>
+                        <th className="py-3 px-3 text-center">Available Stock Quantity</th>
                         <th className="py-3 px-3 text-right">Subtotal Value</th>
                       </tr>
                     </thead>
@@ -2307,6 +2334,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         const qty = item.quantity ?? item.stockCount ?? 0;
                         const itemPrice = item.price || 0;
                         const subtotal = itemPrice * qty;
+
+                        const nameKey = (item.name || item.product_name || '').toLowerCase().trim();
+                        const idKey = (item.id || item.product_id || '').toString().toLowerCase().trim();
+                        const itemSoldCount = orderedQtyMap[nameKey] || orderedQtyMap[idKey] || 0;
 
                         return (
                           <tr key={item.id || item.product_id || idx} className="hover:bg-[#F3EDE5]/80 transition-colors">
@@ -2325,13 +2356,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             </td>
 
                             <td className="py-3 px-3 text-[#6B5C4D]">{item.category}</td>
-                            <td className="py-3 px-3 text-[#6B5C4D]">{item.material}</td>
                             <td className="py-3 px-3 font-extrabold text-[#2C241D]">₹{itemPrice.toLocaleString('en-IN')}</td>
                             <td className="py-3 px-3 text-center">
+                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs bg-[#48A63E]/15 text-[#48A63E]">
+                                {itemSoldCount} Units Sold
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-center">
                               <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs ${
-                                qty > 0 ? 'bg-[#48A63E]/15 text-[#48A63E]' : 'bg-rose-100 text-rose-700'
+                                qty > 0 ? 'bg-[#F3EDE5] text-[#2C241D]' : 'bg-rose-100 text-rose-700'
                               }`}>
-                                {qty} Units
+                                {qty} Units Left
                               </span>
                             </td>
                             <td className="py-3 px-3 text-right font-extrabold text-[#48A63E]">
@@ -2348,7 +2383,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {/* Modal Footer */}
               <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between flex-shrink-0">
                 <span className="text-xs font-bold text-[#6B5C4D]">
-                  Showing all {prodsTook.length} products associated with {selectedSupplierDetail.supplier_name}
+                  Total {totalSoldCount} units sold across all {prodsTook.length} products sourced from {selectedSupplierDetail.supplier_name}
                 </span>
                 <button
                   onClick={() => setSelectedSupplierDetail(null)}
