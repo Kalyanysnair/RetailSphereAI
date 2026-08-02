@@ -25,15 +25,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 148,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80&rect=0,50,650,550',
-      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80&rect=200,100,550,500'
-    ],
     rating: 4.9,
     reviewCount: 128,
     material: 'Bouclé Fabric',
     dimensions: '220cm x 95cm x 78cm',
-    isCustomizable: true,
+    isCustomizable: false,
     isTopPick: true,
     badge: '#1 Bestseller',
     detailedDescription: 'Crafted with high-density ergonomic foam and wrapped in rich, tactile Ivory Bouclé upholstery. Features reinforced kiln-dried hardwood internal framing and brushed brass feet.',
@@ -50,15 +46,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 94,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80&rect=50,50,600,550',
-      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80&rect=150,100,500,500'
-    ],
     rating: 4.85,
     reviewCount: 94,
     material: 'Teak Wood',
     dimensions: '180cm x 90cm x 75cm',
-    isCustomizable: true,
+    isCustomizable: false,
     isTopPick: true,
     badge: 'Handcrafted Teak',
     detailedDescription: 'Handcrafted from 100% solid grade-A teak wood with natural matte organic oil sealing. Designed for modern luxury dining spaces with traditional mortise-and-tenon joinery.',
@@ -75,10 +67,6 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 67,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80&rect=0,0,600,550',
-      'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80&rect=100,100,500,500'
-    ],
     rating: 4.95,
     reviewCount: 67,
     material: 'Italian Marble',
@@ -99,15 +87,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 52,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
-    ],
     rating: 4.75,
     reviewCount: 52,
     material: 'Italian Velvet',
     dimensions: '85cm x 80cm x 98cm',
-    isCustomizable: true,
+    isCustomizable: false,
     isTopPick: false,
     detailedDescription: 'Plush wingback silhouette with deep tufted seating and stain-resistant Italian velvet. Built over solid walnut legs with hand-hammered brass nailhead accents.',
     warrantyInfo: '5 Years Upholstery Warranty'
@@ -123,15 +107,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 41,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80&rect=0,0,650,550',
-      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80&rect=150,100,500,500'
-    ],
     rating: 4.85,
     reviewCount: 41,
     material: 'Teak Wood',
     dimensions: '160cm x 75cm x 76cm',
-    isCustomizable: true,
+    isCustomizable: false,
     isTopPick: true,
     badge: 'Workstation Choice',
     detailedDescription: 'Premium executive workstation handcrafted from solid teak slab. Integrates hidden magnetic cable channels, wireless charging pad recess, and soft-close storage drawers.',
@@ -140,25 +120,21 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
   {
     id: 'rec-6',
     name: 'Bespoke Modular Sectional Sofa',
-    category: 'custom-studio',
-    subcategory: 'custom-sofas',
+    category: 'living-room',
+    subcategory: 'sofas',
     price: 220000,
     originalPrice: 250000,
     stock: 3,
     salesCount: 38,
     status: 'Low Stock',
     imageUrl: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80&rect=150,50,550,500'
-    ],
     rating: 5.0,
     reviewCount: 38,
     material: 'Bouclé Fabric',
     dimensions: '280cm x 180cm x 80cm',
-    isCustomizable: true,
+    isCustomizable: false,
     isTopPick: true,
-    badge: 'Fully Customizable',
+    badge: 'Premium Bestseller',
     detailedDescription: 'Modular 4-piece sectional sofa system allowing versatile L-shape or straight arrangement. Includes down-blend accent cushions and water-repellent performance weave fabric.',
     warrantyInfo: '5 Years Structural Warranty'
   },
@@ -173,15 +149,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 83,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
-    ],
     rating: 4.9,
     reviewCount: 83,
     material: 'Italian Velvet',
     dimensions: '200cm x 210cm x 135cm',
-    isCustomizable: true,
+    isCustomizable: false,
     isTopPick: false,
     detailedDescription: 'Grand winghead design with channel-stitched plush velvet upholstery. Engineered with noise-free pneumatic hydraulic storage lift base and solid teak support slats.',
     warrantyInfo: '10 Years Frame & Slats Warranty'
@@ -196,15 +168,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 29,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
-    ],
     rating: 4.92,
     reviewCount: 64,
     material: 'Solid Walnut',
     dimensions: '200cm x 180cm x 110cm',
-    isCustomizable: true,
+    isCustomizable: false,
     badge: 'Trending',
     detailedDescription: 'Luxury dining console table featuring solid walnut top and brushed antique brass base frame. Perfect centerpiece for modern luxury dining rooms and grand foyers.',
     warrantyInfo: '5 Years Metal & Wood Warranty'
@@ -220,10 +188,6 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 312,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80&rect=100,50,550,550'
-    ],
     rating: 4.8,
     reviewCount: 195,
     material: 'Full-Grain Leather',
@@ -243,15 +207,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 88,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
-    ],
     rating: 4.88,
     reviewCount: 52,
     material: 'Teak & Natural Cane',
     dimensions: '190cm x 80cm x 40cm',
-    isCustomizable: true,
+    isCustomizable: false,
     detailedDescription: 'Weatherproof outdoor lounger daybed with handwoven natural cane rattan side panels and marine-grade teak frame. Quick-dry outdoor cushions included.',
     warrantyInfo: '5 Years Weatherproof Outdoor Warranty'
   },
@@ -266,10 +226,6 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 165,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
-    ],
     rating: 4.7,
     reviewCount: 98,
     material: 'Italian Marble Top',
@@ -289,15 +245,11 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 124,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80',
-    additionalImages: [
-      'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80&rect=0,0,600,600',
-      'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80&rect=150,50,550,550'
-    ],
     rating: 4.82,
     reviewCount: 74,
     material: 'Oak Wood Veneer',
     dimensions: '180cm x 40cm x 45cm',
-    isCustomizable: true,
+    isCustomizable: false,
     detailedDescription: 'Wall-mounted oak wood veneer entertainment console with slatted tambour doors for infrared remote pass-through and hidden cable channels.',
     warrantyInfo: '5 Years Structural Warranty'
   },
@@ -459,14 +411,6 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   <div>
                     <div className="flex items-center justify-between text-[11px] text-[#7A6C5E] mb-1">
                       <span className="font-bold text-[#48A63E]">{product.material}</span>
-                      {product.isCustomizable && (
-                        <button
-                          onClick={() => onCustomizeProduct?.(product)}
-                          className="flex items-center gap-1 text-[10px] text-[#48A63E] font-bold bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/30 hover:bg-[#48A63E]/20 transition-colors"
-                        >
-                          <Sliders className="w-3 h-3 text-[#48A63E]" /> Customize
-                        </button>
-                      )}
                     </div>
 
                     <h3

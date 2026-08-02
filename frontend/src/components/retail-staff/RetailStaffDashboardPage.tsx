@@ -47,8 +47,6 @@ export interface RetailProduct {
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   sku: string;
   image_url?: string;
-  additional_image_url_1?: string;
-  additional_image_url_2?: string;
   detailed_description?: string;
   dimensions?: string;
   warranty_info?: string;
@@ -333,8 +331,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [newProdStock, setNewProdStock] = useState('');
   const [newProdSku, setNewProdSku] = useState('');
   const [newProdImage, setNewProdImage] = useState('');
-  const [newProdImage1, setNewProdImage1] = useState('');
-  const [newProdImage2, setNewProdImage2] = useState('');
   const [newProdDimensions, setNewProdDimensions] = useState('');
   const [newProdWarranty, setNewProdWarranty] = useState('5 Years Solid Wood Warranty');
   const [newProdDescription, setNewProdDescription] = useState('');
@@ -1400,38 +1396,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Primary Front-View Photo URL</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Product Photo URL</label>
                 <input
                   type="url"
-                  placeholder="https://images.unsplash.com/photo-... (Front Angle)"
+                  placeholder="https://images.unsplash.com/photo-..."
                   value={newProdImage}
                   onChange={(e) => setNewProdImage(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Side Angle View Photo URL</label>
-                  <input
-                    type="url"
-                    placeholder="https://images.unsplash.com/photo-... (Side Perspective)"
-                    value={newProdImage1}
-                    onChange={(e) => setNewProdImage1(e.target.value)}
-                    className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Detail / Craftsmanship Photo URL</label>
-                  <input
-                    type="url"
-                    placeholder="https://images.unsplash.com/photo-... (Close-up Detail)"
-                    value={newProdImage2}
-                    onChange={(e) => setNewProdImage2(e.target.value)}
-                    className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
-                  />
-                </div>
               </div>
 
               <div>

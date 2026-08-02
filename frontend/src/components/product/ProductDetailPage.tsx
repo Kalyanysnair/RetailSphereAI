@@ -28,19 +28,14 @@ export const ProductDetailPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [product, setProduct] = useState<RecommendationProduct | null>(null);
-  const [selectedImage, setSelectedImage] = useState<string>('');
   const [cartIds, setCartIds] = useState<string[]>(() => getCartItems().map(i => i.id));
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => getWishlistItems().map(i => i.id));
   const [dbReviews, setDbReviews] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'details' | 'specs' | 'reviews'>('details');
 
   useEffect(() => {
     window.scrollTo(0, 0);
     const found = RECOMMENDATIONS_DATA.find(p => p.id === id) || RECOMMENDATIONS_DATA[0];
     setProduct(found);
-    if (found) {
-      setSelectedImage(found.imageUrl || found.additionalImages?.[0] || '');
-    }
   }, [id]);
 
   useEffect(() => {
@@ -157,18 +152,18 @@ export const ProductDetailPage: React.FC = () => {
         <div className="ultra-glass-panel rounded-[2.5rem] p-6 sm:p-8 lg:p-10 border border-[#E2D7CB] shadow-xl bg-white/85 space-y-10">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
             
-            {/* LEFT COLUMN: 3-Photo Gallery & Viewer (Lg: 7 cols) */}
+            {/* LEFT COLUMN: Single High-Res Product Image (Lg: 7 cols) */}
             <div className="lg:col-span-7 space-y-4">
-              {/* Main Large Display Image */}
+              {/* Single Large Display Image */}
               <div className="relative aspect-[4/3] w-full rounded-3xl overflow-hidden border-2 border-[#E2D7CB] bg-[#F4ECE1] shadow-lg group">
                 <img
-                  src={selectedImage || product.imageUrl}
+                  src={product.imageUrl}
                   alt={product.name}
                   className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
                 />
                 
                 {/* Badge Overlay */}
-                {product.badge && (
+                {product.badge && !product.badge.toLowerCase().includes('custom') && (
                   <span className="absolute top-4 left-4 bg-white/95 backdrop-blur-md text-[#38A132] text-xs font-extrabold px-3 py-1.5 rounded-xl shadow-md border border-[#38A132]/30 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-[#38A132]" />
                     {product.badge}
@@ -180,41 +175,6 @@ export const ProductDetailPage: React.FC = () => {
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   {product.status}
                 </span>
-
-                {/* Photo Counter Tag */}
-                <div className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-md text-white text-[11px] font-extrabold px-3 py-1 rounded-lg">
-                  Photo {allImages.indexOf(selectedImage || product.imageUrl) + 1} of {allImages.length}
-                </div>
-              </div>
-
-              {/* 3 Photos Thumbnail Selector Strip (Angle Views of Same Product) */}
-              <div className="grid grid-cols-3 gap-3">
-                {allImages.map((img, idx) => {
-                  const angleLabel = idx === 0 ? 'Front View' : idx === 1 ? 'Side Angle' : 'Detail View';
-                  const isSelected = selectedImage === img;
-
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => setSelectedImage(img || '')}
-                      className={`relative aspect-[4/3] rounded-2xl overflow-hidden border-2 transition-all cursor-pointer shadow-xs group ${
-                        isSelected
-                          ? 'border-[#38A132] ring-4 ring-[#38A132]/20 scale-[1.02]'
-                          : 'border-[#E2D7CB] opacity-80 hover:opacity-100 hover:border-[#38A132]/50'
-                      }`}
-                    >
-                      <img src={img} alt={angleLabel} className="w-full h-full object-cover" />
-                      <div className="absolute bottom-0 inset-x-0 bg-black/60 backdrop-blur-xs text-white text-[10px] font-extrabold py-0.5 text-center">
-                        {angleLabel}
-                      </div>
-                      {isSelected && (
-                        <div className="absolute top-1.5 right-1.5 bg-[#38A132] text-white w-4 h-4 rounded-full text-[9px] shadow-sm flex items-center justify-center font-extrabold">
-                          ✓
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
               </div>
 
               {/* Guarantees Strip */}
@@ -304,8 +264,8 @@ export const ProductDetailPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Customization</span>
-                    <span className="font-extrabold text-[#2C241D]">{product.isCustomizable ? 'Bespoke Ready' : 'Standard Edition'}</span>
+                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Product Type</span>
+                    <span className="font-extrabold text-[#2C241D]">Premium Readymade</span>
                   </div>
 
                   <div>
