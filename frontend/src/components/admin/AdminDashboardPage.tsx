@@ -164,6 +164,7 @@ export const AdminDashboardPage: React.FC = () => {
   const [newCouponCode, setNewCouponCode] = useState('');
   const [newCouponDiscount, setNewCouponDiscount] = useState('');
   const [newCouponDesc, setNewCouponDesc] = useState('');
+  const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
 
   const refreshCoupons = () => {
     setCouponsList(getStoredCoupons());
@@ -181,18 +182,27 @@ export const AdminDashboardPage: React.FC = () => {
     if (!newCouponCode.trim() || !newCouponDiscount) return;
 
     const discountVal = parseInt(newCouponDiscount, 10) || 10;
+    const targetEmail = newCouponUserEmail.trim();
+
     const updated = addStoredCoupon({
       code: newCouponCode,
       discountPercent: discountVal,
-      description: newCouponDesc || `Dearest Customer ${discountVal}% Discount`,
+      description: newCouponDesc || `${discountVal}% Off Discount`,
+      targetUserEmail: targetEmail || undefined,
     });
     setCouponsList(updated);
-    setSuccessBanner(`Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created & activated successfully!`);
+
+    const bannerText = targetEmail
+      ? `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) issued to ${targetEmail}! Notification sent to user dashboard and email.`
+      : `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created & activated!`;
+
+    setSuccessBanner(bannerText);
     setNewCouponCode('');
     setNewCouponDiscount('');
     setNewCouponDesc('');
+    setNewCouponUserEmail('');
     setIsAddCouponModalOpen(false);
-    setTimeout(() => setSuccessBanner(null), 5000);
+    setTimeout(() => setSuccessBanner(null), 6000);
   };
 
   const handleRemoveCoupon = (idOrCode: string, code: string) => {
@@ -1006,7 +1016,7 @@ export const AdminDashboardPage: React.FC = () => {
           {activeTab === 'coupons' && (
             <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
               {/* Top Coupon KPI Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
                   <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Active Discounts</span>
                   <div className="text-2xl font-extrabold text-[#2C241D]">{couponsList.filter(c => c.status === 'Active').length} Coupons</div>
@@ -1014,15 +1024,9 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
 
                 <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
-                  <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Dearest Customer Codes</span>
-                  <div className="text-2xl font-extrabold text-[#48A63E]">10% - 20% OFF</div>
-                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">DEAREST10 & VIP20 Active</span>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
                   <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Total Coupons Issued</span>
                   <div className="text-2xl font-extrabold text-[#2C241D]">{couponsList.length} Total</div>
-                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Admin Master Control</span>
+                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Active In Catalog</span>
                 </div>
               </div>
 
@@ -1044,7 +1048,7 @@ export const AdminDashboardPage: React.FC = () => {
                   className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20"
                 >
                   <Plus className="w-4 h-4" />
-                  <span>Create New Discount Coupon</span>
+                  <span>Create & Dispatch Coupon</span>
                 </button>
               </div>
 
@@ -1055,6 +1059,7 @@ export const AdminDashboardPage: React.FC = () => {
                     <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
                       <th className="py-3 px-4">Promo Code</th>
                       <th className="py-3 px-4">Discount %</th>
+                      <th className="py-3 px-4">Assigned User / Email</th>
                       <th className="py-3 px-4">Target Description</th>
                       <th className="py-3 px-4">Created Date</th>
                       <th className="py-3 px-4">Status</th>
@@ -1063,7 +1068,7 @@ export const AdminDashboardPage: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-[#EFE7DE] font-medium">
                     {couponsList
-                      .filter(c => !couponSearchQuery.trim() || c.code.toLowerCase().includes(couponSearchQuery.toLowerCase()) || c.description.toLowerCase().includes(couponSearchQuery.toLowerCase()))
+                      .filter(c => !couponSearchQuery.trim() || c.code.toLowerCase().includes(couponSearchQuery.toLowerCase()) || c.description.toLowerCase().includes(couponSearchQuery.toLowerCase()) || (c.targetUserEmail && c.targetUserEmail.toLowerCase().includes(couponSearchQuery.toLowerCase())))
                       .map((coupon) => (
                         <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
                           <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
@@ -1074,7 +1079,15 @@ export const AdminDashboardPage: React.FC = () => {
                           </td>
 
                           <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
-                          <td className="py-4 px-4 text-[#6B5C4D] font-semibold">{coupon.description}</td>
+                          <td className="py-4 px-4">
+                            {coupon.targetUserEmail ? (
+                              <span className="bg-[#F5ECE1] text-[#2C241D] font-mono font-bold px-2.5 py-1 rounded-lg border border-[#E2D7CB]">
+                                ✉️ {coupon.targetUserEmail}
+                              </span>
+                            ) : (
+                              <span className="text-[#8C7C6D] font-medium italic">All Customers</span>
+                            )}
+                          </td>
                           <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
                           <td className="py-4 px-4">
                             <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
@@ -1468,10 +1481,22 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Target User Email or User ID (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. customer@gmail.com or USER-102"
+                  value={newCouponUserEmail}
+                  onChange={(e) => setNewCouponUserEmail(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs"
+                />
+                <p className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Entering an Email ID or User ID dispatches the coupon code directly to the customer's dashboard notifications & email.</p>
+              </div>
+
+              <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Target Description / Note</label>
                 <input
                   type="text"
-                  placeholder="e.g. 25% Off Dearest Festive Discount"
+                  placeholder="Discount Note"
                   value={newCouponDesc}
                   onChange={(e) => setNewCouponDesc(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"

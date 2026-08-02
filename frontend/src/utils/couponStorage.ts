@@ -5,9 +5,21 @@ export interface Coupon {
   description: string;
   status: 'Active' | 'Inactive';
   createdDate: string;
+  targetUserEmail?: string;
+}
+
+export interface CustomerNotification {
+  id: string;
+  targetUserEmail: string;
+  couponCode: string;
+  discountPercent: number;
+  message: string;
+  createdDate: string;
+  read: boolean;
 }
 
 const COUPONS_STORAGE_KEY = 'retailsphere_coupons_v1';
+const CUSTOMER_NOTIFS_KEY = 'retailsphere_customer_notifications_v1';
 
 const DEFAULT_COUPONS: Coupon[] = [
   {
@@ -62,6 +74,7 @@ export const addStoredCoupon = (newCouponData: {
   code: string;
   discountPercent: number;
   description: string;
+  targetUserEmail?: string;
 }): Coupon[] => {
   const current = getStoredCoupons();
   const cleanCode = newCouponData.code.trim().toUpperCase();
@@ -76,6 +89,7 @@ export const addStoredCoupon = (newCouponData: {
     description: newCouponData.description.trim() || `${newCouponData.discountPercent}% Off Discount Coupon`,
     status: 'Active',
     createdDate: new Date().toISOString().split('T')[0],
+    targetUserEmail: newCouponData.targetUserEmail?.trim() || undefined,
   };
 
   let updated: Coupon[];
@@ -88,6 +102,16 @@ export const addStoredCoupon = (newCouponData: {
 
   localStorage.setItem(COUPONS_STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new Event('coupons-updated'));
+
+  // If a target email or user ID is provided, dispatch a notification
+  if (newCouponData.targetUserEmail?.trim()) {
+    dispatchCustomerNotification({
+      targetUserEmail: newCouponData.targetUserEmail.trim(),
+      couponCode: cleanCode,
+      discountPercent: newCoupon.discountPercent,
+    });
+  }
+
   return updated;
 };
 
@@ -110,4 +134,41 @@ export const validateStoredCoupon = (code: string): { valid: boolean; coupon?: C
     return { valid: true, coupon: found, message: `${found.description} (${found.discountPercent}% Off) Applied!` };
   }
   return { valid: false, message: `Invalid or expired coupon code "${code}".` };
+};
+
+export const getCustomerNotifications = (userEmailOrId?: string): CustomerNotification[] => {
+  try {
+    const raw = localStorage.getItem(CUSTOMER_NOTIFS_KEY);
+    if (!raw) return [];
+    const all: CustomerNotification[] = JSON.parse(raw);
+    if (!userEmailOrId) return all;
+    const clean = userEmailOrId.trim().toLowerCase();
+    return all.filter(n => !n.targetUserEmail || n.targetUserEmail.trim().toLowerCase() === clean);
+  } catch (err) {
+    return [];
+  }
+};
+
+export const dispatchCustomerNotification = (notifData: {
+  targetUserEmail: string;
+  couponCode: string;
+  discountPercent: number;
+}) => {
+  try {
+    const existing = getCustomerNotifications();
+    const newNotif: CustomerNotification = {
+      id: `cn-${Date.now()}`,
+      targetUserEmail: notifData.targetUserEmail.trim(),
+      couponCode: notifData.couponCode.trim().toUpperCase(),
+      discountPercent: notifData.discountPercent,
+      message: `🎉 Exclusive ${notifData.discountPercent}% Discount Coupon Received! Use promo code ${notifData.couponCode.toUpperCase()} at checkout.`,
+      createdDate: new Date().toLocaleString('en-IN'),
+      read: false,
+    };
+    const updated = [newNotif, ...existing];
+    localStorage.setItem(CUSTOMER_NOTIFS_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new Event('customer-notifications-updated'));
+  } catch (err) {
+    console.warn('Could not dispatch customer notification:', err);
+  }
 };
