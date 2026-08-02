@@ -13,6 +13,7 @@ import { getWishlistItems } from '../../utils/wishlistStorage';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { saveStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { payCustomOrder } from '../../services/api_production';
+import { validateStoredCoupon } from '../../utils/couponStorage';
 
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
@@ -53,20 +54,12 @@ export const CartPage: React.FC = () => {
     const code = promoCodeInput.trim().toUpperCase();
     if (!code) return;
 
-    if (code === 'DEAREST10') {
-      setAppliedDiscount({ code: 'DEAREST10', percent: 10 });
-      setPromoMessage({ type: 'success', text: 'Dearest Customer 10% Discount Applied!' });
-    } else if (code === 'VIP20') {
-      setAppliedDiscount({ code: 'VIP20', percent: 20 });
-      setPromoMessage({ type: 'success', text: 'VIP Customer 20% Discount Applied!' });
-    } else if (code === 'LOYAL15') {
-      setAppliedDiscount({ code: 'LOYAL15', percent: 15 });
-      setPromoMessage({ type: 'success', text: 'Loyal Customer 15% Discount Applied!' });
-    } else if (code === 'WELCOME5') {
-      setAppliedDiscount({ code: 'WELCOME5', percent: 5 });
-      setPromoMessage({ type: 'success', text: 'Welcome 5% Discount Applied!' });
+    const res = validateStoredCoupon(code);
+    if (res.valid && res.coupon) {
+      setAppliedDiscount({ code: res.coupon.code, percent: res.coupon.discountPercent });
+      setPromoMessage({ type: 'success', text: res.message || 'Discount Applied!' });
     } else {
-      setPromoMessage({ type: 'error', text: 'Invalid promo code. Try DEAREST10 or VIP20.' });
+      setPromoMessage({ type: 'error', text: res.message || 'Invalid or expired promo code.' });
     }
   };
 
