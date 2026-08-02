@@ -12,12 +12,17 @@ import {
   ShieldCheck, 
   Sparkles,
   Loader2,
-  Package
+  Package,
+  Tag,
+  Bell,
+  Copy,
+  Check
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import { getCurrentUser, updateUserProfile, UserProfile } from '../../services/api';
 import { getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
+import { getCustomerNotifications, CustomerNotification } from '../../utils/couponStorage';
 
 export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
@@ -63,10 +68,32 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
+  const [myNotifs, setMyNotifs] = useState<CustomerNotification[]>([]);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  const refreshCustomerNotifs = () => {
+    try {
+      const stored = localStorage.getItem('user');
+      const parsed = stored ? JSON.parse(stored) : null;
+      const currentEmail = parsed?.email || parsed?.user_id || parsed?.id || parsed?.username || '';
+      setMyNotifs(getCustomerNotifications(currentEmail));
+    } catch {
+      setMyNotifs(getCustomerNotifications());
+    }
+  };
+
   useEffect(() => {
     fetchProfileFromDB();
     setCartCount(getCartItems().length);
     setWishlistCount(getWishlistItems().length);
+
+    refreshCustomerNotifs();
+    window.addEventListener('customer-notifications-updated', refreshCustomerNotifs);
+    window.addEventListener('storage', refreshCustomerNotifs);
+    return () => {
+      window.removeEventListener('customer-notifications-updated', refreshCustomerNotifs);
+      window.removeEventListener('storage', refreshCustomerNotifs);
+    };
   }, []);
 
   const handleOpenEdit = () => {
@@ -232,6 +259,73 @@ export const ProfilePage: React.FC = () => {
                       </span>
                     </div>
                   </div>
+                </div>
+
+                {/* My Notifications & Exclusive Coupons Section */}
+                <div className="relative z-10 ultra-glass-card rounded-3xl p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2.5">
+                    <h2 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                      <Bell className="w-4.5 h-4.5 text-[#48A63E]" /> My Notifications & Exclusive Coupons
+                    </h2>
+                    <span className="text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-md border border-[#48A63E]/20">
+                      {myNotifs.length} Active Notifications
+                    </span>
+                  </div>
+
+                  {myNotifs.length === 0 ? (
+                    <div className="py-6 text-center text-[#7A6C5E] space-y-1 bg-[#F9F6F0] rounded-2xl border border-[#E2D7CB]">
+                      <Bell className="w-8 h-8 text-[#9E9082] mx-auto opacity-50" />
+                      <p className="font-extrabold text-xs text-[#2C241D]">No notifications or coupons assigned yet</p>
+                      <p className="text-[11px]">Exclusive discount coupon codes issued by retail staff & admin will appear here!</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {myNotifs.map((n) => (
+                        <div key={n.id} className="p-4 rounded-2xl bg-white border-2 border-[#48A63E]/30 space-y-2.5 shadow-sm hover:border-[#48A63E] transition-all">
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-xs uppercase tracking-wider text-[#48A63E] flex items-center gap-1.5 bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg">
+                              <Tag className="w-3.5 h-3.5" /> Exclusive Discount
+                            </span>
+                            <span className="text-[10px] font-mono text-[#8C7C6D]">{n.createdDate}</span>
+                          </div>
+
+                          <p className="text-xs font-bold text-[#2C241D] leading-snug">{n.message}</p>
+
+                          <div className="pt-1.5 flex items-center justify-between border-t border-[#EFE7DE]">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-extrabold text-sm text-[#48A63E] bg-[#48A63E]/15 px-3 py-1 rounded-xl border border-[#48A63E]/30">
+                                {n.couponCode}
+                              </span>
+                              <span className="text-xs font-extrabold text-[#2C241D]">
+                                {n.discountPercent}% OFF
+                              </span>
+                            </div>
+
+                            <button
+                              onClick={() => {
+                                navigator.clipboard.writeText(n.couponCode);
+                                setCopiedCode(n.couponCode);
+                                setTimeout(() => setCopiedCode(null), 3000);
+                              }}
+                              className="inline-flex items-center gap-1 text-xs font-extrabold text-white bg-[#48A63E] hover:bg-[#3D9134] px-3 py-1.5 rounded-xl shadow-xs transition-all cursor-pointer"
+                            >
+                              {copiedCode === n.couponCode ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Copied!</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5" />
+                                  <span>Copy Code</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Actions Footer */}
