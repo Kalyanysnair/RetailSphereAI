@@ -18,28 +18,28 @@ export interface CustomerNotification {
   read: boolean;
 }
 
-const COUPONS_STORAGE_KEY = 'retailsphere_coupons_v2';
+const COUPONS_STORAGE_KEY = 'retailsphere_coupons_v3';
 const CUSTOMER_NOTIFS_KEY = 'retailsphere_customer_notifications_v1';
 
-// Initial coupons assigned to specific customer accounts
+// Initial coupons with empty target email (to be assigned by retail staff as needed)
 const DEFAULT_COUPONS: Coupon[] = [
   {
     id: 'c-1',
     code: 'SPECIAL10',
     discountPercent: 10,
-    description: '10% Off Exclusive Customer Discount',
+    description: '10% Off Customer Discount',
     status: 'Active',
     createdDate: '2026-08-01',
-    targetUserEmail: 'customer@retailsphere.com',
+    targetUserEmail: '',
   },
   {
     id: 'c-2',
     code: 'VIP20',
     discountPercent: 20,
-    description: '20% Off Premium VIP Discount',
+    description: '20% Off VIP Discount',
     status: 'Active',
     createdDate: '2026-08-01',
-    targetUserEmail: 'vip.client@retailsphere.com',
+    targetUserEmail: '',
   },
 ];
 
@@ -61,11 +61,11 @@ export const addStoredCoupon = (newCouponData: {
   code: string;
   discountPercent: number;
   description: string;
-  targetUserEmail: string;
+  targetUserEmail?: string;
 }): Coupon[] => {
   const current = getStoredCoupons();
   const cleanCode = newCouponData.code.trim().toUpperCase();
-  const cleanEmail = newCouponData.targetUserEmail.trim();
+  const cleanEmail = (newCouponData.targetUserEmail || '').trim();
 
   // Check if code already exists
   const existingIdx = current.findIndex(c => c.code === cleanCode);
