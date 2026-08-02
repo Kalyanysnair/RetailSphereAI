@@ -441,8 +441,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setTimeout(() => setSuccessNotice(null), 5000);
   };
 
-  const [sentMap, setSentMap] = useState<{ [couponId: string]: boolean }>({});
-
   const handleUpdateCouponUserEmail = (couponId: string, newUserEmail: string) => {
     const updated = updateCouponUserEmail(couponId, newUserEmail);
     setCouponsList(updated);
@@ -457,21 +455,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
     const result = sendCouponToCustomer(couponId, email);
     if (result.success) {
-      // Clear/Reset input after send
-      updateCouponUserEmail(couponId, '');
+      // Clear textbox input field in DOM
       const inputEl = document.getElementById(`coupon-email-${couponId}`) as HTMLInputElement;
       if (inputEl) {
         inputEl.value = '';
       }
+      // Reset targetUserEmail on the promo code row to empty
+      updateCouponUserEmail(couponId, '');
 
+      // Refresh list states immediately
       setCouponsList(getStoredCoupons());
       setAllotmentsList(getCouponAllotments());
-
-      // Show temporary Sent ✓ state on button
-      setSentMap(prev => ({ ...prev, [couponId]: true }));
-      setTimeout(() => {
-        setSentMap(prev => ({ ...prev, [couponId]: false }));
-      }, 2500);
 
       setSuccessNotice(`🎉 ${result.message}`);
       setTimeout(() => setSuccessNotice(null), 7000);
@@ -1815,24 +1809,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   />
                                   <button
                                     onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                    className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95 ${
-                                      sentMap[coupon.id]
-                                        ? 'bg-[#38A132] text-white'
-                                        : 'bg-[#48A63E] text-white hover:bg-[#388531]'
-                                    }`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
                                     title="Send coupon to customer dashboard notification & dispatch email"
                                   >
-                                    {sentMap[coupon.id] ? (
-                                      <>
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                        <span>Sent ✓</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Send className="w-3.5 h-3.5" />
-                                        <span>Send Email</span>
-                                      </>
-                                    )}
+                                    <Send className="w-3.5 h-3.5" />
+                                    <span>Send Email</span>
                                   </button>
                                 </div>
                               </td>
