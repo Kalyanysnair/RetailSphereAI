@@ -68,9 +68,8 @@ export interface RetailSupplier {
   supplier_name: string;
   contact_person: string;
   phone: string;
-  email: string;
   address: string;
-  gst_number: string;
+  assigned_products_count?: number;
   status: 'Active' | 'Inactive';
 }
 
@@ -403,17 +402,16 @@ export const RetailStaffDashboardPage: React.FC = () => {
       });
 
       setSupplierList((prev) => [created, ...prev]);
-      setSuccessNotice(`Supplier "${created.supplier_name}" added to PostgreSQL Database successfully!`);
+      setSuccessNotice(`Supplier "${created.supplier_name}" added successfully!`);
     } catch (err) {
-      console.warn('Could not save supplier to DB, fallback locally:', err);
+      console.warn('Could not save supplier, fallback locally:', err);
       const fallback: RetailSupplier = {
         id: `sup-${Date.now()}`,
         supplier_name: newSupName.trim(),
         contact_person: newSupContact.trim(),
         phone: newSupPhone.trim(),
-        email: newSupEmail.trim() || `info@${newSupName.toLowerCase().replace(/\s+/g, '')}.com`,
-        address: newSupAddress.trim() || 'Industrial Hub, India',
-        gst_number: newSupGst.trim() || `29GST${Math.floor(1000 + Math.random() * 9000)}Z`,
+        address: newSupAddress.trim() || 'Furniture Supply Zone, India',
+        assigned_products_count: 0,
         status: 'Active',
       };
       setSupplierList((prev) => [fallback, ...prev]);
@@ -439,9 +437,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
     return (
       s.supplier_name.toLowerCase().includes(q) ||
       s.contact_person.toLowerCase().includes(q) ||
-      s.phone.toLowerCase().includes(q) ||
-      (s.email && s.email.toLowerCase().includes(q)) ||
-      (s.gst_number && s.gst_number.toLowerCase().includes(q))
+      s.phone.toLowerCase().includes(q)
     );
   });
 
@@ -858,7 +854,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
                     {activeTab === 'orders' && 'Fulfill customer ready-made orders and update shipping statuses.'}
                     {activeTab === 'queries' && 'Submit email change requests or system queries directly to system Admin.'}
-                    {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, marble importers, and upholstery vendors fetched live from PostgreSQL.'}
+                    {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, and product vendor allocations.'}
                   </p>
                 </div>
 
@@ -1502,7 +1498,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
                       <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Total Suppliers</span>
-                      <div className="text-2xl font-extrabold text-[#2C241D]">{supplierList.length} Partners</div>
+                      <div className="text-2xl font-extrabold text-[#2C241D]">{supplierList.length} Suppliers</div>
                       <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Registered Vendors</span>
                     </div>
 
@@ -1513,15 +1509,15 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     </div>
 
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
-                      <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Primary Categories</span>
-                      <div className="text-lg font-extrabold text-[#2C241D]">Timber, Marble, Fabric</div>
-                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Verified Procurement</span>
+                      <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Product Allocations</span>
+                      <div className="text-lg font-extrabold text-[#2C241D]">13 Items Assigned</div>
+                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">6 ARUN RAJ • 7 Rahul Dev</span>
                     </div>
 
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
-                      <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Database Source</span>
-                      <div className="text-lg font-extrabold text-[#2C241D]">PostgreSQL (tbl_supplier)</div>
-                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Live DB Sync Active</span>
+                      <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Supplier Directory</span>
+                      <div className="text-lg font-extrabold text-[#2C241D]">Live Catalog System</div>
+                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Directory Sync Active</span>
                     </div>
                   </div>
 
@@ -1531,7 +1527,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search supplier name, contact, phone, GST..."
+                        placeholder="Search supplier name, contact, phone..."
                         value={supplierSearchQuery}
                         onChange={(e) => setSupplierSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
@@ -1552,24 +1548,23 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Supplier / Vendor Name</th>
+                          <th className="py-3 px-4">Supplier Name</th>
                           <th className="py-3 px-4">Contact Person</th>
                           <th className="py-3 px-4">Phone Number</th>
-                          <th className="py-3 px-4">Email Address</th>
                           <th className="py-3 px-4">Location / Address</th>
-                          <th className="py-3 px-4">GST Number</th>
+                          <th className="py-3 px-4">Assigned Products</th>
                           <th className="py-3 px-4 text-right">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {filteredSuppliers.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-12 text-center text-[#7A6C5E]">
+                            <td colSpan={6} className="py-12 text-center text-[#7A6C5E]">
                               <Truck className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
                               <p className="font-extrabold text-sm text-[#2C241D]">No Suppliers Available</p>
                               <p className="text-xs text-[#7A6C5E] mt-1">
                                 {isLoadingSuppliers
-                                  ? 'Fetching live suppliers from PostgreSQL database...'
+                                  ? 'Loading supplier records...'
                                   : 'No supplier records matched your search query.'}
                               </p>
                             </td>
@@ -1588,11 +1583,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                               <td className="py-4 px-4 text-[#2C241D] font-bold">{sup.contact_person}</td>
                               <td className="py-4 px-4 font-mono font-bold text-[#48A63E]">{sup.phone}</td>
-                              <td className="py-4 px-4 text-[#6B5C4D]">{sup.email}</td>
                               <td className="py-4 px-4 text-[#6B5C4D] max-w-xs truncate" title={sup.address}>
                                 {sup.address}
                               </td>
-                              <td className="py-4 px-4 font-mono text-[11px] font-bold text-[#7A6C5E]">{sup.gst_number}</td>
+                              <td className="py-4 px-4">
+                                <span className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
+                                  {sup.assigned_products_count || 0} Products
+                                </span>
+                              </td>
                               <td className="py-4 px-4 text-right">
                                 <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
                                   sup.status === 'Active'
@@ -2121,8 +2119,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
           <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#E2D7CB] space-y-4 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Add New Vendor / Supplier</h3>
-                <p className="text-[11px] font-bold text-[#6B5C4D]">Save live vendor record into PostgreSQL tbl_supplier</p>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">Add New Supplier</h3>
+                <p className="text-[11px] font-bold text-[#6B5C4D]">Register new raw material vendor</p>
               </div>
               <button
                 onClick={() => setIsAddSupplierModalOpen(false)}
@@ -2134,10 +2132,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
             <form onSubmit={handleCreateSupplierSubmit} className="space-y-3.5 text-xs font-semibold">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Supplier / Business Name *</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Supplier Name *</label>
                 <input
                   type="text"
-                  placeholder="e.g. Artisan Crafts & Timber Ltd."
+                  placeholder="e.g. ARUN RAJ or Rahul Dev"
                   value={newSupName}
                   onChange={(e) => setNewSupName(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs placeholder-[#8C7C6D]"
@@ -2150,7 +2148,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <label className="block font-extrabold text-[#2C241D] mb-1">Contact Person *</label>
                   <input
                     type="text"
-                    placeholder="e.g. Rajesh Kumar"
+                    placeholder="e.g. Contact Name"
                     value={newSupContact}
                     onChange={(e) => setNewSupContact(e.target.value)}
                     className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs placeholder-[#8C7C6D]"
@@ -2162,7 +2160,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number *</label>
                   <input
                     type="tel"
-                    placeholder="e.g. +91 98765 12345"
+                    placeholder="e.g. 9778237180"
                     value={newSupPhone}
                     onChange={(e) => setNewSupPhone(e.target.value)}
                     className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs placeholder-[#8C7C6D]"
@@ -2172,36 +2170,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Email Address</label>
-                <input
-                  type="email"
-                  placeholder="e.g. contact@artisancrafts.com"
-                  value={newSupEmail}
-                  onChange={(e) => setNewSupEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
-                />
-              </div>
-
-              <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Warehouse / Office Address *</label>
                 <textarea
                   rows={2}
-                  placeholder="Plot 42, Industrial Area Phase 2, Bangalore, KA"
+                  placeholder="Address or Logistics Hub Location"
                   value={newSupAddress}
                   onChange={(e) => setNewSupAddress(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
                   required
-                />
-              </div>
-
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">GST / Tax Identification Number</label>
-                <input
-                  type="text"
-                  placeholder="e.g. 29ABCDE1234F1Z5"
-                  value={newSupGst}
-                  onChange={(e) => setNewSupGst(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs placeholder-[#8C7C6D]"
                 />
               </div>
 
@@ -2217,7 +2193,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
                 >
-                  Save Supplier to DB
+                  Save Supplier
                 </button>
               </div>
             </form>
