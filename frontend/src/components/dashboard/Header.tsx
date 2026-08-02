@@ -18,11 +18,14 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
+  // Close dropdown & notification popover on outside click
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsDropdownOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setIsNotifOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -114,23 +117,31 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
-  const [userNotifs, setUserNotifs] = useState<CustomerNotification[]>(() => {
-    const email = userProfile?.email || '';
-    return getCustomerNotifications(email);
-  });
+  const [userNotifs, setUserNotifs] = useState<CustomerNotification[]>([]);
 
   const refreshNotifs = () => {
-    const email = userProfile?.email || '';
-    setUserNotifs(getCustomerNotifications(email));
+    try {
+      const stored = localStorage.getItem('user');
+      const parsed = stored ? JSON.parse(stored) : null;
+      setUserProfile(parsed);
+      const currentEmail = parsed?.email || parsed?.user_id || parsed?.id || parsed?.username || '';
+      setUserNotifs(getCustomerNotifications(currentEmail));
+    } catch (e) {
+      setUserNotifs(getCustomerNotifications());
+    }
   };
 
   useEffect(() => {
     refreshNotifs();
     window.addEventListener('customer-notifications-updated', refreshNotifs);
+    window.addEventListener('storage', refreshNotifs);
+    window.addEventListener('user-logged-in', refreshNotifs);
     return () => {
       window.removeEventListener('customer-notifications-updated', refreshNotifs);
+      window.removeEventListener('storage', refreshNotifs);
+      window.removeEventListener('user-logged-in', refreshNotifs);
     };
-  }, [userProfile]);
+  }, []);
 
   const unreadNotifCount = userNotifs.filter(n => !n.read).length;
 

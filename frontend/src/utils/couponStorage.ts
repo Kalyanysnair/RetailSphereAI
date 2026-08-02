@@ -284,9 +284,18 @@ export const getCustomerNotifications = (userEmailOrId?: string): CustomerNotifi
     const raw = localStorage.getItem(CUSTOMER_NOTIFS_KEY);
     if (!raw) return [];
     const all: CustomerNotification[] = JSON.parse(raw);
-    if (!userEmailOrId) return all;
-    const clean = userEmailOrId.trim().toLowerCase();
-    return all.filter(n => !n.targetUserEmail || n.targetUserEmail.trim().toLowerCase() === clean);
+    
+    if (!userEmailOrId || !userEmailOrId.trim()) {
+      return all;
+    }
+    
+    const cleanUser = userEmailOrId.trim().toLowerCase();
+    
+    return all.filter(n => {
+      if (!n.targetUserEmail || !n.targetUserEmail.trim()) return true;
+      const target = n.targetUserEmail.trim().toLowerCase();
+      return target === cleanUser || cleanUser.includes(target) || target.includes(cleanUser);
+    });
   } catch (err) {
     return [];
   }
