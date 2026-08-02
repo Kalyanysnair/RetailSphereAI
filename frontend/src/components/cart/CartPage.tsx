@@ -44,9 +44,42 @@ export const CartPage: React.FC = () => {
     setItems(updated);
   };
 
+  const [promoCodeInput, setPromoCodeInput] = useState('');
+  const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; percent: number } | null>(null);
+  const [promoMessage, setPromoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleApplyPromo = (e: React.FormEvent) => {
+    e.preventDefault();
+    const code = promoCodeInput.trim().toUpperCase();
+    if (!code) return;
+
+    if (code === 'DEAREST10') {
+      setAppliedDiscount({ code: 'DEAREST10', percent: 10 });
+      setPromoMessage({ type: 'success', text: 'Dearest Customer 10% Discount Applied!' });
+    } else if (code === 'VIP20') {
+      setAppliedDiscount({ code: 'VIP20', percent: 20 });
+      setPromoMessage({ type: 'success', text: 'VIP Customer 20% Discount Applied!' });
+    } else if (code === 'LOYAL15') {
+      setAppliedDiscount({ code: 'LOYAL15', percent: 15 });
+      setPromoMessage({ type: 'success', text: 'Loyal Customer 15% Discount Applied!' });
+    } else if (code === 'WELCOME5') {
+      setAppliedDiscount({ code: 'WELCOME5', percent: 5 });
+      setPromoMessage({ type: 'success', text: 'Welcome 5% Discount Applied!' });
+    } else {
+      setPromoMessage({ type: 'error', text: 'Invalid promo code. Try DEAREST10 or VIP20.' });
+    }
+  };
+
+  const handleRemoveDiscount = () => {
+    setAppliedDiscount(null);
+    setPromoCodeInput('');
+    setPromoMessage(null);
+  };
+
   const subtotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const shippingFee = subtotal > 50000 || subtotal === 0 ? 0 : 2500;
-  const grandTotal = subtotal + shippingFee;
+  const discountAmount = appliedDiscount ? Math.round((subtotal * appliedDiscount.percent) / 100) : 0;
+  const shippingFee = (subtotal - discountAmount) > 50000 || subtotal === 0 ? 0 : 2500;
+  const grandTotal = Math.max(0, subtotal - discountAmount + shippingFee);
   const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
 
   const handleCheckout = async () => {
@@ -273,6 +306,21 @@ export const CartPage: React.FC = () => {
                         <span className="font-bold text-[#2C241D]">₹{subtotal.toLocaleString('en-IN')}</span>
                       </div>
 
+                      {appliedDiscount && (
+                        <div className="flex justify-between text-[#48A63E] font-bold bg-[#48A63E]/10 p-2 rounded-xl border border-[#48A63E]/20">
+                          <div className="flex items-center gap-1.5">
+                            <span>Dearest Discount ({appliedDiscount.code} - {appliedDiscount.percent}%)</span>
+                            <button
+                              onClick={handleRemoveDiscount}
+                              className="text-[10px] text-rose-600 underline ml-1 hover:text-rose-800"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <span>-₹{discountAmount.toLocaleString('en-IN')}</span>
+                        </div>
+                      )}
+
                       <div className="flex justify-between">
                         <span>Standard Shipping</span>
                         <span className="font-bold text-[#48A63E]">
@@ -283,6 +331,42 @@ export const CartPage: React.FC = () => {
                       <div className="pt-3 border-t border-[#EFE7DE] flex justify-between text-base font-extrabold text-[#2C241D]">
                         <span>Total Amount</span>
                         <span className="text-[#48A63E]">₹{grandTotal.toLocaleString('en-IN')}</span>
+                      </div>
+                    </div>
+
+                    {/* Dearest Customer Discount & Promo Code Input */}
+                    <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
+                      <label className="block text-[11px] font-extrabold text-[#2C241D] uppercase tracking-wider">
+                        Dearest Customer Promo Code
+                      </label>
+                      <form onSubmit={handleApplyPromo} className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="e.g. DEAREST10 or VIP20"
+                          value={promoCodeInput}
+                          onChange={(e) => setPromoCodeInput(e.target.value)}
+                          className="flex-1 px-3 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] font-mono font-bold uppercase text-[#2C241D]"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl shadow-xs transition-colors"
+                        >
+                          Apply
+                        </button>
+                      </form>
+
+                      {promoMessage && (
+                        <div className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${
+                          promoMessage.type === 'success' ? 'bg-[#48A63E]/15 text-[#48A63E]' : 'bg-rose-100 text-rose-700'
+                        }`}>
+                          {promoMessage.text}
+                        </div>
+                      )}
+
+                      <div className="text-[10px] text-[#7A6C5E] font-medium bg-[#F5ECE1]/60 p-2 rounded-xl border border-[#E2D7CB]/60 space-y-0.5">
+                        <div className="font-bold text-[#2C241D]">💡 Exclusive Dearest Customer Codes:</div>
+                        <div>• <code className="font-mono font-extrabold text-[#48A63E]">DEAREST10</code> - 10% Off Dearest Customer Discount</div>
+                        <div>• <code className="font-mono font-extrabold text-[#48A63E]">VIP20</code> - 20% Off Premium VIP Discount</div>
                       </div>
                     </div>
 
