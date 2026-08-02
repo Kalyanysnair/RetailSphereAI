@@ -47,6 +47,11 @@ export interface RetailProduct {
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   sku: string;
   image_url?: string;
+  additional_image_url_1?: string;
+  additional_image_url_2?: string;
+  detailed_description?: string;
+  dimensions?: string;
+  warranty_info?: string;
 }
 
 export interface RetailOrder {
@@ -328,6 +333,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [newProdStock, setNewProdStock] = useState('');
   const [newProdSku, setNewProdSku] = useState('');
   const [newProdImage, setNewProdImage] = useState('');
+  const [newProdImage1, setNewProdImage1] = useState('');
+  const [newProdImage2, setNewProdImage2] = useState('');
+  const [newProdDimensions, setNewProdDimensions] = useState('');
+  const [newProdWarranty, setNewProdWarranty] = useState('5 Years Solid Wood Warranty');
+  const [newProdDescription, setNewProdDescription] = useState('');
 
 
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
@@ -1365,14 +1375,73 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Dimensions (Length x Width x Height)</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 220cm x 95cm x 78cm"
+                    value={newProdDimensions}
+                    onChange={(e) => setNewProdDimensions(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs placeholder-[#8C7C6D]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Warranty Protection</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 5 Years Solid Wood Warranty"
+                    value={newProdWarranty}
+                    onChange={(e) => setNewProdWarranty(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs placeholder-[#8C7C6D]"
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Product Image URL (Optional)</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Main Product Photo URL</label>
                 <input
                   type="url"
                   placeholder="https://images.unsplash.com/photo-..."
                   value={newProdImage}
                   onChange={(e) => setNewProdImage(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Additional Photo 2 URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://images.unsplash.com/photo-..."
+                    value={newProdImage1}
+                    onChange={(e) => setNewProdImage1(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Additional Photo 3 URL</label>
+                  <input
+                    type="url"
+                    placeholder="https://images.unsplash.com/photo-..."
+                    value={newProdImage2}
+                    onChange={(e) => setNewProdImage2(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs placeholder-[#8C7C6D]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Detailed Furniture Description & Features</label>
+                <textarea
+                  rows={2}
+                  placeholder="Enter comprehensive description, timber quality, joinery details, upholstery comfort, and care instructions..."
+                  value={newProdDescription}
+                  onChange={(e) => setNewProdDescription(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-medium text-xs placeholder-[#8C7C6D]"
                 />
               </div>
 

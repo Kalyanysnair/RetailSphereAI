@@ -25,6 +25,10 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 148,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.9,
     reviewCount: 128,
     material: 'Bouclé Fabric',
@@ -32,6 +36,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: true,
     isTopPick: true,
     badge: '#1 Bestseller',
+    detailedDescription: 'Crafted with high-density ergonomic foam and wrapped in rich, tactile Ivory Bouclé upholstery. Features reinforced kiln-dried hardwood internal framing and brushed brass feet.',
+    warrantyInfo: '5 Years Structural & Frame Warranty'
   },
   {
     id: 'rec-2',
@@ -44,6 +50,10 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 94,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1530018607912-eff2daa1bac4?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.85,
     reviewCount: 94,
     material: 'Teak Wood',
@@ -51,6 +61,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: true,
     isTopPick: true,
     badge: 'Handcrafted Teak',
+    detailedDescription: 'Handcrafted from 100% solid grade-A teak wood with natural matte organic oil sealing. Designed for modern luxury dining spaces with traditional mortise-and-tenon joinery.',
+    warrantyInfo: '10 Years Solid Teak Warranty'
   },
   {
     id: 'rec-3',
@@ -63,6 +75,10 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 67,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.95,
     reviewCount: 67,
     material: 'Italian Marble',
@@ -70,6 +86,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: false,
     isTopPick: true,
     badge: 'Top Rated',
+    detailedDescription: 'Features genuine Italian Calacatta marble with gold and grey veining, hand-polished to a velvety satin finish. Supported by a champagne brass architectural geometric pedestal base.',
+    warrantyInfo: '3 Years Marble Finish Warranty'
   },
   {
     id: 'rec-4',
@@ -81,12 +99,18 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 52,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.75,
     reviewCount: 52,
     material: 'Italian Velvet',
     dimensions: '85cm x 80cm x 98cm',
     isCustomizable: true,
     isTopPick: false,
+    detailedDescription: 'Plush wingback silhouette with deep tufted seating and stain-resistant Italian velvet. Built over solid walnut legs with hand-hammered brass nailhead accents.',
+    warrantyInfo: '5 Years Upholstery Warranty'
   },
   {
     id: 'rec-5',
@@ -99,6 +123,10 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 41,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1517502884422-41eaead166d4?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.85,
     reviewCount: 41,
     material: 'Teak Wood',
@@ -106,6 +134,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: true,
     isTopPick: true,
     badge: 'Workstation Choice',
+    detailedDescription: 'Premium executive workstation handcrafted from solid teak slab. Integrates hidden magnetic cable channels, wireless charging pad recess, and soft-close storage drawers.',
+    warrantyInfo: '7 Years Workstation Warranty'
   },
   {
     id: 'rec-6',
@@ -118,6 +148,10 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 38,
     status: 'Low Stock',
     imageUrl: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 5.0,
     reviewCount: 38,
     material: 'Bouclé Fabric',
@@ -125,6 +159,8 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: true,
     isTopPick: true,
     badge: 'Fully Customizable',
+    detailedDescription: 'Modular 4-piece sectional sofa system allowing versatile L-shape or straight arrangement. Includes down-blend accent cushions and water-repellent performance weave fabric.',
+    warrantyInfo: '5 Years Structural Warranty'
   },
   {
     id: 'rec-7',
@@ -137,12 +173,18 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 83,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1540518614846-7eded433c457?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.9,
     reviewCount: 83,
     material: 'Italian Velvet',
     dimensions: '200cm x 210cm x 135cm',
     isCustomizable: true,
     isTopPick: false,
+    detailedDescription: 'Grand winghead design with channel-stitched plush velvet upholstery. Engineered with noise-free pneumatic hydraulic storage lift base and solid teak support slats.',
+    warrantyInfo: '10 Years Frame & Slats Warranty'
   },
   {
     id: 'rec-8',
@@ -154,12 +196,18 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 29,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.92,
     reviewCount: 64,
     material: 'Solid Walnut',
     dimensions: '200cm x 180cm x 110cm',
     isCustomizable: true,
     badge: 'Trending',
+    detailedDescription: 'Luxury dining console table featuring solid walnut top and brushed antique brass base frame. Perfect centerpiece for modern luxury dining rooms and grand foyers.',
+    warrantyInfo: '5 Years Metal & Wood Warranty'
   },
   {
     id: 'rec-9',
@@ -172,11 +220,17 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 312,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.8,
     reviewCount: 195,
     material: 'Full-Grain Leather',
     dimensions: '65cm x 65cm x 120cm',
     isCustomizable: false,
+    detailedDescription: 'Upholstered in full-grain Italian leather with multi-axis lumbar support, synchronized tilt mechanism, and heavy-duty chrome caster base.',
+    warrantyInfo: '3 Years Mechanism & Leather Warranty'
   },
   {
     id: 'rec-10',
@@ -189,11 +243,17 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 88,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1519974719765-e6559eac2575?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1530018607912-eff2daa1bac4?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.88,
     reviewCount: 52,
     material: 'Teak & Natural Cane',
     dimensions: '190cm x 80cm x 40cm',
     isCustomizable: true,
+    detailedDescription: 'Weatherproof outdoor lounger daybed with handwoven natural cane rattan side panels and marine-grade teak frame. Quick-dry outdoor cushions included.',
+    warrantyInfo: '5 Years Weatherproof Outdoor Warranty'
   },
   {
     id: 'rec-11',
@@ -206,11 +266,17 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 165,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.7,
     reviewCount: 98,
     material: 'Italian Marble Top',
     dimensions: '120cm x 70cm x 42cm',
     isCustomizable: false,
+    detailedDescription: 'Architectural living room coffee table featuring honed white marble slab top and matte black powder-coated steel tripod base.',
+    warrantyInfo: '3 Years Marble & Structure Warranty'
   },
   {
     id: 'rec-12',
@@ -223,11 +289,17 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     salesCount: 124,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80',
+    additionalImages: [
+      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80'
+    ],
     rating: 4.82,
     reviewCount: 74,
     material: 'Oak Wood Veneer',
     dimensions: '180cm x 40cm x 45cm',
     isCustomizable: true,
+    detailedDescription: 'Wall-mounted oak wood veneer entertainment console with slatted tambour doors for infrared remote pass-through and hidden cable channels.',
+    warrantyInfo: '5 Years Structural Warranty'
   },
 ];
 
@@ -340,7 +412,10 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 className="group relative ultra-glass-card hover:border-[#48A63E]/60 rounded-2xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1.5 flex flex-col justify-between"
               >
                 {/* Product Image Container */}
-                <div className="relative aspect-[4/3] w-full overflow-hidden bg-[#F4ECE1]">
+                <div
+                  onClick={() => navigate(`/product/${product.id}`)}
+                  className="relative aspect-[4/3] w-full overflow-hidden bg-[#F4ECE1] cursor-pointer"
+                >
                   <img
                     src={product.imageUrl}
                     alt={product.name}
@@ -357,7 +432,10 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
 
                   {/* Wishlist Button */}
                   <button
-                    onClick={() => handleWishlistClick(product)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleWishlistClick(product);
+                    }}
                     className={`absolute top-3 right-3 p-2 rounded-xl backdrop-blur-md transition-all shadow-sm ${
                       isWishlisted
                         ? 'bg-rose-600 text-white shadow-rose-600/30'
@@ -391,7 +469,10 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                       )}
                     </div>
 
-                    <h3 className="text-sm font-bold text-[#2C241D] tracking-tight line-clamp-1 group-hover:text-[#48A63E] transition-colors">
+                    <h3
+                      onClick={() => navigate(`/product/${product.id}`)}
+                      className="text-sm font-bold text-[#2C241D] tracking-tight line-clamp-1 group-hover:text-[#48A63E] transition-colors cursor-pointer"
+                    >
                       {product.name}
                     </h3>
                     <p className="text-[11px] text-[#7A6C5E] mt-0.5 font-medium">

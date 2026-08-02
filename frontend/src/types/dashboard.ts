@@ -33,6 +33,9 @@ export interface RecommendationProduct extends FurnitureProduct {
   isCustomizable: boolean;
   isTopPick?: boolean;
   badge?: string;
+  additionalImages?: string[];
+  detailedDescription?: string;
+  warrantyInfo?: string;
 }
 
 

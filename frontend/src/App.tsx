@@ -12,6 +12,8 @@ import { AdminDashboardPage } from './components/admin/AdminDashboardPage';
 import { RetailStaffDashboardPage } from './components/retail-staff/RetailStaffDashboardPage';
 import { ProductionStaffDashboardPage } from './components/production-staff/ProductionStaffDashboardPage';
 
+import { ProductDetailPage } from './components/product/ProductDetailPage';
+
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
@@ -25,6 +27,7 @@ export const App: React.FC = () => {
 
         {/* Furniture Store Dashboard, Cart, Wishlist, Orders & Profile Routes */}
         <Route path="/dashboard/*" element={<DashboardPage />} />
+        <Route path="/product/:id" element={<ProductDetailPage />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/wishlist" element={<WishlistPage />} />
         <Route path="/profile" element={<ProfilePage />} />
