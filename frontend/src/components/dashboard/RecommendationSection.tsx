@@ -162,7 +162,7 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     badge: 'Trending',
   },
   {
-    id: 'rec-5',
+    id: 'rec-9',
     name: 'Executive Ergonomic Leather Office Chair',
     category: 'workspace',
     subcategory: 'study-tables',
@@ -179,7 +179,7 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: false,
   },
   {
-    id: 'rec-6',
+    id: 'rec-10',
     name: 'Artisan Rattan & Teak Sun Lounger Daybed',
     category: 'outdoor',
     subcategory: 'outdoor-sets',
@@ -196,7 +196,7 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: true,
   },
   {
-    id: 'rec-7',
+    id: 'rec-11',
     name: 'Architectural Marble Coffee Table',
     category: 'living-room',
     subcategory: 'tables',
@@ -213,7 +213,7 @@ export const RECOMMENDATIONS_DATA: RecommendationProduct[] = [
     isCustomizable: false,
   },
   {
-    id: 'rec-8',
+    id: 'rec-12',
     name: 'Scandinavian Floating Media Console',
     category: 'decor',
     subcategory: 'cabinets',
