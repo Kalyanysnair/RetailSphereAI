@@ -350,6 +350,37 @@ export async function fetchNotificationsFromDB(): Promise<any[]> {
   return [];
 }
 
+export async function fetchSuppliersFromDB(): Promise<any[]> {
+  try {
+    const response = await fetch(`${BASE_URL}/admin/suppliers`);
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (err) {
+    console.warn('API error fetching suppliers from DB:', err);
+  }
+  return [];
+}
+
+export async function createSupplierInDB(payload: {
+  supplier_name: string;
+  contact_person: string;
+  phone: string;
+  email?: string;
+  address: string;
+  gst_number?: string;
+}): Promise<any> {
+  const response = await fetch(`${BASE_URL}/admin/suppliers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create supplier in database');
+  }
+  return await response.json();
+}
+
 
 
 

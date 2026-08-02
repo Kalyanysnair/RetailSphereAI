@@ -390,6 +390,107 @@ def get_user_notifications(db: Session = Depends(get_db)):
     return res
 
 
+class SupplierCreateRequest(BaseModel):
+    supplier_name: str
+    contact_person: str
+    phone: str
+    email: Optional[str] = None
+    address: str
+    gst_number: Optional[str] = None
+
+
+@router.get("/suppliers")
+def get_suppliers(db: Session = Depends(get_db)):
+    suppliers = db.query(models.Supplier).order_by(models.Supplier.supplier_id.desc()).all()
+    if not suppliers:
+        # Seed initial suppliers
+        initial_data = [
+            models.Supplier(
+                supplier_name="Artisan Crafts & Timber Co.",
+                contact_person="Rajesh Kumar",
+                phone="+91 98765 12345",
+                email="contact@artisancrafts.com",
+                address="Plot 42, Industrial Area Phase 2, Bangalore, KA",
+                gst_number="29ABCDE1234F1Z5",
+                status=True
+            ),
+            models.Supplier(
+                supplier_name="Royal Velvet & Upholstery Ltd.",
+                contact_person="Anita Sharma",
+                phone="+91 98123 45678",
+                email="orders@royalvelvet.in",
+                address="Sector 18, Textile Hub, Surat, GJ",
+                gst_number="24FGHIJ5678K1Z9",
+                status=True
+            ),
+            models.Supplier(
+                supplier_name="Calacatta Marble Import Corp.",
+                contact_person="Marco Rossi",
+                phone="+91 99000 88776",
+                email="imports@calacattamarble.com",
+                address="Marble Market, Makrana, RJ",
+                gst_number="08KLMNO9012P1Z3",
+                status=True
+            ),
+            models.Supplier(
+                supplier_name="Nordic Modern Woodworks",
+                contact_person="Sven Lindqvist",
+                phone="+91 97111 22334",
+                email="info@nordicwoodworks.com",
+                address="Timber Estate, Mangalore, KA",
+                gst_number="29PQRST3456U1Z7",
+                status=True
+            ),
+        ]
+        for s in initial_data:
+            db.add(s)
+        db.commit()
+        suppliers = db.query(models.Supplier).order_by(models.Supplier.supplier_id.desc()).all()
+
+    return [
+        {
+            "id": f"sup-{s.supplier_id}",
+            "supplier_id": s.supplier_id,
+            "supplier_name": s.supplier_name,
+            "contact_person": s.contact_person,
+            "phone": s.phone,
+            "email": s.email or f"info@{s.supplier_name.lower().replace(' ', '')}.com",
+            "address": s.address,
+            "gst_number": s.gst_number or f"29GST{s.supplier_id}0001Z",
+            "status": "Active" if s.status else "Inactive"
+        }
+        for s in suppliers
+    ]
+
+
+@router.post("/suppliers", status_code=status.HTTP_201_CREATED)
+def create_supplier(payload: SupplierCreateRequest, db: Session = Depends(get_db)):
+    new_sup = models.Supplier(
+        supplier_name=payload.supplier_name.strip(),
+        contact_person=payload.contact_person.strip(),
+        phone=payload.phone.strip(),
+        email=payload.email.strip() if payload.email else None,
+        address=payload.address.strip(),
+        gst_number=payload.gst_number.strip() if payload.gst_number else None,
+        status=True
+    )
+    db.add(new_sup)
+    db.commit()
+    db.refresh(new_sup)
+
+    return {
+        "id": f"sup-{new_sup.supplier_id}",
+        "supplier_id": new_sup.supplier_id,
+        "supplier_name": new_sup.supplier_name,
+        "contact_person": new_sup.contact_person,
+        "phone": new_sup.phone,
+        "email": new_sup.email,
+        "address": new_sup.address,
+        "gst_number": new_sup.gst_number,
+        "status": "Active"
+    }
+
+
 
 
 
