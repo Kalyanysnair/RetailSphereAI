@@ -31,6 +31,7 @@ export const ProductDetailPage: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<string>('');
   const [cartIds, setCartIds] = useState<string[]>(() => getCartItems().map(i => i.id));
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => getWishlistItems().map(i => i.id));
+  const [dbReviews, setDbReviews] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'details' | 'specs' | 'reviews'>('details');
 
   useEffect(() => {
@@ -343,73 +344,40 @@ export const ProductDetailPage: React.FC = () => {
                     <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white' : ''}`} />
                   </button>
                 </div>
-
-                {product.isCustomizable && (
-                  <button
-                    onClick={handleCustomizeClick}
-                    className="w-full py-3 px-5 rounded-2xl bg-white hover:bg-[#FAF7F2] border-2 border-[#38A132] text-[#38A132] text-xs font-extrabold flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer"
-                  >
-                    <Sliders className="w-4 h-4 text-[#38A132]" />
-                    <span>Customize Furniture Dimensions & Polish</span>
-                  </button>
-                )}
               </div>
             </div>
           </div>
 
-          {/* Customer Reviews Section */}
-          <div className="border-t border-[#E2D7CB] pt-8 space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Verified Buyer Reviews & Feedback</h3>
-                <p className="text-xs text-[#7A6C5E]">Authentic customer reviews for {product.name}</p>
+          {/* Customer Reviews Section - SHOWN ONLY IF FETCHED FROM DB */}
+          {dbReviews.length > 0 && (
+            <div className="border-t border-[#E2D7CB] pt-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Verified Buyer Reviews & Feedback</h3>
+                  <p className="text-xs text-[#7A6C5E]">Authentic customer reviews for {product.name}</p>
+                </div>
+
+                <div className="flex items-center gap-2 bg-[#38A132]/10 border border-[#38A132]/30 px-3.5 py-1.5 rounded-2xl">
+                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                  <span className="text-xs font-extrabold text-[#2C241D]">{product.rating} / 5.0 Rating</span>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 bg-[#38A132]/10 border border-[#38A132]/30 px-3.5 py-1.5 rounded-2xl">
-                <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                <span className="text-xs font-extrabold text-[#2C241D]">{product.rating} / 5.0 Rating</span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {dbReviews.map((rev: any, idx: number) => (
+                  <div key={idx} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="flex text-amber-500">{"★".repeat(rev.rating || 5)}</div>
+                      <span className="text-[10px] font-bold text-[#7A6C5E]">{rev.date || 'Recent'}</span>
+                    </div>
+                    <h5 className="font-extrabold text-xs text-[#2C241D]">{rev.title || 'Customer Feedback'}</h5>
+                    <p className="text-xs text-[#5C4A3A]">"{rev.comment || rev.feedback}"</p>
+                    <span className="text-[11px] font-bold text-[#38A132] block">— {rev.customerName || 'Verified Buyer'}</span>
+                  </div>
+                ))}
               </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex text-amber-500">{"★".repeat(5)}</div>
-                  <span className="text-[10px] font-bold text-[#7A6C5E]">2 days ago</span>
-                </div>
-                <h5 className="font-extrabold text-xs text-[#2C241D]">Exceptional Craftsmanship!</h5>
-                <p className="text-xs text-[#5C4A3A]">
-                  "The finish and timber joinery are superb. Delivered on time with utmost protective packaging."
-                </p>
-                <span className="text-[11px] font-bold text-[#38A132] block">— Verified Purchaser (Architectural Bureau)</span>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex text-amber-500">{"★".repeat(5)}</div>
-                  <span className="text-[10px] font-bold text-[#7A6C5E]">1 week ago</span>
-                </div>
-                <h5 className="font-extrabold text-xs text-[#2C241D]">Looks Stunning in Living Room</h5>
-                <p className="text-xs text-[#5C4A3A]">
-                  "Matches our room decor perfectly. The dimensions are accurate to the millimeter."
-                </p>
-                <span className="text-[11px] font-bold text-[#38A132] block">— Verified Buyer (Luxury Residence)</span>
-              </div>
-
-              <div className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <div className="flex text-amber-500">{"★".repeat(5)}</div>
-                  <span className="text-[10px] font-bold text-[#7A6C5E]">2 weeks ago</span>
-                </div>
-                <h5 className="font-extrabold text-xs text-[#2C241D]">Solid & Durable</h5>
-                <p className="text-xs text-[#5C4A3A]">
-                  "Very sturdy construction and beautiful natural grain. Extremely satisfied with RetailSphere AI."
-                </p>
-                <span className="text-[11px] font-bold text-[#38A132] block">— Verified Buyer (Interior Designer)</span>
-              </div>
-            </div>
-          </div>
-
+          )}
         </div>
       </main>
     </div>
