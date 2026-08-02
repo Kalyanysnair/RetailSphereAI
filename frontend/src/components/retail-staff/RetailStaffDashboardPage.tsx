@@ -1495,7 +1495,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {activeTab === 'suppliers' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Top Supplier KPI Summary Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
                       <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Total Suppliers</span>
                       <div className="text-2xl font-extrabold text-[#2C241D]">{supplierList.length} Suppliers</div>
@@ -1510,14 +1510,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
                       <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Product Allocations</span>
-                      <div className="text-lg font-extrabold text-[#2C241D]">13 Items Assigned</div>
-                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">6 ARUN RAJ • 7 Rahul Dev</span>
-                    </div>
-
-                    <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
-                      <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Supplier Directory</span>
-                      <div className="text-lg font-extrabold text-[#2C241D]">Live Catalog System</div>
-                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Directory Sync Active</span>
+                      <div className="text-2xl font-extrabold text-[#2C241D]">13 Items Assigned</div>
+                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Catalog Distribution</span>
                     </div>
                   </div>
 
@@ -1527,7 +1521,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search supplier name, contact, phone..."
+                        placeholder="Search supplier name, phone, address..."
                         value={supplierSearchQuery}
                         onChange={(e) => setSupplierSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
@@ -1549,7 +1543,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
                           <th className="py-3 px-4">Supplier Name</th>
-                          <th className="py-3 px-4">Contact Person</th>
                           <th className="py-3 px-4">Phone Number</th>
                           <th className="py-3 px-4">Location / Address</th>
                           <th className="py-3 px-4">Assigned Products</th>
@@ -1559,7 +1552,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {filteredSuppliers.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-12 text-center text-[#7A6C5E]">
+                            <td colSpan={5} className="py-12 text-center text-[#7A6C5E]">
                               <Truck className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
                               <p className="font-extrabold text-sm text-[#2C241D]">No Suppliers Available</p>
                               <p className="text-xs text-[#7A6C5E] mt-1">
@@ -1581,7 +1574,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 </div>
                               </td>
 
-                              <td className="py-4 px-4 text-[#2C241D] font-bold">{sup.contact_person}</td>
                               <td className="py-4 px-4 font-mono font-bold text-[#48A63E]">{sup.phone}</td>
                               <td className="py-4 px-4 text-[#6B5C4D] max-w-xs truncate" title={sup.address}>
                                 {sup.address}
