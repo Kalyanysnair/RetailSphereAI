@@ -113,6 +113,30 @@ export const removeStoredCoupon = (idOrCode: string): Coupon[] => {
   return updated;
 };
 
+export const updateCouponUserEmail = (idOrCode: string, newUserEmail: string): Coupon[] => {
+  const current = getStoredCoupons();
+  const cleanEmail = newUserEmail.trim();
+  const idx = current.findIndex(
+    c => c.id === idOrCode || c.code.toLowerCase() === idOrCode.toLowerCase()
+  );
+
+  if (idx >= 0) {
+    current[idx].targetUserEmail = cleanEmail;
+    localStorage.setItem(COUPONS_STORAGE_KEY, JSON.stringify(current));
+    window.dispatchEvent(new Event('coupons-updated'));
+
+    if (cleanEmail) {
+      dispatchCustomerNotification({
+        targetUserEmail: cleanEmail,
+        couponCode: current[idx].code,
+        discountPercent: current[idx].discountPercent,
+      });
+    }
+  }
+
+  return current;
+};
+
 export const validateStoredCoupon = (code: string, userEmailOrId?: string): { valid: boolean; coupon?: Coupon; message?: string } => {
   const cleanCode = code.trim().toUpperCase();
   const coupons = getStoredCoupons();
