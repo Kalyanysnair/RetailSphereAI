@@ -65,6 +65,7 @@ export interface RetailOrder {
 export interface SupplierProductItem {
   product_id?: number;
   id?: string;
+  sku?: string;
   name: string;
   category: string;
   material: string;
@@ -373,6 +374,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
   const [selectedSupplierDetail, setSelectedSupplierDetail] = useState<RetailSupplier | null>(null);
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
+  const [modalProductSearchQuery, setModalProductSearchQuery] = useState('');
 
   // New Supplier Form State
   const [newSupName, setNewSupName] = useState('');
@@ -447,11 +449,31 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const filteredSuppliers = supplierList.filter((s) => {
     if (!supplierSearchQuery.trim()) return true;
     const q = supplierSearchQuery.toLowerCase();
-    return (
+
+    // Match supplier name, phone, address
+    const matchesBasic =
       s.supplier_name.toLowerCase().includes(q) ||
-      s.contact_person.toLowerCase().includes(q) ||
-      s.phone.toLowerCase().includes(q)
-    );
+      s.phone.toLowerCase().includes(q) ||
+      (s.address && s.address.toLowerCase().includes(q));
+
+    if (matchesBasic) return true;
+
+    // Match assigned product name, SKU / product code, category, or material
+    const isArun = s.supplier_name.toLowerCase().includes('arun');
+    let prodsForSup: any[] = [];
+    if (s.assigned_products && s.assigned_products.length > 0) {
+      prodsForSup = s.assigned_products;
+    } else {
+      prodsForSup = isArun ? displayProducts.slice(0, 6) : displayProducts.slice(6);
+    }
+
+    return prodsForSup.some((p: any) => {
+      const pName = (p.name || p.product_name || '').toLowerCase();
+      const pSku = (p.sku || `SKU-RS-${p.product_id || p.id}` || '').toLowerCase();
+      const pCategory = (p.category || '').toLowerCase();
+      const pMaterial = (p.material || '').toLowerCase();
+      return pName.includes(q) || pSku.includes(q) || pCategory.includes(q) || pMaterial.includes(q);
+    });
   });
 
 
@@ -1534,7 +1556,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search supplier name, phone, address..."
+                        placeholder="Search supplier, product name, product code (SKU)..."
                         value={supplierSearchQuery}
                         onChange={(e) => setSupplierSearchQuery(e.target.value)}
                         className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
@@ -2250,6 +2272,15 @@ export const RetailStaffDashboardPage: React.FC = () => {
           }
         }
 
+        const filteredModalProds = prodsTook.filter((item, idx) => {
+          if (!modalProductSearchQuery.trim()) return true;
+          const q = modalProductSearchQuery.toLowerCase();
+          const pName = (item.name || item.product_name || '').toLowerCase();
+          const pSku = (item.sku || `SKU-RS-${item.product_id || idx + 1}`).toLowerCase();
+          const pCat = (item.category || '').toLowerCase();
+          return pName.includes(q) || pSku.includes(q) || pCat.includes(q);
+        });
+
         const totalQuantityTook = prodsTook.reduce((acc, item) => acc + (item.quantity ?? item.stockCount ?? 0), 0);
         const totalValueTook = prodsTook.reduce((acc, item) => acc + ((item.price || 0) * (item.quantity ?? item.stockCount ?? 0)), 0);
 
@@ -2281,7 +2312,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => setSelectedSupplierDetail(null)}
+                  onClick={() => {
+                    setSelectedSupplierDetail(null);
+                    setModalProductSearchQuery('');
+                  }}
                   className="p-2 text-[#6B5C4D] hover:text-[#2C241D] rounded-full bg-[#EAE0D4] transition-colors"
                 >
                   <X className="w-5 h-5" />
@@ -2311,17 +2345,31 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Table of Products Took From Supplier */}
-              <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+              {/* Table Header & Search Filter Bar */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0">
                 <h4 className="text-xs font-extrabold uppercase text-[#7A6C5E] tracking-wider">
-                  Products Sourced From {selectedSupplierDetail.supplier_name}, Sales Breakdown & Current Stock
+                  Products Sourced From {selectedSupplierDetail.supplier_name}
                 </h4>
 
+                <div className="relative w-full sm:w-72">
+                  <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search product name or Product Code (SKU)..."
+                    value={modalProductSearchQuery}
+                    onChange={(e) => setModalProductSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 text-xs bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                  />
+                </div>
+              </div>
+
+              {/* Table of Products Took From Supplier */}
+              <div className="flex-1 overflow-y-auto pr-1 space-y-2">
                 <div className="overflow-x-auto rounded-2xl border border-[#E2D7CB]">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
                       <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px] bg-[#F3EDE5]">
-                        <th className="py-3 px-3">Product Name</th>
+                        <th className="py-3 px-3">Product Name & Code</th>
                         <th className="py-3 px-3">Category</th>
                         <th className="py-3 px-3">Unit Price</th>
                         <th className="py-3 px-3 text-center">Units Sold</th>
@@ -2330,51 +2378,65 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#E2D7CB] font-medium bg-white/60">
-                      {prodsTook.map((item, idx) => {
-                        const qty = item.quantity ?? item.stockCount ?? 0;
-                        const itemPrice = item.price || 0;
-                        const subtotal = itemPrice * qty;
+                      {filteredModalProds.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-[#7A6C5E] font-bold text-xs">
+                            No products matched "{modalProductSearchQuery}"
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredModalProds.map((item, idx) => {
+                          const qty = item.quantity ?? item.stockCount ?? 0;
+                          const itemPrice = item.price || 0;
+                          const subtotal = itemPrice * qty;
 
-                        const nameKey = (item.name || item.product_name || '').toLowerCase().trim();
-                        const idKey = (item.id || item.product_id || '').toString().toLowerCase().trim();
-                        const itemSoldCount = orderedQtyMap[nameKey] || orderedQtyMap[idKey] || 0;
+                          const nameKey = (item.name || item.product_name || '').toLowerCase().trim();
+                          const idKey = (item.id || item.product_id || '').toString().toLowerCase().trim();
+                          const itemSoldCount = orderedQtyMap[nameKey] || orderedQtyMap[idKey] || 0;
+                          const productCode = item.sku || `SKU-RS-${item.product_id || idx + 1}`;
 
-                        return (
-                          <tr key={item.id || item.product_id || idx} className="hover:bg-[#F3EDE5]/80 transition-colors">
-                            <td className="py-3 px-3 font-extrabold text-[#2C241D]">
-                              <div className="flex items-center gap-2.5">
-                                <img
-                                  src={item.image_url || item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"}
-                                  alt={item.name}
-                                  onError={(e) => {
-                                    (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
-                                  }}
-                                  className="w-9 h-9 rounded-lg object-cover border border-[#E2D7CB] shadow-xs flex-shrink-0 bg-white"
-                                />
-                                <span>{item.name}</span>
-                              </div>
-                            </td>
+                          return (
+                            <tr key={item.id || item.product_id || idx} className="hover:bg-[#F3EDE5]/80 transition-colors">
+                              <td className="py-3 px-3 font-extrabold text-[#2C241D]">
+                                <div className="flex items-center gap-2.5">
+                                  <img
+                                    src={item.image_url || item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"}
+                                    alt={item.name}
+                                    onError={(e) => {
+                                      (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
+                                    }}
+                                    className="w-9 h-9 rounded-lg object-cover border border-[#E2D7CB] shadow-xs flex-shrink-0 bg-white"
+                                  />
+                                  <div>
+                                    <div className="font-extrabold text-[#2C241D]">{item.name}</div>
+                                    <span className="text-[10px] font-mono font-bold text-[#48A63E] bg-[#48A63E]/10 px-1.5 py-0.5 rounded-md inline-block mt-0.5">
+                                      {productCode}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
 
-                            <td className="py-3 px-3 text-[#6B5C4D]">{item.category}</td>
-                            <td className="py-3 px-3 font-extrabold text-[#2C241D]">₹{itemPrice.toLocaleString('en-IN')}</td>
-                            <td className="py-3 px-3 text-center">
-                              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs bg-[#48A63E]/15 text-[#48A63E]">
-                                {itemSoldCount} Units Sold
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-center">
-                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs ${
-                                qty > 0 ? 'bg-[#F3EDE5] text-[#2C241D]' : 'bg-rose-100 text-rose-700'
-                              }`}>
-                                {qty} Units Left
-                              </span>
-                            </td>
-                            <td className="py-3 px-3 text-right font-extrabold text-[#48A63E]">
-                              ₹{subtotal.toLocaleString('en-IN')}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                              <td className="py-3 px-3 text-[#6B5C4D]">{item.category}</td>
+                              <td className="py-3 px-3 font-extrabold text-[#2C241D]">₹{itemPrice.toLocaleString('en-IN')}</td>
+                              <td className="py-3 px-3 text-center">
+                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs bg-[#48A63E]/15 text-[#48A63E]">
+                                  {itemSoldCount} Units Sold
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-extrabold text-xs ${
+                                  qty > 0 ? 'bg-[#F3EDE5] text-[#2C241D]' : 'bg-rose-100 text-rose-700'
+                                }`}>
+                                  {qty} Units Left
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-right font-extrabold text-[#48A63E]">
+                                ₹{subtotal.toLocaleString('en-IN')}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -2383,10 +2445,13 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {/* Modal Footer */}
               <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between flex-shrink-0">
                 <span className="text-xs font-bold text-[#6B5C4D]">
-                  Total {totalSoldCount} units sold across all {prodsTook.length} products sourced from {selectedSupplierDetail.supplier_name}
+                  Showing {filteredModalProds.length} of {prodsTook.length} products associated with {selectedSupplierDetail.supplier_name}
                 </span>
                 <button
-                  onClick={() => setSelectedSupplierDetail(null)}
+                  onClick={() => {
+                    setSelectedSupplierDetail(null);
+                    setModalProductSearchQuery('');
+                  }}
                   className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#1A1410] text-white font-extrabold text-xs transition-colors shadow-md"
                 >
                   Close Supplier Details

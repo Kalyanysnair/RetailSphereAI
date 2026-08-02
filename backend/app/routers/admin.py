@@ -462,6 +462,7 @@ def get_suppliers(db: Session = Depends(get_db)):
                 first_img = p.images[0].image_url
             products_list.append({
                 "product_id": p.product_id,
+                "sku": f"SKU-RS-{p.product_id}",
                 "name": p.product_name,
                 "category": p.category.category_name if p.category else "Furniture",
                 "material": p.material or "Standard",
