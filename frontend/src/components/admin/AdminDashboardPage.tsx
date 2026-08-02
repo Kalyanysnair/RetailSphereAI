@@ -54,7 +54,7 @@ export interface InventoryItem {
   image_url?: string;
 }
 
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, Coupon } from '../../utils/couponStorage';
+import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, Coupon } from '../../utils/couponStorage';
 
 export const INITIAL_STAFF: StaffMember[] = [];
 export const INITIAL_INVENTORY: InventoryItem[] = [];
@@ -215,9 +215,22 @@ export const AdminDashboardPage: React.FC = () => {
   const handleUpdateCouponUserEmail = (couponId: string, newUserEmail: string) => {
     const updated = updateCouponUserEmail(couponId, newUserEmail);
     setCouponsList(updated);
-    if (newUserEmail.trim()) {
-      setSuccessBanner(`Assigned user email updated to ${newUserEmail.trim()}! Live notification dispatched.`);
-      setTimeout(() => setSuccessBanner(null), 5000);
+  };
+
+  const handleSendCouponNotification = (couponId: string, currentEmailInput: string) => {
+    const email = currentEmailInput.trim();
+    if (!email) {
+      alert('Please enter a customer email or User ID in the textbox before sending the coupon notification.');
+      return;
+    }
+
+    const result = sendCouponToCustomer(couponId, email);
+    if (result.success) {
+      setCouponsList(getStoredCoupons());
+      setSuccessBanner(`🎉 ${result.message}`);
+      setTimeout(() => setSuccessBanner(null), 7000);
+    } else {
+      alert(result.message);
     }
   };
 
@@ -1089,6 +1102,7 @@ export const AdminDashboardPage: React.FC = () => {
                           <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
                           <td className="py-3 px-4">
                             <input
+                              id={`coupon-email-${coupon.id}`}
                               type="text"
                               placeholder="Enter user email or User ID..."
                               defaultValue={coupon.targetUserEmail || ''}
@@ -1099,7 +1113,7 @@ export const AdminDashboardPage: React.FC = () => {
                                 }
                               }}
                               className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
-                              title="Type customer email or User ID and press Enter to assign coupon & dispatch notification"
+                              title="Type customer email or User ID to assign coupon"
                             />
                           </td>
                           <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
@@ -1113,13 +1127,24 @@ export const AdminDashboardPage: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-4 px-4 text-right">
-                            <button
-                              onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                              className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Remove Coupon</span>
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
+                                className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer active:scale-95"
+                                title="Send coupon to customer dashboard notification & dispatch email"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>Send Coupon & Email</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                                className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Remove Coupon</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -197,3 +197,29 @@ export const dispatchCustomerNotification = (notifData: {
     console.warn('Could not dispatch customer notification:', err);
   }
 };
+
+export const sendCouponToCustomer = (couponIdOrCode: string, targetEmail: string): { success: boolean; message: string } => {
+  const cleanEmail = targetEmail.trim();
+  if (!cleanEmail) {
+    return { success: false, message: 'Please enter a valid customer email or User ID first.' };
+  }
+
+  updateCouponUserEmail(couponIdOrCode, cleanEmail);
+
+  const coupons = getStoredCoupons();
+  const coupon = coupons.find(c => c.id === couponIdOrCode || c.code.toLowerCase() === couponIdOrCode.toLowerCase());
+
+  const discountPercent = coupon?.discountPercent || 10;
+  const promoCode = (coupon?.code || couponIdOrCode).toUpperCase();
+
+  dispatchCustomerNotification({
+    targetUserEmail: cleanEmail,
+    couponCode: promoCode,
+    discountPercent,
+  });
+
+  return {
+    success: true,
+    message: `Coupon code "${promoCode}" (${discountPercent}% OFF) successfully sent to ${cleanEmail}! Delivered to customer notification bell & email.`,
+  };
+};
