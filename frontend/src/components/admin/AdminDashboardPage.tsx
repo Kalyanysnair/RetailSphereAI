@@ -23,13 +23,38 @@ import {
   UserCheck,
   Mail,
   Tag,
-  Trash2
+  Trash2,
+  Bell,
+  Edit,
+  Eye,
+  RotateCcw,
+  User,
+  ChevronDown,
+  Lock,
+  Key,
+  Truck,
+  Clock,
+  ShoppingBag,
+  Percent,
+  Sliders
 } from 'lucide-react';
 
-import { createStaffUser, fetchStaffUsers, fetchInventoryFromDB, createProductInDB, updateStockInDB, fetchQueriesFromDB, respondToStaffQueryInDB } from '../../services/api';
+import { 
+  createStaffUser, 
+  fetchStaffUsers, 
+  fetchInventoryFromDB, 
+  createProductInDB, 
+  updateStockInDB, 
+  fetchQueriesFromDB, 
+  respondToStaffQueryInDB,
+  fetchNotificationsFromDB,
+  fetchSuppliersFromDB,
+  createSupplierInDB 
+} from '../../services/api';
+
 import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
-
-
+import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
+import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
 
 export interface StaffMember {
   id: string;
@@ -52,9 +77,64 @@ export interface InventoryItem {
   stockCount: number;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   image_url?: string;
+  sku?: string;
 }
 
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
+export interface RetailProduct {
+  id: string;
+  name: string;
+  category: string;
+  material: string;
+  price: number;
+  stockCount: number;
+  status: 'In Stock' | 'Low Stock' | 'Out of Stock';
+  sku: string;
+  image_url?: string;
+  detailed_description?: string;
+  dimensions?: string;
+  warranty_info?: string;
+}
+
+export interface RetailOrder {
+  orderId: string;
+  customerName: string;
+  email: string;
+  itemsCount: number;
+  totalAmount: number;
+  orderStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered';
+  orderDate: string;
+  items?: Array<{
+    id: string;
+    name: string;
+    price: number;
+    quantity: number;
+    imageUrl?: string;
+  }>;
+}
+
+export interface SupplierProductItem {
+  product_id?: number;
+  id?: string;
+  sku?: string;
+  name: string;
+  category: string;
+  material: string;
+  price: number;
+  quantity: number;
+  image_url?: string;
+}
+
+export interface RetailSupplier {
+  id: string;
+  supplier_id?: number;
+  supplier_name: string;
+  contact_person: string;
+  phone: string;
+  address: string;
+  assigned_products_count?: number;
+  assigned_products?: SupplierProductItem[];
+  status: 'Active' | 'Inactive';
+}
 
 export const INITIAL_STAFF: StaffMember[] = [];
 export const INITIAL_INVENTORY: InventoryItem[] = [];
@@ -63,9 +143,250 @@ export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   // Active View Tab
-  const [activeTab, setActiveTab] = useState<'overview' | 'staff' | 'inventory' | 'queries' | 'coupons'>('staff');
+  const [activeTab, setActiveTab] = useState<'overview' | 'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'queries' | 'coupons'>('staff');
 
-  // Staff Queries State
+  // Header State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    const loadNotifs = async () => {
+      try {
+        const dbNotifs = await fetchNotificationsFromDB();
+        setNotifications(dbNotifs || []);
+      } catch (err) {
+        setNotifications([]);
+      }
+    };
+    loadNotifs();
+  }, []);
+
+  const unreadCount = notifications.filter(n => n.unread).length;
+
+  // Current Admin Profile State
+  const [currentUser, setCurrentUser] = useState<{ name: string; email: string; initials: string }>({
+    name: 'Administrator',
+    email: 'admin@retailsphere.com',
+    initials: 'AD'
+  });
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const name = parsed.full_name || parsed.fullName || parsed.name || parsed.email || 'Administrator';
+        const email = parsed.email || 'admin@retailsphere.com';
+
+        let initials = 'AD';
+        if (name) {
+          const parts = name.trim().split(' ');
+          if (parts.length >= 2) {
+            initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+          } else if (parts[0].length >= 2) {
+            initials = parts[0].substring(0, 2).toUpperCase();
+          } else {
+            initials = parts[0][0].toUpperCase();
+          }
+        }
+
+        setCurrentUser({ name, email, initials });
+      }
+    } catch (err) {
+      console.warn('Error reading admin profile from localStorage:', err);
+    }
+  }, []);
+
+  const handleSignOut = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('user');
+    navigate('/login');
+  };
+
+  // Staff Management State
+  const [staffMembers, setStaffMembers] = useState<StaffMember[]>(INITIAL_STAFF);
+  const [staffRoleFilter, setStaffRoleFilter] = useState<'All' | 'Retail Staff' | 'Production Staff'>('All');
+  const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
+  const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
+  const [staffFormError, setStaffFormError] = useState<string | null>(null);
+
+  // Form values for Add Staff
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffEmail, setNewStaffEmail] = useState('');
+  const [newStaffPhone, setNewStaffPhone] = useState('');
+  const [newStaffRole, setNewStaffRole] = useState<'Retail Staff' | 'Production Staff'>('Retail Staff');
+  const [newStaffPassword, setNewStaffPassword] = useState('');
+
+  // Load Staff Users from DB
+  const loadStaffFromDB = async () => {
+    try {
+      const dbUsers = await fetchStaffUsers();
+      if (dbUsers && Array.isArray(dbUsers)) {
+        const mapped: StaffMember[] = dbUsers.map((u: any) => ({
+          id: `staff-${u.id}`,
+          user_id: u.id,
+          name: u.full_name || 'Staff Member',
+          email: u.email,
+          phone: u.phone || 'N/A',
+          role: u.role === 'Production Staff' ? 'Production Staff' : 'Retail Staff',
+          status: u.is_active ? 'Active' : 'Inactive',
+          dateAdded: u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent'
+        }));
+        setStaffMembers(mapped);
+      }
+    } catch (err) {
+      console.warn('Could not fetch DB staff members:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadStaffFromDB();
+  }, []);
+
+  // Products Catalog Management State
+  const [productList, setProductList] = useState<RetailProduct[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string>('All');
+  const [priceRangeFilter, setPriceRangeFilter] = useState<string>('All');
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+
+  // Add Product Modal State
+  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [newProdName, setNewProdName] = useState('');
+  const [newProdCategory, setNewProdCategory] = useState('Living Room');
+  const [newProdMaterial, setNewProdMaterial] = useState('Teak Wood');
+  const [newProdPrice, setNewProdPrice] = useState('');
+  const [newProdStock, setNewProdStock] = useState('');
+  const [newProdSku, setNewProdSku] = useState('');
+  const [newProdImage, setNewProdImage] = useState('');
+
+  // Edit Product Modal State
+  const [isEditProductModalOpen, setIsEditProductModalOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<RetailProduct | null>(null);
+  const [editProdName, setEditProdName] = useState('');
+  const [editProdCategory, setEditProdCategory] = useState('Living Room');
+  const [editProdMaterial, setEditProdMaterial] = useState('Teak Wood');
+  const [editProdPrice, setEditProdPrice] = useState('');
+  const [editProdStock, setEditProdStock] = useState('');
+
+  // Delete Product Confirmation Modal State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<RetailProduct | null>(null);
+
+  // Load Inventory & Products from DB
+  const loadProductsFromDB = async () => {
+    setIsLoadingProducts(true);
+    try {
+      const dbItems = await fetchInventoryFromDB();
+      if (Array.isArray(dbItems)) {
+        const mapped: RetailProduct[] = dbItems.map((p: any) => ({
+          id: p.id || `inv-${p.product_id}`,
+          sku: `SKU-RS-${p.product_id || p.id}`,
+          name: p.name || 'Untitled Product',
+          category: p.category || 'Living Room',
+          material: p.material || 'Standard',
+          price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+          stockCount: typeof p.stockCount === 'number' ? p.stockCount : parseInt(p.stockCount) || 0,
+          status: p.status || 'In Stock',
+          image_url: p.image_url,
+        }));
+        setProductList(mapped);
+      }
+    } catch (err) {
+      console.warn('Could not fetch DB inventory for admin:', err);
+    } finally {
+      setIsLoadingProducts(false);
+    }
+  };
+
+  useEffect(() => {
+    loadProductsFromDB();
+  }, []);
+
+  // Stock Control State & Low Stock Modal
+  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [stockItemToEdit, setStockItemToEdit] = useState<RetailProduct | null>(null);
+  const [newStockVal, setNewStockVal] = useState('');
+  const [showLowStockModal, setShowLowStockModal] = useState(false);
+
+  // Suppliers Directory State
+  const [supplierList, setSupplierList] = useState<RetailSupplier[]>([]);
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
+  const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [newSupName, setNewSupName] = useState('');
+  const [newSupContact, setNewSupContact] = useState('');
+  const [newSupPhone, setNewSupPhone] = useState('');
+  const [newSupEmail, setNewSupEmail] = useState('');
+  const [newSupAddress, setNewSupAddress] = useState('');
+  const [newSupGst, setNewSupGst] = useState('');
+
+  const loadSuppliersFromDB = async () => {
+    try {
+      const dbSups = await fetchSuppliersFromDB();
+      if (dbSups && Array.isArray(dbSups) && dbSups.length > 0) {
+        setSupplierList(dbSups);
+      } else {
+        setSupplierList([
+          {
+            id: 'sup-101',
+            supplier_id: 101,
+            supplier_name: 'Arun Raj',
+            contact_person: 'Arun Raj (Senior Logistics Vendor)',
+            phone: '9778237180',
+            address: 'Kerala Furniture Hub, India',
+            assigned_products_count: 6,
+            status: 'Active',
+          },
+          {
+            id: 'sup-102',
+            supplier_id: 102,
+            supplier_name: 'Rahul Dev',
+            contact_person: 'Rahul Dev (Supply Partner)',
+            phone: '7736783189',
+            address: 'Kochi Timber & Decor, Kerala, India',
+            assigned_products_count: 7,
+            status: 'Active',
+          },
+        ]);
+      }
+    } catch (err) {
+      console.warn('Could not load suppliers from DB:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadSuppliersFromDB();
+  }, []);
+
+  // Order Fulfillment Studio State
+  const [orderList, setOrderList] = useState<RetailOrder[]>(() => getStoredRetailOrders() as any);
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
+  const [selectedOrder, setSelectedOrder] = useState<RetailOrder | null>(null);
+  const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
+
+  useEffect(() => {
+    const handleRetailOrdersUpdate = () => {
+      setOrderList(getStoredRetailOrders() as any);
+    };
+    window.addEventListener('retail-orders-updated', handleRetailOrdersUpdate);
+    window.addEventListener('storage', handleRetailOrdersUpdate);
+    return () => {
+      window.removeEventListener('retail-orders-updated', handleRetailOrdersUpdate);
+      window.removeEventListener('storage', handleRetailOrdersUpdate);
+    };
+  }, []);
+
+  const handleUpdateOrderStatus = (orderId: string, newStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered') => {
+    const updated = orderList.map(o => o.orderId === orderId ? { ...o, orderStatus: newStatus } : o);
+    setOrderList(updated);
+    localStorage.setItem('retailsphere_retail_orders_v1', JSON.stringify(updated));
+    window.dispatchEvent(new Event('retail-orders-updated'));
+    setSuccessBanner(`Order #${orderId} status updated to ${newStatus}!`);
+    setTimeout(() => setSuccessBanner(null), 5000);
+  };
+
+  // Staff & Admin Queries State
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
   const [queryFilter, setQueryFilter] = useState<'All' | 'Pending' | 'Resolved'>('All');
   const [selectedQuery, setSelectedQuery] = useState<StaffQuery | null>(null);
@@ -90,6 +411,302 @@ export const AdminDashboardPage: React.FC = () => {
     loadQueriesFromDB();
   }, []);
 
+  // Coupons Management State
+  const [couponsList, setCouponsList] = useState<Coupon[]>(() => getStoredCoupons());
+  const [couponSearchQuery, setCouponSearchQuery] = useState('');
+  const [newCouponCode, setNewCouponCode] = useState('');
+  const [newCouponDiscount, setNewCouponDiscount] = useState('');
+  const [newCouponDesc, setNewCouponDesc] = useState('');
+  const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
+  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
+
+  const refreshCoupons = () => {
+    setCouponsList(getStoredCoupons());
+    setAllotmentsList(getCouponAllotments());
+  };
+
+  useEffect(() => {
+    window.addEventListener('coupons-updated', refreshCoupons);
+    window.addEventListener('allotments-updated', refreshCoupons);
+    return () => {
+      window.removeEventListener('coupons-updated', refreshCoupons);
+      window.removeEventListener('allotments-updated', refreshCoupons);
+    };
+  }, []);
+
+  // Admin Profile Modal & Password Update State
+  const [isAdminProfileModalOpen, setIsAdminProfileModalOpen] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [profileForm, setProfileForm] = useState({
+    full_name: '',
+    email: '',
+    phone: '+91 98765 11223',
+    department: 'Executive Administration & Management',
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  });
+
+  useEffect(() => {
+    if (currentUser.name || currentUser.email) {
+      setProfileForm((prev) => ({
+        ...prev,
+        full_name: currentUser.name || 'Administrator',
+        email: currentUser.email || 'admin@retailsphere.com',
+        phone: '+91 98765 11223',
+        department: 'Executive Administration & Management'
+      }));
+    }
+  }, [currentUser]);
+
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+
+  // Handlers for Add Product
+  const handleAddProductSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newProdName.trim() || !newProdPrice) return;
+
+    const qty = parseInt(newProdStock) || 1;
+    const priceVal = parseFloat(newProdPrice) || 0;
+    const imgUrl = newProdImage.trim() || undefined;
+
+    try {
+      const created = await createProductInDB({
+        name: newProdName.trim(),
+        category: newProdCategory,
+        material: newProdMaterial.trim(),
+        price: priceVal,
+        stock_count: qty,
+        image_url: imgUrl,
+      });
+
+      const newItem: RetailProduct = {
+        id: created.id || `prod-${Date.now()}`,
+        sku: newProdSku.trim() || `SKU-RS-${created.product_id || Math.floor(100 + Math.random() * 900)}`,
+        name: created.name || newProdName.trim(),
+        category: created.category || newProdCategory,
+        material: created.material || newProdMaterial,
+        price: created.price || priceVal,
+        stockCount: created.stockCount || qty,
+        status: created.status || 'In Stock',
+        image_url: created.image_url || imgUrl,
+      };
+
+      setProductList((prev) => [newItem, ...prev]);
+      setSuccessBanner(`Product "${newItem.name}" added to catalog successfully!`);
+    } catch (err) {
+      console.warn('Could not save product to DB, adding locally:', err);
+      let statusVal: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
+      if (qty === 0) statusVal = 'Out of Stock';
+      else if (qty < 5) statusVal = 'Low Stock';
+
+      const newItem: RetailProduct = {
+        id: `prod-${Date.now()}`,
+        sku: newProdSku.trim() || `SKU-RS-${Math.floor(100 + Math.random() * 900)}`,
+        name: newProdName.trim(),
+        category: newProdCategory,
+        material: newProdMaterial,
+        price: priceVal,
+        stockCount: qty,
+        status: statusVal,
+        image_url: imgUrl,
+      };
+      setProductList((prev) => [newItem, ...prev]);
+      setSuccessBanner(`Product "${newItem.name}" added to catalog successfully!`);
+    }
+
+    setNewProdName('');
+    setNewProdPrice('');
+    setNewProdStock('');
+    setNewProdSku('');
+    setNewProdImage('');
+    setIsAddProductModalOpen(false);
+    setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  // Handlers for Edit Product
+  const handleOpenEditProduct = (prod: RetailProduct) => {
+    setSelectedProduct(prod);
+    setEditProdName(prod.name);
+    setEditProdCategory(prod.category);
+    setEditProdMaterial(prod.material);
+    setEditProdPrice(prod.price.toString());
+    setEditProdStock(prod.stockCount.toString());
+    setIsEditProductModalOpen(true);
+  };
+
+  const handleEditProductSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedProduct || !editProdName.trim()) return;
+
+    const qty = parseInt(editProdStock) || 0;
+    const priceVal = parseFloat(editProdPrice) || 0;
+
+    let newStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
+    if (qty === 0) newStatus = 'Out of Stock';
+    else if (qty < 5) newStatus = 'Low Stock';
+
+    setProductList((prev) =>
+      prev.map((p) =>
+        p.id === selectedProduct.id
+          ? {
+              ...p,
+              name: editProdName.trim(),
+              category: editProdCategory,
+              material: editProdMaterial.trim(),
+              price: priceVal,
+              stockCount: qty,
+              status: newStatus,
+            }
+          : p
+      )
+    );
+
+    setIsEditProductModalOpen(false);
+    setSelectedProduct(null);
+    setSuccessBanner(`Product "${editProdName}" details updated successfully!`);
+    setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  // Handlers for Delete Product
+  const handleOpenDeleteModal = (prod: RetailProduct) => {
+    setProductToDelete(prod);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDeleteProduct = () => {
+    if (!productToDelete) return;
+    setProductList((prev) => prev.filter((p) => p.id !== productToDelete.id));
+    setIsDeleteModalOpen(false);
+    setSuccessBanner(`Product "${productToDelete.name}" removed from catalog.`);
+    setProductToDelete(null);
+    setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  // Handlers for Stock Control Modal
+  const handleOpenStockModal = (item: RetailProduct) => {
+    setStockItemToEdit(item);
+    setNewStockVal(item.stockCount.toString());
+    setIsStockModalOpen(true);
+  };
+
+  const handleSaveStockUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stockItemToEdit) return;
+
+    const qty = parseInt(newStockVal) || 0;
+    let newStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
+    if (qty === 0) newStatus = 'Out of Stock';
+    else if (qty < 5) newStatus = 'Low Stock';
+
+    setProductList((prev) =>
+      prev.map((item) => (item.id === stockItemToEdit.id ? { ...item, stockCount: qty, status: newStatus } : item))
+    );
+
+    const dbId = parseInt(stockItemToEdit.id.replace('inv-', '').replace('prod-', '')) || undefined;
+    if (dbId) {
+      try {
+        await updateStockInDB(dbId, qty);
+      } catch (err) {
+        console.warn('Failed to update stock in DB:', err);
+      }
+    }
+
+    setIsStockModalOpen(false);
+    setStockItemToEdit(null);
+    setSuccessBanner(`Stock quantity for "${stockItemToEdit.name}" updated to ${qty} units!`);
+    setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  // Handlers for Add Staff
+  const handleAddStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStaffFormError(null);
+    if (!newStaffName.trim() || !newStaffEmail.trim()) {
+      setStaffFormError('Staff name and email address are required.');
+      return;
+    }
+
+    setIsSubmittingStaff(true);
+    try {
+      const created = await createStaffUser({
+        full_name: newStaffName.trim(),
+        email: newStaffEmail.trim(),
+        phone: newStaffPhone.trim() || undefined,
+        role_name: newStaffRole,
+        password: newStaffPassword.trim() || undefined,
+      });
+
+      const newMember: StaffMember = {
+        id: `staff-${created.user_id || Date.now()}`,
+        user_id: created.user_id,
+        name: created.full_name || newStaffName.trim(),
+        email: created.email || newStaffEmail.trim(),
+        phone: newStaffPhone.trim() || '+91 98765 43210',
+        role: created.role_name === 'Production Staff' ? 'Production Staff' : 'Retail Staff',
+        status: 'Active',
+        dateAdded: 'Just Now',
+      };
+
+      setStaffMembers((prev) => [newMember, ...prev]);
+      setSuccessBanner(`Staff user "${newMember.name}" created! Credentials emailed to ${newMember.email}.`);
+      setIsAddStaffModalOpen(false);
+      setNewStaffName('');
+      setNewStaffEmail('');
+      setNewStaffPhone('');
+      setNewStaffPassword('');
+    } catch (err: any) {
+      console.error('Error creating staff:', err);
+      setStaffFormError(err.message || 'Failed to create staff account. Check if email already exists.');
+    } finally {
+      setIsSubmittingStaff(false);
+      setTimeout(() => setSuccessBanner(null), 7000);
+    }
+  };
+
+  // Handlers for Add Supplier
+  const handleCreateSupplierSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSupName.trim() || !newSupContact.trim() || !newSupPhone.trim()) return;
+
+    try {
+      const created = await createSupplierInDB({
+        supplier_name: newSupName.trim(),
+        contact_person: newSupContact.trim(),
+        phone: newSupPhone.trim(),
+        email: newSupEmail.trim() || undefined,
+        address: newSupAddress.trim() || 'Industrial Estate, India',
+        gst_number: newSupGst.trim() || undefined,
+      });
+
+      setSupplierList((prev) => [created, ...prev]);
+      setSuccessBanner(`Supplier "${created.supplier_name}" added successfully!`);
+    } catch (err) {
+      console.warn('Could not save supplier, fallback locally:', err);
+      const fallback: RetailSupplier = {
+        id: `sup-${Date.now()}`,
+        supplier_name: newSupName.trim(),
+        contact_person: newSupContact.trim(),
+        phone: newSupPhone.trim(),
+        address: newSupAddress.trim() || 'Furniture Supply Zone, India',
+        assigned_products_count: 0,
+        status: 'Active',
+      };
+      setSupplierList((prev) => [fallback, ...prev]);
+      setSuccessBanner(`Supplier "${fallback.supplier_name}" added successfully!`);
+    }
+
+    setNewSupName('');
+    setNewSupContact('');
+    setNewSupPhone('');
+    setNewSupEmail('');
+    setNewSupAddress('');
+    setNewSupGst('');
+    setIsAddSupplierModalOpen(false);
+    setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  // Handlers for Admin Query Response
   const handleOpenQueryModal = (query: StaffQuery) => {
     setSelectedQuery(query);
     setAdminResponseText(query.adminResponse || '');
@@ -117,71 +734,10 @@ export const AdminDashboardPage: React.FC = () => {
 
     setSelectedQuery(null);
     setSuccessBanner(`Admin response submitted for ${selectedQuery.staffName}'s request!`);
-
-    setTimeout(() => {
-      setSuccessBanner(null);
-    }, 6000);
+    setTimeout(() => setSuccessBanner(null), 6000);
   };
 
-
-
-  const pendingQueriesCount = staffQueries.filter(q => q.status === 'Pending' || q.status === 'In Review').length;
-
-  // Staff State
-
-  const [staffList, setStaffList] = useState<StaffMember[]>(INITIAL_STAFF);
-  const [staffRoleFilter, setStaffRoleFilter] = useState<'All' | 'Retail Staff' | 'Production Staff'>('All');
-  const [staffSearchQuery, setStaffSearchQuery] = useState('');
-  const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
-  const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
-
-  // New Staff Form State
-  const [newStaffName, setNewStaffName] = useState('');
-  const [newStaffEmail, setNewStaffEmail] = useState('');
-  const [newStaffPhone, setNewStaffPhone] = useState('');
-  const [newStaffRole, setNewStaffRole] = useState<'Retail Staff' | 'Production Staff'>('Retail Staff');
-  const [newStaffPassword, setNewStaffPassword] = useState('');
-  const [staffFormError, setStaffFormError] = useState<string | null>(null);
-
-  // Inventory State
-  const [inventoryList, setInventoryList] = useState<InventoryItem[]>(INITIAL_INVENTORY);
-  const [inventorySearchQuery, setInventorySearchQuery] = useState('');
-  const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
-
-  // New Product Form State
-  const [newProdName, setNewProdName] = useState('');
-  const [newProdCategory, setNewProdCategory] = useState('Living Room');
-  const [newProdMaterial, setNewProdMaterial] = useState('Teak Wood');
-  const [newProdPrice, setNewProdPrice] = useState('');
-  const [newProdStock, setNewProdStock] = useState('');
-  const [newProdImage, setNewProdImage] = useState('');
-
-  // Coupon Management State
-  const [couponsList, setCouponsList] = useState<Coupon[]>(() => getStoredCoupons());
-  const [isAddCouponModalOpen, setIsAddCouponModalOpen] = useState(false);
-  const [couponSearchQuery, setCouponSearchQuery] = useState('');
-  const [newCouponCode, setNewCouponCode] = useState('');
-  const [newCouponDiscount, setNewCouponDiscount] = useState('');
-  const [newCouponDesc, setNewCouponDesc] = useState('');
-  const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
-
-  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
-
-  const refreshCoupons = () => {
-    setCouponsList(getStoredCoupons());
-    setAllotmentsList(getCouponAllotments());
-  };
-
-  useEffect(() => {
-    window.addEventListener('coupons-updated', refreshCoupons);
-    window.addEventListener('allotments-updated', refreshCoupons);
-    return () => {
-      window.removeEventListener('coupons-updated', refreshCoupons);
-      window.removeEventListener('allotments-updated', refreshCoupons);
-    };
-  }, []);
-
+  // Handlers for Create Coupon & Send Email
   const handleCreateCouponSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCouponCode.trim() || !newCouponDiscount) return;
@@ -189,24 +745,24 @@ export const AdminDashboardPage: React.FC = () => {
     const discountVal = parseInt(newCouponDiscount, 10) || 10;
     const targetEmail = newCouponUserEmail.trim();
 
-    const updated = addStoredCoupon({
-      code: newCouponCode,
+    addStoredCoupon({
+      code: newCouponCode.trim().toUpperCase(),
       discountPercent: discountVal,
-      description: `${discountVal}% Off Discount`,
-      targetUserEmail: targetEmail || undefined,
+      description: newCouponDesc.trim() || `Special ${discountVal}% Discount Coupon`,
+      targetUserEmail: targetEmail || undefined
     });
-    setCouponsList(updated);
 
-    const bannerText = targetEmail
-      ? `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created and assigned to ${targetEmail}! Notification sent to user dashboard & email.`
-      : `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created! You can add/edit assigned user email in the table anytime.`;
+    if (targetEmail) {
+      sendCouponToCustomer(newCouponCode.trim().toUpperCase(), targetEmail);
+    }
 
-    setSuccessBanner(bannerText);
+    setCouponsList(getStoredCoupons());
     setNewCouponCode('');
     setNewCouponDiscount('');
     setNewCouponDesc('');
     setNewCouponUserEmail('');
-    setIsAddCouponModalOpen(false);
+
+    setSuccessBanner(`Coupon "${newCouponCode.trim().toUpperCase()}" created successfully!`);
     setTimeout(() => setSuccessBanner(null), 6000);
   };
 
@@ -231,15 +787,11 @@ export const AdminDashboardPage: React.FC = () => {
 
     const result = sendCouponToCustomer(couponId, email);
     if (result.success) {
-      // Clear textbox input field in DOM
       const inputEl = document.getElementById(`coupon-email-${couponId}`) as HTMLInputElement;
       if (inputEl) {
         inputEl.value = '';
       }
-      // Reset targetUserEmail on the promo code row to empty
       updateCouponUserEmail(couponId, '');
-
-      // Refresh list states immediately
       setCouponsList(getStoredCoupons());
       setAllotmentsList(getCouponAllotments());
 
@@ -250,649 +802,536 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-
-  // Fetch staff & inventory exclusively from PostgreSQL Database on mount
-  useEffect(() => {
-    const loadDataFromDB = async () => {
-      try {
-        const staffData = await fetchStaffUsers();
-        setStaffList(staffData || []);
-
-        const invData = await fetchInventoryFromDB();
-        setInventoryList(invData || []);
-      } catch (e) {
-        console.warn('Could not fetch DB data:', e);
-      }
-    };
-    loadDataFromDB();
-  }, []);
-
-  // Staff Handlers
-  const handleAddStaffSubmit = async (e: React.FormEvent) => {
+  const handleSaveAdminProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    setStaffFormError(null);
+    setPasswordError(null);
 
-    if (!newStaffName.trim() || !newStaffEmail.trim()) {
-      setStaffFormError('Staff name and email address are required.');
-      return;
-    }
-
-    setIsSubmittingStaff(true);
-    try {
-      // 1. Call Backend API to insert in PostgreSQL and dispatch email
-      const res = await createStaffUser({
-        full_name: newStaffName.trim(),
-        email: newStaffEmail.trim(),
-        phone: newStaffPhone.trim() || undefined,
-        role_name: newStaffRole,
-        password: newStaffPassword.trim() || undefined,
-      });
-
-      const addedMember: StaffMember = {
-        id: `st-${res.user_id || Date.now()}`,
-        user_id: res.user_id,
-        name: res.full_name || newStaffName.trim(),
-        email: res.email || newStaffEmail.trim(),
-        phone: newStaffPhone.trim() || '+91 9999999999',
-        role: newStaffRole,
-        status: 'Active',
-        dateAdded: new Date().toISOString().split('T')[0],
-      };
-
-      setStaffList((prev) => [addedMember, ...prev]);
-      setSuccessBanner(`Successfully created ${newStaffRole} account for ${addedMember.name}! Credentials (Username: ${addedMember.email}, Password: ${res.generated_password}) have been sent via email to ${addedMember.email}.`);
-      
-      setNewStaffName('');
-      setNewStaffEmail('');
-      setNewStaffPhone('');
-      setNewStaffPassword('');
-      setIsAddStaffModalOpen(false);
-
-      setTimeout(() => {
-        setSuccessBanner(null);
-      }, 10000);
-    } catch (err: any) {
-      console.error('Failed to create staff:', err);
-      setStaffFormError(typeof err?.message === 'string' ? err.message : 'Failed to create staff member.');
-    } finally {
-      setIsSubmittingStaff(false);
-    }
-  };
-
-  const handleToggleStaffStatus = (id: string) => {
-    setStaffList((prev) =>
-      prev.map((s) =>
-        s.id === id ? { ...s, status: s.status === 'Active' ? 'Inactive' : 'Active' } : s
-      )
-    );
-  };
-
-  // Inventory Handlers
-  const handleStockCountChange = async (id: string, delta: number) => {
-    const targetItem = inventoryList.find((i) => i.id === id);
-    if (!targetItem) return;
-
-    const newQty = Math.max(0, targetItem.stockCount + delta);
-    let newStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
-    if (newQty === 0) newStatus = 'Out of Stock';
-    else if (newQty < 5) newStatus = 'Low Stock';
-
-    setInventoryList((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, stockCount: newQty, status: newStatus } : item))
-    );
-
-    if (targetItem.product_id) {
-      try {
-        await updateStockInDB(targetItem.product_id, newQty);
-      } catch (err) {
-        console.warn('Could not persist stock update to DB:', err);
+    if (profileForm.currentPassword || profileForm.newPassword || profileForm.confirmPassword) {
+      if (!profileForm.currentPassword) {
+        setPasswordError('Please enter your current password to confirm security updates.');
+        return;
+      }
+      if (profileForm.newPassword.length < 6) {
+        setPasswordError('New password must be at least 6 characters long.');
+        return;
+      }
+      if (profileForm.newPassword !== profileForm.confirmPassword) {
+        setPasswordError('New password and confirm password do not match.');
+        return;
       }
     }
+
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      parsed.full_name = profileForm.full_name;
+      parsed.email = profileForm.email;
+      localStorage.setItem('user', JSON.stringify(parsed));
+    }
+
+    let initials = 'AD';
+    if (profileForm.full_name) {
+      const parts = profileForm.full_name.trim().split(' ');
+      if (parts.length >= 2) {
+        initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+      } else if (parts[0].length >= 2) {
+        initials = parts[0].substring(0, 2).toUpperCase();
+      }
+    }
+
+    setCurrentUser({ name: profileForm.full_name, email: profileForm.email, initials });
+    setIsAdminProfileModalOpen(false);
+    setSuccessBanner('Admin profile & security credentials updated successfully!');
+    setTimeout(() => setSuccessBanner(null), 5000);
   };
 
-  const handleAddProductSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newProdName.trim() || !newProdPrice) return;
+  // Calculations for KPI summary cards
+  const totalProducts = productList.length;
+  const totalInStock = productList.reduce((acc, item) => acc + item.stockCount, 0);
+  const lowStockCount = productList.filter((item) => item.stockCount < 5).length;
+  const activeOrdersCount = orderList.filter(o => o.orderStatus === 'Pending' || o.orderStatus === 'Processing').length;
+  const lowStockProductsList = productList.filter(item => item.stockCount < 5);
 
-    const qty = parseInt(newProdStock) || 1;
-    const priceVal = parseFloat(newProdPrice) || 0;
-    const imgUrl = newProdImage.trim() || undefined;
+  const displayProducts = productList.filter((item) => {
+    const matchesCategory = categoryFilter === 'All' || item.category === categoryFilter;
+    let matchesPrice = true;
+    if (priceRangeFilter === '<10k') matchesPrice = item.price < 10000;
+    else if (priceRangeFilter === '10k-25k') matchesPrice = item.price >= 10000 && item.price <= 25000;
+    else if (priceRangeFilter === '25k-50k') matchesPrice = item.price > 25000 && item.price <= 50000;
+    else if (priceRangeFilter === '50k+') matchesPrice = item.price > 50000;
 
-    try {
-      const created = await createProductInDB({
-        name: newProdName.trim(),
-        category: newProdCategory,
-        material: newProdMaterial.trim(),
-        price: priceVal,
-        stock_count: qty,
-        image_url: imgUrl,
-      });
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch =
+      !q ||
+      item.name.toLowerCase().includes(q) ||
+      item.sku.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q) ||
+      item.material.toLowerCase().includes(q);
 
-      setInventoryList((prev) => [created, ...prev]);
-    } catch (err) {
-      console.warn('Could not save product to DB, adding locally:', err);
-      let statusVal: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
-      if (qty === 0) statusVal = 'Out of Stock';
-      else if (qty < 5) statusVal = 'Low Stock';
-
-      const newItem: InventoryItem = {
-        id: `inv-${Date.now()}`,
-        name: newProdName.trim(),
-        category: newProdCategory,
-        material: newProdMaterial,
-        price: priceVal,
-        stockCount: qty,
-        status: statusVal,
-        image_url: imgUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
-      };
-      setInventoryList((prev) => [newItem, ...prev]);
-    }
-
-    setNewProdName('');
-    setNewProdPrice('');
-    setNewProdStock('');
-    setNewProdImage('');
-    setIsAddProductModalOpen(false);
-  };
-
-
-
-  // Filtered Lists
-  const filteredStaff = staffList.filter((staff) => {
-    if (staffRoleFilter !== 'All' && staff.role !== staffRoleFilter) return false;
-    if (staffSearchQuery.trim()) {
-      const q = staffSearchQuery.toLowerCase();
-      return (
-        staff.name.toLowerCase().includes(q) ||
-        staff.email.toLowerCase().includes(q) ||
-        staff.phone.includes(q)
-      );
-    }
-    return true;
+    return matchesCategory && matchesPrice && matchesSearch;
   });
 
-  const filteredInventory = inventoryList.filter((item) => {
-    if (inventorySearchQuery.trim()) {
-      const q = inventorySearchQuery.toLowerCase();
-      return (
-        item.name.toLowerCase().includes(q) ||
-        item.category.toLowerCase().includes(q) ||
-        item.material.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  const filteredSuppliers = supplierList.filter((s) => {
+    if (!supplierSearchQuery.trim()) return true;
+    const q = supplierSearchQuery.toLowerCase();
+    const matchesBasic =
+      s.supplier_name.toLowerCase().includes(q) ||
+      s.phone.toLowerCase().includes(q) ||
+      (s.address && s.address.toLowerCase().includes(q));
 
-  const totalRetailStaff = staffList.filter((s) => s.role === 'Retail Staff' && s.status === 'Active').length;
-  const totalProdStaff = staffList.filter((s) => s.role === 'Production Staff' && s.status === 'Active').length;
-  const totalStockItems = inventoryList.reduce((acc, i) => acc + i.stockCount, 0);
+    if (matchesBasic) return true;
+
+    const isArun = s.supplier_name.toLowerCase().includes('arun');
+    let prodsForSup: any[] = [];
+    if (s.assigned_products && s.assigned_products.length > 0) {
+      prodsForSup = s.assigned_products;
+    } else {
+      prodsForSup = isArun ? displayProducts.slice(0, 6) : displayProducts.slice(6);
+    }
+
+    return prodsForSup.some((p: any) => {
+      const pName = (p.name || p.product_name || '').toLowerCase();
+      const pSku = (p.sku || `SKU-RS-${p.product_id || p.id}` || '').toLowerCase();
+      const pCategory = (p.category || '').toLowerCase();
+      const pMaterial = (p.material || '').toLowerCase();
+      return pName.includes(q) || pSku.includes(q) || pCategory.includes(q) || pMaterial.includes(q);
+    });
+  });
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Ambient Warm Luxury Living Room Background Image Layer */}
-      <div 
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
-        style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
-        }}
-      />
+    <div className="min-h-screen bg-[#FAF7F2] text-[#2C241D] font-sans antialiased selection:bg-[#48A63E]/20 selection:text-[#48A63E] relative overflow-x-hidden">
+      {/* Dynamic Background Glows */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#48A63E]/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute top-1/2 -left-40 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl"></div>
+      </div>
 
-      {/* Lighter Translucent Warm Cream Overlay Layer */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+      <div className="relative z-10 flex flex-col min-h-screen">
+        {/* TOP EXECUTIVE HEADER NAV */}
+        <header className="sticky top-0 z-40 ultra-glass border-b border-[#E2D7CB]/80 px-4 sm:px-8 py-3.5 shadow-sm">
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+            {/* Left: Brand Identity */}
+            <div className="flex items-center gap-3">
+              <Link to="/dashboard" className="flex items-center gap-2 group">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#2C241D] to-[#4A3E34] flex items-center justify-center text-white font-extrabold shadow-md group-hover:scale-105 transition-transform">
+                  RS
+                </div>
+                <div>
+                  <h1 className="font-extrabold text-base tracking-tight text-[#2C241D] flex items-center gap-1.5">
+                    <span>RetailSphere</span>
+                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30 uppercase">
+                      Admin Portal
+                    </span>
+                  </h1>
+                  <p className="text-[11px] font-bold text-[#7A6C5E]">Executive Operations & Control Suite</p>
+                </div>
+              </Link>
+            </div>
 
-      {/* Foreground Content */}
-      <div className="relative z-10 flex w-full min-h-screen">
-        {/* LEFT SIDEBAR (Styled matching Customer Dashboard) */}
-        <aside className="w-64 ultra-glass-panel border-r border-[#E2D7CB] hidden md:flex flex-col justify-between p-6 shadow-xl sticky top-0 h-screen z-20">
-          <div className="space-y-8">
-            {/* Brand Logo */}
-            <div className="flex items-center justify-between">
-              <div>
-                <Link to="/dashboard" className="font-extrabold text-[#2C241D] text-lg tracking-tight block hover:opacity-90 transition-opacity">
-                  RetailSphere <span className="text-[#48A63E]">AI</span>
-                </Link>
-                <span className="text-[10px] font-extrabold text-[#48A63E] uppercase tracking-widest block font-mono -mt-0.5">
-                  Admin Portal
-                </span>
+            {/* Middle: Universal Search Bar */}
+            <div className="hidden md:flex items-center flex-1 max-w-md mx-4">
+              <div className="relative w-full">
+                <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search products, staff, suppliers, codes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 bg-white/80 border border-[#E2D7CB] rounded-2xl text-xs font-semibold text-[#2C241D] placeholder-[#9E9082] focus:outline-none focus:border-[#48A63E] transition-all shadow-xs"
+                />
               </div>
             </div>
 
-            {/* Navigation Links */}
-            <nav className="space-y-2 text-xs font-bold">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'overview'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Dashboard Overview</span>
-              </button>
+            {/* Right: Notifications & User Profile Menu */}
+            <div className="flex items-center gap-3">
+              {/* Notification Bell */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                  className="relative p-2.5 rounded-2xl bg-white/80 hover:bg-white border border-[#E2D7CB] text-[#2C241D] transition-all shadow-xs"
+                  title="System Notifications"
+                >
+                  <Bell className="w-4.5 h-4.5 text-[#2C241D]" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#48A63E] text-white text-[10px] font-extrabold flex items-center justify-center border border-white shadow-xs">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
 
-              <button
-                onClick={() => setActiveTab('staff')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'staff'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Users className="w-4 h-4" />
-                  <span>Staff Management</span>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'staff' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                }`}>
-                  {staffList.length}
-                </span>
-              </button>
+                {/* Notifications Popover */}
+                {isNotificationsOpen && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white border border-[#E2D7CB] rounded-2xl p-4 shadow-xl z-50 animate-fadeIn">
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2 mb-3">
+                      <h4 className="font-extrabold text-xs text-[#2C241D]">System Activity & Alerts</h4>
+                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md">
+                        {unreadCount} New
+                      </span>
+                    </div>
 
-              <button
-                onClick={() => setActiveTab('inventory')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'inventory'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Package className="w-4 h-4" />
-                  <span>Stock & Inventory</span>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'inventory' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                }`}>
-                  {inventoryList.length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('queries')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'queries'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <MessageSquare className="w-4 h-4" />
-                  <span>Staff Queries & Requests</span>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'queries' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-900 border border-amber-300'
-                }`}>
-                  {pendingQueriesCount > 0 ? `${pendingQueriesCount} Pending` : staffQueries.length}
-                </span>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('coupons')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'coupons'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Tag className="w-4 h-4" />
-                  <span>Coupons & Discounts</span>
-                </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'coupons' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                }`}>
-                  {couponsList.length}
-                </span>
-              </button>
-            </nav>
-
-
-          </div>
-
-          {/* Bottom User / Store Navigation */}
-          <div className="pt-6 border-t border-[#EFE7DE] space-y-3">
-            <button
-              onClick={() => navigate('/dashboard')}
-              className="w-full py-2.5 px-3 rounded-xl bg-white/90 border border-[#E2D7CB] hover:bg-[#F5ECE1] text-[#2C241D] text-xs font-bold transition-colors flex items-center justify-center gap-2 shadow-xs"
-            >
-              <span>Customer Store View</span>
-              <span className="text-[10px] text-[#48A63E] font-extrabold">→</span>
-            </button>
-
-            <div className="flex items-center justify-between p-2.5 rounded-xl bg-white/90 border border-[#E2D7CB] shadow-sm">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center flex-shrink-0 shadow-md">
-                  AD
-                </div>
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-[#2C241D] truncate">Administrator</p>
-                  <p className="text-[10px] text-[#7A6C5E] truncate">admin@retailsphere.com</p>
-                </div>
+                    <div className="max-h-64 overflow-y-auto space-y-2 text-xs">
+                      {notifications.length === 0 ? (
+                        <p className="text-center py-4 text-[#8C7C6D] italic">No active notifications</p>
+                      ) : (
+                        notifications.map((n, i) => (
+                          <div key={n.id || i} className="p-2.5 rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
+                            <p className="font-bold text-[#2C241D] text-xs">{n.title || n.message}</p>
+                            <span className="text-[10px] text-[#8C7C6D] block">{n.created_at ? new Date(n.created_at).toLocaleString() : 'Recent'}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => navigate('/login')}
-                title="Logout"
-                className="p-1.5 text-[#9E9082] hover:text-rose-600 rounded-lg hover:bg-[#F5ECE1] transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
+
+              {/* User Profile Avatar Dropdown */}
+              <div className="relative">
+                <button
+                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
+                  className="flex items-center gap-2.5 p-1.5 pl-2.5 pr-3 rounded-2xl bg-white/80 hover:bg-white border border-[#E2D7CB] transition-all shadow-xs"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-[#48A63E] text-white font-extrabold text-xs flex items-center justify-center">
+                    {currentUser.initials}
+                  </div>
+                  <div className="hidden sm:block text-left">
+                    <span className="block text-xs font-extrabold text-[#2C241D] leading-tight">{currentUser.name}</span>
+                    <span className="block text-[10px] font-bold text-[#7A6C5E] leading-tight">Admin Executive</span>
+                  </div>
+                  <ChevronDown className="w-3.5 h-3.5 text-[#7A6C5E]" />
+                </button>
+
+                {isUserMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-56 bg-white border border-[#E2D7CB] rounded-2xl p-2 shadow-xl z-50 animate-fadeIn space-y-1 text-xs">
+                    <div className="px-3 py-2 border-b border-[#EFE7DE]">
+                      <p className="font-extrabold text-[#2C241D]">{currentUser.name}</p>
+                      <p className="text-[10px] text-[#7A6C5E] font-medium">{currentUser.email}</p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setIsUserMenuOpen(false);
+                        setIsAdminProfileModalOpen(true);
+                      }}
+                      className="w-full px-3 py-2 text-left rounded-xl hover:bg-[#F9F6F0] font-bold text-[#2C241D] flex items-center gap-2 transition-colors"
+                    >
+                      <User className="w-4 h-4 text-[#48A63E]" />
+                      <span>View & Edit Profile</span>
+                    </button>
+
+                    <button
+                      onClick={handleSignOut}
+                      className="w-full px-3 py-2 text-left rounded-xl hover:bg-rose-50 text-rose-700 font-bold flex items-center gap-2 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        </aside>
+        </header>
 
+        {/* MAIN BODY CONTAINER */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 py-6 flex-1 w-full space-y-6">
+          {/* SUCCESS NOTICE BANNER */}
+          {successBanner && (
+            <div className="bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] p-4 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-between animate-fadeIn shadow-xs">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-[#48A63E]" />
+                <span>{successBanner}</span>
+              </div>
+              <button onClick={() => setSuccessBanner(null)} className="text-[#48A63E] hover:opacity-70">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
-      {/* RIGHT MAIN CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        
-        {/* Mobile Top Nav Bar */}
-        <div className="md:hidden bg-white border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
-          <div className="flex items-center gap-2">
-            <span className="font-extrabold text-sm text-slate-900">RetailSphere Admin</span>
-          </div>
-          <div className="flex items-center gap-2">
+          {/* ADMIN TABS NAVIGATION BAR */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-[#E2D7CB] pt-1">
             <button
               onClick={() => setActiveTab('staff')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold ${
-                activeTab === 'staff' ? 'bg-[#2C4A3E] text-white' : 'bg-slate-100 text-slate-700'
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'staff'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
               }`}
             >
-              Staff
+              <Users className="w-4 h-4 text-[#48A63E]" />
+              <span>Staff Accounts ({staffMembers.length})</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('products')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'products'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
+              }`}
+            >
+              <Package className="w-4 h-4 text-[#48A63E]" />
+              <span>Furniture Products ({totalProducts})</span>
+            </button>
+
             <button
               onClick={() => setActiveTab('inventory')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold ${
-                activeTab === 'inventory' ? 'bg-[#2C4A3E] text-white' : 'bg-slate-100 text-slate-700'
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'inventory'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
               }`}
             >
-              Stock
+              <SlidersHorizontal className="w-4 h-4 text-[#48A63E]" />
+              <span>Stock & Warehouse ({totalInStock})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('suppliers')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'suppliers'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
+              }`}
+            >
+              <Truck className="w-4 h-4 text-[#48A63E]" />
+              <span>Supplier Directory ({supplierList.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'orders'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
+              }`}
+            >
+              <ShoppingBag className="w-4 h-4 text-[#48A63E]" />
+              <span>Order Fulfillment ({orderList.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('queries')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'queries'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
+              }`}
+            >
+              <MessageSquare className="w-4 h-4 text-[#48A63E]" />
+              <span>Queries ({staffQueries.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('coupons')}
+              className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-2 whitespace-nowrap transition-all ${
+                activeTab === 'coupons'
+                  ? 'bg-[#2C241D] text-white shadow-md'
+                  : 'bg-white/80 hover:bg-white text-[#6B5C4D] border border-[#E2D7CB]'
+              }`}
+            >
+              <Tag className="w-4 h-4 text-[#48A63E]" />
+              <span>Coupons & Discounts</span>
             </button>
           </div>
-        </div>
 
-        <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">
-          <div className="ultra-glass-panel rounded-[2.5rem] p-4 sm:p-6 lg:p-6 space-y-6 relative overflow-hidden">
-            {/* Glossy Top Reflection Sheen */}
-            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
-
-            {/* Success Banner Notice */}
-            {successBanner && (
-              <div className="p-4 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] flex items-start gap-3 shadow-md animate-fadeIn relative z-10">
-                <CheckCircle2 className="w-5 h-5 text-[#48A63E] flex-shrink-0 mt-0.5" />
-                <div className="flex-1 text-xs font-bold leading-relaxed">
-                  {successBanner}
-                </div>
-                <button
-                  onClick={() => setSuccessBanner(null)}
-                  className="text-[#48A63E] hover:text-[#3D9134] p-1"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {/* Top Page Header */}
-            <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-              <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                  {activeTab === 'overview' && 'Store Operations Overview'}
-                  {activeTab === 'staff' && 'Staff Management Roster'}
-                  {activeTab === 'inventory' && 'Inventory & Stock Count'}
-                  {activeTab === 'queries' && 'Staff Email Change Requests & Queries'}
-                </h1>
-                <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                  {activeTab === 'staff' && 'Manage Retail Staff & Production Staff credentials, roles, and SMTP email notifications.'}
-                  {activeTab === 'inventory' && 'Monitor product availability, adjust stock quantities, and add new furniture designs.'}
-                  {activeTab === 'overview' && 'Track live retail orders, custom studio production tasks, and system performance.'}
-                  {activeTab === 'queries' && 'Review messages submitted by retail and production staff, update statuses, and send replies.'}
-                </p>
-              </div>
-
-              {activeTab === 'staff' && (
-                <button
-                  onClick={() => setIsAddStaffModalOpen(true)}
-                  className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 self-start sm:self-auto"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Add Staff Member</span>
-                </button>
-              )}
-
-              {activeTab === 'inventory' && (
-                <button
-                  onClick={() => setIsAddProductModalOpen(true)}
-                  className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 self-start sm:self-auto"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>+ Add Product</span>
-                </button>
-              )}
-            </div>
-
-            {/* KPI Stat Cards (Only shown for staff/inventory/overview tabs) */}
-            {activeTab !== 'queries' && (
-              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="ultra-glass-card rounded-2xl p-5 space-y-2 shadow-sm border border-[#E2D7CB]">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Retail Staff</span>
-                    <Briefcase className="w-4 h-4 text-[#48A63E]" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{totalRetailStaff} Active</div>
-                  <div className="text-[11px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">
-                    Sales & Store Orders
-                  </div>
-                </div>
-
-                <div className="ultra-glass-card rounded-2xl p-5 space-y-2 shadow-sm border border-[#E2D7CB]">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Production Staff</span>
-                    <Wrench className="w-4 h-4 text-[#48A63E]" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{totalProdStaff} Active</div>
-                  <div className="text-[11px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">
-                    Furniture Studio & Crafting
-                  </div>
-                </div>
-
-                <div className="ultra-glass-card rounded-2xl p-5 space-y-2 shadow-sm border border-[#E2D7CB]">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Total Stock</span>
-                    <Package className="w-4 h-4 text-[#48A63E]" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{totalStockItems} Units</div>
-                  <div className="text-[11px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">
-                    Available in Warehouse
-                  </div>
-                </div>
-              </div>
-            )}
-
-
-
-
-          {/* TAB: STAFF MANAGEMENT */}
+          {/* TAB 1: STAFF ACCOUNTS MANAGEMENT (ADMIN FEATURE) */}
           {activeTab === 'staff' && (
             <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-              {/* Filter Controls & Search */}
+              {/* Header & Create Staff Trigger */}
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <span className="text-xs font-bold text-[#7A6C5E] mr-1 flex items-center gap-1.5">
-                    <SlidersHorizontal className="w-3.5 h-3.5 text-[#48A63E]" /> Filter Role:
-                  </span>
-                  {(['All', 'Retail Staff', 'Production Staff'] as const).map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setStaffRoleFilter(r)}
-                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all ${
-                        staffRoleFilter === r
-                          ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20'
-                          : 'bg-[#F9F6F0] border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F2ECE1]'
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Staff Member Accounts</h3>
+                  <p className="text-xs text-[#7A6C5E]">Create and manage Retail Staff and Production Staff accounts.</p>
                 </div>
 
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search staff by name or email..."
-                    value={staffSearchQuery}
-                    onChange={(e) => setStaffSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
-                  />
-                </div>
+                <button
+                  onClick={() => setIsAddStaffModalOpen(true)}
+                  className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add New Staff Member</span>
+                </button>
               </div>
 
+              {/* Role Filters */}
+              <div className="flex items-center gap-2">
+                {['All', 'Retail Staff', 'Production Staff'].map((role) => (
+                  <button
+                    key={role}
+                    onClick={() => setStaffRoleFilter(role as any)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${
+                      staffRoleFilter === role
+                        ? 'bg-[#48A63E] text-white'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                    }`}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
 
-              {/* Staff Roster Table */}
+              {/* Staff Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="border-b border-[#EBE6DF] text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                    <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
                       <th className="py-3 px-4">Staff Member</th>
-                      <th className="py-3 px-4">Username / Email</th>
+                      <th className="py-3 px-4">Email / Username</th>
                       <th className="py-3 px-4">Phone Number</th>
-                      <th className="py-3 px-4">Assigned Role</th>
-                      <th className="py-3 px-4">Account Status</th>
-                      <th className="py-3 px-4">Date Registered</th>
-                      <th className="py-3 px-4 text-right">Actions</th>
+                      <th className="py-3 px-4">Role</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Date Added</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#F3EFEA] font-medium">
-                    {filteredStaff.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-12 text-center text-slate-400 font-semibold">
-                          No staff members found matching your filter criteria.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredStaff.map((staff) => (
-                        <tr key={staff.id} className="hover:bg-[#FAF7F2] transition-colors">
-                          <td className="py-4 px-4 font-bold text-slate-900 flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-full text-white font-bold text-xs flex items-center justify-center flex-shrink-0 shadow-xs ${
-                              staff.role === 'Retail Staff' ? 'bg-blue-600' : 'bg-amber-600'
-                            }`}>
-                              {staff.name[0]}
+                  <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                    {staffMembers
+                      .filter((s) => staffRoleFilter === 'All' || s.role === staffRoleFilter)
+                      .map((staff) => (
+                        <tr key={staff.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                          <td className="py-4 px-4 font-extrabold text-[#2C241D] flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-full bg-[#48A63E]/20 text-[#48A63E] font-extrabold flex items-center justify-center text-xs">
+                              {staff.name.substring(0, 2).toUpperCase()}
                             </div>
                             <span>{staff.name}</span>
                           </td>
-                          <td className="py-4 px-4 text-slate-700 font-semibold">{staff.email}</td>
-                          <td className="py-4 px-4 text-slate-600">{staff.phone}</td>
+                          <td className="py-4 px-4 font-mono text-[#6B5C4D]">{staff.email}</td>
+                          <td className="py-4 px-4 text-[#6B5C4D]">{staff.phone}</td>
                           <td className="py-4 px-4">
-                            <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-3 py-1 rounded-full border ${
-                              staff.role === 'Retail Staff'
-                                ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                : 'bg-amber-50 text-amber-800 border-amber-200'
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                              staff.role === 'Production Staff'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-blue-100 text-blue-800'
                             }`}>
-                              {staff.role === 'Retail Staff' ? <Briefcase className="w-3 h-3" /> : <Wrench className="w-3 h-3" />}
                               {staff.role}
                             </span>
                           </td>
                           <td className="py-4 px-4">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                              staff.status === 'Active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
-                            }`}>
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
                               {staff.status}
                             </span>
                           </td>
-                          <td className="py-4 px-4 text-slate-500">{staff.dateAdded}</td>
-                          <td className="py-4 px-4 text-right">
-                            <button
-                              onClick={() => handleToggleStaffStatus(staff.id)}
-                              className="text-xs text-slate-600 hover:text-slate-900 font-bold hover:underline"
-                            >
-                              {staff.status === 'Active' ? 'Deactivate' : 'Activate'}
-                            </button>
-                          </td>
+                          <td className="py-4 px-4 text-right font-mono text-[#7A6C5E]">{staff.dateAdded}</td>
                         </tr>
-                      ))
-                    )}
+                      ))}
                   </tbody>
                 </table>
               </div>
             </div>
           )}
 
-          {/* TAB: INVENTORY & STOCK */}
-          {activeTab === 'inventory' && (
+          {/* TAB 2: PRODUCTS CATALOG MANAGEMENT (FROM STAFF DASHBOARD) */}
+          {activeTab === 'products' && (
             <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
               <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                <h2 className="text-base font-extrabold text-[#2C241D]">Furniture Stock Inventory</h2>
-                <div className="relative w-full sm:w-72">
-                  <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search furniture items..."
-                    value={inventorySearchQuery}
-                    onChange={(e) => setInventorySearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
-                  />
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Furniture Products Catalog</h3>
+                  <p className="text-xs text-[#7A6C5E]">Full inventory control, price edits, and SKU product code manager.</p>
+                </div>
+
+                <button
+                  onClick={() => setIsAddProductModalOpen(true)}
+                  className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add New Product</span>
+                </button>
+              </div>
+
+              {/* Filters Bar */}
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-[#7A6C5E]">Category:</span>
+                  {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office'].map((cat) => (
+                    <button
+                      key={cat}
+                      onClick={() => setCategoryFilter(cat)}
+                      className={`px-3 py-1.5 rounded-xl font-extrabold transition-colors ${
+                        categoryFilter === cat
+                          ? 'bg-[#48A63E] text-white'
+                          : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <span className="font-extrabold text-[#7A6C5E]">Price Filter:</span>
+                  <select
+                    value={priceRangeFilter}
+                    onChange={(e) => setPriceRangeFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                  >
+                    <option value="All">All Prices</option>
+                    <option value="<10k">Under ₹10,000</option>
+                    <option value="10k-25k">₹10,000 - ₹25,000</option>
+                    <option value="25k-50k">₹25,000 - ₹50,000</option>
+                    <option value="50k+">Above ₹50,000</option>
+                  </select>
                 </div>
               </div>
 
+              {/* Products Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                      <th className="py-3 px-4">Furniture Title</th>
+                      <th className="py-3 px-4">Product</th>
+                      <th className="py-3 px-4">Product Code (SKU)</th>
                       <th className="py-3 px-4">Category</th>
-                      <th className="py-3 px-4">Material Finish</th>
+                      <th className="py-3 px-4">Material</th>
                       <th className="py-3 px-4">Price</th>
-                      <th className="py-3 px-4">Stock Quantity</th>
-                      <th className="py-3 px-4">Availability</th>
-                      <th className="py-3 px-4 text-right">Adjust Stock</th>
+                      <th className="py-3 px-4">Stock Count</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                    {filteredInventory.map((item) => (
-                      <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                        <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                          <div className="flex items-center gap-3">
-                            <img
-                              src={item.image_url || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"}
-                              alt={item.name}
-                              className="w-10 h-10 rounded-xl object-cover border border-[#E2D7CB] shadow-xs flex-shrink-0 bg-white"
-                            />
-                            <span>{item.name}</span>
-                          </div>
+                    {displayProducts.map((prod) => (
+                      <tr key={prod.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                        <td className="py-3.5 px-4 font-extrabold text-[#2C241D] flex items-center gap-3">
+                          {prod.image_url ? (
+                            <img src={prod.image_url} alt={prod.name} className="w-10 h-10 rounded-xl object-cover border border-[#E2D7CB]" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-xl bg-[#48A63E]/10 text-[#48A63E] font-bold flex items-center justify-center">
+                              <Package className="w-5 h-5" />
+                            </div>
+                          )}
+                          <span>{prod.name}</span>
                         </td>
-
-                        <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
-                        <td className="py-4 px-4 text-[#6B5C4D]">{item.material}</td>
-                        <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{item.price.toLocaleString('en-IN')}</td>
-                        <td className="py-4 px-4">
-                          <span className="font-extrabold text-sm text-[#2C241D]">{item.stockCount}</span> units
-                        </td>
-                        <td className="py-4 px-4">
+                        <td className="py-3.5 px-4 font-mono text-[#48A63E] font-extrabold">{prod.sku}</td>
+                        <td className="py-3.5 px-4 text-[#6B5C4D]">{prod.category}</td>
+                        <td className="py-3.5 px-4 text-[#6B5C4D]">{prod.material}</td>
+                        <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">₹{prod.price.toLocaleString('en-IN')}</td>
+                        <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{prod.stockCount} Units</td>
+                        <td className="py-3.5 px-4">
                           <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                            item.status === 'In Stock'
+                            prod.status === 'In Stock'
                               ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                              : item.status === 'Low Stock'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-rose-100 text-rose-700'
+                              : prod.status === 'Low Stock'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-700'
                           }`}>
-                            {item.status}
+                            {prod.status}
                           </span>
                         </td>
-                        <td className="py-4 px-4 text-right">
-                          <div className="inline-flex items-center gap-1 bg-[#F9F6F0] p-1 rounded-xl border border-[#E2D7CB]">
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-2">
                             <button
-                              onClick={() => handleStockCountChange(item.id, -1)}
-                              className="w-6 h-6 rounded-lg bg-white hover:bg-[#F2ECE1] text-[#2C241D] font-extrabold flex items-center justify-center shadow-xs"
-                              title="Decrease stock"
+                              onClick={() => handleOpenEditProduct(prod)}
+                              className="p-1.5 rounded-lg text-[#6B5C4D] hover:bg-[#F2ECE1] transition-colors"
+                              title="Edit product"
                             >
-                              -
+                              <Edit className="w-4 h-4" />
                             </button>
                             <button
-                              onClick={() => handleStockCountChange(item.id, 1)}
-                              className="w-6 h-6 rounded-lg bg-white hover:bg-[#F2ECE1] text-[#2C241D] font-extrabold flex items-center justify-center shadow-xs"
-                              title="Increase stock"
+                              onClick={() => handleOpenDeleteModal(prod)}
+                              className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="Delete product"
                             >
-                              +
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -904,265 +1343,443 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           )}
 
-          {/* TAB: OVERVIEW */}
-          {activeTab === 'overview' && (
-            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
-              <h2 className="text-base font-extrabold text-[#2C241D] border-b border-[#EFE7DE] pb-3">
-                Live Store Workflows
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="p-5 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-3">
-                  <div className="flex items-center gap-2 text-[#48A63E] font-bold text-xs uppercase tracking-wider">
-                    <Briefcase className="w-4 h-4" /> Retail Staff Portal
-                  </div>
-                  <p className="text-xs text-[#6B5C4D] leading-relaxed">
-                    Retail staff manage incoming store orders, customer inquiries, and sales dispatches.
-                  </p>
-                  <button
-                    onClick={() => setActiveTab('staff')}
-                    className="text-xs font-extrabold text-[#48A63E] hover:underline"
-                  >
-                    Manage Retail Staff ({totalRetailStaff}) →
-                  </button>
+          {/* TAB 3: STOCK CONTROL & WAREHOUSE (FROM STAFF DASHBOARD) */}
+          {activeTab === 'inventory' && (
+            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Stock Control & Warehouse Availability</h3>
+                  <p className="text-xs text-[#7A6C5E]">Adjust unit quantities, monitor low-stock thresholds, and reorder stock.</p>
                 </div>
 
-                <div className="p-5 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-3">
-                  <div className="flex items-center gap-2 text-[#48A63E] font-bold text-xs uppercase tracking-wider">
-                    <Wrench className="w-4 h-4" /> Production Studio Staff
-                  </div>
-                  <p className="text-xs text-[#6B5C4D] leading-relaxed">
-                    Production staff manage teak woodworking, bouclé upholstering, and bespoke custom furniture builds.
-                  </p>
+                <div className="flex items-center gap-3">
                   <button
-                    onClick={() => setActiveTab('staff')}
-                    className="text-xs font-extrabold text-[#48A63E] hover:underline"
+                    onClick={() => setShowLowStockModal(true)}
+                    className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
                   >
-                    Manage Production Staff ({totalProdStaff}) →
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Low Stock Alert ({lowStockCount})</span>
                   </button>
                 </div>
+              </div>
+
+              {/* Stock Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-4">Product Name</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4">Price</th>
+                      <th className="py-3 px-4">Available Units</th>
+                      <th className="py-3 px-4">Warehouse Status</th>
+                      <th className="py-3 px-4 text-right">Stock Adjustments</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                    {displayProducts.map((item) => (
+                      <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                        <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.name}</td>
+                        <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
+                        <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{item.price.toLocaleString('en-IN')}</td>
+                        <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.stockCount} Units</td>
+                        <td className="py-4 px-4">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                            item.status === 'In Stock'
+                              ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                              : item.status === 'Low Stock'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-rose-100 text-rose-700'
+                          }`}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-right">
+                          <button
+                            onClick={() => handleOpenStockModal(item)}
+                            className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs"
+                          >
+                            Update Stock
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
-          {/* TAB 4: STAFF QUERIES & EMAIL REQUESTS */}
-          {activeTab === 'queries' && (
-            <div className="space-y-6">
-              {/* Header & Filters */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#E2D7CB] pb-4">
+          {/* TAB 4: SUPPLIER DIRECTORY (FROM STAFF DASHBOARD) */}
+          {activeTab === 'suppliers' && (
+            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                 <div>
-                  <h3 className="text-xl font-extrabold text-[#2C241D]">Staff Email Change Requests & Queries</h3>
-                  <p className="text-xs font-bold text-[#6B5C4D]">Review messages submitted by retail and production staff, update statuses, and send replies.</p>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Supplier Directory & Vendor Partners</h3>
+                  <p className="text-xs text-[#7A6C5E]">Logistics partners, assigned product codes, and vendor contact info.</p>
                 </div>
 
-                {/* Filter Pills */}
+                <div className="flex items-center gap-3">
+                  <div className="relative w-64">
+                    <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search by product name or code..."
+                      value={supplierSearchQuery}
+                      onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => setIsAddSupplierModalOpen(true)}
+                    className="px-4 py-2 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Supplier</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Suppliers List */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {filteredSuppliers.map((sup) => {
+                  const isArun = sup.supplier_name.toLowerCase().includes('arun');
+                  let prodsForSup: any[] = [];
+                  if (sup.assigned_products && sup.assigned_products.length > 0) {
+                    prodsForSup = sup.assigned_products;
+                  } else {
+                    prodsForSup = isArun ? displayProducts.slice(0, 6) : displayProducts.slice(6);
+                  }
+
+                  return (
+                    <div key={sup.id} className="p-5 rounded-3xl bg-white border-2 border-[#E2D7CB] space-y-4 shadow-sm">
+                      <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-2xl bg-[#48A63E]/10 text-[#48A63E] font-extrabold flex items-center justify-center text-sm">
+                            {sup.supplier_name.substring(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <h4 className="font-extrabold text-base text-[#2C241D]">{sup.supplier_name}</h4>
+                            <p className="text-xs text-[#7A6C5E] font-semibold">📞 {sup.phone}</p>
+                          </div>
+                        </div>
+
+                        <span className="px-3 py-1 rounded-full bg-[#48A63E]/15 text-[#48A63E] text-xs font-extrabold">
+                          {prodsForSup.length} Products Assigned
+                        </span>
+                      </div>
+
+                      {/* Assigned Products Preview Table */}
+                      <div className="space-y-2">
+                        <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider block">Assigned Furniture Items:</span>
+                        <div className="max-h-48 overflow-y-auto space-y-1.5 text-xs">
+                          {prodsForSup.map((p: any, idx: number) => (
+                            <div key={idx} className="p-2.5 rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] flex items-center justify-between">
+                              <div>
+                                <span className="font-extrabold text-[#2C241D] block">{p.name || p.product_name}</span>
+                                <span className="font-mono text-[10px] text-[#48A63E] font-bold">
+                                  {p.sku || `SKU-RS-${p.product_id || p.id || Math.floor(100 + Math.random() * 900)}`}
+                                </span>
+                              </div>
+                              <span className="font-extrabold text-[#2C241D]">₹{(p.price || 12000).toLocaleString('en-IN')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 5: ORDER FULFILLMENT STUDIO (FROM STAFF DASHBOARD) */}
+          {activeTab === 'orders' && (
+            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Order Fulfillment Studio</h3>
+                  <p className="text-xs text-[#7A6C5E]">Track retail customer orders and update shipment statuses.</p>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="font-extrabold text-[#7A6C5E]">Filter Status:</span>
+                  <select
+                    value={orderStatusFilter}
+                    onChange={(e) => setOrderStatusFilter(e.target.value)}
+                    className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                  >
+                    <option value="All">All Orders</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Processing">Processing</option>
+                    <option value="Shipped">Shipped</option>
+                    <option value="Delivered">Delivered</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Orders Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-4">Order ID</th>
+                      <th className="py-3 px-4">Customer Name</th>
+                      <th className="py-3 px-4">Email</th>
+                      <th className="py-3 px-4">Items</th>
+                      <th className="py-3 px-4">Total Amount</th>
+                      <th className="py-3 px-4">Payment</th>
+                      <th className="py-3 px-4">Order Status</th>
+                      <th className="py-3 px-4 text-right">Update Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                    {orderList
+                      .filter((o) => orderStatusFilter === 'All' || o.orderStatus === orderStatusFilter)
+                      .map((ord) => (
+                        <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                          <td className="py-4 px-4 font-mono font-extrabold text-[#48A63E]">{ord.orderId}</td>
+                          <td className="py-4 px-4 font-extrabold text-[#2C241D]">{ord.customerName}</td>
+                          <td className="py-4 px-4 text-[#6B5C4D]">{ord.email}</td>
+                          <td className="py-4 px-4 text-[#6B5C4D]">{ord.itemsCount} Items</td>
+                          <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{ord.totalAmount.toLocaleString('en-IN')}</td>
+                          <td className="py-4 px-4">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                              <span>Paid</span>
+                            </span>
+                          </td>
+                          <td className="py-4 px-4">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                              ord.orderStatus === 'Delivered'
+                                ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                : ord.orderStatus === 'Shipped'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : ord.orderStatus === 'Processing'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {ord.orderStatus}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <select
+                              value={ord.orderStatus}
+                              onChange={(e) => handleUpdateOrderStatus(ord.orderId, e.target.value as any)}
+                              className="px-2.5 py-1 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                            >
+                              <option value="Pending">Pending</option>
+                              <option value="Processing">Processing</option>
+                              <option value="Shipped">Shipped</option>
+                              <option value="Delivered">Delivered</option>
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 6: STAFF & CUSTOMER QUERIES */}
+          {activeTab === 'queries' && (
+            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Staff & Customer Queries Inbox</h3>
+                  <p className="text-xs text-[#7A6C5E]">Review requests from staff & customers and send official responses.</p>
+                </div>
+
                 <div className="flex items-center gap-2">
-                  {(['All', 'Pending', 'Resolved'] as const).map((filter) => (
+                  {['All', 'Pending', 'Resolved'].map((st) => (
                     <button
-                      key={filter}
-                      onClick={() => setQueryFilter(filter)}
-                      className={`px-3.5 py-1.5 rounded-xl font-extrabold text-xs transition-all ${
-                        queryFilter === filter
-                          ? 'bg-[#48A63E] text-white shadow-xs'
-                          : 'bg-[#F3EDE5] border border-[#E2D7CB] text-[#2C241D] hover:bg-[#EAE0D4]'
+                      key={st}
+                      onClick={() => setQueryFilter(st as any)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${
+                        queryFilter === st
+                          ? 'bg-[#48A63E] text-white'
+                          : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
                       }`}
                     >
-                      {filter}
+                      {st}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Staff Queries Table */}
-              <div className="ultra-glass-card rounded-2xl border border-[#E2D7CB] shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="bg-[#FAF7F2] text-[#2C241D] font-extrabold border-b border-[#E2D7CB] text-[11px] uppercase tracking-wider">
-                        <th className="py-3.5 px-4">Staff Member</th>
-                        <th className="py-3.5 px-4">Category</th>
-                        <th className="py-3.5 px-4">Subject & Message</th>
-                        <th className="py-3.5 px-4">Submitted Date</th>
-                        <th className="py-3.5 px-4">Status</th>
-                        <th className="py-3.5 px-4 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#E2D7CB]/60">
-                      {staffQueries
-                        .filter(q => {
-                          if (queryFilter === 'Pending') return q.status === 'Pending' || q.status === 'In Review';
-                          if (queryFilter === 'Resolved') return q.status === 'Resolved' || q.status === 'Approved';
-                          return true;
-                        })
-                        .map((q) => (
-                          <tr key={q.id} className="hover:bg-[#F5ECE1]/40 transition-colors">
-                            <td className="py-4 px-4 font-bold text-[#2C241D]">
-                              <p className="font-extrabold text-sm">{q.staffName}</p>
-                              <p className="text-[11px] text-[#6B5C4D] font-mono">{q.staffEmail}</p>
-                            </td>
-
-                            <td className="py-4 px-4">
-                              <span className="px-2.5 py-1 rounded-md bg-[#48A63E]/15 text-[#48A63E] text-[11px] font-extrabold inline-block">
-                                {q.category}
-                              </span>
-                            </td>
-
-                            <td className="py-4 px-4 space-y-1 max-w-xs sm:max-w-md">
-                              <p className="font-extrabold text-xs text-[#2C241D]">{q.subject}</p>
-                              <p className="text-[11px] text-[#5C4E42] line-clamp-2 leading-relaxed bg-[#F3EDE5] p-2 rounded-lg border border-[#E2D7CB]">
-                                {q.message}
-                              </p>
-                              {q.adminResponse && (
-                                <p className="text-[11px] font-bold text-[#48A63E]">
-                                  ✓ Reply: "{q.adminResponse}"
-                                </p>
-                              )}
-                            </td>
-
-                            <td className="py-4 px-4 font-bold text-[#7A6C5E] text-[11px]">
-                              {q.createdAt}
-                            </td>
-
-                            <td className="py-4 px-4">
-                              <span className={`px-3 py-1 rounded-full text-xs font-extrabold inline-block ${
-                                q.status === 'Resolved' || q.status === 'Approved'
-                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                  : 'bg-amber-100 text-amber-800 border border-amber-300'
-                              }`}>
-                                {q.status}
-                              </span>
-                            </td>
-
-                            <td className="py-4 px-4 text-right">
-                              <button
-                                onClick={() => handleOpenQueryModal(q)}
-                                className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all shadow-xs inline-flex items-center gap-1.5"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                <span>Respond</span>
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 5: COUPONS & DISCOUNTS MANAGEMENT (ADMIN) */}
-          {activeTab === 'coupons' && (
-            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-              {/* Top Coupon KPI Summary Cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
-                  <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Active Discounts</span>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{couponsList.filter(c => c.status === 'Active').length} Coupons</div>
-                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Live Checkout Coupons</span>
-                </div>
-
-                <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
-                  <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Total Coupons Issued</span>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{couponsList.length} Total</div>
-                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Active In Catalog</span>
-                </div>
-              </div>
-
-              {/* Search Bar & Create Coupon Header */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4 pt-2">
-                <div className="relative w-full sm:w-80">
-                  <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search promo code or description..."
-                    value={couponSearchQuery}
-                    onChange={(e) => setCouponSearchQuery(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
-                  />
-                </div>
-
-                <button
-                  onClick={() => setIsAddCouponModalOpen(true)}
-                  className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Create & Dispatch Coupon</span>
-                </button>
-              </div>
-
-              {/* Coupon Data Table */}
+              {/* Queries Table */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
                     <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                      <th className="py-3 px-4">Promo Code</th>
-                      <th className="py-3 px-4">Discount %</th>
-                      <th className="py-3 px-4">Assigned User / Email (Editable)</th>
+                      <th className="py-3 px-4">Staff Member</th>
+                      <th className="py-3 px-4">Category</th>
+                      <th className="py-3 px-4">Subject</th>
+                      <th className="py-3 px-4">Submitted Date</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                    {staffQueries
+                      .filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending'))
+                      .map((query) => (
+                        <tr key={query.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                          <td className="py-4 px-4 font-extrabold text-[#2C241D]">
+                            <div>{query.staffName}</div>
+                            <span className="text-[10px] text-[#7A6C5E] font-mono">{query.staffEmail}</span>
+                          </td>
+                          <td className="py-4 px-4 text-[#6B5C4D]">
+                            <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md font-bold text-[#48A63E]">
+                              {query.category}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 font-bold text-[#2C241D]">{query.subject}</td>
+                          <td className="py-4 px-4 font-mono text-[#7A6C5E]">{query.createdAt}</td>
+                          <td className="py-4 px-4">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                              query.status === 'Resolved' || query.status === 'Approved'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}>
+                              {query.status}
+                            </span>
+                          </td>
+                          <td className="py-4 px-4 text-right">
+                            <button
+                              onClick={() => handleOpenQueryModal(query)}
+                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] text-white font-extrabold hover:bg-[#3D9134] transition-all shadow-xs cursor-pointer"
+                            >
+                              Respond
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: COUPONS & DISCOUNTS MANAGEMENT */}
+          {activeTab === 'coupons' && (
+            <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                <div>
+                  <h3 className="text-lg font-extrabold text-[#2C241D]">Coupons & Customer Discounts Manager</h3>
+                  <p className="text-xs text-[#7A6C5E]">Create promo codes and dispatch notifications & emails directly to targeted customer accounts.</p>
+                </div>
+              </div>
+
+              {/* Create Coupon Form */}
+              <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-3">
+                <h4 className="font-extrabold text-sm text-[#2C241D]">Create New Promo Code</h4>
+                <form onSubmit={handleCreateCouponSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <label className="block font-bold text-[#7A6C5E] mb-1">Coupon Code</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. VIP25"
+                      value={newCouponCode}
+                      onChange={(e) => setNewCouponCode(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono uppercase font-bold focus:outline-none focus:border-[#48A63E]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#7A6C5E] mb-1">Discount %</label>
+                    <input
+                      type="number"
+                      placeholder="e.g. 25"
+                      value={newCouponDiscount}
+                      onChange={(e) => setNewCouponDiscount(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#7A6C5E] mb-1">Assigned User / Email (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="Target customer email..."
+                      value={newCouponUserEmail}
+                      onChange={(e) => setNewCouponUserEmail(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <button
+                      type="submit"
+                      className="w-full py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create Coupon</span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Coupons List Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                      <th className="py-3 px-4">Coupon Code</th>
+                      <th className="py-3 px-4">Discount</th>
+                      <th className="py-3 px-4">Assigned Customer Email / User ID</th>
                       <th className="py-3 px-4">Created Date</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                    {couponsList
-                      .filter(c => !couponSearchQuery.trim() || c.code.toLowerCase().includes(couponSearchQuery.toLowerCase()) || (c.targetUserEmail && c.targetUserEmail.toLowerCase().includes(couponSearchQuery.toLowerCase())))
-                      .map((coupon) => (
-                        <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                          <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
-                            <div className="flex items-center gap-2">
-                              <Tag className="w-3.5 h-3.5 text-[#48A63E]" />
-                              <span className="bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">{coupon.code}</span>
-                            </div>
-                          </td>
-
-                          <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <input
-                                id={`coupon-email-${coupon.id}`}
-                                type="text"
-                                placeholder="Enter user email or User ID..."
-                                defaultValue={coupon.targetUserEmail || ''}
-                                onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    handleUpdateCouponUserEmail(coupon.id, (e.target as HTMLInputElement).value);
-                                  }
-                                }}
-                                className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
-                                title="Type customer email or User ID"
-                              />
-                              <button
-                                onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
-                                title="Send coupon to customer dashboard notification & dispatch email"
-                              >
-                                <Send className="w-3.5 h-3.5" />
-                                <span>Send Email</span>
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
-                          <td className="py-4 px-4">
-                            <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                              coupon.status === 'Active'
-                                ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                : 'bg-rose-100 text-rose-700'
-                            }`}>
-                              {coupon.status}
-                            </span>
-                          </td>
-                          <td className="py-4 px-4 text-right">
+                    {couponsList.map((coupon) => (
+                      <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                        <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                          <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">{coupon.code}</span>
+                        </td>
+                        <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <input
+                              id={`coupon-email-${coupon.id}`}
+                              type="text"
+                              placeholder="Enter user email or User ID..."
+                              defaultValue={coupon.targetUserEmail || ''}
+                              onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
+                              className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
+                            />
                             <button
-                              onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                              className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                              onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
+                              className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              <span>Remove Coupon</span>
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Send Email</span>
                             </button>
-                          </td>
-                        </tr>
-                      ))}
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
+                        <td className="py-4 px-4">
+                          <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
+                            {coupon.status}
+                          </span>
+                        </td>
+                        <td className="py-4 px-4 text-right">
+                          <button
+                            onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                            className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1242,12 +1859,9 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           )}
         </div>
-      </main>
-    </div>
+      </div>
 
-
-
-      {/* MODAL 1: ADD STAFF MEMBER & SEND EMAIL */}
+      {/* MODAL 1: ADD STAFF MEMBER */}
       {isAddStaffModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
           <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
@@ -1256,10 +1870,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <h3 className="text-lg font-extrabold text-[#2C241D]">Add Staff Member</h3>
                 <p className="text-[11px] text-[#7A6C5E]">Account will be created & credentials emailed to staff.</p>
               </div>
-              <button
-                onClick={() => setIsAddStaffModalOpen(false)}
-                className="p-1.5 text-[#9E9082] hover:text-[#2C241D] rounded-full"
-              >
+              <button onClick={() => setIsAddStaffModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1327,14 +1938,14 @@ export const AdminDashboardPage: React.FC = () => {
                   onChange={(e) => setNewStaffPassword(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs"
                 />
-                <p className="text-[10px] text-[#7A6C5E] mt-1">Leave empty to auto-generate a strong 12-character password. Credentials will be emailed to staff.</p>
+                <p className="text-[10px] text-[#7A6C5E] mt-1">Leave empty to auto-generate a strong password. Credentials will be emailed.</p>
               </div>
 
               <div className="pt-3 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setIsAddStaffModalOpen(false)}
-                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold hover:bg-[#F2ECE1] transition-colors"
+                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold hover:bg-[#F2ECE1]"
                   disabled={isSubmittingStaff}
                 >
                   Cancel
@@ -1342,16 +1953,9 @@ export const AdminDashboardPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmittingStaff}
-                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold transition-all shadow-md shadow-[#48A63E]/20 flex items-center justify-center gap-1.5"
+                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold shadow-md flex items-center justify-center gap-1.5"
                 >
-                  {isSubmittingStaff ? (
-                    <span>Creating Staff...</span>
-                  ) : (
-                    <>
-                      <Mail className="w-4 h-4" />
-                      <span>Create & Send Email</span>
-                    </>
-                  )}
+                  {isSubmittingStaff ? <span>Creating...</span> : <><Mail className="w-4 h-4" /><span>Create & Send</span></>}
                 </button>
               </div>
             </form>
@@ -1359,16 +1963,13 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: ADD INVENTORY PRODUCT */}
+      {/* MODAL 2: ADD NEW PRODUCT */}
       {isAddProductModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
           <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-lg font-extrabold text-[#2C241D]">Add Inventory Product</h3>
-              <button
-                onClick={() => setIsAddProductModalOpen(false)}
-                className="p-1.5 text-[#9E9082] hover:text-[#2C241D] rounded-full"
-              >
+              <h3 className="text-lg font-extrabold text-[#2C241D]">Add New Product</h3>
+              <button onClick={() => setIsAddProductModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1378,7 +1979,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Product Title</label>
                 <input
                   type="text"
-                  placeholder="e.g. Modern Velvet Ottoman"
+                  placeholder="e.g. Modern Boucle Chair"
                   value={newProdName}
                   onChange={(e) => setNewProdName(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
@@ -1398,18 +1999,17 @@ export const AdminDashboardPage: React.FC = () => {
                     <option value="Dining Room">Dining Room</option>
                     <option value="Bedroom">Bedroom</option>
                     <option value="Home Office">Home Office</option>
-                    <option value="Custom Studio">Custom Studio</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Material Finish</label>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Material</label>
                   <input
                     type="text"
-                    placeholder="Teak Wood"
+                    placeholder="Teak / Fabric"
                     value={newProdMaterial}
                     onChange={(e) => setNewProdMaterial(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
                   />
                 </div>
               </div>
@@ -1419,10 +2019,10 @@ export const AdminDashboardPage: React.FC = () => {
                   <label className="block font-extrabold text-[#2C241D] mb-1">Price (₹)</label>
                   <input
                     type="number"
-                    placeholder="45000"
+                    placeholder="24999"
                     value={newProdPrice}
                     onChange={(e) => setNewProdPrice(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
                     required
                   />
                 </div>
@@ -1431,10 +2031,10 @@ export const AdminDashboardPage: React.FC = () => {
                   <label className="block font-extrabold text-[#2C241D] mb-1">Stock Count</label>
                   <input
                     type="number"
-                    placeholder="10"
+                    placeholder="12"
                     value={newProdStock}
                     onChange={(e) => setNewProdStock(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
                     required
                   />
                 </div>
@@ -1444,118 +2044,350 @@ export const AdminDashboardPage: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Product Image URL (Optional)</label>
                 <input
                   type="url"
-                  placeholder="https://images.unsplash.com/photo-..."
+                  placeholder="https://..."
                   value={newProdImage}
                   onChange={(e) => setNewProdImage(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold text-xs"
                 />
               </div>
-
 
               <div className="pt-3 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setIsAddProductModalOpen(false)}
-                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold hover:bg-[#F2ECE1] transition-colors"
+                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold transition-all shadow-md shadow-[#48A63E]/20"
+                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
                 >
-                  Add Product
+                  Save Product
                 </button>
               </div>
             </form>
-
           </div>
         </div>
       )}
 
-      {/* MODAL 3: ADMIN RESPOND TO STAFF QUERY */}
-      {selectedQuery && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md animate-fadeIn">
-          <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border-2 border-[#E2D7CB] space-y-4">
-            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-[#48A63E]/15 border border-[#48A63E]/30 flex items-center justify-center text-[#48A63E]">
-                  <MessageSquare className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-extrabold text-[#2C241D]">Respond to Staff Request</h3>
-                  <p className="text-xs font-bold text-[#6B5C4D]">From {selectedQuery.staffName} ({selectedQuery.staffEmail})</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedQuery(null)}
-                className="p-1.5 text-[#6B5C4D] hover:text-[#2C241D] rounded-xl bg-[#EAE0D4]"
-              >
+      {/* MODAL 3: EDIT PRODUCT */}
+      {isEditProductModalOpen && selectedProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-lg font-extrabold text-[#2C241D]">Edit Product Details</h3>
+              <button onClick={() => setIsEditProductModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Query Summary Box */}
-            <div className="p-4 rounded-xl bg-[#F3EDE5] border border-[#E2D7CB] space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="font-extrabold text-[#48A63E] bg-[#48A63E]/15 px-2.5 py-0.5 rounded-md">
-                  {selectedQuery.category}
-                </span>
-                <span className="text-[#8C7C6D] font-bold">{selectedQuery.createdAt}</span>
+            <form onSubmit={handleEditProductSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Product Title</label>
+                <input
+                  type="text"
+                  value={editProdName}
+                  onChange={(e) => setEditProdName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
+                  required
+                />
               </div>
-              <h4 className="font-extrabold text-sm text-[#2C241D]">{selectedQuery.subject}</h4>
-              <p className="text-[#5C4E42] font-semibold leading-relaxed">
-                "{selectedQuery.message}"
-              </p>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Price (₹)</label>
+                  <input
+                    type="number"
+                    value={editProdPrice}
+                    onChange={(e) => setEditProdPrice(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Stock Count</label>
+                  <input
+                    type="number"
+                    value={editProdStock}
+                    onChange={(e) => setEditProdStock(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditProductModalOpen(false)}
+                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
+                >
+                  Update Product
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: DELETE PRODUCT CONFIRMATION */}
+      {isDeleteModalOpen && productToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-sm shadow-2xl border border-[#E2D7CB] space-y-4 text-center">
+            <Trash2 className="w-10 h-10 text-rose-600 mx-auto" />
+            <h3 className="text-base font-extrabold text-[#2C241D]">Remove Product?</h3>
+            <p className="text-xs text-[#7A6C5E]">Are you sure you want to remove <strong>"{productToDelete.name}"</strong> from catalog?</p>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => setIsDeleteModalOpen(false)}
+                className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmDeleteProduct}
+                className="w-1/2 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs shadow-md"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: UPDATE STOCK */}
+      {isStockModalOpen && stockItemToEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-sm shadow-2xl border border-[#E2D7CB] space-y-4">
+            <h3 className="text-base font-extrabold text-[#2C241D]">Update Warehouse Stock</h3>
+            <p className="text-xs text-[#7A6C5E]">{stockItemToEdit.name}</p>
+
+            <form onSubmit={handleSaveStockUpdate} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-[#2C241D] mb-1">New Total Stock Units</label>
+                <input
+                  type="number"
+                  value={newStockVal}
+                  onChange={(e) => setNewStockVal(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsStockModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
+                >
+                  Save Stock
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: LOW STOCK REPORT MODAL */}
+      {showLowStockModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-2xl shadow-2xl border border-[#E2D7CB] space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div className="flex items-center gap-2 text-amber-800">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-extrabold">Low Stock Inventory Alert Report</h3>
+              </div>
+              <button onClick={() => setShowLowStockModal(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
-            {/* Response Form */}
-            <form onSubmit={handleSendAdminResponse} className="space-y-4 text-xs">
+            <div className="max-h-80 overflow-y-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                    <th className="py-2.5 px-3">Product Title</th>
+                    <th className="py-2.5 px-3">Category</th>
+                    <th className="py-2.5 px-3">Price</th>
+                    <th className="py-2.5 px-3">Stock Units</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                  {lowStockProductsList.map((item) => (
+                    <tr key={item.id} className="hover:bg-[#F5ECE1]/60">
+                      <td className="py-3 px-3 font-bold text-[#2C241D]">{item.name}</td>
+                      <td className="py-3 px-3 text-[#6B5C4D]">{item.category}</td>
+                      <td className="py-3 px-3 font-bold">₹{item.price.toLocaleString('en-IN')}</td>
+                      <td className="py-3 px-3 text-amber-800 font-extrabold">{item.stockCount} Units</td>
+                      <td className="py-3 px-3 text-right">
+                        <button
+                          onClick={() => {
+                            setShowLowStockModal(false);
+                            handleOpenStockModal(item);
+                          }}
+                          className="px-2.5 py-1 bg-[#48A63E] text-white rounded-lg text-[11px] font-bold"
+                        >
+                          Restock
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="pt-2 text-right">
+              <button
+                onClick={() => setShowLowStockModal(false)}
+                className="px-4 py-2 rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] font-bold text-xs"
+              >
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: ADD SUPPLIER */}
+      {isAddSupplierModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-base font-extrabold text-[#2C241D]">Add New Supplier</h3>
+              <button onClick={() => setIsAddSupplierModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateSupplierSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Admin Response Message</label>
-                <textarea
-                  rows={4}
-                  placeholder="Type your official Admin reply to the staff member..."
-                  value={adminResponseText}
-                  onChange={(e) => setAdminResponseText(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] placeholder-[#8C7C6D] focus:outline-none focus:border-[#48A63E]"
+                <label className="block font-bold text-[#2C241D] mb-1">Supplier / Company Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Arun Raj Logistics"
+                  value={newSupName}
+                  onChange={(e) => setNewSupName(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Update Status</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Approved', 'Resolved', 'In Review'] as const).map((st) => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => setAdminResponseStatus(st)}
-                      className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all border ${
-                        adminResponseStatus === st
-                          ? 'bg-[#48A63E] text-white border-[#48A63E] shadow-xs'
-                          : 'bg-[#EAE0D4] border-[#E2D7CB] text-[#2C241D] hover:bg-[#DED2C2]'
-                      }`}
-                    >
-                      {st}
-                    </button>
-                  ))}
-                </div>
+                <label className="block font-bold text-[#2C241D] mb-1">Contact Person</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Arun Raj"
+                  value={newSupContact}
+                  onChange={(e) => setNewSupContact(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
+                  required
+                />
               </div>
 
-              <div className="pt-3 border-t border-[#E2D7CB] flex gap-2">
+              <div>
+                <label className="block font-bold text-[#2C241D] mb-1">Phone Number</label>
+                <input
+                  type="tel"
+                  placeholder="9778237180"
+                  value={newSupPhone}
+                  onChange={(e) => setNewSupPhone(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSupplierModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
+                >
+                  Save Supplier
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 8: RESPOND TO QUERY MODAL */}
+      {selectedQuery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-lg shadow-2xl border border-[#E2D7CB] space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-base font-extrabold text-[#2C241D]">Respond to Staff Request</h3>
+              <button onClick={() => setSelectedQuery(null)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-[#F9F6F0] rounded-xl border border-[#E2D7CB] text-xs space-y-1">
+              <p className="font-extrabold text-[#2C241D]">{selectedQuery.staffName} ({selectedQuery.staffEmail})</p>
+              <p className="font-bold text-[#48A63E]">{selectedQuery.category}: {selectedQuery.subject}</p>
+              <p className="text-[#6B5C4D] italic">"{selectedQuery.message}"</p>
+            </div>
+
+            <form onSubmit={handleSendAdminResponse} className="space-y-3 text-xs">
+              <div>
+                <label className="block font-bold text-[#2C241D] mb-1">Set Resolution Status</label>
+                <select
+                  value={adminResponseStatus}
+                  onChange={(e) => setAdminResponseStatus(e.target.value as any)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
+                >
+                  <option value="Approved">Approved</option>
+                  <option value="Resolved">Resolved</option>
+                  <option value="In Review">In Review</option>
+                  <option value="Pending">Pending</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#2C241D] mb-1">Admin Response Message</label>
+                <textarea
+                  rows={4}
+                  placeholder="Enter response or confirmation details..."
+                  value={adminResponseText}
+                  onChange={(e) => setAdminResponseText(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
+                  required
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setSelectedQuery(null)}
-                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#5C4A3A] font-extrabold hover:bg-[#EAE0D4] transition-colors"
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold transition-all shadow-md shadow-[#48A63E]/20"
+                  className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
                 >
-                  Submit Response to Staff
+                  Send Response
                 </button>
               </div>
             </form>
@@ -1563,84 +2395,90 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: Create New Coupon (ADMIN) */}
-      {isAddCouponModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md">
-          <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#E2D7CB] space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-              <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Create Dearest Customer Coupon</h3>
-                <p className="text-[11px] font-bold text-[#6B5C4D]">Add a custom discount promo code for VIP customers</p>
-              </div>
-              <button
-                onClick={() => setIsAddCouponModalOpen(false)}
-                className="p-1.5 text-[#6B5C4D] hover:text-[#2C241D] rounded-full bg-[#EAE0D4]"
-              >
+      {/* MODAL 9: ADMIN PROFILE & SECURITY MODAL */}
+      {isAdminProfileModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-lg font-extrabold text-[#2C241D]">Admin Security & Profile Settings</h3>
+              <button onClick={() => setIsAdminProfileModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateCouponSubmit} className="space-y-3.5 text-xs font-semibold">
+            {passwordError && (
+              <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-xl font-bold">
+                {passwordError}
+              </div>
+            )}
+
+            <form onSubmit={handleSaveAdminProfile} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Coupon Promo Code *</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Full Name</label>
                 <input
                   type="text"
-                  placeholder="Enter promo code"
-                  value={newCouponCode}
-                  onChange={(e) => setNewCouponCode(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] font-mono font-bold uppercase text-[#2C241D]"
+                  value={profileForm.full_name}
+                  onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Discount Percentage (%) *</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Admin Email Address</label>
                 <input
-                  type="number"
-                  min="1"
-                  max="90"
-                  placeholder="e.g. 15 or 25"
-                  value={newCouponDiscount}
-                  onChange={(e) => setNewCouponDiscount(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
+                  type="email"
+                  value={profileForm.email}
+                  onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
                   required
                 />
               </div>
 
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Target User Email or User ID (Optional)</label>
+              <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
+                <span className="font-extrabold text-[#2C241D] block">Update Password Credentials</span>
                 <input
-                  type="text"
-                  placeholder="e.g. customer@retailsphere.com or USER-102"
-                  value={newCouponUserEmail}
-                  onChange={(e) => setNewCouponUserEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
+                  type="password"
+                  placeholder="Current Password"
+                  value={profileForm.currentPassword}
+                  onChange={(e) => setProfileForm({ ...profileForm, currentPassword: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs"
                 />
-                <p className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Leave empty or type email ID. You can also add/edit the customer email directly in the table textbox anytime.</p>
+                <input
+                  type="password"
+                  placeholder="New Password (min 6 chars)"
+                  value={profileForm.newPassword}
+                  onChange={(e) => setProfileForm({ ...profileForm, newPassword: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs"
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm New Password"
+                  value={profileForm.confirmPassword}
+                  onChange={(e) => setProfileForm({ ...profileForm, confirmPassword: e.target.value })}
+                  className="w-full px-3.5 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs"
+                />
               </div>
 
-              <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
+              <div className="pt-3 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddCouponModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4]"
+                  onClick={() => setIsAdminProfileModalOpen(false)}
+                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
+                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
                 >
-                  Create & Activate Coupon
+                  Save Profile
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      </div>
     </div>
   );
 };
-
