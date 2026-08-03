@@ -831,8 +831,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
             {/* Navigation Links */}
             <nav className="space-y-2 text-xs font-bold">
-              <div className="text-[10px] font-extrabold text-[#9E9082] uppercase tracking-wider px-3 mb-2">Main Navigation</div>
-
               <button
                 onClick={() => setActiveTab('products')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'products'

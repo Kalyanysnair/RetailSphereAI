@@ -396,8 +396,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
         {/* Sidebar Navigation */}
         <nav className="space-y-2.5">
-          <div className="text-[10px] font-extrabold text-[#9E9082] uppercase tracking-wider px-3 mb-2">Main Navigation</div>
-
           <button
             onClick={() => setActiveTab('orders')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
