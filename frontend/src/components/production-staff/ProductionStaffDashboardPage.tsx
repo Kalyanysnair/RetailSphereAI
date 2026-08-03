@@ -396,6 +396,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
         {/* Sidebar Navigation */}
         <nav className="space-y-2.5">
+          <div className="text-[10px] font-extrabold text-[#9E9082] uppercase tracking-wider px-3 mb-2">Main Navigation</div>
+
           <button
             onClick={() => setActiveTab('orders')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
@@ -408,11 +410,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Sliders className="w-4.5 h-4.5" />
               <span className="text-sm">Custom Orders</span>
             </div>
-            {orders.filter(isPaidCustomOrder).length > 0 && (
-              <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold ${activeTab === 'orders' ? 'bg-white/20 text-white' : 'bg-[#E2D6C8] text-[#4A3E32]'}`}>
-                {orders.filter(isPaidCustomOrder).length}
-              </span>
-            )}
           </button>
 
           <button
@@ -427,11 +424,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <CheckCircle2 className="w-4.5 h-4.5 flex-shrink-0" />
               <span className="text-sm whitespace-nowrap">Custom Approvals</span>
             </div>
-            {orders.filter(o => !isPaidCustomOrder(o)).length > 0 && (
-              <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold flex-shrink-0 ${activeTab === 'approvals' ? 'bg-white/20 text-white' : 'bg-[#38A132]/15 text-[#38A132]'}`}>
-                {orders.filter(o => !isPaidCustomOrder(o)).length}
-              </span>
-            )}
           </button>
 
           <button
@@ -446,11 +438,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Layers className="w-4.5 h-4.5 flex-shrink-0" />
               <span className="text-sm whitespace-nowrap">Assign Tasks</span>
             </div>
-            {orders.filter(isPaidCustomOrder).length > 0 && (
-              <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold flex-shrink-0 ${activeTab === 'assignments' ? 'bg-white/20 text-white' : 'bg-[#38A132]/15 text-[#38A132]'}`}>
-                {orders.filter(isPaidCustomOrder).length}
-              </span>
-            )}
           </button>
 
           <button
@@ -465,9 +452,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Users className="w-4.5 h-4.5" />
               <span className="text-sm">Workers Directory</span>
             </div>
-            <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold ${activeTab === 'workers' ? 'bg-white/20 text-white' : 'bg-[#E2D6C8] text-[#4A3E32]'}`}>
-              {workers.length}
-            </span>
           </button>
 
           <button
@@ -482,9 +466,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <MessageSquare className="w-4.5 h-4.5" />
               <span className="text-sm">Queries & Requests</span>
             </div>
-            <span className={`text-xs px-2.5 py-0.5 rounded-xl font-extrabold ${activeTab === 'queries' ? 'bg-white/20 text-white' : 'bg-[#38A132]/15 text-[#38A132]'}`}>
-              {staffQueries.length}
-            </span>
           </button>
         </nav>
       </aside>

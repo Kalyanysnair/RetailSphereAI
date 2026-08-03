@@ -831,6 +831,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
             {/* Navigation Links */}
             <nav className="space-y-2 text-xs font-bold">
+              <div className="text-[10px] font-extrabold text-[#9E9082] uppercase tracking-wider px-3 mb-2">Main Navigation</div>
+
               <button
                 onClick={() => setActiveTab('products')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'products'
@@ -842,10 +844,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <Package className="w-4 h-4" />
                   <span>Product Management</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'products' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                  }`}>
-                  {productList.length}
-                </span>
               </button>
 
               <button
@@ -859,10 +857,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <SlidersHorizontal className="w-4 h-4" />
                   <span>Stock & Inventory</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'inventory' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                  }`}>
-                  {totalInStock}
-                </span>
               </button>
 
               <button
@@ -876,10 +870,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <ShoppingBag className="w-4 h-4" />
                   <span>Customer Orders</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'orders' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                  }`}>
-                  {activeOrdersCount} Active
-                </span>
               </button>
 
               <button
@@ -893,10 +883,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <MessageSquare className="w-4 h-4" />
                   <span>Queries & Admin Requests</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'queries' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                  }`}>
-                  {staffQueries.length}
-                </span>
               </button>
 
               <button
@@ -910,10 +896,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <Truck className="w-4 h-4" />
                   <span>Supplier Management</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'suppliers' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                  }`}>
-                  {supplierList.length}
-                </span>
               </button>
 
               <button
@@ -927,10 +909,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <Tag className="w-4 h-4" />
                   <span>Coupons & Discounts</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${activeTab === 'coupons' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                  }`}>
-                  {couponsList.length}
-                </span>
               </button>
             </nav>
 

@@ -923,6 +923,8 @@ export const AdminDashboardPage: React.FC = () => {
 
             {/* Side Navigation Links */}
             <nav className="space-y-2 text-xs font-bold">
+              <div className="text-[10px] font-extrabold text-[#9E9082] uppercase tracking-wider px-3 mb-2">Main Navigation</div>
+              
               <button
                 onClick={() => setActiveTab('staff')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
@@ -935,11 +937,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <Users className="w-4 h-4" />
                   <span>Staff Accounts</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'staff' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                }`}>
-                  {staffMembers.length}
-                </span>
               </button>
 
               <button
@@ -954,11 +951,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <Package className="w-4 h-4" />
                   <span>Product Management</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'products' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                }`}>
-                  {productList.length}
-                </span>
               </button>
 
               <button
@@ -973,11 +965,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <SlidersHorizontal className="w-4 h-4" />
                   <span>Stock & Inventory</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'inventory' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                }`}>
-                  {totalInStock}
-                </span>
               </button>
 
               <button
@@ -992,11 +979,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <Truck className="w-4 h-4" />
                   <span>Supplier Directory</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'suppliers' ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#2C241D]'
-                }`}>
-                  {supplierList.length}
-                </span>
               </button>
 
               <button
@@ -1011,11 +993,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <ShoppingBag className="w-4 h-4" />
                   <span>Customer Orders</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'orders' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                }`}>
-                  {activeOrdersCount} Active
-                </span>
               </button>
 
               <button
@@ -1030,11 +1007,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <MessageSquare className="w-4 h-4" />
                   <span>Queries & Requests</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'queries' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                }`}>
-                  {staffQueries.length}
-                </span>
               </button>
 
               <button
@@ -1049,11 +1021,6 @@ export const AdminDashboardPage: React.FC = () => {
                   <Tag className="w-4 h-4" />
                   <span>Coupons & Discounts</span>
                 </div>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${
-                  activeTab === 'coupons' ? 'bg-white/20 text-white' : 'bg-[#48A63E]/15 text-[#48A63E]'
-                }`}>
-                  {couponsList.length}
-                </span>
               </button>
             </nav>
           </div>
@@ -1246,12 +1213,7 @@ export const AdminDashboardPage: React.FC = () => {
               {activeTab === 'staff' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Header & Create Staff Trigger */}
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Staff Member Accounts</h3>
-                      <p className="text-xs text-[#7A6C5E]">Create and manage Retail Staff and Production Staff accounts.</p>
-                    </div>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <button
                       onClick={() => setIsAddStaffModalOpen(true)}
                       className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer"
@@ -1330,12 +1292,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 2: PRODUCTS CATALOG MANAGEMENT (FROM STAFF DASHBOARD) */}
               {activeTab === 'products' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Furniture Products Catalog</h3>
-                      <p className="text-xs text-[#7A6C5E]">Full inventory control, price edits, and SKU product code manager.</p>
-                    </div>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <button
                       onClick={() => setIsAddProductModalOpen(true)}
                       className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer"
@@ -1453,12 +1410,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 3: STOCK CONTROL & WAREHOUSE (FROM STAFF DASHBOARD) */}
               {activeTab === 'inventory' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Stock Control & Warehouse Availability</h3>
-                      <p className="text-xs text-[#7A6C5E]">Adjust unit quantities, monitor low-stock thresholds, and reorder stock.</p>
-                    </div>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-3">
                       <div className="relative w-64">
                         <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1541,12 +1493,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 4: SUPPLIER DIRECTORY (FROM STAFF DASHBOARD) */}
               {activeTab === 'suppliers' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Supplier Directory & Vendor Partners</h3>
-                      <p className="text-xs text-[#7A6C5E]">Logistics partners, assigned product codes, and vendor contact info.</p>
-                    </div>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-3">
                       <div className="relative w-64">
                         <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1625,12 +1572,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 5: ORDER FULFILLMENT STUDIO (FROM STAFF DASHBOARD) */}
               {activeTab === 'orders' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Order Fulfillment Studio</h3>
-                      <p className="text-xs text-[#7A6C5E]">Track retail customer orders and update shipment statuses.</p>
-                    </div>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-2 text-xs">
                       <span className="font-extrabold text-[#7A6C5E]">Filter Status:</span>
                       <select
@@ -1724,12 +1666,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 6: STAFF & CUSTOMER QUERIES */}
               {activeTab === 'queries' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Staff & Customer Queries Inbox</h3>
-                      <p className="text-xs text-[#7A6C5E]">Review requests from staff & customers and send official responses.</p>
-                    </div>
-
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-2">
                       {['All', 'Pending', 'Resolved'].map((st) => (
                         <button
