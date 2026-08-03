@@ -1124,16 +1124,6 @@ export const AdminDashboardPage: React.FC = () => {
 
                 {/* Top Right Controls: Action Button + Notification Bell + Profile Menu Pill */}
                 <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
-                  {activeTab === 'staff' && (
-                    <button
-                      onClick={() => setIsAddStaffModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Staff</span>
-                    </button>
-                  )}
-
                   {activeTab === 'products' && (
                     <button
                       onClick={() => setIsAddProductModalOpen(true)}
@@ -1470,9 +1460,20 @@ export const AdminDashboardPage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center gap-3">
+                      <div className="relative w-64">
+                        <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search stock by name, SKU, category..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E]"
+                        />
+                      </div>
+
                       <button
                         onClick={() => setShowLowStockModal(true)}
-                        className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                        className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                       >
                         <AlertTriangle className="w-4 h-4" />
                         <span>Low Stock Alert ({lowStockCount})</span>
@@ -1494,7 +1495,16 @@ export const AdminDashboardPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {displayProducts.map((item) => (
+                        {displayProducts.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
+                              <SlidersHorizontal className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
+                              <p className="font-extrabold text-xs text-[#2C241D]">No stock inventory items found</p>
+                              <p className="text-[11px] text-[#8C7C6D]">Try searching for another product name or clearing filters.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          displayProducts.map((item) => (
                           <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
                             <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.name}</td>
                             <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
@@ -1520,7 +1530,8 @@ export const AdminDashboardPage: React.FC = () => {
                               </button>
                             </td>
                           </tr>
-                        ))}
+                        ))
+                      )}
                       </tbody>
                     </table>
                   </div>
@@ -1583,13 +1594,13 @@ export const AdminDashboardPage: React.FC = () => {
                             </div>
 
                             <span className="px-3 py-1 rounded-full bg-[#48A63E]/15 text-[#48A63E] text-xs font-extrabold">
-                              {prodsForSup.length} Products Assigned
+                              {prodsForSup.length} Products Supplied
                             </span>
                           </div>
 
-                          {/* Assigned Products Preview Table */}
+                          {/* Supplied Products Preview Table */}
                           <div className="space-y-2">
-                            <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider block">Assigned Furniture Items:</span>
+                            <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider block">Supplied Furniture Products:</span>
                             <div className="max-h-48 overflow-y-auto space-y-1.5 text-xs">
                               {prodsForSup.map((p: any, idx: number) => (
                                 <div key={idx} className="p-2.5 rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] flex items-center justify-between">
@@ -1652,48 +1663,58 @@ export const AdminDashboardPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {orderList
-                          .filter((o) => orderStatusFilter === 'All' || o.orderStatus === orderStatusFilter)
-                          .map((ord) => (
-                            <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                              <td className="py-4 px-4 font-mono font-extrabold text-[#48A63E]">{ord.orderId}</td>
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">{ord.customerName}</td>
-                              <td className="py-4 px-4 text-[#6B5C4D]">{ord.email}</td>
-                              <td className="py-4 px-4 text-[#6B5C4D]">{ord.itemsCount} Items</td>
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{ord.totalAmount.toLocaleString('en-IN')}</td>
-                              <td className="py-4 px-4">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  <span>Paid</span>
-                                </span>
-                              </td>
-                              <td className="py-4 px-4">
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  ord.orderStatus === 'Delivered'
-                                    ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                    : ord.orderStatus === 'Shipped'
-                                      ? 'bg-blue-100 text-blue-700'
-                                      : ord.orderStatus === 'Processing'
-                                        ? 'bg-amber-100 text-amber-800'
-                                        : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {ord.orderStatus}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 text-right">
-                                <select
-                                  value={ord.orderStatus}
-                                  onChange={(e) => handleUpdateOrderStatus(ord.orderId, e.target.value as any)}
-                                  className="px-2.5 py-1 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
-                                >
-                                  <option value="Pending">Pending</option>
-                                  <option value="Processing">Processing</option>
-                                  <option value="Shipped">Shipped</option>
-                                  <option value="Delivered">Delivered</option>
-                                </select>
-                              </td>
-                            </tr>
-                          ))}
+                        {orderList.filter((o) => orderStatusFilter === 'All' || o.orderStatus === orderStatusFilter).length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-8 text-center text-[#7A6C5E]">
+                              <ShoppingBag className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
+                              <p className="font-extrabold text-xs text-[#2C241D]">No customer orders found</p>
+                              <p className="text-[11px] text-[#8C7C6D]">When customers place ready-made furniture orders, they will appear here.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          orderList
+                            .filter((o) => orderStatusFilter === 'All' || o.orderStatus === orderStatusFilter)
+                            .map((ord) => (
+                              <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-4 px-4 font-mono font-extrabold text-[#48A63E]">{ord.orderId}</td>
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">{ord.customerName}</td>
+                                <td className="py-4 px-4 text-[#6B5C4D]">{ord.email}</td>
+                                <td className="py-4 px-4 text-[#6B5C4D]">{ord.itemsCount} Items</td>
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{ord.totalAmount.toLocaleString('en-IN')}</td>
+                                <td className="py-4 px-4">
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Paid</span>
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    ord.orderStatus === 'Delivered'
+                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                      : ord.orderStatus === 'Shipped'
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : ord.orderStatus === 'Processing'
+                                          ? 'bg-amber-100 text-amber-800'
+                                          : 'bg-slate-100 text-slate-600'
+                                  }`}>
+                                    {ord.orderStatus}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  <select
+                                    value={ord.orderStatus}
+                                    onChange={(e) => handleUpdateOrderStatus(ord.orderId, e.target.value as any)}
+                                    className="px-2.5 py-1 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                                  >
+                                    <option value="Pending">Pending</option>
+                                    <option value="Processing">Processing</option>
+                                    <option value="Shipped">Shipped</option>
+                                    <option value="Delivered">Delivered</option>
+                                  </select>
+                                </td>
+                              </tr>
+                            ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1740,40 +1761,50 @@ export const AdminDashboardPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {staffQueries
-                          .filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending'))
-                          .map((query) => (
-                            <tr key={query.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">
-                                <div>{query.staffName}</div>
-                                <span className="text-[10px] text-[#7A6C5E] font-mono">{query.staffEmail}</span>
-                              </td>
-                              <td className="py-4 px-4 text-[#6B5C4D]">
-                                <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md font-bold text-[#48A63E]">
-                                  {query.category}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 font-bold text-[#2C241D]">{query.subject}</td>
-                              <td className="py-4 px-4 font-mono text-[#7A6C5E]">{query.createdAt}</td>
-                              <td className="py-4 px-4">
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  query.status === 'Resolved' || query.status === 'Approved'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-amber-100 text-amber-800'
-                                }`}>
-                                  {query.status}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 text-right">
-                                <button
-                                  onClick={() => handleOpenQueryModal(query)}
-                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] text-white font-extrabold hover:bg-[#3D9134] transition-all shadow-xs cursor-pointer"
-                                >
-                                  Respond
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                        {staffQueries.filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending')).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
+                              <MessageSquare className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
+                              <p className="font-extrabold text-xs text-[#2C241D]">No queries or requests found</p>
+                              <p className="text-[11px] text-[#8C7C6D]">Submitted staff and customer requests will appear here.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          staffQueries
+                            .filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending'))
+                            .map((query) => (
+                              <tr key={query.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">
+                                  <div>{query.staffName}</div>
+                                  <span className="text-[10px] text-[#7A6C5E] font-mono">{query.staffEmail}</span>
+                                </td>
+                                <td className="py-4 px-4 text-[#6B5C4D]">
+                                  <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md font-bold text-[#48A63E]">
+                                    {query.category}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 font-bold text-[#2C241D]">{query.subject}</td>
+                                <td className="py-4 px-4 font-mono text-[#7A6C5E]">{query.createdAt}</td>
+                                <td className="py-4 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    query.status === 'Resolved' || query.status === 'Approved'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {query.status}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  <button
+                                    onClick={() => handleOpenQueryModal(query)}
+                                    className="px-3 py-1.5 rounded-xl bg-[#48A63E] text-white font-extrabold hover:bg-[#3D9134] transition-all shadow-xs cursor-pointer"
+                                  >
+                                    Respond
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1783,13 +1814,6 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 7: COUPONS & DISCOUNTS MANAGEMENT */}
               {activeTab === 'coupons' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-extrabold text-[#2C241D]">Coupons & Customer Discounts Manager</h3>
-                      <p className="text-xs text-[#7A6C5E]">Create promo codes and dispatch notifications & emails directly to targeted customer accounts.</p>
-                    </div>
-                  </div>
-
                   {/* Create Coupon Form */}
                   <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-3">
                     <h4 className="font-extrabold text-sm text-[#2C241D]">Create New Promo Code</h4>

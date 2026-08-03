@@ -1606,7 +1606,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
                       <span className="text-[11px] font-extrabold uppercase text-[#7A6C5E] tracking-wider">Product Allocations</span>
-                      <div className="text-2xl font-extrabold text-[#2C241D]">13 Items Assigned</div>
+                      <div className="text-2xl font-extrabold text-[#2C241D]">13 Items Supplied</div>
                       <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">Catalog Distribution</span>
                     </div>
                   </div>
@@ -1641,7 +1641,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Supplier Name</th>
                           <th className="py-3 px-4">Phone Number</th>
                           <th className="py-3 px-4">Location / Address</th>
-                          <th className="py-3 px-4">Assigned Products</th>
+                          <th className="py-3 px-4">Supplied Products</th>
                           <th className="py-3 px-4">Products Sold</th>
                           <th className="py-3 px-4 text-right">Status</th>
                         </tr>
