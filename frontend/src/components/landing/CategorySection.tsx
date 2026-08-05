@@ -3,6 +3,7 @@ import { Star, Sliders, ArrowUpRight, Heart } from 'lucide-react';
 import { CatalogItem, CategoryTab } from '../../types/landing';
 import { SearchFilterBar } from './SearchFilterBar';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
+import { fetchInventoryFromDB } from '../../services/api';
 
 export const CategorySection: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('All');
@@ -12,6 +13,38 @@ export const CategorySection: React.FC = () => {
   const [wishlistIds, setWishlistIds] = useState<string[]>(() =>
     getWishlistItems().map((item) => item.id)
   );
+  const [dbCatalogProducts, setDbCatalogProducts] = useState<CatalogItem[]>([]);
+
+  useEffect(() => {
+    const loadProductsFromDB = async () => {
+      try {
+        const dbItems = await fetchInventoryFromDB();
+        if (dbItems && dbItems.length > 0) {
+          const mapped: CatalogItem[] = dbItems.map((p: any) => {
+            const rawId = p.product_id || p.id;
+            const code = p.productCode || p.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
+            return {
+              id: p.id || `inv-${p.product_id}`,
+              productCode: code,
+              name: p.name || p.product_name,
+              category: p.category || 'Living Room',
+              subcategory: p.subcategory || 'General',
+              price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+              rating: 4.9,
+              reviewCount: 28,
+              isCustomizable: true,
+              image: p.image_url || p.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+              isPopular: p.stockCount > 0
+            };
+          });
+          setDbCatalogProducts(mapped);
+        }
+      } catch (err) {
+        console.warn('Error loading products from DB into customer catalog:', err);
+      }
+    };
+    loadProductsFromDB();
+  }, []);
 
   useEffect(() => {
     const syncWishlist = () => {
@@ -145,12 +178,15 @@ export const CategorySection: React.FC = () => {
 
   const activeTabObj = categories.find((c) => c.name === activeCategory) || categories[0];
 
-  const filteredProducts = demoProducts.filter((item) => {
+  const sourceProducts = dbCatalogProducts.length > 0 ? dbCatalogProducts : demoProducts;
+
+  const filteredProducts = sourceProducts.filter((item) => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
     const matchesSubcategory = activeSubcategory === 'All' || item.subcategory === activeSubcategory;
     const matchesSearch =
       searchQuery === '' ||
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (item.productCode && item.productCode.toLowerCase().includes(searchQuery.toLowerCase())) ||
       item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.subcategory.toLowerCase().includes(searchQuery.toLowerCase());
 
@@ -267,8 +303,10 @@ export const CategorySection: React.FC = () => {
                 {/* Info */}
                 <div className="p-5 space-y-1.5">
                   <div className="flex items-center justify-between text-xs font-extrabold text-[#38A132]">
-                    <span>{product.category}</span>
-                    <span className="text-[#6B5C4D] font-bold">{product.subcategory}</span>
+                    <span className="font-mono text-[10px] font-extrabold bg-[#38A132]/10 border border-[#38A132]/25 text-[#38A132] px-2 py-0.5 rounded">
+                      {product.productCode || `SKU-RS-${product.id}`}
+                    </span>
+                    <span className="text-[#6B5C4D] font-bold text-[11px]">{product.category}</span>
                   </div>
 
                   <h3 className="font-extrabold text-base text-[#2C241D] leading-snug group-hover:text-[#38A132] transition-colors">

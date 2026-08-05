@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2 } from 'lucide-react';
+import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import {
   CartItem,
@@ -19,6 +19,9 @@ export const CartPage: React.FC = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<CartItem[]>(() => getCartItems());
   const [isOrderPlaced, setIsOrderPlaced] = useState(false);
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [lastPaymentId, setLastPaymentId] = useState<string>('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
   const [wishlistCount, setWishlistCount] = useState(0);
 
   useEffect(() => {
@@ -79,13 +82,57 @@ export const CartPage: React.FC = () => {
   const grandTotal = Math.max(0, subtotal - discountAmount + shippingFee);
   const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
 
-  const handleCheckout = async () => {
+  const processOrderCompletion = async (paymentId: string) => {
     const rawUser = localStorage.getItem('user');
     const userObj = rawUser ? JSON.parse(rawUser) : null;
     const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
 
-    await openRazorpayCheckout({
-      amount: grandTotal,
+    setLastPaymentId(paymentId);
+    setPaymentError(null);
+
+    // Update custom orders status in PostgreSQL database
+    for (const item of items) {
+      if (item.id.startsWith('custom-')) {
+        const numericId = parseInt(item.id.replace('custom-', ''), 10);
+        if (!isNaN(numericId)) {
+          await payCustomOrder(numericId);
+        }
+      }
+    }
+
+    if (appliedDiscount && currentUserEmail) {
+      markCouponAsUsed(appliedDiscount.code, currentUserEmail);
+    }
+
+    saveStoredRetailOrder({
+      customerName: userObj?.full_name || 'Valued Customer',
+      email: userObj?.email || 'customer@retailsphere.com',
+      itemsCount: totalItemCount,
+      totalAmount: grandTotal,
+      orderStatus: 'Order Placed',
+      paymentStatus: 'Paid',
+      paymentId: paymentId,
+      items: items.map(i => ({
+        id: i.id,
+        name: i.name,
+        price: i.price,
+        quantity: i.quantity,
+        imageUrl: i.imageUrl
+      }))
+    });
+    clearCart();
+    setIsProcessingPayment(false);
+    setIsOrderPlaced(true);
+  };
+
+  const handleCheckout = async () => {
+    setPaymentError(null);
+    setIsProcessingPayment(true);
+    const rawUser = localStorage.getItem('user');
+    const userObj = rawUser ? JSON.parse(rawUser) : null;
+
+    const success = await openRazorpayCheckout({
+      amount: Math.round(grandTotal * 100), // amount in paise
       name: 'RetailSphere Furniture Store',
       description: `Payment for ${totalItemCount} furniture items`,
       prefill: {
@@ -93,41 +140,18 @@ export const CartPage: React.FC = () => {
         email: userObj?.email || 'customer@retailsphere.com',
       },
       onSuccess: async (paymentId) => {
-        console.log('Razorpay Payment Successful:', paymentId);
-
-        // Update custom orders status in PostgreSQL database
-        for (const item of items) {
-          if (item.id.startsWith('custom-')) {
-            const numericId = parseInt(item.id.replace('custom-', ''), 10);
-            if (!isNaN(numericId)) {
-              await payCustomOrder(numericId);
-            }
-          }
-        }
-
-        if (appliedDiscount && currentUserEmail) {
-          markCouponAsUsed(appliedDiscount.code, currentUserEmail);
-        }
-
-        saveStoredRetailOrder({
-          customerName: userObj?.full_name || 'Valued Customer',
-          email: userObj?.email || 'customer@retailsphere.com',
-          itemsCount: totalItemCount,
-          totalAmount: grandTotal,
-          orderStatus: 'Paid',
-          paymentStatus: 'Paid',
-          items: items.map(i => ({
-            id: i.id,
-            name: i.name,
-            price: i.price,
-            quantity: i.quantity,
-            imageUrl: i.imageUrl
-          }))
-        });
-        clearCart();
-        setIsOrderPlaced(true);
+        await processOrderCompletion(paymentId);
       },
+      onFailure: (reason) => {
+        console.warn('Razorpay payment failed or cancelled:', reason);
+        setIsProcessingPayment(false);
+        setPaymentError(`Razorpay payment was not completed: ${reason}`);
+      }
     });
+
+    if (!success) {
+      setIsProcessingPayment(false);
+    }
   };
 
   return (
@@ -183,23 +207,53 @@ export const CartPage: React.FC = () => {
               </Link>
             </div>
 
-            {/* Success Modal Notification after Checkout */}
+            {/* Payment Failure / Cancellation Alert */}
+            {paymentError && (
+              <div className="relative z-10 bg-rose-50 border border-rose-300 text-rose-800 p-4 rounded-2xl text-xs font-bold flex items-center justify-between shadow-xs animate-fadeIn my-2">
+                <div className="flex items-center gap-2.5">
+                  <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <span>{paymentError}</span>
+                </div>
+                <button
+                  onClick={() => setPaymentError(null)}
+                  className="text-rose-600 hover:text-rose-900 font-extrabold text-sm px-2 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {/* Success Notification after Checkout */}
             {isOrderPlaced ? (
               <div className="relative z-10 ultra-glass-card rounded-3xl p-8 sm:p-12 text-center space-y-4 shadow-xl animate-fadeIn my-8 max-w-lg mx-auto">
                 <div className="w-16 h-16 bg-[#48A63E]/15 text-[#48A63E] rounded-full flex items-center justify-center mx-auto border border-[#48A63E]/30 animate-bounce">
                   <CheckCircle2 className="w-10 h-10" />
                 </div>
-                <h2 className="text-2xl font-extrabold text-[#2C241D]">Order Placed Successfully!</h2>
+                <h2 className="text-2xl font-extrabold text-[#2C241D]">Razorpay Payment Complete!</h2>
                 <p className="text-xs text-[#6B5C4D] leading-relaxed font-medium">
-                  Thank you for shopping with RetailSphere. Your order has been confirmed and assigned to our artisan delivery team.
+                  Thank you for your payment. Your order has been registered, paid via Razorpay, and logged in your order tracking dashboard.
                 </p>
-                <div className="pt-4">
+                {lastPaymentId && (
+                  <div className="inline-block bg-[#FAF7F2] border border-[#E2D7CB] px-3.5 py-1.5 rounded-xl text-xs font-bold text-[#48A63E]">
+                    Razorpay Payment ID: <span className="font-mono text-[#2C241D]">{lastPaymentId}</span>
+                  </div>
+                )}
+                <div className="pt-4 flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    onClick={() => {
+                      setIsOrderPlaced(false);
+                      navigate('/orders');
+                    }}
+                    className="w-full sm:w-auto py-3 px-6 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold text-xs transition-colors shadow-md shadow-[#48A63E]/20"
+                  >
+                    View Orders & Tracking
+                  </button>
                   <button
                     onClick={() => {
                       setIsOrderPlaced(false);
                       navigate('/dashboard');
                     }}
-                    className="w-full py-3 px-6 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold text-xs transition-colors shadow-md shadow-[#48A63E]/20"
+                    className="w-full sm:w-auto py-3 px-6 rounded-2xl bg-[#FAF7F2] hover:bg-[#F3EDE5] text-[#2C241D] border border-[#E2D7CB] font-bold text-xs transition-colors"
                   >
                     Continue Shopping
                   </button>
@@ -358,9 +412,8 @@ export const CartPage: React.FC = () => {
                       </form>
 
                       {promoMessage && (
-                        <div className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${
-                          promoMessage.type === 'success' ? 'bg-[#48A63E]/15 text-[#48A63E]' : 'bg-rose-100 text-rose-700'
-                        }`}>
+                        <div className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${promoMessage.type === 'success' ? 'bg-[#48A63E]/15 text-[#48A63E]' : 'bg-rose-100 text-rose-700'
+                          }`}>
                           {promoMessage.text}
                         </div>
                       )}

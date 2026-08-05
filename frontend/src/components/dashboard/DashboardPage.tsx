@@ -10,6 +10,7 @@ import { DashboardFilterState, RecommendationProduct } from '../../types/dashboa
 
 import { getCartCount } from '../../utils/cartStorage';
 import { getWishlistCount } from '../../utils/wishlistStorage';
+import { fetchInventoryFromDB } from '../../services/api';
 
 export const DashboardPage: React.FC = () => {
   const location = useLocation();
@@ -17,6 +18,54 @@ export const DashboardPage: React.FC = () => {
   const [wishlistCount, setWishlistCount] = useState(() => getWishlistCount());
   const [selectedCustomProduct, setSelectedCustomProduct] = useState<RecommendationProduct | null>(null);
   const [customModalTrigger, setCustomModalTrigger] = useState(0);
+  const [dbProducts, setDbProducts] = useState<RecommendationProduct[]>([]);
+
+  useEffect(() => {
+    const loadDBProducts = async () => {
+      try {
+        const dbItems = await fetchInventoryFromDB();
+        if (dbItems && dbItems.length > 0) {
+          const mapped: RecommendationProduct[] = dbItems.map((p: any) => {
+            const rawId = p.product_id || p.id;
+            const code = p.productCode || p.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
+            
+            let catId = (p.category || '').toLowerCase().replace(/\s+/g, '-');
+            if (catId.includes('living')) catId = 'living-room';
+            else if (catId.includes('dining')) catId = 'dining-room';
+            else if (catId.includes('bed')) catId = 'bedroom';
+            else if (catId.includes('light')) catId = 'lighting-accents';
+            else if (catId.includes('office') || catId.includes('studio')) catId = 'home-office';
+
+            return {
+              id: p.id || `inv-${p.product_id}`,
+              productCode: code,
+              name: p.name || p.product_name,
+              category: catId,
+              subcategory: (p.subcategory || 'General').toLowerCase().replace(/\s+/g, '-'),
+              price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+              originalPrice: (typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0) * 1.15,
+              stock: p.stockCount || 10,
+              salesCount: 45,
+              status: (p.status || 'In Stock') as any,
+              imageUrl: p.image_url || p.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+              rating: 4.9,
+              reviewCount: 38,
+              material: p.material || 'Solid Teak Wood',
+              color: p.color || 'Natural Wood',
+              dimensions: '200cm x 90cm x 75cm',
+              isCustomizable: true,
+              isTopPick: p.stockCount > 0,
+              badge: code
+            };
+          });
+          setDbProducts(mapped);
+        }
+      } catch (err) {
+        console.warn('Could not fetch DB products for dashboard:', err);
+      }
+    };
+    loadDBProducts();
+  }, []);
 
   // Smooth Hash Scroll & Custom Order Form Trigger
   useEffect(() => {
@@ -63,7 +112,8 @@ export const DashboardPage: React.FC = () => {
 
   // Filtered Furniture Recommendations & Catalog Products
   const filteredProducts = useMemo(() => {
-    return RECOMMENDATIONS_DATA.filter((product) => {
+    const sourceList = dbProducts.length > 0 ? dbProducts : RECOMMENDATIONS_DATA;
+    return sourceList.filter((product) => {
       // Category Filter
       if (filterState.categoryId !== 'all' && product.category !== filterState.categoryId) {
         return false;

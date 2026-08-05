@@ -241,6 +241,8 @@ export async function updateUserProfile(payload: {
   city?: string;
   state?: string;
   pincode?: string;
+  current_password?: string;
+  new_password?: string;
 }): Promise<UserProfile> {
   const token = localStorage.getItem('access_token');
   const response = await fetch(`${BASE_URL}/auth/profile`, {
@@ -279,6 +281,7 @@ export async function createProductInDB(payload: {
   price: number;
   stock_count: number;
   image_url?: string;
+  color?: string;
 }): Promise<any> {
   const response = await fetch(`${BASE_URL}/admin/inventory`, {
     method: 'POST',

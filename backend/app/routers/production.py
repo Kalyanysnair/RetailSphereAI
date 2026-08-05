@@ -222,6 +222,7 @@ def cancel_custom_order(order_id: int, db: Session = Depends(get_db)):
 # 2d. Record Payment for Custom Order
 @router.put("/custom-orders/{order_id}/pay")
 def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
+    import time
     order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
@@ -229,6 +230,18 @@ def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
     order.payment_status = "Paid"
     order.order_status = "Paid"
     order.is_locked = True
+
+    # Record in tbl_payment
+    new_payment = models.Payment(
+        order_type="Custom",
+        order_id=order.custom_order_id,
+        amount=order.estimated_price or 0,
+        payment_method="Razorpay",
+        transaction_id=f"PAY-CUST-{order.custom_order_id}-{int(time.time())}",
+        payment_status="Paid"
+    )
+    db.add(new_payment)
+
     db.commit()
     db.refresh(order)
     return {"message": f"Payment completed for Custom Order #{order_id}", "order_id": order_id, "payment_status": "Paid"}

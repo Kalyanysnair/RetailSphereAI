@@ -36,7 +36,8 @@ import {
   Clock,
   ShoppingBag,
   Percent,
-  Sliders
+  Sliders,
+  ArrowRight
 } from 'lucide-react';
 
 import { 
@@ -49,12 +50,14 @@ import {
   respondToStaffQueryInDB,
   fetchNotificationsFromDB,
   fetchSuppliersFromDB,
-  createSupplierInDB 
+  createSupplierInDB,
+  updateUserProfile
 } from '../../services/api';
 
 import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
-import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
+import { getStoredRetailOrders, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
+import { fetchCustomOrders } from '../../services/api_production';
 
 export interface StaffMember {
   id: string;
@@ -69,22 +72,27 @@ export interface StaffMember {
 
 export interface InventoryItem {
   id: string;
-  product_id?: number;
+  product_id?: number | string;
+  productCode?: string;
   name: string;
   category: string;
   material: string;
+  color?: string;
   price: number;
   stockCount: number;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
   image_url?: string;
-  sku?: string;
+  sku: string;
 }
 
 export interface RetailProduct {
   id: string;
+  product_id?: number | string;
+  productCode?: string;
   name: string;
   category: string;
   material: string;
+  color?: string;
   price: number;
   stockCount: number;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
@@ -101,10 +109,14 @@ export interface RetailOrder {
   email: string;
   itemsCount: number;
   totalAmount: number;
-  orderStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered';
+  orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Cancelled';
+  paymentStatus?: 'Paid' | 'Pending' | 'Cancelled';
+  paymentId?: string;
   orderDate: string;
   items?: Array<{
     id: string;
+    productCode?: string;
+    sku?: string;
     name: string;
     price: number;
     quantity: number;
@@ -208,6 +220,7 @@ export const AdminDashboardPage: React.FC = () => {
   // Staff Management State
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>(INITIAL_STAFF);
   const [staffRoleFilter, setStaffRoleFilter] = useState<'All' | 'Retail Staff' | 'Production Staff'>('All');
+  const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
@@ -225,14 +238,14 @@ export const AdminDashboardPage: React.FC = () => {
       const dbUsers = await fetchStaffUsers();
       if (dbUsers && Array.isArray(dbUsers)) {
         const mapped: StaffMember[] = dbUsers.map((u: any) => ({
-          id: `staff-${u.id}`,
-          user_id: u.id,
-          name: u.full_name || 'Staff Member',
-          email: u.email,
-          phone: u.phone || 'N/A',
+          id: u.id || `staff-${u.user_id}`,
+          user_id: u.user_id || (typeof u.id === 'number' ? u.id : parseInt(String(u.id).replace(/\D/g, '')) || 1),
+          name: u.name || u.full_name || (u.email ? u.email.split('@')[0].replace('.', ' ').replace(/^./, (str: string) => str.toUpperCase()) : 'Staff Member'),
+          email: u.email || 'N/A',
+          phone: u.phone || '+91 98765 43210',
           role: u.role === 'Production Staff' ? 'Production Staff' : 'Retail Staff',
-          status: u.is_active ? 'Active' : 'Inactive',
-          dateAdded: u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent'
+          status: u.status === 'Inactive' ? 'Inactive' : 'Active',
+          dateAdded: u.dateAdded || (u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent')
         }));
         setStaffMembers(mapped);
       }
@@ -249,13 +262,24 @@ export const AdminDashboardPage: React.FC = () => {
   const [productList, setProductList] = useState<RetailProduct[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [priceRangeFilter, setPriceRangeFilter] = useState<string>('All');
+  const [productSearchQuery, setProductSearchQuery] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
   // Add Product Modal State
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [newProdName, setNewProdName] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('Living Room');
-  const [newProdMaterial, setNewProdMaterial] = useState('Teak Wood');
+  const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
+
+  const [newProdMaterial, setNewProdMaterial] = useState('Solid Teak Wood');
+  const [isCustomMaterialMode, setIsCustomMaterialMode] = useState(false);
+  const [customMaterialInput, setCustomMaterialInput] = useState('');
+
+  const [newProdColor, setNewProdColor] = useState('Natural Wood');
+  const [isCustomColorMode, setIsCustomColorMode] = useState(false);
+  const [customColorInput, setCustomColorInput] = useState('');
+
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdStock, setNewProdStock] = useState('');
   const [newProdSku, setNewProdSku] = useState('');
@@ -266,7 +290,8 @@ export const AdminDashboardPage: React.FC = () => {
   const [selectedProduct, setSelectedProduct] = useState<RetailProduct | null>(null);
   const [editProdName, setEditProdName] = useState('');
   const [editProdCategory, setEditProdCategory] = useState('Living Room');
-  const [editProdMaterial, setEditProdMaterial] = useState('Teak Wood');
+  const [editProdMaterial, setEditProdMaterial] = useState('Solid Teak Wood');
+  const [editProdColor, setEditProdColor] = useState('Natural Wood');
   const [editProdPrice, setEditProdPrice] = useState('');
   const [editProdStock, setEditProdStock] = useState('');
 
@@ -286,6 +311,7 @@ export const AdminDashboardPage: React.FC = () => {
           name: p.name || 'Untitled Product',
           category: p.category || 'Living Room',
           material: p.material || 'Standard',
+          color: p.color || 'Natural Wood',
           price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
           stockCount: typeof p.stockCount === 'number' ? p.stockCount : parseInt(p.stockCount) || 0,
           status: p.status || 'In Stock',
@@ -362,18 +388,51 @@ export const AdminDashboardPage: React.FC = () => {
   // Order Fulfillment Studio State
   const [orderList, setOrderList] = useState<RetailOrder[]>(() => getStoredRetailOrders() as any);
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState<RetailOrder | null>(null);
   const [isOrderDetailsModalOpen, setIsOrderDetailsModalOpen] = useState(false);
 
+  const loadAllOrdersForAdmin = async () => {
+    try {
+      const dbStoreOrders = await fetchRetailOrdersFromDB();
+      const allCustomOrders = await fetchCustomOrders('All', true);
+      
+      const formattedCustom: RetailOrder[] = allCustomOrders.map((c) => ({
+        orderId: `CUSTOM-${c.custom_order_id}`,
+        customerName: c.customer_name || 'Bespoke Customer',
+        email: c.customer_email || 'customer@retailsphere.com',
+        itemsCount: 1,
+        totalAmount: c.estimated_price || 0,
+        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : (c.order_status as any || 'Pending')),
+        paymentStatus: (c.payment_status === 'Paid' || c.order_status === 'Paid') ? 'Paid' : 'Pending',
+        orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
+        createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
+        items: [{
+          id: `item-custom-${c.custom_order_id}`,
+          name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
+          price: c.estimated_price || 0,
+          quantity: 1,
+          imageUrl: c.reference_image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80'
+        }]
+      }));
+
+      const merged = [...formattedCustom, ...dbStoreOrders];
+      merged.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
+      setOrderList(merged as any);
+    } catch (err) {
+      console.warn('Error loading all orders for admin:', err);
+    }
+  };
+
   useEffect(() => {
-    const handleRetailOrdersUpdate = () => {
-      setOrderList(getStoredRetailOrders() as any);
-    };
-    window.addEventListener('retail-orders-updated', handleRetailOrdersUpdate);
-    window.addEventListener('storage', handleRetailOrdersUpdate);
+    loadAllOrdersForAdmin();
+    window.addEventListener('retail-orders-updated', loadAllOrdersForAdmin);
+    window.addEventListener('custom-orders-updated', loadAllOrdersForAdmin);
+    window.addEventListener('storage', loadAllOrdersForAdmin);
     return () => {
-      window.removeEventListener('retail-orders-updated', handleRetailOrdersUpdate);
-      window.removeEventListener('storage', handleRetailOrdersUpdate);
+      window.removeEventListener('retail-orders-updated', loadAllOrdersForAdmin);
+      window.removeEventListener('custom-orders-updated', loadAllOrdersForAdmin);
+      window.removeEventListener('storage', loadAllOrdersForAdmin);
     };
   }, []);
 
@@ -389,6 +448,7 @@ export const AdminDashboardPage: React.FC = () => {
   // Staff & Admin Queries State
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
   const [queryFilter, setQueryFilter] = useState<'All' | 'Pending' | 'Resolved'>('All');
+  const [querySearchQuery, setQuerySearchQuery] = useState('');
   const [selectedQuery, setSelectedQuery] = useState<StaffQuery | null>(null);
   const [adminResponseText, setAdminResponseText] = useState('');
   const [adminResponseStatus, setAdminResponseStatus] = useState<'Pending' | 'In Review' | 'Approved' | 'Resolved'>('Approved');
@@ -413,6 +473,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Coupons Management State
   const [couponsList, setCouponsList] = useState<Coupon[]>(() => getStoredCoupons());
+  const [couponSearchQuery, setCouponSearchQuery] = useState('');
   const [newCouponCode, setNewCouponCode] = useState('');
   const [newCouponDiscount, setNewCouponDiscount] = useState('');
   const [newCouponDesc, setNewCouponDesc] = useState('');
@@ -469,11 +530,27 @@ export const AdminDashboardPage: React.FC = () => {
     const priceVal = parseFloat(newProdPrice) || 0;
     const imgUrl = newProdImage.trim() || undefined;
 
+    const finalCategory = isCustomCategoryMode
+      ? customCategoryInput.trim()
+      : newProdCategory;
+    const finalMaterial = isCustomMaterialMode
+      ? customMaterialInput.trim()
+      : newProdMaterial;
+    const finalColor = isCustomColorMode
+      ? customColorInput.trim()
+      : newProdColor;
+
+    if (!finalCategory) {
+      alert('Please specify a valid product category.');
+      return;
+    }
+
     try {
       const created = await createProductInDB({
         name: newProdName.trim(),
-        category: newProdCategory,
-        material: newProdMaterial.trim(),
+        category: finalCategory,
+        material: finalMaterial || 'Solid Wood',
+        color: finalColor || 'Natural Wood',
         price: priceVal,
         stock_count: qty,
         image_url: imgUrl,
@@ -483,8 +560,9 @@ export const AdminDashboardPage: React.FC = () => {
         id: created.id || `prod-${Date.now()}`,
         sku: newProdSku.trim() || `SKU-RS-${created.product_id || Math.floor(100 + Math.random() * 900)}`,
         name: created.name || newProdName.trim(),
-        category: created.category || newProdCategory,
-        material: created.material || newProdMaterial,
+        category: created.category || finalCategory,
+        material: created.material || finalMaterial,
+        color: created.color || finalColor,
         price: created.price || priceVal,
         stockCount: created.stockCount || qty,
         status: created.status || 'In Stock',
@@ -503,8 +581,9 @@ export const AdminDashboardPage: React.FC = () => {
         id: `prod-${Date.now()}`,
         sku: newProdSku.trim() || `SKU-RS-${Math.floor(100 + Math.random() * 900)}`,
         name: newProdName.trim(),
-        category: newProdCategory,
-        material: newProdMaterial,
+        category: finalCategory,
+        material: finalMaterial,
+        color: finalColor,
         price: priceVal,
         stockCount: qty,
         status: statusVal,
@@ -519,6 +598,12 @@ export const AdminDashboardPage: React.FC = () => {
     setNewProdStock('');
     setNewProdSku('');
     setNewProdImage('');
+    setIsCustomCategoryMode(false);
+    setCustomCategoryInput('');
+    setIsCustomMaterialMode(false);
+    setCustomMaterialInput('');
+    setIsCustomColorMode(false);
+    setCustomColorInput('');
     setIsAddProductModalOpen(false);
     setTimeout(() => setSuccessBanner(null), 6000);
   };
@@ -801,7 +886,7 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  const handleSaveAdminProfile = (e: React.FormEvent) => {
+  const handleSaveAdminProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
 
@@ -820,28 +905,39 @@ export const AdminDashboardPage: React.FC = () => {
       }
     }
 
-    const stored = localStorage.getItem('user');
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      parsed.full_name = profileForm.full_name;
-      parsed.email = profileForm.email;
-      localStorage.setItem('user', JSON.stringify(parsed));
-    }
+    try {
+      await updateUserProfile({
+        full_name: profileForm.full_name,
+        current_password: profileForm.currentPassword || undefined,
+        new_password: profileForm.newPassword || undefined,
+      });
 
-    let initials = 'AD';
-    if (profileForm.full_name) {
-      const parts = profileForm.full_name.trim().split(' ');
-      if (parts.length >= 2) {
-        initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-      } else if (parts[0].length >= 2) {
-        initials = parts[0].substring(0, 2).toUpperCase();
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        parsed.full_name = profileForm.full_name;
+        parsed.email = profileForm.email;
+        localStorage.setItem('user', JSON.stringify(parsed));
       }
-    }
 
-    setCurrentUser({ name: profileForm.full_name, email: profileForm.email, initials });
-    setIsAdminProfileModalOpen(false);
-    setSuccessBanner('Admin profile & security credentials updated successfully!');
-    setTimeout(() => setSuccessBanner(null), 5000);
+      let initials = 'AD';
+      if (profileForm.full_name) {
+        const parts = profileForm.full_name.trim().split(' ');
+        if (parts.length >= 2) {
+          initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        } else if (parts[0].length >= 2) {
+          initials = parts[0].substring(0, 2).toUpperCase();
+        }
+      }
+
+      setCurrentUser({ name: profileForm.full_name, email: profileForm.email, initials });
+      setProfileForm((prev) => ({ ...prev, currentPassword: '', newPassword: '', confirmPassword: '' }));
+      setIsAdminProfileModalOpen(false);
+      setSuccessBanner('Admin profile & security credentials updated successfully!');
+      setTimeout(() => setSuccessBanner(null), 5000);
+    } catch (err: any) {
+      setPasswordError(err.message || 'Failed to update profile credentials in database.');
+    }
   };
 
   // Calculations for KPI summary cards
@@ -859,13 +955,14 @@ export const AdminDashboardPage: React.FC = () => {
     else if (priceRangeFilter === '25k-50k') matchesPrice = item.price > 25000 && item.price <= 50000;
     else if (priceRangeFilter === '50k+') matchesPrice = item.price > 50000;
 
-    const q = searchQuery.toLowerCase().trim();
+    const q = (productSearchQuery || searchQuery).toLowerCase().trim();
     const matchesSearch =
       !q ||
       item.name.toLowerCase().includes(q) ||
       item.sku.toLowerCase().includes(q) ||
       item.category.toLowerCase().includes(q) ||
-      item.material.toLowerCase().includes(q);
+      item.material.toLowerCase().includes(q) ||
+      (item.color && item.color.toLowerCase().includes(q));
 
     return matchesCategory && matchesPrice && matchesSearch;
   });
@@ -898,131 +995,130 @@ export const AdminDashboardPage: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen bg-[#FAF7F2] text-[#2C241D] font-sans antialiased selection:bg-[#48A63E]/20 selection:text-[#48A63E] relative overflow-x-hidden">
-      {/* Dynamic Background Glows */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#48A63E]/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute top-1/2 -left-40 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl"></div>
-      </div>
+    <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
+      {/* Background Image Layer */}
+      <div 
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
+        style={{
+          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
+        }}
+      />
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
 
-      <div className="relative z-10 flex min-h-screen">
-        {/* SIDE NAVIGATION BAR (STAFF PROFILE STYLE) */}
-        <aside className="w-64 bg-[#FAF7F2] border-r border-[#EFE7DE] flex-shrink-0 hidden md:block relative z-20">
-          <div className="p-6 space-y-6 sticky top-0 max-h-screen overflow-y-auto">
-            {/* Brand Logo */}
-            <div className="flex items-center justify-between">
-              <div>
-                <Link to="/dashboard" className="font-extrabold text-[#2C241D] text-lg tracking-tight block hover:opacity-90 transition-opacity">
-                  RetailSphere <span className="text-[#48A63E]">AI</span>
-                </Link>
-                <span className="text-[10px] font-extrabold text-[#48A63E] uppercase tracking-widest block font-mono -mt-0.5">
-                  Admin Executive Portal
-                </span>
-              </div>
+      {/* LEFT SIDEBAR NAVIGATION PANEL */}
+      <aside className="w-72 flex-shrink-0 min-h-screen hidden md:block border-r border-[#D8CCBD] bg-[#E5DCD0]/80 backdrop-blur-xl p-6 space-y-8 relative z-20 shadow-sm">
+        {/* Logo */}
+        <div className="space-y-1">
+          <Link to="/dashboard" className="text-2xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-1.5 hover:opacity-90 transition-opacity">
+            <span>RetailSphere</span>
+            <span className="text-[#38A132]">AI</span>
+          </Link>
+          <span className="text-[11px] font-extrabold text-[#38A132] uppercase tracking-[0.2em] block font-mono">
+            ADMIN EXECUTIVE PORTAL
+          </span>
+        </div>
+
+        {/* Sidebar Navigation */}
+        <nav className="space-y-2.5">
+          <button
+            onClick={() => setActiveTab('staff')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'staff'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Users className="w-4.5 h-4.5" />
+              <span className="text-sm">Staff Accounts</span>
             </div>
+          </button>
 
-            {/* Side Navigation Links */}
-            <nav className="space-y-2 text-xs font-bold">
-              <button
-                onClick={() => setActiveTab('staff')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'staff'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Users className="w-4 h-4" />
-                  <span>Staff Accounts</span>
-                </div>
-              </button>
+          <button
+            onClick={() => setActiveTab('products')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'products'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Package className="w-4.5 h-4.5" />
+              <span className="text-sm">Product Catalog</span>
+            </div>
+          </button>
 
-              <button
-                onClick={() => setActiveTab('products')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'products'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Package className="w-4 h-4" />
-                  <span>Product Management</span>
-                </div>
-              </button>
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'inventory'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <SlidersHorizontal className="w-4.5 h-4.5" />
+              <span className="text-sm">Stock & Inventory</span>
+            </div>
+          </button>
 
-              <button
-                onClick={() => setActiveTab('inventory')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'inventory'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <SlidersHorizontal className="w-4 h-4" />
-                  <span>Stock & Inventory</span>
-                </div>
-              </button>
+          <button
+            onClick={() => setActiveTab('suppliers')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'suppliers'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Truck className="w-4.5 h-4.5" />
+              <span className="text-sm">Supplier Directory</span>
+            </div>
+          </button>
 
-              <button
-                onClick={() => setActiveTab('suppliers')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'suppliers'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Truck className="w-4 h-4" />
-                  <span>Supplier Directory</span>
-                </div>
-              </button>
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'orders'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <ShoppingBag className="w-4.5 h-4.5" />
+              <span className="text-sm">Customer Orders</span>
+            </div>
+          </button>
 
-              <button
-                onClick={() => setActiveTab('orders')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'orders'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <ShoppingBag className="w-4 h-4" />
-                  <span>Customer Orders</span>
-                </div>
-              </button>
+          <button
+            onClick={() => setActiveTab('queries')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'queries'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <MessageSquare className="w-4.5 h-4.5" />
+              <span className="text-sm">Queries & Requests</span>
+            </div>
+          </button>
 
-              <button
-                onClick={() => setActiveTab('queries')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'queries'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <MessageSquare className="w-4 h-4" />
-                  <span>Queries & Requests</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setActiveTab('coupons')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-                  activeTab === 'coupons'
-                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
-                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Tag className="w-4 h-4" />
-                  <span>Coupons & Discounts</span>
-                </div>
-              </button>
-            </nav>
-          </div>
-        </aside>
+          <button
+            onClick={() => setActiveTab('coupons')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'coupons'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Tag className="w-4.5 h-4.5" />
+              <span className="text-sm">Coupons & Discounts</span>
+            </div>
+          </button>
+        </nav>
+      </aside>
 
         {/* MAIN RIGHT CONTENT AREA */}
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
@@ -1072,42 +1168,21 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'products' && 'Retail Product Management'}
                     {activeTab === 'inventory' && 'Inventory Stock Control'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
-                    {activeTab === 'orders' && 'Customer Ready-Made Orders'}
+                    {activeTab === 'orders' && 'Customer Orders'}
                     {activeTab === 'queries' && 'Queries & Request Communications'}
-                    {activeTab === 'coupons' && 'Coupons & Customer Discounts'}
+                    {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                     {activeTab === 'staff' && 'Create and manage Retail Staff and Production Staff user accounts with credentials dispatch.'}
-                    {activeTab === 'products' && 'Add new furniture products, update product pricing, materials, and catalog specifications.'}
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
                     {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, and product vendor allocations.'}
-                    {activeTab === 'orders' && 'Fulfill customer ready-made orders and update shipping statuses.'}
                     {activeTab === 'queries' && 'Review staff requests, email change applications, and issue official admin responses.'}
                     {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
                   </p>
                 </div>
 
-                {/* Top Right Controls: Action Button + Notification Bell + Profile Menu Pill */}
+                {/* Top Right Controls: Notification Bell + Profile Menu Pill */}
                 <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
-                  {activeTab === 'products' && (
-                    <button
-                      onClick={() => setIsAddProductModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Product</span>
-                    </button>
-                  )}
-
-                  {activeTab === 'suppliers' && (
-                    <button
-                      onClick={() => setIsAddSupplierModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 cursor-pointer"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Supplier</span>
-                    </button>
-                  )}
 
                   {/* Notification Bell Dropdown */}
                   <div className="relative">
@@ -1207,6 +1282,61 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* ADMIN KPI OVERVIEW STAT CARDS */}
+              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Staff Members</span>
+                    <Users className="w-4 h-4 text-[#10B981]" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-[#2C241D]">{staffMembers.length} Staff</div>
+                  <div>
+                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                      Active staff accounts
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Total Products</span>
+                    <Package className="w-4 h-4 text-[#2563EB]" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-[#2C241D]">{displayProducts.length} Items</div>
+                  <div>
+                    <span className="text-[11px] font-bold text-[#1E40AF] bg-[#EBF5FF] px-2.5 py-0.5 rounded-full border border-[#DBEAFE] inline-block">
+                      Catalog inventory
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Customer Orders</span>
+                    <ShoppingBag className="w-4 h-4 text-[#D97706]" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-[#2C241D]">{orderList.length} Orders</div>
+                  <div>
+                    <span className="text-[11px] font-bold text-[#B4690E] bg-[#FDF3E7] px-2.5 py-0.5 rounded-full border border-[#FDE6D2] inline-block">
+                      Active customer orders
+                    </span>
+                  </div>
+                </div>
+
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Discount Coupons</span>
+                    <Tag className="w-4 h-4 text-[#7C3AED]" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-[#2C241D]">{couponsList.length} Active</div>
+                  <div>
+                    <span className="text-[11px] font-bold text-[#6D28D9] bg-[#F3E8FF] px-2.5 py-0.5 rounded-full border border-[#DDD6FE] inline-block">
+                      Promotional rewards
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* TAB 1: STAFF ACCOUNTS MANAGEMENT (ADMIN FEATURE) */}
               {activeTab === 'staff' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
@@ -1221,21 +1351,34 @@ export const AdminDashboardPage: React.FC = () => {
                     </button>
                   </div>
 
-                  {/* Role Filters */}
-                  <div className="flex items-center gap-2">
-                    {['All', 'Retail Staff', 'Production Staff'].map((role) => (
-                      <button
-                        key={role}
-                        onClick={() => setStaffRoleFilter(role as any)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${
-                          staffRoleFilter === role
-                            ? 'bg-[#48A63E] text-white'
-                            : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
-                        }`}
-                      >
-                        {role}
-                      </button>
-                    ))}
+                  {/* Role Filters & Search Bar */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                      {['All', 'Retail Staff', 'Production Staff'].map((role) => (
+                        <button
+                          key={role}
+                          onClick={() => setStaffRoleFilter(role as any)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors whitespace-nowrap ${
+                            staffRoleFilter === role
+                              ? 'bg-[#48A63E] text-white'
+                              : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                          }`}
+                        >
+                          {role}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search staff name, email, phone..."
+                        value={staffSearchQuery}
+                        onChange={(e) => setStaffSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
                   </div>
 
                   {/* Staff Table */}
@@ -1254,6 +1397,16 @@ export const AdminDashboardPage: React.FC = () => {
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {staffMembers
                           .filter((s) => staffRoleFilter === 'All' || s.role === staffRoleFilter)
+                          .filter((s) => {
+                            if (!staffSearchQuery.trim()) return true;
+                            const q = staffSearchQuery.toLowerCase();
+                            return (
+                              s.name.toLowerCase().includes(q) ||
+                              s.email.toLowerCase().includes(q) ||
+                              s.phone.toLowerCase().includes(q) ||
+                              s.role.toLowerCase().includes(q)
+                            );
+                          })
                           .map((staff) => (
                             <tr key={staff.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
                               <td className="py-4 px-4 font-extrabold text-[#2C241D] flex items-center gap-2.5">
@@ -1289,7 +1442,107 @@ export const AdminDashboardPage: React.FC = () => {
 
               {/* TAB 2: PRODUCTS CATALOG MANAGEMENT (FROM STAFF DASHBOARD) */}
               {activeTab === 'products' && (
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                <div className="space-y-5">
+                  {/* TOP KPI SUMMARY COUNT BOXES */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
+                    {/* Box 1: Total Catalog Products */}
+                    <div 
+                      onClick={() => setActiveTab('products')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-[#48A63E] hover:shadow-xl group"
+                      title="Click to view & manage catalog products"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-[#48A63E] transition-colors">
+                          <Package className="w-3.5 h-3.5 text-[#48A63E]" />
+                          Total Products
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {displayProducts.length}
+                        </div>
+                        <p className="text-[11px] font-semibold text-[#8C7C6D] flex items-center gap-1">
+                          Store furniture items
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-[#48A63E]" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/30 text-[#48A63E] flex items-center justify-center shrink-0 shadow-xs group-hover:bg-[#48A63E] group-hover:text-white transition-all">
+                        <Package className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Box 2: Customer Orders Count */}
+                    <div 
+                      onClick={() => setActiveTab('orders')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-blue-500 hover:shadow-xl group"
+                      title="Click to view & manage customer orders"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-blue-600 transition-colors">
+                          <ShoppingBag className="w-3.5 h-3.5 text-blue-600" />
+                          Customer Orders
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {orderList.length}
+                        </div>
+                        <p className="text-[11px] font-semibold text-blue-700 flex items-center gap-1">
+                          Total orders placed by customers
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-blue-600" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-blue-600 group-hover:text-white transition-all">
+                        <ShoppingBag className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Box 3: Low & Out of Stock */}
+                    <div 
+                      onClick={() => setActiveTab('inventory')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-amber-500 hover:shadow-xl group"
+                      title="Click to inspect warehouse stock & low inventory"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-amber-600 transition-colors">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          Low / Out of Stock
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {displayProducts.filter(p => p.stockCount === 0 || p.status === 'Out of Stock' || p.status === 'Low Stock' || p.stockCount <= 5).length}
+                        </div>
+                        <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1">
+                          Requires replenishment
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-amber-600" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-amber-600 group-hover:text-white transition-all">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Box 4: Active Categories */}
+                    <div 
+                      onClick={() => setActiveTab('products')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-purple-500 hover:shadow-xl group"
+                      title="Click to view categories & catalog"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-purple-600 transition-colors">
+                          <Tag className="w-3.5 h-3.5 text-purple-600" />
+                          Categories
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {new Set(displayProducts.map(p => p.category).filter(Boolean)).size || 5}
+                        </div>
+                        <p className="text-[11px] font-semibold text-purple-700 flex items-center gap-1">
+                          Living, Dining, Bedroom & Studio
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-purple-600" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-purple-600 group-hover:text-white transition-all">
+                        <Tag className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <button
                       onClick={() => setIsAddProductModalOpen(true)}
@@ -1302,13 +1555,13 @@ export const AdminDashboardPage: React.FC = () => {
 
                   {/* Filters Bar */}
                   <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 overflow-x-auto">
                       <span className="font-extrabold text-[#7A6C5E]">Category:</span>
-                      {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office'].map((cat) => (
+                      {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office', ...productList.map(p => p.category).filter(c => c && !['Living Room', 'Dining Room', 'Bedroom', 'Home Office'].includes(c))].filter((v, i, a) => a.indexOf(v) === i).map((cat) => (
                         <button
                           key={cat}
                           onClick={() => setCategoryFilter(cat)}
-                          className={`px-3 py-1.5 rounded-xl font-extrabold transition-colors ${
+                          className={`px-3 py-1.5 rounded-xl font-extrabold transition-colors whitespace-nowrap ${
                             categoryFilter === cat
                               ? 'bg-[#48A63E] text-white'
                               : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
@@ -1319,19 +1572,32 @@ export const AdminDashboardPage: React.FC = () => {
                       ))}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <span className="font-extrabold text-[#7A6C5E]">Price Filter:</span>
-                      <select
-                        value={priceRangeFilter}
-                        onChange={(e) => setPriceRangeFilter(e.target.value)}
-                        className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
-                      >
-                        <option value="All">All Prices</option>
-                        <option value="<10k">Under ₹10,000</option>
-                        <option value="10k-25k">₹10,000 - ₹25,000</option>
-                        <option value="25k-50k">₹25,000 - ₹50,000</option>
-                        <option value="50k+">Above ₹50,000</option>
-                      </select>
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-[#7A6C5E]">Price Filter:</span>
+                        <select
+                          value={priceRangeFilter}
+                          onChange={(e) => setPriceRangeFilter(e.target.value)}
+                          className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                        >
+                          <option value="All">All Prices</option>
+                          <option value="<10k">Under ₹10,000</option>
+                          <option value="10k-25k">₹10,000 - ₹25,000</option>
+                          <option value="25k-50k">₹25,000 - ₹50,000</option>
+                          <option value="50k+">Above ₹50,000</option>
+                        </select>
+                      </div>
+
+                      <div className="relative w-full sm:w-56">
+                        <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search product, material, color..."
+                          value={productSearchQuery}
+                          onChange={(e) => setProductSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -1343,7 +1609,7 @@ export const AdminDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Product</th>
                           <th className="py-3 px-4">Product Code (SKU)</th>
                           <th className="py-3 px-4">Category</th>
-                          <th className="py-3 px-4">Material</th>
+                          <th className="py-3 px-4">Material & Color</th>
                           <th className="py-3 px-4">Price</th>
                           <th className="py-3 px-4">Stock Count</th>
                           <th className="py-3 px-4">Status</th>
@@ -1363,9 +1629,20 @@ export const AdminDashboardPage: React.FC = () => {
                               )}
                               <span>{prod.name}</span>
                             </td>
-                            <td className="py-3.5 px-4 font-mono text-[#48A63E] font-extrabold">{prod.sku}</td>
+                            <td className="py-3.5 px-4 font-mono text-[#48A63E] font-extrabold">
+                              <span className="bg-[#48A63E]/10 border border-[#48A63E]/20 px-2 py-0.5 rounded text-[11px]">
+                                {prod.productCode || prod.sku || `SKU-RS-${prod.product_id || prod.id}`}
+                              </span>
+                            </td>
                             <td className="py-3.5 px-4 text-[#6B5C4D]">{prod.category}</td>
-                            <td className="py-3.5 px-4 text-[#6B5C4D]">{prod.material}</td>
+                            <td className="py-3.5 px-4 text-[#6B5C4D]">
+                              <div>{prod.material}</div>
+                              {prod.color && (
+                                <span className="inline-block text-[10px] font-bold bg-[#FAF7F2] border border-[#E2D7CB] px-1.5 py-0.5 rounded text-[#48A63E] mt-0.5">
+                                  {prod.color}
+                                </span>
+                              )}
+                            </td>
                             <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">₹{prod.price.toLocaleString('en-IN')}</td>
                             <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{prod.stockCount} Units</td>
                             <td className="py-3.5 px-4">
@@ -1403,7 +1680,8 @@ export const AdminDashboardPage: React.FC = () => {
                     </table>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
               {/* TAB 3: STOCK CONTROL & WAREHOUSE (FROM STAFF DASHBOARD) */}
               {activeTab === 'inventory' && (
@@ -1570,7 +1848,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 5: ORDER FULFILLMENT STUDIO (FROM STAFF DASHBOARD) */}
               {activeTab === 'orders' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-2 text-xs">
                       <span className="font-extrabold text-[#7A6C5E]">Filter Status:</span>
                       <select
@@ -1585,6 +1863,17 @@ export const AdminDashboardPage: React.FC = () => {
                         <option value="Delivered">Delivered</option>
                       </select>
                     </div>
+
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search order ID, customer, email..."
+                        value={orderSearchQuery}
+                        onChange={(e) => setOrderSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
                   </div>
 
                   {/* Orders Table */}
@@ -1592,20 +1881,28 @@ export const AdminDashboardPage: React.FC = () => {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Order ID</th>
-                          <th className="py-3 px-4">Customer Name</th>
-                          <th className="py-3 px-4">Email</th>
-                          <th className="py-3 px-4">Items</th>
+                          <th className="py-3 px-4">Order & Razorpay ID</th>
+                          <th className="py-3 px-4">Customer Details</th>
+                          <th className="py-3 px-4">Items & Product Code</th>
                           <th className="py-3 px-4">Total Amount</th>
-                          <th className="py-3 px-4">Payment</th>
+                          <th className="py-3 px-4">Payment Status</th>
                           <th className="py-3 px-4">Order Status</th>
-                          <th className="py-3 px-4 text-right">Update Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {orderList.filter((o) => orderStatusFilter === 'All' || o.orderStatus === orderStatusFilter).length === 0 ? (
+                        {orderList
+                          .filter((o) => {
+                            if (!orderSearchQuery.trim()) return true;
+                            const q = orderSearchQuery.toLowerCase();
+                            return (
+                              o.orderId.toLowerCase().includes(q) ||
+                              o.customerName.toLowerCase().includes(q) ||
+                              o.email.toLowerCase().includes(q) ||
+                              (o.paymentId && o.paymentId.toLowerCase().includes(q))
+                            );
+                          }).length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-8 text-center text-[#7A6C5E]">
+                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
                               <ShoppingBag className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
                               <p className="font-extrabold text-xs text-[#2C241D]">No customer orders found</p>
                               <p className="text-[11px] text-[#8C7C6D]">When customers place ready-made furniture orders, they will appear here.</p>
@@ -1613,48 +1910,80 @@ export const AdminDashboardPage: React.FC = () => {
                           </tr>
                         ) : (
                           orderList
-                            .filter((o) => orderStatusFilter === 'All' || o.orderStatus === orderStatusFilter)
+                            .filter((o) => {
+                              if (!orderSearchQuery.trim()) return true;
+                              const q = orderSearchQuery.toLowerCase();
+                              return (
+                                o.orderId.toLowerCase().includes(q) ||
+                                o.customerName.toLowerCase().includes(q) ||
+                                o.email.toLowerCase().includes(q) ||
+                                (o.paymentId && o.paymentId.toLowerCase().includes(q))
+                              );
+                            })
                             .map((ord) => (
                               <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                                <td className="py-4 px-4 font-mono font-extrabold text-[#48A63E]">{ord.orderId}</td>
-                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">{ord.customerName}</td>
-                                <td className="py-4 px-4 text-[#6B5C4D]">{ord.email}</td>
-                                <td className="py-4 px-4 text-[#6B5C4D]">{ord.itemsCount} Items</td>
-                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{ord.totalAmount.toLocaleString('en-IN')}</td>
                                 <td className="py-4 px-4">
-                                  <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
-                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                  <div className="font-mono font-extrabold text-[#48A63E] text-xs">{ord.orderId}</div>
+                                  {ord.paymentId && (
+                                    <div className="text-[10px] font-mono text-[#7A6C5E] mt-0.5 font-bold" title="Razorpay Payment ID">
+                                      {ord.paymentId}
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="py-4 px-4">
+                                  <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName}</div>
+                                  <div className="text-[11px] text-[#6B5C4D] font-semibold">{ord.email}</div>
+                                </td>
+                                <td className="py-4 px-4">
+                                  {ord.items && ord.items.length > 0 ? (
+                                    <div className="space-y-2">
+                                      {ord.items.map((item, idx) => (
+                                        <div key={idx} className="flex items-center gap-2.5">
+                                          <img
+                                            src={item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"}
+                                            alt={item.name}
+                                            onError={(e) => {
+                                              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80";
+                                            }}
+                                            className="w-9 h-9 rounded-lg object-cover border border-[#E2D7CB] shrink-0 bg-white shadow-xs"
+                                          />
+                                          <div>
+                                            <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 border border-[#48A63E]/20 px-1.5 py-0.2 rounded inline-block">
+                                              {(item as any).productCode || (item as any).sku || `SKU-RS-${item.id}`}
+                                            </span>
+                                            <div className="text-xs font-bold text-[#2C241D] line-clamp-1">{item.name} (x{item.quantity})</div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="text-[#6B5C4D] text-xs font-medium">{ord.itemsCount} Item(s)</span>
+                                  )}
+                                </td>
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D] text-sm">
+                                  ₹{ord.totalAmount.toLocaleString('en-IN')}
+                                </td>
+                                <td className="py-4 px-4">
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                                     <span>Paid</span>
                                   </span>
                                 </td>
                                 <td className="py-4 px-4">
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                    ord.orderStatus === 'Delivered'
-                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                      : ord.orderStatus === 'Shipped'
-                                        ? 'bg-blue-100 text-blue-700'
-                                        : ord.orderStatus === 'Processing'
-                                          ? 'bg-amber-100 text-amber-800'
-                                          : 'bg-slate-100 text-slate-600'
-                                  }`}>
-                                    {ord.orderStatus}
-                                  </span>
-                                </td>
-                                <td className="py-4 px-4 text-right">
-                                  <select
-                                    value={ord.orderStatus}
-                                    onChange={(e) => handleUpdateOrderStatus(ord.orderId, e.target.value as any)}
-                                    className="px-2.5 py-1 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
-                                  >
-                                    <option value="Pending">Pending</option>
-                                    <option value="Processing">Processing</option>
-                                    <option value="Shipped">Shipped</option>
-                                    <option value="Delivered">Delivered</option>
-                                  </select>
+                                  {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
+                                    <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                                      <X className="w-3.5 h-3.5 text-rose-600" />
+                                      <span>Cancelled</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>Order Placed</span>
+                                    </span>
+                                  )}
                                 </td>
                               </tr>
-                            ))
-                        )}
+                            )))}
                       </tbody>
                     </table>
                   </div>
@@ -1664,7 +1993,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 6: STAFF & CUSTOMER QUERIES */}
               {activeTab === 'queries' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-2">
                       {['All', 'Pending', 'Resolved'].map((st) => (
                         <button
@@ -1679,6 +2008,17 @@ export const AdminDashboardPage: React.FC = () => {
                           {st}
                         </button>
                       ))}
+                    </div>
+
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search staff, email, subject, message..."
+                        value={querySearchQuery}
+                        onChange={(e) => setQuerySearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
                     </div>
                   </div>
 
@@ -1696,7 +2036,19 @@ export const AdminDashboardPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {staffQueries.filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending')).length === 0 ? (
+                        {staffQueries
+                          .filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending'))
+                          .filter((q) => {
+                            if (!querySearchQuery.trim()) return true;
+                            const sq = querySearchQuery.toLowerCase();
+                            return (
+                              q.staffName.toLowerCase().includes(sq) ||
+                              q.staffEmail.toLowerCase().includes(sq) ||
+                              q.subject.toLowerCase().includes(sq) ||
+                              q.category.toLowerCase().includes(sq) ||
+                              (q.message && q.message.toLowerCase().includes(sq))
+                            );
+                          }).length === 0 ? (
                           <tr>
                             <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
                               <MessageSquare className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
@@ -1707,6 +2059,17 @@ export const AdminDashboardPage: React.FC = () => {
                         ) : (
                           staffQueries
                             .filter((q) => queryFilter === 'All' || (queryFilter === 'Pending' ? q.status === 'Pending' : q.status !== 'Pending'))
+                            .filter((q) => {
+                              if (!querySearchQuery.trim()) return true;
+                              const sq = querySearchQuery.toLowerCase();
+                              return (
+                                q.staffName.toLowerCase().includes(sq) ||
+                                q.staffEmail.toLowerCase().includes(sq) ||
+                                q.subject.toLowerCase().includes(sq) ||
+                                q.category.toLowerCase().includes(sq) ||
+                                (q.message && q.message.toLowerCase().includes(sq))
+                              );
+                            })
                             .map((query) => (
                               <tr key={query.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
                                 <td className="py-4 px-4 font-extrabold text-[#2C241D]">
@@ -1749,6 +2112,18 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 7: COUPONS & DISCOUNTS MANAGEMENT */}
               {activeTab === 'coupons' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                  {/* Section Heading */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-3">
+                    <div>
+                      <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight">
+                        Coupons & Customer Discounts Management
+                      </h2>
+                      <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                        Create promo codes, configure percentage discounts, and assign targeted coupons to customer accounts.
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Create Coupon Form */}
                   <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-3">
                     <h4 className="font-extrabold text-sm text-[#2C241D]">Create New Promo Code</h4>
@@ -1800,6 +2175,21 @@ export const AdminDashboardPage: React.FC = () => {
                     </form>
                   </div>
 
+                  {/* Coupons Header with Search Bar */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                    <h4 className="font-extrabold text-sm text-[#2C241D]">Active Promo & Discount Codes</h4>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search promo code, email..."
+                        value={couponSearchQuery}
+                        onChange={(e) => setCouponSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
+                  </div>
+
                   {/* Coupons List Table */}
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
@@ -1814,7 +2204,17 @@ export const AdminDashboardPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {couponsList.map((coupon) => (
+                        {couponsList
+                          .filter((c) => {
+                            if (!couponSearchQuery.trim()) return true;
+                            const cq = couponSearchQuery.toLowerCase();
+                            return (
+                              c.code.toLowerCase().includes(cq) ||
+                              (c.targetUserEmail && c.targetUserEmail.toLowerCase().includes(cq)) ||
+                              (c.description && c.description.toLowerCase().includes(cq))
+                            );
+                          })
+                          .map((coupon) => (
                           <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
                             <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
                               <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">{coupon.code}</span>
@@ -1937,7 +2337,6 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </main>
         </div>
-      </div>
 
       {/* MODAL 1: ADD STAFF MEMBER */}
       {isAddStaffModalOpen && (
@@ -2065,30 +2464,135 @@ export const AdminDashboardPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Category</label>
-                  <select
-                    value={newProdCategory}
-                    onChange={(e) => setNewProdCategory(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+              {/* Category Field with Provision to Add New Category */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-extrabold text-[#2C241D]">Category</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomCategoryMode(!isCustomCategoryMode);
+                      if (!isCustomCategoryMode) setCustomCategoryInput('');
+                    }}
+                    className="text-[11px] font-extrabold text-[#48A63E] hover:underline"
                   >
-                    <option value="Living Room">Living Room</option>
-                    <option value="Dining Room">Dining Room</option>
-                    <option value="Bedroom">Bedroom</option>
-                    <option value="Home Office">Home Office</option>
-                  </select>
+                    {isCustomCategoryMode ? '← Select Existing' : '+ Add New Category'}
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Material</label>
+                {isCustomCategoryMode ? (
                   <input
                     type="text"
-                    placeholder="Teak / Fabric"
-                    value={newProdMaterial}
-                    onChange={(e) => setNewProdMaterial(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
+                    placeholder="Enter new category name (e.g. Balcony & Garden)"
+                    value={customCategoryInput}
+                    onChange={(e) => setCustomCategoryInput(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#48A63E]/60 rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                    required
                   />
+                ) : (
+                  <select
+                    value={newProdCategory}
+                    onChange={(e) => {
+                      if (e.target.value === '__ADD_NEW__') {
+                        setIsCustomCategoryMode(true);
+                      } else {
+                        setNewProdCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold text-xs"
+                  >
+                    {['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio', ...productList.map(p => p.category).filter(c => c && !['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio'].includes(c))].filter((v, i, a) => a.indexOf(v) === i).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                    <option value="__ADD_NEW__">+ Add New Category...</option>
+                  </select>
+                )}
+              </div>
+
+              {/* Material & Color Grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {/* Material Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-extrabold text-[#2C241D]">Material</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomMaterialMode(!isCustomMaterialMode)}
+                      className="text-[10px] font-bold text-[#48A63E]"
+                    >
+                      {isCustomMaterialMode ? 'Select' : '+ Custom'}
+                    </button>
+                  </div>
+                  {isCustomMaterialMode ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Teak Slab"
+                      value={customMaterialInput}
+                      onChange={(e) => setCustomMaterialInput(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold"
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={newProdMaterial}
+                      onChange={(e) => {
+                        if (e.target.value === '__CUSTOM__') {
+                          setIsCustomMaterialMode(true);
+                        } else {
+                          setNewProdMaterial(e.target.value);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold"
+                    >
+                      {['Solid Teak Wood', 'Sheesham Wood', 'Oak Wood', 'Bouclé Fabric', 'Italian Velvet', 'Genuine Leather', 'Italian Marble', 'Rattan', 'Brass & Metal', 'Engineered Wood'].map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                      <option value="__CUSTOM__">Custom Material...</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* Color Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-extrabold text-[#2C241D]">Color / Finish</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomColorMode(!isCustomColorMode)}
+                      className="text-[10px] font-bold text-[#48A63E]"
+                    >
+                      {isCustomColorMode ? 'Select' : '+ Custom'}
+                    </button>
+                  </div>
+                  {isCustomColorMode ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Walnut Brown"
+                      value={customColorInput}
+                      onChange={(e) => setCustomColorInput(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold"
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={newProdColor}
+                      onChange={(e) => {
+                        if (e.target.value === '__CUSTOM__') {
+                          setIsCustomColorMode(true);
+                        } else {
+                          setNewProdColor(e.target.value);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold"
+                    >
+                      {['Natural Wood', 'Walnut Brown', 'Ivory White', 'Charcoal Gray', 'Emerald Green', 'Royal Navy Blue', 'Warm Beige', 'Rose Pink', 'Matte Black'].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value="__CUSTOM__">Custom Color...</option>
+                    </select>
+                  )}
                 </div>
               </div>
 

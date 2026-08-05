@@ -10,6 +10,7 @@ export interface KpiMetric {
 
 export interface FurnitureProduct {
   id: string;
+  productCode?: string;
   name: string;
   category: string;
   subcategory?: string;
@@ -21,6 +22,7 @@ export interface FurnitureProduct {
   imageUrl?: string;
   rating?: number;
   material?: string;
+  color?: string;
   isCustomizable?: boolean;
 }
 
@@ -29,6 +31,7 @@ export interface RecommendationProduct extends FurnitureProduct {
   rating: number;
   reviewCount: number;
   material: string;
+  color?: string;
   dimensions: string;
   isCustomizable: boolean;
   isTopPick?: boolean;

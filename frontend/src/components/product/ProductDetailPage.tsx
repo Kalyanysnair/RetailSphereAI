@@ -149,7 +149,7 @@ export const ProductDetailPage: React.FC = () => {
         </div>
 
         {/* Product Details Section Card */}
-        <div className="ultra-glass-panel rounded-[2.5rem] p-6 sm:p-8 lg:p-10 border border-[#E2D7CB] shadow-xl bg-white/85 space-y-10">
+        <div className="bg-[#FAF7F2] rounded-[2.5rem] p-6 sm:p-8 lg:p-10 border-2 border-[#E2D7CB] shadow-xl space-y-10">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
             
             {/* LEFT COLUMN: Single High-Res Product Image (Lg: 7 cols) */}
@@ -259,13 +259,13 @@ export const ProductDetailPage: React.FC = () => {
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Warranty Protection</span>
-                    <span className="font-extrabold text-[#38A132]">{product.warrantyInfo || '5 Years Warranty'}</span>
+                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Color / Finish</span>
+                    <span className="font-extrabold text-[#2C241D]">{product.color || 'Natural Finish'}</span>
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Product Type</span>
-                    <span className="font-extrabold text-[#2C241D]">Premium Readymade</span>
+                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Warranty Protection</span>
+                    <span className="font-extrabold text-[#38A132]">{product.warrantyInfo || '5 Years Warranty'}</span>
                   </div>
 
                   <div>

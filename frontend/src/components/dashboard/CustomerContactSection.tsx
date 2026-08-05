@@ -115,10 +115,10 @@ export const CustomerContactSection: React.FC = () => {
 
   return (
     <section id="contact-section" className="scroll-mt-24 pt-6">
-      <div className="ultra-glass-card rounded-3xl p-6 sm:p-8 shadow-xl space-y-6 text-[#2C241D]">
+      <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-6 sm:p-8 shadow-xl space-y-6 text-[#2C241D]">
         {/* Header */}
         <div className="border-b border-[#EFE7DE] pb-4">
-          <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-full border border-[#48A63E]/30 mb-2">
+          <div className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-full border border-[#48A63E]/30 mb-2">
             <MessageSquare className="w-3.5 h-3.5" /> Customer Support & Care
           </div>
           <h2 className="text-xl sm:text-2xl font-extrabold text-[#2C241D] tracking-tight">
@@ -131,7 +131,7 @@ export const CustomerContactSection: React.FC = () => {
 
         {/* Contact Info Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] flex items-center gap-3.5">
+          <div className="p-4 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] flex items-center gap-3.5 shadow-xs">
             <div className="w-10 h-10 rounded-xl bg-[#48A63E] text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-[#48A63E]/20">
               <Phone className="w-4 h-4" />
             </div>
@@ -145,7 +145,7 @@ export const CustomerContactSection: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] flex items-center gap-3.5">
+          <div className="p-4 rounded-2xl bg-[#F3EDE5] border border-[#E2D7CB] flex items-center gap-3.5 shadow-xs">
             <div className="w-10 h-10 rounded-xl bg-[#48A63E] text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-[#48A63E]/20">
               <MapPin className="w-4 h-4" />
             </div>

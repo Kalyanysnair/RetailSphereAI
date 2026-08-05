@@ -202,9 +202,14 @@ class ProductCreatePayload(BaseModel):
     price: float
     stock_count: int
     image_url: Optional[str] = None
+    color: Optional[str] = "Natural"
 
 class StockUpdatePayload(BaseModel):
-    stock_count: int
+    stock_count: Optional[int] = None
+    name: Optional[str] = None
+    price: Optional[float] = None
+    material: Optional[str] = None
+    color: Optional[str] = None
 
 @router.get("/inventory")
 def list_inventory(db: Session = Depends(get_db)):
@@ -230,6 +235,7 @@ def list_inventory(db: Session = Depends(get_db)):
             "category": p.category.category_name if p.category else "Furniture",
             "subcategory": p.subcategory.subcategory_name if p.subcategory else "",
             "material": p.material or "Standard",
+            "color": p.color or "Natural",
             "price": float(p.price or 0),
             "stockCount": qty,
             "status": st,
@@ -266,6 +272,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
     added_by_id = admin_user.user_id if admin_user else 1
 
     img_val = payload.image_url.strip() if payload.image_url else None
+    color_val = payload.color.strip() if payload.color else "Natural"
 
     new_prod = models.Product(
         category_id=category.category_id,
@@ -274,7 +281,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
         added_by=added_by_id,
         product_name=payload.name.strip(),
         material=payload.material.strip(),
-        color="Natural",
+        color=color_val,
         dimensions="Standard",
         price=payload.price,
         stock_quantity=payload.stock_count,
@@ -305,6 +312,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
         "name": new_prod.product_name,
         "category": cat_name,
         "material": new_prod.material,
+        "color": new_prod.color,
         "price": float(new_prod.price),
         "stockCount": qty,
         "status": st,
@@ -316,8 +324,18 @@ def update_product_stock(product_id: int, payload: StockUpdatePayload, db: Sessi
     prod = db.query(models.Product).filter(models.Product.product_id == product_id).first()
     if not prod:
         raise HTTPException(status_code=404, detail="Product not found")
-    prod.stock_quantity = payload.stock_count
-    return {"message": "Stock updated", "stock_count": prod.stock_quantity}
+    if payload.stock_count is not None:
+        prod.stock_quantity = payload.stock_count
+    if payload.name:
+        prod.product_name = payload.name.strip()
+    if payload.price is not None:
+        prod.price = payload.price
+    if payload.material:
+        prod.material = payload.material.strip()
+    if payload.color:
+        prod.color = payload.color.strip()
+    db.commit()
+    return {"message": "Product updated", "stock_count": prod.stock_quantity}
 
 
 from datetime import datetime
@@ -532,6 +550,148 @@ def create_supplier(payload: SupplierCreateRequest, db: Session = Depends(get_db
         "gst_number": new_sup.gst_number,
         "status": "Active"
     }
+
+
+class ReadymadeOrderItemSchema(BaseModel):
+    id: Optional[str] = None
+    name: str
+    price: float
+    quantity: int
+    imageUrl: Optional[str] = None
+
+class CreateReadymadeOrderPayload(BaseModel):
+    customerName: str
+    email: str
+    itemsCount: int
+    totalAmount: float
+    orderStatus: str = "Order Placed"
+    paymentStatus: str = "Paid"
+    paymentId: Optional[str] = None
+    items: list[ReadymadeOrderItemSchema]
+
+@router.get("/orders")
+def get_readymade_orders(db: Session = Depends(get_db)):
+    db_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_id.desc()).all()
+    res = []
+    for r in db_orders:
+        items_list = []
+        for i in r.items:
+            img = i.image_url
+            sku_code = "SKU-RS-STORE"
+            if i.product_id:
+                p = db.query(models.Product).filter(models.Product.product_id == i.product_id).first()
+                if p:
+                    sku_code = f"SKU-RS-{p.product_id:03d}"
+                    if not img and p.image:
+                        img = p.image
+            if not img:
+                img = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"
+            
+            items_list.append({
+                "id": str(i.item_id),
+                "productCode": sku_code,
+                "sku": sku_code,
+                "name": i.product_name or "Store Furniture Item",
+                "price": float(i.unit_price or 0),
+                "quantity": i.quantity or 1,
+                "imageUrl": img
+            })
+        
+        res.append({
+            "orderId": f"RET-{r.order_id:06d}",
+            "customerName": r.customer_name or "Valued Customer",
+            "email": r.customer_email or "customer@retailsphere.com",
+            "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
+            "totalAmount": float(r.total_amount or 0),
+            "orderStatus": r.order_status or "Order Placed",
+            "paymentStatus": r.payment_status or "Paid",
+            "paymentId": r.payment_id,
+            "orderDate": r.order_date.strftime("%b %d, %Y") if r.order_date else "Recent",
+            "createdAt": int(r.order_date.timestamp() * 1000) if r.order_date else 0,
+            "items": items_list
+        })
+    return res
+
+
+@router.post("/orders", status_code=status.HTTP_201_CREATED)
+def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = Depends(get_db)):
+    import time
+    new_order = models.ReadymadeOrder(
+        customer_name=payload.customerName.strip(),
+        customer_email=payload.email.strip(),
+        total_amount=payload.totalAmount,
+        payment_status=payload.paymentStatus.strip(),
+        payment_id=payload.paymentId.strip() if payload.paymentId else None,
+        order_status=payload.orderStatus.strip(),
+        delivery_address="Ettumanoor, Kottayam, Kerala 686631"
+    )
+    db.add(new_order)
+    db.commit()
+    db.refresh(new_order)
+
+    # Add items
+    for item in payload.items:
+        prod_id = None
+        clean_id = str(item.id).replace('inv-', '')
+        if clean_id.isdigit():
+            prod_id = int(clean_id)
+        
+        db_item = models.ReadymadeOrderItem(
+            order_id=new_order.order_id,
+            product_id=prod_id,
+            product_name=item.name.strip(),
+            image_url=item.imageUrl,
+            quantity=item.quantity,
+            unit_price=item.price
+        )
+        db.add(db_item)
+    
+    # Also record payment in tbl_payment
+    new_payment = models.Payment(
+        order_type="Readymade",
+        order_id=new_order.order_id,
+        amount=payload.totalAmount,
+        payment_method="Razorpay",
+        transaction_id=payload.paymentId or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
+        payment_status=payload.paymentStatus
+    )
+    db.add(new_payment)
+
+    db.commit()
+    db.refresh(new_order)
+
+    return {
+        "message": "Order placed and stored successfully in database",
+        "orderId": f"RET-{new_order.order_id:06d}",
+        "order_id": new_order.order_id
+    }
+
+
+@router.put("/orders/{order_id_str}/cancel")
+def cancel_readymade_order(order_id_str: str, db: Session = Depends(get_db)):
+    clean_id = order_id_str.replace("RET-", "").lstrip("0")
+    if not clean_id or not clean_id.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid order ID format")
+    
+    order_num = int(clean_id)
+    ord_record = db.query(models.ReadymadeOrder).filter(models.ReadymadeOrder.order_id == order_num).first()
+    if not ord_record:
+        raise HTTPException(status_code=404, detail="Readymade order not found")
+    
+    ord_record.order_status = "Cancelled"
+    ord_record.payment_status = "Cancelled"
+
+    # Also update tbl_payment if payment record exists
+    pmt = db.query(models.Payment).filter(
+        models.Payment.order_type == "Readymade",
+        models.Payment.order_id == order_num
+    ).first()
+    if pmt:
+        pmt.payment_status = "Cancelled"
+
+    db.commit()
+    db.refresh(ord_record)
+    return {"message": f"Order {order_id_str} cancelled successfully", "orderStatus": "Cancelled"}
 
 
 

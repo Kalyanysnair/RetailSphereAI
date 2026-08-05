@@ -167,12 +167,15 @@ class ReadymadeOrder(Base):
     __tablename__ = "tbl_readymade_order"
 
     order_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    customer_id = Column(Integer, ForeignKey("tbl_customer.customer_id"), nullable=False)
+    customer_id = Column(Integer, ForeignKey("tbl_customer.customer_id"), nullable=True)
+    customer_name = Column(String(100), nullable=True)
+    customer_email = Column(String(100), nullable=True)
     retail_staff_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
     total_amount = Column(Numeric(10, 2), nullable=False)
     payment_status = Column(String(50), default="Pending")
+    payment_id = Column(String(100), nullable=True)
     order_status = Column(String(50), default="Pending")
-    delivery_address = Column(Text, nullable=False)
+    delivery_address = Column(Text, nullable=True, default="Standard Delivery")
     order_date = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     customer = relationship("Customer", back_populates="readymade_orders")
@@ -184,7 +187,9 @@ class ReadymadeOrderItem(Base):
 
     item_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     order_id = Column(Integer, ForeignKey("tbl_readymade_order.order_id"), nullable=False)
-    product_id = Column(Integer, ForeignKey("tbl_product.product_id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("tbl_product.product_id"), nullable=True)
+    product_name = Column(String(255), nullable=True)
+    image_url = Column(Text, nullable=True)
     quantity = Column(Integer, nullable=False)
     unit_price = Column(Numeric(10, 2), nullable=False)
 

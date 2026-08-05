@@ -46,7 +46,8 @@ import {
 import {
   fetchQueriesFromDB,
   createStaffQueryInDB,
-  fetchNotificationsFromDB
+  fetchNotificationsFromDB,
+  updateUserProfile
 } from '../../services/api';
 import { StaffQuery, addStaffQuery } from '../../utils/staffQueriesStorage';
 
@@ -153,6 +154,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadNotifs();
     loadQueries();
     loadData();
+    window.addEventListener('custom-orders-updated', loadData);
+    window.addEventListener('storage', loadData);
+    return () => {
+      window.removeEventListener('custom-orders-updated', loadData);
+      window.removeEventListener('storage', loadData);
+    };
   }, []);
 
   const unreadNotifCount = notifications.filter(n => n.unread).length;
@@ -196,7 +203,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     setTimeout(() => setSuccessNotice(null), 6000);
   };
 
-  const handleUpdatePassword = (e: React.FormEvent) => {
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword || !newPassword || !confirmPassword) {
       setPasswordNotice({ type: 'error', text: 'Please fill in all password fields.' });
@@ -211,11 +218,29 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       return;
     }
 
-    setPasswordNotice({ type: 'success', text: 'Password updated successfully!' });
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmPassword('');
-    setTimeout(() => setPasswordNotice(null), 5000);
+    let userFullName = 'Production Staff';
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        userFullName = parsed.full_name || parsed.name || 'Production Staff';
+      }
+    } catch (e) {}
+
+    try {
+      await updateUserProfile({
+        full_name: userFullName,
+        current_password: currentPassword,
+        new_password: newPassword
+      });
+      setPasswordNotice({ type: 'success', text: 'Password updated successfully in database!' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => setPasswordNotice(null), 5000);
+    } catch (err: any) {
+      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password in database.' });
+    }
   };
 
   // Actions
@@ -651,47 +676,55 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* KPI Stat Cards (Shown ONLY on Custom Orders section) */}
             {activeTab === 'orders' && (
               <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="ultra-glass-card rounded-2xl p-5 shadow-sm border border-[#E2D7CB] space-y-2">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Pending Review</span>
-                    <Clock className="w-4 h-4 text-amber-600" />
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Pending Review</span>
+                    <Clock className="w-4 h-4 text-[#D97706]" />
                   </div>
                   <div className="text-2xl font-extrabold text-[#2C241D]">{pendingCount} Orders</div>
-                  <div className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md inline-block">
-                    Requires staff quote
+                  <div>
+                    <span className="text-[11px] font-bold text-[#B4690E] bg-[#FDF3E7] px-2.5 py-0.5 rounded-full border border-[#FDE6D2] inline-block">
+                      Requires staff quote
+                    </span>
                   </div>
                 </div>
 
-                <div className="ultra-glass-card rounded-2xl p-5 shadow-sm border border-[#E2D7CB] space-y-2">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">In Production</span>
-                    <Layers className="w-4 h-4 text-blue-600" />
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">In Production</span>
+                    <Layers className="w-4 h-4 text-[#2563EB]" />
                   </div>
                   <div className="text-2xl font-extrabold text-[#2C241D]">{inProductionCount} Builds</div>
-                  <div className="text-[11px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-md inline-block">
-                    Active workshop builds
+                  <div>
+                    <span className="text-[11px] font-bold text-[#1E40AF] bg-[#EBF5FF] px-2.5 py-0.5 rounded-full border border-[#DBEAFE] inline-block">
+                      Active workshop builds
+                    </span>
                   </div>
                 </div>
 
-                <div className="ultra-glass-card rounded-2xl p-5 shadow-sm border border-[#E2D7CB] space-y-2">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Artisan Workers</span>
-                    <Users className="w-4 h-4 text-[#48A63E]" />
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Artisan Workers</span>
+                    <Users className="w-4 h-4 text-[#10B981]" />
                   </div>
                   <div className="text-2xl font-extrabold text-[#2C241D]">{workers.length} Technicians</div>
-                  <div className="text-[11px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">
-                    Active craftsmen
+                  <div>
+                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                      Active craftsmen
+                    </span>
                   </div>
                 </div>
 
-                <div className="ultra-glass-card rounded-2xl p-5 shadow-sm border border-[#E2D7CB] space-y-2">
-                  <div className="flex items-center justify-between text-[#7A6C5E]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#7A6C5E]">Completed Builds</span>
-                    <PackageCheck className="w-4 h-4 text-[#48A63E]" />
+                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Completed Builds</span>
+                    <PackageCheck className="w-4 h-4 text-[#10B981]" />
                   </div>
                   <div className="text-2xl font-extrabold text-[#2C241D]">{completedCount} Orders</div>
-                  <div className="text-[11px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md inline-block">
-                    Ready for dispatch
+                  <div>
+                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                      Ready for dispatch
+                    </span>
                   </div>
                 </div>
               </div>
@@ -868,97 +901,107 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search order ID, client, material..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-4">
                   {orders
                     .filter(o => !isPaidCustomOrder(o))
                     .filter((o) => (approvalFilter === 'All' ? true : o.order_status === approvalFilter))
+                    .filter((o) => {
+                      if (!searchQuery.trim()) return true;
+                      const q = searchQuery.toLowerCase();
+                      return (
+                        o.furniture_type.toLowerCase().includes(q) ||
+                        o.customer_name.toLowerCase().includes(q) ||
+                        o.material.toLowerCase().includes(q) ||
+                        o.custom_order_id.toString().includes(q)
+                      );
+                    })
                     .length === 0 ? (
                     <div className="bg-white p-12 rounded-3xl border border-[#E2D7CB] text-center space-y-3">
                       <CheckCircle2 className="w-10 h-10 text-[#48A63E] mx-auto" />
                       <h4 className="font-extrabold text-base text-[#2C241D]">No Customizations Found</h4>
-                      <p className="text-xs text-[#7A6C5E]">No custom order designs match the selected approval filter ("{approvalFilter}").</p>
+                      <p className="text-xs text-[#7A6C5E]">All pending custom quotes have been reviewed and approved!</p>
                     </div>
                   ) : (
                     orders
                       .filter(o => !isPaidCustomOrder(o))
                       .filter((o) => (approvalFilter === 'All' ? true : o.order_status === approvalFilter))
+                      .filter((o) => {
+                        if (!searchQuery.trim()) return true;
+                        const q = searchQuery.toLowerCase();
+                        return (
+                          o.furniture_type.toLowerCase().includes(q) ||
+                          o.customer_name.toLowerCase().includes(q) ||
+                          o.material.toLowerCase().includes(q) ||
+                          o.custom_order_id.toString().includes(q)
+                        );
+                      })
                       .map((ord) => (
-                        <div
-                          key={ord.custom_order_id}
-                          className="ultra-glass-card rounded-3xl p-6 shadow-xl border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-4"
-                        >
-                          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-                            <div className="space-y-2 flex-1">
-                              <div className="flex items-center gap-3 flex-wrap">
-                                <span className="text-xs font-mono font-extrabold text-[#48A63E] px-2.5 py-0.5 rounded-full bg-[#48A63E]/10 border border-[#48A63E]/30">
-                                  CUSTOMIZATION #{ord.custom_order_id}
-                                </span>
-                                <span
-                                  className={`text-[11px] font-extrabold px-3 py-0.5 rounded-full ${
-                                    ord.order_status === 'Pending'
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : ord.order_status === 'Approved'
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : ord.order_status === 'Cancelled'
-                                      ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                                      : 'bg-rose-100 text-rose-800'
-                                  }`}
-                                >
-                                  {ord.order_status}
-                                </span>
-                              </div>
-
-                              <h3 className="text-lg font-extrabold text-[#2C241D]">{ord.furniture_type}</h3>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-[#6B5C4D]">
-                                <div><span className="font-bold">Customer:</span> {ord.customer_name} ({ord.customer_email || 'N/A'})</div>
-                                <div><span className="font-bold">Dimensions:</span> {ord.dimensions}</div>
-                                <div><span className="font-bold">Material Specs:</span> {ord.material} • {ord.color || 'Natural'}</div>
-                              </div>
-
-                              {ord.design_description && (
-                                <div className="bg-[#FAF7F2] p-3 rounded-xl border border-[#EFE7DE] text-xs text-[#5C4E42]">
-                                  <span className="font-extrabold text-[#2C241D] block mb-0.5">Design Requirements:</span>
-                                  {ord.design_description}
-                                </div>
-                              )}
+                        <div key={ord.custom_order_id} className="bg-white p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-xl">
+                                Order #{ord.custom_order_id}
+                              </span>
+                              <h3 className="font-extrabold text-sm sm:text-base text-[#2C241D]">{ord.furniture_type}</h3>
                             </div>
 
-                            <div className="flex flex-col items-end gap-3 self-start lg:self-center">
-                              <div className="text-right">
-                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Quoted Price</span>
-                                <span className="text-lg font-extrabold text-[#48A63E]">
-                                  {ord.estimated_price ? `₹${ord.estimated_price.toLocaleString()}` : 'Pending Quote'}
-                                </span>
-                              </div>
+                            <span className={`px-3 py-1 rounded-full text-xs font-extrabold self-start sm:self-auto ${
+                              ord.order_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                              ord.order_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
+                              'bg-rose-100 text-rose-800'
+                            }`}>
+                              {ord.order_status}
+                            </span>
+                          </div>
 
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <button
-                                  onClick={() => setSelectedOrderForDetails(ord)}
-                                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all"
-                                >
-                                  <Eye className="w-3.5 h-3.5" />
-                                  <span>View Specs</span>
-                                </button>
-
-                                {ord.order_status === 'Cancelled' ? (
-                                  <span className="px-3.5 py-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 font-extrabold text-xs flex items-center gap-1.5">
-                                    <X className="w-3.5 h-3.5 text-rose-600" />
-                                    <span>Cancelled by Customer</span>
-                                  </span>
-                                ) : ord.order_status === 'Pending' && (
-                                  <button
-                                    onClick={() => setSelectedOrderForReview(ord)}
-                                    className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-[#48A63E]/20 transition-all"
-                                  >
-                                    <CheckCircle2 className="w-4 h-4" />
-                                    <span>Review & Approve Quote</span>
-                                  </button>
-                                )}
-                              </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-[#6B5C4D]">
+                            <div>
+                              <span className="font-bold block text-[#7A6C5E] text-[10px]">Client Name</span>
+                              <span className="font-extrabold text-[#2C241D]">{ord.customer_name}</span>
                             </div>
+                            <div>
+                              <span className="font-bold block text-[#7A6C5E] text-[10px]">Material Finish</span>
+                              <span className="font-bold text-[#2C241D]">{ord.material}</span>
+                            </div>
+                            <div>
+                              <span className="font-bold block text-[#7A6C5E] text-[10px]">Quoted Price</span>
+                              <span className="font-extrabold text-[#48A63E]">{ord.estimated_price ? `₹${ord.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}</span>
+                            </div>
+                            <div>
+                              <span className="font-bold block text-[#7A6C5E] text-[10px]">Order Date</span>
+                              <span className="font-bold text-[#2C241D]">{ord.order_date || 'Standard Build'}</span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#EFE7DE]">
+                            <button
+                              onClick={() => setSelectedOrderForDetails(ord)}
+                              className="px-3.5 py-2 rounded-xl bg-[#F5ECE1] hover:bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-[#6B5C4D]" />
+                              <span>View Specs</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenPriceModal(ord)}
+                              className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              <DollarSign className="w-3.5 h-3.5" />
+                              <span>Review & Quote Price</span>
+                            </button>
                           </div>
                         </div>
                       ))
@@ -967,15 +1010,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 3: WORKER TASK ASSIGNMENTS */}
+            {/* TAB 3: ARTISAN TASK ASSIGNMENTS HUB */}
             {activeTab === 'assignments' && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Quick Direct Assignment Form Panel */}
-                  <div className="bg-[#FAF7F2] p-5 rounded-2xl border-2 border-[#E2D7CB] shadow-sm space-y-4">
+                  {/* Direct Assignment Form */}
+                  <div className="bg-[#FAF7F2] p-5 rounded-3xl border-2 border-[#E2D7CB] shadow-sm space-y-4">
                     <div className="flex items-center gap-2 border-b border-[#E2D7CB] pb-3">
                       <UserPlus className="w-5 h-5 text-[#48A63E]" />
-                      <h4 className="font-extrabold text-sm text-[#2C241D]">Assign Artisan to Custom Order</h4>
+                      <h3 className="font-extrabold text-base text-[#2C241D]">Assign Artisan to Custom Order</h3>
                     </div>
 
                     <form onSubmit={handleDirectAssignSubmit} className="space-y-3.5 text-xs">
@@ -1018,93 +1061,80 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       <div>
                         <label className="block font-bold text-[#6B5C4D] mb-1">Task Instructions & Craft Notes</label>
                         <textarea
-                          rows={3}
-                          placeholder="Enter special joinery, lacquer or framing instructions for worker..."
+                          placeholder="Specific jointing, finish grade, or timber handling instructions..."
                           value={assignFormNotes}
                           onChange={(e) => setAssignFormNotes(e.target.value)}
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
+                          rows={3}
+                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-semibold focus:outline-none focus:border-[#48A63E]"
                         />
                       </div>
 
                       <button
                         type="submit"
-                        disabled={!assignFormOrderId || !assignFormWorkerId}
-                        className="w-full py-3 rounded-xl bg-[#48A63E] disabled:opacity-50 hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20"
+                        className="w-full py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
                       >
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>Confirm Worker Assignment</span>
+                        <UserPlus className="w-4 h-4" />
+                        <span>Confirm Artisan Task Assignment</span>
                       </button>
                     </form>
                   </div>
 
-                  {/* Active Worker Assignments List (ONLY SHOWN WHEN CUSTOMER PAYMENT IS COMPLETED) */}
+                  {/* Active Worker Assignments Roster Feed */}
                   <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-                      <h4 className="font-extrabold text-sm text-[#2C241D]">Active Order & Technician Assignments</h4>
-                      <span className="text-xs font-bold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-full">
-                        {orders.filter(o => isPaidCustomOrder(o) && o.assigned_workers && o.assigned_workers.length > 0).length} Assigned Builds
-                      </span>
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                      <div>
+                        <h3 className="font-extrabold text-base text-[#2C241D]">Active Artisan Workshop Distribution</h3>
+                        <p className="text-xs text-[#7A6C5E]">Overview of active technician assignments across workshop custom builds</p>
+                      </div>
                     </div>
 
-                    <div className="space-y-4">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
                       {orders.filter(isPaidCustomOrder).length === 0 ? (
-                        <div className="bg-white p-8 rounded-2xl border-2 border-dashed border-[#E2D7CB] text-center space-y-2">
-                          <Layers className="w-8 h-8 text-[#A09080] mx-auto" />
-                          <p className="font-extrabold text-sm text-[#2C241D]">No Paid Orders Pending Technician Assignment</p>
-                          <p className="text-xs text-[#7A6C5E]">Once customer completes payment, orders will appear here for technician allocation & build updates.</p>
+                        <div className="bg-white p-8 rounded-2xl border border-[#E2D7CB] text-center space-y-2">
+                          <Users className="w-8 h-8 text-[#A09080] mx-auto" />
+                          <p className="font-extrabold text-sm text-[#2C241D]">No Active Paid Build Tasks</p>
+                          <p className="text-xs text-[#7A6C5E]">Approved customer orders will appear here for craftsman allocation once paid.</p>
                         </div>
                       ) : (
-                        orders
-                          .filter(isPaidCustomOrder)
-                          .map((ord) => (
-                            <div key={ord.custom_order_id} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-3">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-mono font-extrabold text-[#48A63E]">ORDER #{ord.custom_order_id}</span>
-                                    <span className="text-xs font-extrabold text-[#2C241D]">• {ord.furniture_type}</span>
-                                  </div>
-                                  <p className="text-xs text-[#6B5C4D]">Customer: {ord.customer_name}</p>
-                                </div>
-
+                        orders.filter(isPaidCustomOrder).map((ord) => {
+                          const assignedWorker = ord.assigned_workers && ord.assigned_workers.length > 0 ? ord.assigned_workers[0] : null;
+                          return (
+                            <div key={ord.custom_order_id} className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                              <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => setSelectedOrderForWorker(ord)}
-                                    className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-xl font-extrabold text-xs flex items-center gap-1 transition-colors"
-                                  >
-                                    <Users className="w-3.5 h-3.5" />
-                                    <span>{ord.assigned_workers && ord.assigned_workers.length > 0 ? 'Reassign' : 'Assign'}</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => setSelectedOrderForProgress(ord)}
-                                    className="px-3 py-1.5 bg-[#48A63E]/10 hover:bg-[#48A63E]/20 text-[#48A63E] border border-[#48A63E]/30 rounded-xl font-extrabold text-xs flex items-center gap-1 transition-colors"
-                                  >
-                                    <RefreshCw className="w-3.5 h-3.5" />
-                                    <span>Build Stage</span>
-                                  </button>
+                                  <span className="font-mono text-xs font-extrabold text-[#48A63E]">Order #{ord.custom_order_id}</span>
+                                  <h4 className="font-extrabold text-sm text-[#2C241D]">{ord.furniture_type}</h4>
+                                </div>
+                                <p className="text-xs text-[#6B5C4D]">
+                                  <span className="font-bold">Client:</span> {ord.customer_name} | <span className="font-bold">Material:</span> {ord.material}
+                                </p>
+                                <div className="flex items-center gap-2 pt-1 text-[11px]">
+                                  <span className="font-bold text-[#7A6C5E]">Assigned Artisan:</span>
+                                  {assignedWorker ? (
+                                    <span className="font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md">
+                                      {assignedWorker.worker_name}
+                                    </span>
+                                  ) : (
+                                    <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">
+                                      Unassigned
+                                    </span>
+                                  )}
                                 </div>
                               </div>
 
-                              <div className="bg-[#FAF7F2] p-3 rounded-xl border border-[#EFE7DE] flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                                <div>
-                                  <span className="font-extrabold text-[#7A6C5E] block text-[10px] uppercase">Assigned Technician</span>
-                                  <span className="font-extrabold text-[#2C241D]">
-                                    {ord.assigned_workers && ord.assigned_workers.length > 0
-                                      ? ord.assigned_workers[0].worker_name
-                                      : '⚠️ Unassigned Craftsman'}
-                                  </span>
-                                </div>
-
-                                <div>
-                                  <span className="font-extrabold text-[#7A6C5E] block text-[10px] uppercase">Current Progress Stage</span>
-                                  <span className="font-bold text-[#48A63E]">
-                                    {ord.current_stage || 'Material Sourcing'} ({ord.progress_percentage || 0}%)
-                                  </span>
-                                </div>
-                              </div>
+                              <button
+                                onClick={() => {
+                                  setSelectedOrderForWorker(ord);
+                                  setSelectedWorkerId(assignedWorker ? assignedWorker.worker_id : null);
+                                }}
+                                className="px-3.5 py-2 rounded-xl bg-[#F5ECE1] hover:bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap self-end sm:self-auto"
+                              >
+                                <UserPlus className="w-3.5 h-3.5 text-[#48A63E]" />
+                                <span>{assignedWorker ? 'Reassign Worker' : 'Assign Worker'}</span>
+                              </button>
                             </div>
-                          ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -1112,27 +1142,45 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 4: Workers Directory */}
+            {/* TAB 4: ARTISAN TECHNICIANS DIRECTORY */}
             {activeTab === 'workers' && (
               <div className="space-y-5">
-                {/* Workers Directory Action Bar */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                  <div>
-                    <h3 className="font-extrabold text-lg text-[#2C241D]">Active Workshop Roster</h3>
-                    <p className="text-xs text-[#6B5C4D]">Craftsmen and assigned technicians for custom builds</p>
-                  </div>
+                <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
+                  <div className="flex items-center gap-3 w-full sm:w-auto">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search worker, email, specialty..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
 
-                  <button
-                    onClick={() => setIsAddWorkerModalOpen(true)}
-                    className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#48A63E]/20 transition-all"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add New Worker</span>
-                  </button>
+                    <button
+                      onClick={() => setIsAddWorkerModalOpen(true)}
+                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#48A63E]/20 transition-all whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add New Worker</span>
+                    </button>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {workers.map((worker) => (
+                  {workers
+                    .filter((w) => {
+                      if (!searchQuery.trim()) return true;
+                      const q = searchQuery.toLowerCase();
+                      return (
+                        w.full_name.toLowerCase().includes(q) ||
+                        w.email.toLowerCase().includes(q) ||
+                        (w.specialization && w.specialization.toLowerCase().includes(q)) ||
+                        (w.phone && w.phone.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((worker) => (
                     <div key={worker.worker_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold flex items-center justify-center text-sm shadow-md">
@@ -1173,59 +1221,66 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                     <form onSubmit={handleSubmitQuery} className="space-y-3.5 text-xs">
                       <div>
-                        <label className="block font-bold text-[#6B5C4D] mb-1">Request Category</label>
+                        <label className="block font-extrabold text-[#2C241D] mb-1">Request Category</label>
                         <select
                           value={newQueryCategory}
                           onChange={(e) => setNewQueryCategory(e.target.value as any)}
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                          className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-extrabold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                         >
-                          <option value="Email Change Request">Email Change Request (Locked Email)</option>
-                          <option value="Role & Access Permission">Role & Workshop Access Permission</option>
-                          <option value="General Query">General Admin Inquiry</option>
+                          <option value="Email Change Request">Email Change Request</option>
+                          <option value="Role & Access Permission">Role & Access Permission</option>
+                          <option value="General Query">General Query</option>
                         </select>
                       </div>
 
                       <div>
-                        <label className="block font-bold text-[#6B5C4D] mb-1">Subject Title</label>
+                        <label className="block font-extrabold text-[#2C241D] mb-1">Request Subject</label>
                         <input
                           type="text"
-                          required
-                          placeholder="e.g. Request Official Email Change to Production Domain"
+                          placeholder="e.g. Update login email to nimal.k.retail@retailsphere.com"
                           value={newQuerySubject}
                           onChange={(e) => setNewQuerySubject(e.target.value)}
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                          className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                          required
                         />
                       </div>
 
                       <div>
-                        <label className="block font-bold text-[#6B5C4D] mb-1">Detailed Message / Explanation</label>
+                        <label className="block font-extrabold text-[#2C241D] mb-1">Detailed Explanation</label>
                         <textarea
-                          required
-                          rows={4}
-                          placeholder="Provide full description of your request to the system Admin..."
+                          placeholder="Please specify why this change or access permission is required..."
                           value={newQueryMessage}
                           onChange={(e) => setNewQueryMessage(e.target.value)}
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
+                          rows={4}
+                          className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                          required
                         />
                       </div>
 
                       <button
                         type="submit"
-                        className="w-full py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md"
+                        className="w-full py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer"
                       >
                         <Send className="w-4 h-4" />
-                        <span>Send Request to Admin</span>
+                        <span>Submit Request to Admin</span>
                       </button>
                     </form>
                   </div>
 
                   {/* Live Queries & Responses Feed */}
                   <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                    <div className="flex flex-col sm:flex-row items-center justify-between border-b border-[#E2D7CB] pb-3 gap-2">
                       <h4 className="font-extrabold text-sm text-[#2C241D]">Submitted Requests & Admin Feedback Feed</h4>
-                      <span className="text-xs font-bold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-full">
-                        {staffQueries.length} Total Requests
-                      </span>
+                      <div className="relative w-full sm:w-56">
+                        <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search request subject..."
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                        />
+                      </div>
                     </div>
 
                     {staffQueries.length === 0 ? (
@@ -1238,7 +1293,17 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       </div>
                     ) : (
                       <div className="space-y-4 max-h-[600px] overflow-y-auto pr-1">
-                        {staffQueries.map((query) => (
+                        {staffQueries
+                          .filter((q) => {
+                            if (!searchQuery.trim()) return true;
+                            const sq = searchQuery.toLowerCase();
+                            return (
+                              q.subject.toLowerCase().includes(sq) ||
+                              q.category.toLowerCase().includes(sq) ||
+                              (q.message && q.message.toLowerCase().includes(sq))
+                            );
+                          })
+                          .map((query) => (
                           <div key={query.id} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-3">
                             <div className="flex items-start justify-between gap-3">
                               <div>

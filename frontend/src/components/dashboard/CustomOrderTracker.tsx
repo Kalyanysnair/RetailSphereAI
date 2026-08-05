@@ -204,6 +204,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
       const allOrders = await fetchCustomOrders();
       // Filter out cancelled requests so they are hidden from the Build Studio section (only displayed in My Orders)
       const activeBuildOrders = allOrders.filter(o => o.order_status !== 'Cancelled');
+      activeBuildOrders.sort((a, b) => b.custom_order_id - a.custom_order_id);
       setUserOrders(activeBuildOrders);
       if (activeBuildOrders.length > 0) {
         if (!selectedOrderId || !activeBuildOrders.some(o => o.custom_order_id === selectedOrderId)) {
@@ -429,7 +430,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
     <div className="space-y-8 text-[#2C241D]">
       {/* INLINE EXPANDABLE CUSTOMIZATION FORM (PAGE DOCUMENT FLOW) */}
       {isFormOpen && (
-        <div id="custom-order-form" className="ultra-glass-card rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden space-y-6 text-[#2C241D] animate-fadeIn scroll-mt-24">
+        <div id="custom-order-form" className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden space-y-6 text-[#2C241D] animate-fadeIn scroll-mt-24">
           <div className="glass-sheen" aria-hidden="true" />
 
           {/* Form Header */}
@@ -719,7 +720,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
       {/* SINGLE UNIFIED GLASS CARD CONTAINER FOR TRACKER (Only rendered when user has active custom orders) */}
       {userOrders.length > 0 && activeOrder && (
-        <div className="ultra-glass-card rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
+        <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
           <div className="glass-sheen" aria-hidden="true" />
 
           {/* Card Header & Action Bar */}
@@ -935,8 +936,9 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   const targetId = cancelModalOrderId;
                   setCancelModalOrderId(null);
                   if (targetId) {
+                    // Instant optimistic local state update without page refresh!
+                    setUserOrders(prev => prev.filter(o => o.custom_order_id !== targetId));
                     await cancelCustomOrder(targetId);
-                    loadUserCustomOrders();
                   }
                 }}
                 className="flex-1 py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-all shadow-md shadow-rose-600/20 cursor-pointer"

@@ -178,16 +178,16 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
                   subcategoryId: cat.subcategories[0]?.id || 'all-sub'
                 });
               }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-bold whitespace-nowrap transition-all duration-300 ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all duration-300 ${
                 isSelected
-                  ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 scale-[1.02]'
-                  : 'ultra-glass-card text-[#5C4E42] hover:text-[#2C241D]'
+                  ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 scale-[1.02] border-2 border-[#48A63E]'
+                  : 'bg-[#FAF7F2] border-2 border-[#E2D7CB] text-[#5C4E42] hover:text-[#2C241D] hover:border-[#48A63E]'
               }`}
             >
               {getCategoryIcon(cat.icon)}
               <span>{cat.name}</span>
               <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                isSelected ? 'bg-white/20 text-white font-extrabold' : 'bg-[#F4ECE1] text-[#7A6C5E]'
+                isSelected ? 'bg-white/20 text-white font-extrabold' : 'bg-[#F4ECE1] text-[#2C241D] font-extrabold'
               }`}>
                 {cat.count}
               </span>
@@ -196,8 +196,28 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
         })}
       </div>
 
+      {/* Search Bar on Customer Catalog */}
+      <div className="relative max-w-xl mx-auto mb-4">
+        <Search className="w-4 h-4 text-[#9E9082] absolute left-4 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          placeholder="Search furniture title, material finish, color, category..."
+          value={filterState.searchQuery || ''}
+          onChange={(e) => onFilterChange({ searchQuery: e.target.value })}
+          className="w-full pl-11 pr-4 py-3 text-xs bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-full text-[#2C241D] font-extrabold focus:outline-none focus:border-[#48A63E] shadow-sm transition-all placeholder-[#9E9082]"
+        />
+        {filterState.searchQuery && (
+          <button
+            onClick={() => onFilterChange({ searchQuery: '' })}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-[#7A6C5E] hover:text-[#2C241D] rounded-full"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
       {/* Subcategory Chips & Quick Filters Bar */}
-      <div className="ultra-glass-card rounded-2xl p-4 space-y-3">
+      <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-5 shadow-sm space-y-4">
 
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-
+import { updateUserProfile } from '../../services/api';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Package,
@@ -33,7 +33,8 @@ import {
   Percent,
   Trash2,
   Mail,
-  UserCheck
+  UserCheck,
+  ArrowRight
 } from 'lucide-react';
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
 
@@ -45,9 +46,12 @@ import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUser
 
 export interface RetailProduct {
   id: string;
+  product_id?: number | string;
+  productCode?: string;
   name: string;
   category: string;
   material: string;
+  color?: string;
   price: number;
   stockCount: number;
   status: 'In Stock' | 'Low Stock' | 'Out of Stock';
@@ -64,7 +68,18 @@ export interface RetailOrder {
   email: string;
   itemsCount: number;
   totalAmount: number;
-  orderStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered';
+  orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Cancelled';
+  paymentStatus?: 'Paid' | 'Pending' | 'Cancelled';
+  paymentId?: string;
+  items?: Array<{
+    id: string;
+    productCode?: string;
+    sku?: string;
+    name: string;
+    price: number;
+    quantity: number;
+    imageUrl?: string;
+  }>;
   orderDate: string;
 }
 
@@ -103,7 +118,8 @@ import {
   createSupplierInDB
 } from '../../services/api';
 import { addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
-import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
+import { getStoredRetailOrders, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
+import { fetchCustomOrders } from '../../services/api_production';
 
 export const INITIAL_PRODUCTS: RetailProduct[] = [];
 export const INITIAL_ORDERS: RetailOrder[] = [];
@@ -207,15 +223,47 @@ export const RetailStaffDashboardPage: React.FC = () => {
   // Orders State
   const [orderList, setOrderList] = useState<RetailOrder[]>(() => getStoredRetailOrders() as any);
 
+  const loadAllOrdersForStaff = async () => {
+    try {
+      const dbStoreOrders = await fetchRetailOrdersFromDB();
+      const allCustomOrders = await fetchCustomOrders('All', true);
+      
+      const formattedCustom: RetailOrder[] = allCustomOrders.map((c) => ({
+        orderId: `CUSTOM-${c.custom_order_id}`,
+        customerName: c.customer_name || 'Bespoke Customer',
+        email: c.customer_email || 'customer@retailsphere.com',
+        itemsCount: 1,
+        totalAmount: c.estimated_price || 0,
+        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : (c.order_status as any || 'Pending')),
+        paymentStatus: (c.payment_status === 'Paid' || c.order_status === 'Paid') ? 'Paid' : 'Pending',
+        orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
+        createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
+        items: [{
+          id: `item-custom-${c.custom_order_id}`,
+          name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
+          price: c.estimated_price || 0,
+          quantity: 1,
+          imageUrl: c.reference_image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80'
+        }]
+      }));
+
+      const merged = [...formattedCustom, ...dbStoreOrders];
+      merged.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
+      setOrderList(merged as any);
+    } catch (err) {
+      console.warn('Error loading all orders for staff:', err);
+    }
+  };
+
   useEffect(() => {
-    const handleRetailOrdersUpdate = () => {
-      setOrderList(getStoredRetailOrders() as any);
-    };
-    window.addEventListener('retail-orders-updated', handleRetailOrdersUpdate);
-    window.addEventListener('storage', handleRetailOrdersUpdate);
+    loadAllOrdersForStaff();
+    window.addEventListener('retail-orders-updated', loadAllOrdersForStaff);
+    window.addEventListener('custom-orders-updated', loadAllOrdersForStaff);
+    window.addEventListener('storage', loadAllOrdersForStaff);
     return () => {
-      window.removeEventListener('retail-orders-updated', handleRetailOrdersUpdate);
-      window.removeEventListener('storage', handleRetailOrdersUpdate);
+      window.removeEventListener('retail-orders-updated', loadAllOrdersForStaff);
+      window.removeEventListener('custom-orders-updated', loadAllOrdersForStaff);
+      window.removeEventListener('storage', loadAllOrdersForStaff);
     };
   }, []);
 
@@ -297,7 +345,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
     }
   }, [currentUser]);
 
-  const handleSaveStaffProfile = (e: React.FormEvent) => {
+  const handleSaveStaffProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
 
@@ -317,55 +365,73 @@ export const RetailStaffDashboardPage: React.FC = () => {
       }
     }
 
-    const stored = localStorage.getItem('user');
-    let parsed = stored ? JSON.parse(stored) : {};
-    parsed = { ...parsed, full_name: profileForm.full_name, email: profileForm.email };
-    localStorage.setItem('user', JSON.stringify(parsed));
+    try {
+      await updateUserProfile({
+        full_name: profileForm.full_name,
+        current_password: profileForm.currentPassword || undefined,
+        new_password: profileForm.newPassword || undefined,
+      });
 
-    let initials = 'RS';
-    if (profileForm.full_name) {
-      const parts = profileForm.full_name.trim().split(' ');
-      if (parts.length >= 2) {
-        initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-      } else if (parts[0].length >= 2) {
-        initials = parts[0].substring(0, 2).toUpperCase();
-      } else {
-        initials = parts[0][0].toUpperCase();
+      const stored = localStorage.getItem('user');
+      let parsed = stored ? JSON.parse(stored) : {};
+      parsed = { ...parsed, full_name: profileForm.full_name, email: profileForm.email };
+      localStorage.setItem('user', JSON.stringify(parsed));
+
+      let initials = 'RS';
+      if (profileForm.full_name) {
+        const parts = profileForm.full_name.trim().split(' ');
+        if (parts.length >= 2) {
+          initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        } else if (parts[0].length >= 2) {
+          initials = parts[0].substring(0, 2).toUpperCase();
+        } else {
+          initials = parts[0][0].toUpperCase();
+        }
       }
+
+      setCurrentUser({
+        name: profileForm.full_name,
+        email: profileForm.email,
+        initials
+      });
+
+      setIsStaffProfileModalOpen(false);
+      const noticeMsg = profileForm.newPassword
+        ? `Staff profile and security password for "${profileForm.full_name}" updated successfully!`
+        : `Staff profile for "${profileForm.full_name}" updated successfully!`;
+
+      setSuccessNotice(noticeMsg);
+
+      // Reset password fields
+      setProfileForm((prev) => ({
+        ...prev,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      }));
+
+      setTimeout(() => {
+        setSuccessNotice(null);
+      }, 5000);
+    } catch (err: any) {
+      setPasswordError(err.message || 'Failed to update password credentials in database.');
     }
-
-    setCurrentUser({
-      name: profileForm.full_name,
-      email: profileForm.email,
-      initials
-    });
-
-    setIsStaffProfileModalOpen(false);
-    const noticeMsg = profileForm.newPassword
-      ? `Staff profile and security password for "${profileForm.full_name}" updated successfully!`
-      : `Staff profile for "${profileForm.full_name}" updated successfully!`;
-
-    setSuccessNotice(noticeMsg);
-
-    // Reset password fields
-    setProfileForm((prev) => ({
-      ...prev,
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: ''
-    }));
-
-    setTimeout(() => {
-      setSuccessNotice(null);
-    }, 6000);
   };
 
   // New Product Form State
-
-
   const [newProdName, setNewProdName] = useState('');
   const [newProdCategory, setNewProdCategory] = useState('Living Room');
-  const [newProdMaterial, setNewProdMaterial] = useState('Teak Wood');
+  const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
+  const [customCategoryInput, setCustomCategoryInput] = useState('');
+
+  const [newProdMaterial, setNewProdMaterial] = useState('Solid Teak Wood');
+  const [isCustomMaterialMode, setIsCustomMaterialMode] = useState(false);
+  const [customMaterialInput, setCustomMaterialInput] = useState('');
+
+  const [newProdColor, setNewProdColor] = useState('Natural Wood');
+  const [isCustomColorMode, setIsCustomColorMode] = useState(false);
+  const [customColorInput, setCustomColorInput] = useState('');
+
   const [newProdPrice, setNewProdPrice] = useState('');
   const [newProdStock, setNewProdStock] = useState('');
   const [newProdSku, setNewProdSku] = useState('');
@@ -589,6 +655,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
           name: p.name || 'Untitled Product',
           category: p.category || 'Living Room',
           material: p.material || 'Standard',
+          color: p.color || 'Natural Wood',
           price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
           stockCount: typeof p.stockCount === 'number' ? p.stockCount : parseInt(p.stockCount) || 0,
           status: p.status || 'In Stock',
@@ -608,8 +675,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
     loadProductsFromDB();
   }, []);
 
-
-
   // Add Product Handler
   const handleAddProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -619,11 +684,27 @@ export const RetailStaffDashboardPage: React.FC = () => {
     const priceVal = parseFloat(newProdPrice) || 0;
     const imgUrl = newProdImage.trim() || undefined;
 
+    const finalCategory = isCustomCategoryMode
+      ? customCategoryInput.trim()
+      : newProdCategory;
+    const finalMaterial = isCustomMaterialMode
+      ? customMaterialInput.trim()
+      : newProdMaterial;
+    const finalColor = isCustomColorMode
+      ? customColorInput.trim()
+      : newProdColor;
+
+    if (!finalCategory) {
+      alert('Please specify a valid product category.');
+      return;
+    }
+
     try {
       const created = await createProductInDB({
         name: newProdName.trim(),
-        category: newProdCategory,
-        material: newProdMaterial.trim(),
+        category: finalCategory,
+        material: finalMaterial || 'Solid Wood',
+        color: finalColor || 'Natural Wood',
         price: priceVal,
         stock_count: qty,
         image_url: imgUrl,
@@ -633,8 +714,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
         id: created.id || `prod-${Date.now()}`,
         sku: newProdSku.trim() || `SKU-RS-${created.product_id || Math.floor(100 + Math.random() * 900)}`,
         name: created.name || newProdName.trim(),
-        category: created.category || newProdCategory,
-        material: created.material || newProdMaterial,
+        category: created.category || finalCategory,
+        material: created.material || finalMaterial,
+        color: created.color || finalColor,
         price: created.price || priceVal,
         stockCount: created.stockCount || qty,
         status: created.status || 'In Stock',
@@ -653,8 +735,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
         id: `prod-${Date.now()}`,
         sku: newProdSku.trim() || `SKU-RS-${Math.floor(100 + Math.random() * 900)}`,
         name: newProdName.trim(),
-        category: newProdCategory,
-        material: newProdMaterial,
+        category: finalCategory,
+        material: finalMaterial,
+        color: finalColor,
         price: priceVal,
         stockCount: qty,
         status: statusVal,
@@ -669,6 +752,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setNewProdStock('');
     setNewProdSku('');
     setNewProdImage('');
+    setIsCustomCategoryMode(false);
+    setCustomCategoryInput('');
+    setIsCustomMaterialMode(false);
+    setCustomMaterialInput('');
+    setIsCustomColorMode(false);
+    setCustomColorInput('');
     setIsAddProductModalOpen(false);
 
     setTimeout(() => {
@@ -971,40 +1060,21 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
                     {activeTab === 'products' && 'Retail Product Management'}
                     {activeTab === 'inventory' && 'Inventory Stock Control'}
-                    {activeTab === 'orders' && 'Customer Ready-Made Orders'}
+                    {activeTab === 'orders' && 'Customer Orders'}
                     {activeTab === 'queries' && 'Staff Queries & Admin Request Center'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
+                    {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                    {activeTab === 'products' && 'Add new furniture products, update product pricing, materials, and catalog specifications.'}
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
-                    {activeTab === 'orders' && 'Fulfill customer ready-made orders and update shipping statuses.'}
                     {activeTab === 'queries' && 'Submit email change requests or system queries directly to system Admin.'}
                     {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, and product vendor allocations.'}
+                    {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
                   </p>
                 </div>
 
-                {/* Top Right Corner Controls: Add Product / Supplier + Staff Profile & Sign Out */}
+                {/* Top Right Corner Controls: Staff Profile & Sign Out */}
                 <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
-                  {activeTab === 'products' && (
-                    <button
-                      onClick={() => setIsAddProductModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Product</span>
-                    </button>
-                  )}
-
-                  {activeTab === 'suppliers' && (
-                    <button
-                      onClick={() => setIsAddSupplierModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Supplier</span>
-                    </button>
-                  )}
 
                   {/* Notification Bell Button & Dropdown */}
                   <div className="relative">
@@ -1121,7 +1191,122 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
               {/* TAB 1: PRODUCT MANAGEMENT */}
               {activeTab === 'products' && (
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                <div className="space-y-5">
+                  {/* TOP KPI SUMMARY COUNT BOXES */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
+                    {/* Box 1: Total Catalog Products */}
+                    <div 
+                      onClick={() => setActiveTab('products')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-[#48A63E] hover:shadow-xl group"
+                      title="Click to view & manage catalog products"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-[#48A63E] transition-colors">
+                          <Package className="w-3.5 h-3.5 text-[#48A63E]" />
+                          Total Products
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {productList.length}
+                        </div>
+                        <p className="text-[11px] font-semibold text-[#8C7C6D] flex items-center gap-1">
+                          Store furniture items
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-[#48A63E]" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/30 text-[#48A63E] flex items-center justify-center shrink-0 shadow-xs group-hover:bg-[#48A63E] group-hover:text-white transition-all">
+                        <Package className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Box 2: Customer Orders Count */}
+                    <div 
+                      onClick={() => setActiveTab('orders')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-blue-500 hover:shadow-xl group"
+                      title="Click to view & manage customer orders"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-blue-600 transition-colors">
+                          <ShoppingBag className="w-3.5 h-3.5 text-blue-600" />
+                          Customer Orders
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {orderList.length}
+                        </div>
+                        <p className="text-[11px] font-semibold text-blue-700 flex items-center gap-1">
+                          Total orders placed by customers
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-blue-600" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-blue-600 group-hover:text-white transition-all">
+                        <ShoppingBag className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Box 3: Low & Out of Stock */}
+                    <div 
+                      onClick={() => setActiveTab('inventory')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-amber-500 hover:shadow-xl group"
+                      title="Click to inspect warehouse stock & low inventory"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-amber-600 transition-colors">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          Low / Out of Stock
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {productList.filter(p => p.stockCount === 0 || p.status === 'Out of Stock' || p.status === 'Low Stock' || p.stockCount <= 5).length}
+                        </div>
+                        <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1">
+                          Requires replenishment
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-amber-600" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-amber-600 group-hover:text-white transition-all">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                    </div>
+
+                    {/* Box 4: Active Categories */}
+                    <div 
+                      onClick={() => setActiveTab('products')}
+                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-purple-500 hover:shadow-xl group"
+                      title="Click to view categories & catalog"
+                    >
+                      <div className="space-y-1">
+                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-purple-600 transition-colors">
+                          <Tag className="w-3.5 h-3.5 text-purple-600" />
+                          Categories
+                        </span>
+                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                          {new Set(productList.map(p => p.category).filter(Boolean)).size || 5}
+                        </div>
+                        <p className="text-[11px] font-semibold text-purple-700 flex items-center gap-1">
+                          Living, Dining, Bedroom & Studio
+                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-purple-600" />
+                        </p>
+                      </div>
+                      <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-purple-600 group-hover:text-white transition-all">
+                        <Tag className="w-6 h-6" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                  {/* Top Section Header & Add Product Trigger */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                    <div>
+                      <h3 className="font-extrabold text-base text-[#2C241D]">Product Catalog Management</h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium">Add, update, and organize store furniture products, categories, materials & colors.</p>
+                    </div>
+                    <button
+                      onClick={() => setIsAddProductModalOpen(true)}
+                      className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add New Product</span>
+                    </button>
+                  </div>
+
                   {/* Category & Price Filters & Search */}
                   <div className="space-y-3 border-b border-[#EFE7DE] pb-4">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1130,11 +1315,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <span className="text-xs font-bold text-[#7A6C5E] mr-1 flex items-center gap-1.5 flex-shrink-0">
                           <SlidersHorizontal className="w-3.5 h-3.5 text-[#48A63E]" /> Category:
                         </span>
-                        {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office'].map((cat) => (
+                        {['All', 'Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio', ...productList.map(p => p.category).filter(c => c && !['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio'].includes(c))].filter((v, i, a) => a.indexOf(v) === i).map((cat) => (
                           <button
                             key={cat}
                             onClick={() => setCategoryFilter(cat)}
-                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex-shrink-0 ${categoryFilter === cat
+                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex-shrink-0 whitespace-nowrap ${categoryFilter === cat
                                 ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20'
                                 : 'bg-[#F9F6F0] border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F2ECE1]'
                               }`}
@@ -1183,17 +1368,15 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     </div>
                   </div>
 
-
-
                   {/* Product List Table */}
-
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                          <th className="py-3 px-4">Product Code (SKU)</th>
                           <th className="py-3 px-4">Product Title</th>
                           <th className="py-3 px-4">Category</th>
-                          <th className="py-3 px-4">Material</th>
+                          <th className="py-3 px-4">Material & Color</th>
                           <th className="py-3 px-4">Price</th>
                           <th className="py-3 px-4">Stock Count</th>
                           <th className="py-3 px-4 text-right">Inventory Actions</th>
@@ -1202,7 +1385,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {filteredProducts.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-12 text-center text-[#7A6C5E]">
+                            <td colSpan={7} className="py-12 text-center text-[#7A6C5E]">
                               <Package className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
                               <p className="font-extrabold text-sm text-[#2C241D]">No Products Available</p>
                               <p className="text-xs text-[#7A6C5E] mt-1">
@@ -1215,6 +1398,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         ) : (
                           filteredProducts.map((item) => (
                             <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                                <span className="bg-[#48A63E]/10 border border-[#48A63E]/20 px-2 py-0.5 rounded text-[11px]">
+                                  {item.productCode || item.sku || `SKU-RS-${item.product_id || item.id}`}
+                                </span>
+                              </td>
                               <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
                                 <div className="flex items-center gap-3">
                                   <img
@@ -1230,7 +1418,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               </td>
 
                               <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
-                              <td className="py-4 px-4 text-[#6B5C4D]">{item.material}</td>
+                              <td className="py-4 px-4 text-[#6B5C4D]">
+                                <div>{item.material}</div>
+                                {item.color && (
+                                  <span className="inline-block text-[10px] font-bold bg-[#FAF7F2] border border-[#E2D7CB] px-1.5 py-0.5 rounded text-[#48A63E] mt-0.5">
+                                    {item.color}
+                                  </span>
+                                )}
+                              </td>
                               <td className="py-4 px-4 font-extrabold text-[#48A63E]">₹{item.price.toLocaleString('en-IN')}</td>
                               <td className="py-4 px-4">
                                 <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${item.status === 'In Stock'
@@ -1267,7 +1462,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     </table>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
 
 
@@ -1371,32 +1567,89 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {/* TAB 3: CUSTOMER ORDERS */}
               {activeTab === 'orders' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <h2 className="text-base font-extrabold text-[#2C241D] border-b border-[#EFE7DE] pb-3">
-                    Customer Ready-Made Orders
-                  </h2>
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-3">
+                    <h2 className="text-base font-extrabold text-[#2C241D]">
+                      Customer Orders
+                    </h2>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search order ID, customer, email..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
+                  </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Order ID</th>
-                          <th className="py-3 px-4">Customer Name</th>
-                          <th className="py-3 px-4">Email</th>
-                          <th className="py-3 px-4">Items</th>
+                          <th className="py-3 px-4">Order & Razorpay ID</th>
+                          <th className="py-3 px-4">Customer Details</th>
+                          <th className="py-3 px-4">Items & Product Code</th>
                           <th className="py-3 px-4">Total Amount</th>
                           <th className="py-3 px-4">Payment Status</th>
                           <th className="py-3 px-4">Order Status</th>
-                          <th className="py-3 px-4 text-right">Update Order Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {orderList.map((ord) => (
+                        {orderList
+                          .filter((ord) => {
+                            if (!searchQuery.trim()) return true;
+                            const q = searchQuery.toLowerCase();
+                            return (
+                              ord.orderId.toLowerCase().includes(q) ||
+                              ord.customerName.toLowerCase().includes(q) ||
+                              ord.email.toLowerCase().includes(q) ||
+                              (ord.paymentId && ord.paymentId.toLowerCase().includes(q))
+                            );
+                          })
+                          .map((ord) => (
                           <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                            <td className="py-4 px-4 font-mono font-extrabold text-[#48A63E]">{ord.orderId}</td>
-                            <td className="py-4 px-4 font-extrabold text-[#2C241D]">{ord.customerName}</td>
-                            <td className="py-4 px-4 text-[#6B5C4D]">{ord.email}</td>
-                            <td className="py-4 px-4 text-[#6B5C4D]">{ord.itemsCount} Items</td>
-                            <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{ord.totalAmount.toLocaleString('en-IN')}</td>
+                            <td className="py-4 px-4">
+                              <div className="font-mono font-extrabold text-[#48A63E] text-xs">{ord.orderId}</div>
+                              {ord.paymentId && (
+                                <div className="text-[10px] font-mono text-[#7A6C5E] mt-0.5 font-bold" title="Razorpay Payment ID">
+                                  {ord.paymentId}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName}</div>
+                              <div className="text-[11px] text-[#6B5C4D] font-semibold">{ord.email}</div>
+                            </td>
+                            <td className="py-4 px-4">
+                              {ord.items && ord.items.length > 0 ? (
+                                <div className="space-y-2">
+                                  {ord.items.map((item, idx) => (
+                                    <div key={idx} className="flex items-center gap-2.5">
+                                      <img
+                                        src={item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"}
+                                        alt={item.name}
+                                        onError={(e) => {
+                                          (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80";
+                                        }}
+                                        className="w-9 h-9 rounded-lg object-cover border border-[#E2D7CB] shrink-0 bg-white shadow-xs"
+                                      />
+                                      <div>
+                                        <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 border border-[#48A63E]/20 px-1.5 py-0.2 rounded inline-block">
+                                          {(item as any).productCode || (item as any).sku || `SKU-RS-${item.id}`}
+                                        </span>
+                                        <div className="text-xs font-bold text-[#2C241D] line-clamp-1">{item.name} (x{item.quantity})</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="text-[#6B5C4D] text-xs font-medium">{ord.itemsCount} Item(s)</span>
+                              )}
+                            </td>
+                            <td className="py-4 px-4 font-extrabold text-[#2C241D] text-sm">
+                              ₹{ord.totalAmount.toLocaleString('en-IN')}
+                            </td>
                             <td className="py-4 px-4">
                               <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
                                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -1404,28 +1657,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               </span>
                             </td>
                             <td className="py-4 px-4">
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${ord.orderStatus === 'Delivered'
-                                  ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                  : ord.orderStatus === 'Shipped'
-                                    ? 'bg-blue-100 text-blue-700'
-                                    : ord.orderStatus === 'Processing'
-                                      ? 'bg-amber-100 text-amber-800'
-                                      : 'bg-slate-100 text-slate-600'
-                                }`}>
-                                {ord.orderStatus}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4 text-right">
-                              <select
-                                value={ord.orderStatus}
-                                onChange={(e) => handleUpdateOrderStatus(ord.orderId, e.target.value as any)}
-                                className="px-2.5 py-1 text-xs bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
-                              >
-                                <option value="Pending">Pending</option>
-                                <option value="Processing">Processing</option>
-                                <option value="Shipped">Shipped</option>
-                                <option value="Delivered">Delivered</option>
-                              </select>
+                              {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
+                                  <X className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Cancelled</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Order Placed</span>
+                                </span>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -1704,6 +1946,18 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {/* TAB 6: COUPONS & DISCOUNTS MANAGEMENT */}
               {activeTab === 'coupons' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                  {/* Section Heading */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-3">
+                    <div>
+                      <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight">
+                        Coupons & Customer Discounts Management
+                      </h2>
+                      <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                        Create discount promo codes, set percentage savings, and assign custom coupons to customer accounts.
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Top Coupon KPI Summary Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="p-4 rounded-2xl bg-[#F9F6F0] border border-[#E2D7CB] space-y-1">
@@ -1928,31 +2182,135 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Category</label>
-                  <select
-                    value={newProdCategory}
-                    onChange={(e) => setNewProdCategory(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
+              {/* Category Field with Provision to Add New Category */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-extrabold text-[#2C241D]">Category</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCustomCategoryMode(!isCustomCategoryMode);
+                      if (!isCustomCategoryMode) setCustomCategoryInput('');
+                    }}
+                    className="text-[11px] font-extrabold text-[#48A63E] hover:underline"
                   >
-                    <option value="Living Room">Living Room</option>
-                    <option value="Dining Room">Dining Room</option>
-                    <option value="Bedroom">Bedroom</option>
-                    <option value="Home Office">Home Office</option>
-                    <option value="Custom Studio">Custom Studio</option>
-                  </select>
+                    {isCustomCategoryMode ? '← Select Existing' : '+ Add New Category'}
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Material Finish</label>
+                {isCustomCategoryMode ? (
                   <input
                     type="text"
-                    placeholder="Teak Wood"
-                    value={newProdMaterial}
-                    onChange={(e) => setNewProdMaterial(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold placeholder-[#8C7C6D]"
+                    placeholder="Enter new category name (e.g. Balcony & Garden)"
+                    value={customCategoryInput}
+                    onChange={(e) => setCustomCategoryInput(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border-2 border-[#48A63E]/60 rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                    required
                   />
+                ) : (
+                  <select
+                    value={newProdCategory}
+                    onChange={(e) => {
+                      if (e.target.value === '__ADD_NEW__') {
+                        setIsCustomCategoryMode(true);
+                      } else {
+                        setNewProdCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                  >
+                    {['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio', ...productList.map(p => p.category).filter(c => c && !['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio'].includes(c))].filter((v, i, a) => a.indexOf(v) === i).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                    <option value="__ADD_NEW__">+ Add New Category...</option>
+                  </select>
+                )}
+              </div>
+
+              {/* Material & Color Grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {/* Material Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-extrabold text-[#2C241D]">Material Finish</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomMaterialMode(!isCustomMaterialMode)}
+                      className="text-[10px] font-bold text-[#48A63E]"
+                    >
+                      {isCustomMaterialMode ? 'Select' : '+ Custom'}
+                    </button>
+                  </div>
+                  {isCustomMaterialMode ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Teak Slab"
+                      value={customMaterialInput}
+                      onChange={(e) => setCustomMaterialInput(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-xs font-bold"
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={newProdMaterial}
+                      onChange={(e) => {
+                        if (e.target.value === '__CUSTOM__') {
+                          setIsCustomMaterialMode(true);
+                        } else {
+                          setNewProdMaterial(e.target.value);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-xs font-bold"
+                    >
+                      {['Solid Teak Wood', 'Sheesham Wood', 'Oak Wood', 'Bouclé Fabric', 'Italian Velvet', 'Genuine Leather', 'Italian Marble', 'Rattan', 'Brass & Metal', 'Engineered Wood'].map((m) => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                      <option value="__CUSTOM__">Custom Material...</option>
+                    </select>
+                  )}
+                </div>
+
+                {/* Color Selection (Retail Staff) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-extrabold text-[#2C241D]">Color / Finish</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomColorMode(!isCustomColorMode)}
+                      className="text-[10px] font-bold text-[#48A63E]"
+                    >
+                      {isCustomColorMode ? 'Select' : '+ Custom'}
+                    </button>
+                  </div>
+                  {isCustomColorMode ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Walnut Brown"
+                      value={customColorInput}
+                      onChange={(e) => setCustomColorInput(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-xs font-bold"
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={newProdColor}
+                      onChange={(e) => {
+                        if (e.target.value === '__CUSTOM__') {
+                          setIsCustomColorMode(true);
+                        } else {
+                          setNewProdColor(e.target.value);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-xs font-bold"
+                    >
+                      {['Natural Wood', 'Walnut Brown', 'Ivory White', 'Charcoal Gray', 'Emerald Green', 'Royal Navy Blue', 'Warm Beige', 'Rose Pink', 'Matte Black'].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value="__CUSTOM__">Custom Color...</option>
+                    </select>
+                  )}
                 </div>
               </div>
 

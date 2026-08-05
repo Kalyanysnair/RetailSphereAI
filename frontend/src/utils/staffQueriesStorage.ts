@@ -11,6 +11,8 @@ export interface StaffQuery {
   updatedAt?: string;
 }
 
+import { createStaffQueryInDB, respondToStaffQueryInDB } from '../services/api';
+
 const QUERIES_KEY = 'retailsphere_staff_queries';
 
 export const INITIAL_QUERIES: StaffQuery[] = [];
@@ -39,6 +41,22 @@ export const addStaffQuery = (queryData: Omit<StaffQuery, 'id' | 'createdAt' | '
   };
   const updated = [newQuery, ...existing];
   localStorage.setItem(QUERIES_KEY, JSON.stringify(updated));
+
+  // Sync to PostgreSQL DB
+  createStaffQueryInDB({
+    staff_name: queryData.staffName,
+    staff_email: queryData.staffEmail,
+    category: queryData.category,
+    subject: queryData.subject,
+    message: queryData.message
+  }).then((res) => {
+    if (res && res.query_id) {
+      newQuery.id = `query-${res.query_id}`;
+    }
+  }).catch((err) => {
+    console.warn('Staff query DB sync fallback:', err);
+  });
+
   return newQuery;
 };
 
@@ -60,5 +78,14 @@ export const respondToStaffQuery = (
     return q;
   });
   localStorage.setItem(QUERIES_KEY, JSON.stringify(updated));
+
+  // Sync response to DB
+  const numericId = parseInt(id.replace('query-', ''), 10);
+  if (!isNaN(numericId)) {
+    respondToStaffQueryInDB(numericId, adminResponse, status).catch(err => {
+      console.warn('Query response DB sync fallback:', err);
+    });
+  }
+
   return updated;
 };

@@ -10,6 +10,7 @@ export interface HeroSlide {
 
 export interface CatalogItem {
   id: string;
+  productCode?: string;
   name: string;
   category: string;       // e.g. 'Living Room', 'Dining Room', 'Bedroom', 'Lighting'
   subcategory: string;    // e.g. 'Sofas', 'Armchairs', 'Coffee Tables', 'Pendant Lights'

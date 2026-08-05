@@ -4,7 +4,28 @@ declare global {
   }
 }
 
-export const RAZORPAY_KEY_ID = 'rzp_test_RVGeQhiXbhlJS6';
+export interface RazorpaySuccessResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id?: string;
+  razorpay_signature?: string;
+}
+
+export interface RazorpayCheckoutParams {
+  amount: number; // in paise
+  orderId?: string;
+  name?: string;
+  description?: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+    contact?: string;
+  };
+  onSuccess: (paymentId: string) => void;
+  onFailure: (reason: string) => void;
+}
+
+export const RAZORPAY_KEY_ID =
+  (import.meta as any).env?.VITE_RAZORPAY_KEY_ID || 'rzp_test_RVGeQhiXbhlJS6';
 
 export function loadRazorpayScript(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -20,64 +41,66 @@ export function loadRazorpayScript(): Promise<boolean> {
   });
 }
 
-export interface RazorpayOptions {
-  amount: number; // in INR rupees
-  name?: string;
-  description?: string;
-  orderId?: string;
-  prefill?: {
-    name?: string;
-    email?: string;
-    contact?: string;
-  };
-  onSuccess: (paymentId: string) => void;
-  onFailure?: (error: any) => void;
-}
-
-export async function openRazorpayCheckout(options: RazorpayOptions): Promise<boolean> {
+export async function openRazorpayCheckout({
+  amount,
+  orderId,
+  name,
+  description,
+  prefill,
+  onSuccess,
+  onFailure,
+}: RazorpayCheckoutParams): Promise<boolean> {
   const isLoaded = await loadRazorpayScript();
   if (!isLoaded) {
-    alert('Failed to load Razorpay payment gateway. Please check your internet connection.');
+    onFailure('Failed to load Razorpay SDK script. Please check your network connection.');
     return false;
   }
 
-  const razorpayConfig = {
-    key: RAZORPAY_KEY_ID,
-    amount: Math.round(options.amount * 100), // Razorpay accepts amount in paise
-    currency: 'INR',
-    name: options.name || 'RetailSphere Luxury Furniture',
-    description: options.description || 'Furniture Order Payment',
-    image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=200&q=80',
-    prefill: {
-      name: options.prefill?.name || 'Valued Customer',
-      email: options.prefill?.email || 'customer@retailsphere.com',
-      contact: options.prefill?.contact || '9876543210',
-    },
-    theme: {
-      color: '#38A132',
-    },
-    handler: function (response: any) {
-      if (response && response.razorpay_payment_id) {
-        options.onSuccess(response.razorpay_payment_id);
-      }
-    },
-    modal: {
-      ondismiss: function () {
-        // Fallback for Test Mode if Razorpay popup is closed or encounters card restrictions
-        const confirmSimulated = window.confirm(
-          "Complete this test order now? Click OK to approve simulated payment."
-        );
-        if (confirmSimulated) {
-          const mockPaymentId = `pay_sim_${Date.now().toString().slice(-8)}`;
-          options.onSuccess(mockPaymentId);
-        } else if (options.onFailure) {
-          options.onFailure({ message: 'Payment cancelled by user' });
+  try {
+    const options = {
+      key: RAZORPAY_KEY_ID,
+      amount: amount > 100000000 ? amount : Math.round(amount), // ensure in paise
+      currency: 'INR',
+      name: name || 'RetailSphere Luxury Furniture',
+      description: description || 'Furniture Order Payment',
+      order_id: orderId,
+      image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=200&q=80',
+      prefill: prefill || {
+        name: 'Valued Customer',
+        email: 'customer@retailsphere.com',
+        contact: '9876543210',
+      },
+      theme: {
+        color: '#48A63E',
+      },
+      handler: (response: RazorpaySuccessResponse) => {
+        // Only path that should ever mark an order as paid.
+        if (response && response.razorpay_payment_id) {
+          onSuccess(response.razorpay_payment_id);
+        } else {
+          onFailure('No payment ID returned from Razorpay.');
         }
       },
-    },
-  };
+      modal: {
+        ondismiss: () => {
+          // User closed the popup without paying — order stays unpaid.
+          onFailure('Payment popup closed before completion.');
+        },
+      },
+    };
 
-  const paymentWindow = new window.Razorpay(razorpayConfig);
-  paymentWindow.open();
-  return true;
+    const rzp = new (window as any).Razorpay(options);
+
+    rzp.on('payment.failed', (response: any) => {
+      // Card declined, international restriction, etc.
+      onFailure(response.error?.description || 'Payment failed.');
+    });
+
+    rzp.open();
+    return true;
+  } catch (err: any) {
+    console.error('Razorpay checkout initialization error:', err);
+    onFailure(err?.message || 'Failed to initialize payment gateway.');
+    return false;
+  }
 }

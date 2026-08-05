@@ -260,13 +260,19 @@ export async function cancelCustomOrder(orderId: number): Promise<boolean> {
     console.warn('DB cancel request failed, fallback locally:', err);
   }
 
-  const stored = getStoredCustomOrders();
-  const ord = stored.find(o => o.custom_order_id === orderId) || mockCustomOrders.find(o => o.custom_order_id === orderId);
-  if (ord) {
-    ord.order_status = 'Cancelled';
-    saveStoredCustomOrders(stored);
-    mockCustomOrders = stored;
+  const userStored = getStoredCustomOrders();
+  const userTarget = userStored.find(o => o.custom_order_id === orderId);
+  if (userTarget) {
+    userTarget.order_status = 'Cancelled';
+    saveStoredCustomOrders(userStored);
   }
+
+  const mockTarget = mockCustomOrders.find(o => o.custom_order_id === orderId);
+  if (mockTarget) {
+    mockTarget.order_status = 'Cancelled';
+  }
+
+  window.dispatchEvent(new Event('custom-orders-updated'));
   return true;
 }
 

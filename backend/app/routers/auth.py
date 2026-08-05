@@ -319,6 +319,24 @@ def update_profile(
     if payload.phone:
         current_user.phone = payload.phone.strip()
     
+    # Handle Password Update Provision
+    if payload.new_password and payload.new_password.strip():
+        new_pwd = payload.new_password.strip()
+        if len(new_pwd) < 6:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New password must be at least 6 characters long."
+            )
+        if payload.current_password and current_user.password:
+            if not auth.verify_password(payload.current_password.strip(), current_user.password):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Current password is incorrect. Password update failed."
+                )
+
+        hashed_pwd = auth.get_password_hash(new_pwd)
+        current_user.password = hashed_pwd
+    
     if current_user.customer_profile:
         if payload.address is not None:
             current_user.customer_profile.address = payload.address.strip()
