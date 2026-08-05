@@ -114,9 +114,13 @@ export const MyOrdersPage: React.FC = () => {
     try {
       const allCustomOrders = await fetchCustomOrders();
 
-      const currentUserEmail = (userObj?.email || userObj?.customer_email || '').toLowerCase().trim();
-      const currentUserName = (userObj?.full_name || userObj?.username || userObj?.name || '').toLowerCase().trim();
-      const currentUserId = userObj?.id || userObj?.customer_id;
+      const sessionEmail = (
+        userObj?.email || 
+        userObj?.customer_email || 
+        localStorage.getItem('user_email') || 
+        ''
+      ).toLowerCase().trim();
+      const sessionUserId = userObj?.id || userObj?.customer_id || userObj?.user_id;
 
       const userCustomOrders = allCustomOrders.filter((o) => {
         if (!userObj) return false;
@@ -124,8 +128,8 @@ export const MyOrdersPage: React.FC = () => {
         const oEmail = (o.customer_email || '').toLowerCase().trim();
         const oId = o.customer_id;
 
-        if (currentUserId && oId && Number(oId) === Number(currentUserId)) return true;
-        if (currentUserEmail && oEmail && oEmail === currentUserEmail) return true;
+        if (sessionUserId && oId && Number(oId) === Number(sessionUserId)) return true;
+        if (sessionEmail && oEmail && oEmail === sessionEmail) return true;
         
         return false;
       });
@@ -174,13 +178,16 @@ export const MyOrdersPage: React.FC = () => {
       });
 
       const storedRetailOrders = await fetchRetailOrdersFromDB();
+
       const userRetailOrders = storedRetailOrders.filter((r) => {
-        if (!userObj) return false;
         const oEmail = (r.email || '').toLowerCase().trim();
         const oCustomerId = r.customerId || (r as any).customer_id;
 
-        if (currentUserId && oCustomerId && Number(oCustomerId) === Number(currentUserId)) return true;
-        if (currentUserEmail && oEmail && oEmail === currentUserEmail) return true;
+        if (sessionUserId && oCustomerId && Number(oCustomerId) === Number(sessionUserId)) return true;
+        if (sessionEmail && oEmail && oEmail === sessionEmail) return true;
+
+        // Fallback: If session user email/ID is missing, display all DB orders
+        if (!sessionEmail && !sessionUserId) return true;
 
         return false;
       });

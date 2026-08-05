@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
-from typing import Optional
+from typing import Optional, Union
 import string
 import secrets
 import random
@@ -560,7 +560,7 @@ class ReadymadeOrderItemSchema(BaseModel):
     imageUrl: Optional[str] = None
 
 class CreateReadymadeOrderPayload(BaseModel):
-    customerId: Optional[int] = None
+    customerId: Optional[Union[int, str]] = None
     customerName: str
     email: str
     itemsCount: int
@@ -575,6 +575,14 @@ def get_readymade_orders(db: Session = Depends(get_db)):
     db_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_id.desc()).all()
     res = []
     for r in db_orders:
+        cust_name = r.customer_name
+        cust_email = r.customer_email
+        if (not cust_name or not cust_email) and r.customer_id:
+            c = db.query(models.Customer).filter(models.Customer.customer_id == r.customer_id).first()
+            if c and c.user:
+                cust_name = cust_name or c.user.full_name
+                cust_email = cust_email or c.user.email
+
         items_list = []
         for i in r.items:
             img = i.image_url
@@ -601,8 +609,8 @@ def get_readymade_orders(db: Session = Depends(get_db)):
         res.append({
             "orderId": f"RET-{r.order_id:06d}",
             "customerId": r.customer_id,
-            "customerName": r.customer_name or "Valued Customer",
-            "email": r.customer_email or "customer@retailsphere.com",
+            "customerName": cust_name or "Valued Customer",
+            "email": cust_email or "customer@retailsphere.com",
             "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
             "totalAmount": float(r.total_amount or 0),
             "orderStatus": r.order_status or "Order Placed",
@@ -618,7 +626,12 @@ def get_readymade_orders(db: Session = Depends(get_db)):
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
 def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = Depends(get_db)):
     import time
-    cust_id = payload.customerId
+    cust_id = None
+    if payload.customerId is not None:
+        clean_c_id = str(payload.customerId).replace('cust-', '').replace('user-', '')
+        if clean_c_id.isdigit():
+            cust_id = int(clean_c_id)
+
     if not cust_id and payload.email:
         u = db.query(models.User).filter(models.User.email == payload.email.strip()).first()
         if u:
@@ -630,80 +643,91 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
 
     created_orders = []
 
-    if not payload.items:
-        item_total = payload.totalAmount
-        new_order = models.ReadymadeOrder(
-            customer_id=cust_id,
-            customer_name=payload.customerName.strip(),
-            customer_email=payload.email.strip(),
-            total_amount=item_total,
-            payment_status=payload.paymentStatus.strip(),
-            payment_id=payload.paymentId.strip() if payload.paymentId else None,
-            order_status=payload.orderStatus.strip(),
-            delivery_address="Ettumanoor, Kottayam, Kerala 686631"
-        )
-        db.add(new_order)
-        db.commit()
-        db.refresh(new_order)
-        created_orders.append(new_order)
-    else:
-        # Create a separate, itemized order for EACH item in cart
-        for idx, item in enumerate(payload.items):
-            item_price = float(item.price or 0)
-            item_qty = int(item.quantity or 1)
-            item_total = item_price * item_qty
-
-            prod_id = None
-            raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
-            if raw_id_str.isdigit():
-                prod_id = int(raw_id_str)
-
-            item_pay_id = payload.paymentId
-            if len(payload.items) > 1 and item_pay_id:
-                item_pay_id = f"{item_pay_id}_{idx+1}"
-
+    try:
+        if not payload.items:
+            item_total = payload.totalAmount
             new_order = models.ReadymadeOrder(
                 customer_id=cust_id,
                 customer_name=payload.customerName.strip(),
                 customer_email=payload.email.strip(),
                 total_amount=item_total,
-                payment_status=payload.paymentStatus.strip(),
-                payment_id=item_pay_id,
-                order_status=payload.orderStatus.strip(),
+                payment_status=payload.paymentStatus.strip() or "Paid",
+                payment_id=payload.paymentId.strip() if payload.paymentId else None,
+                order_status="Order Placed",
                 delivery_address="Ettumanoor, Kottayam, Kerala 686631"
             )
             db.add(new_order)
-            db.commit()
-            db.refresh(new_order)
-
-            db_item = models.ReadymadeOrderItem(
-                order_id=new_order.order_id,
-                product_id=prod_id,
-                product_name=item.name.strip(),
-                image_url=item.imageUrl,
-                quantity=item_qty,
-                unit_price=item_price
-            )
-            db.add(db_item)
-
-            new_payment = models.Payment(
-                order_type="Readymade",
-                order_id=new_order.order_id,
-                amount=item_total,
-                payment_method="Razorpay",
-                transaction_id=item_pay_id or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
-                payment_status=payload.paymentStatus.strip()
-            )
-            db.add(new_payment)
-            db.commit()
-            db.refresh(new_order)
+            db.flush()
             created_orders.append(new_order)
+        else:
+            # Create a separate, itemized order for EACH item in cart
+            for idx, item in enumerate(payload.items):
+                item_price = float(item.price or 0)
+                item_qty = int(item.quantity or 1)
+                item_total = item_price * item_qty
+
+                prod_id = None
+                raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
+                if raw_id_str.isdigit():
+                    prod_id = int(raw_id_str)
+
+                item_pay_id = payload.paymentId
+                if len(payload.items) > 1 and item_pay_id:
+                    item_pay_id = f"{item_pay_id}_{idx+1}"
+
+                new_order = models.ReadymadeOrder(
+                    customer_id=cust_id,
+                    customer_name=payload.customerName.strip(),
+                    customer_email=payload.email.strip(),
+                    total_amount=item_total,
+                    payment_status=payload.paymentStatus.strip() or "Paid",
+                    payment_id=item_pay_id,
+                    order_status="Order Placed",
+                    delivery_address="Ettumanoor, Kottayam, Kerala 686631"
+                )
+                db.add(new_order)
+                db.flush()
+
+                db_item = models.ReadymadeOrderItem(
+                    order_id=new_order.order_id,
+                    product_id=prod_id,
+                    product_name=item.name.strip(),
+                    image_url=item.imageUrl,
+                    quantity=item_qty,
+                    unit_price=item_price
+                )
+                db.add(db_item)
+
+                new_payment = models.Payment(
+                    order_type="Readymade",
+                    order_id=new_order.order_id,
+                    amount=item_total,
+                    payment_method="Razorpay",
+                    transaction_id=item_pay_id or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
+                    payment_status=payload.paymentStatus.strip() or "Paid"
+                )
+                db.add(new_payment)
+                created_orders.append(new_order)
+
+        # Single Atomic Commit for entire checkout batch
+        db.commit()
+
+        for o in created_orders:
+            db.refresh(o)
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Order creation failed: {str(e)}"
+        )
 
     first_ord = created_orders[0]
     return {
         "message": "Order(s) placed and stored successfully in database",
         "orderId": f"RET-{first_ord.order_id:06d}",
-        "order_id": first_ord.order_id
+        "order_id": first_ord.order_id,
+        "createdCount": len(created_orders)
     }
 
 
