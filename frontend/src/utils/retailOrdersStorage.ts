@@ -8,6 +8,7 @@ export interface RetailOrderItem {
 
 export interface RetailOrder {
   orderId: string;
+  customerId?: number;
   customerName: string;
   email: string;
   itemsCount: number;

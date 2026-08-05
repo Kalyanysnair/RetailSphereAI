@@ -180,8 +180,11 @@ export const MyOrdersPage: React.FC = () => {
         if (!userObj) return false;
         const oEmail = (r.email || '').toLowerCase().trim();
         const oName = (r.customerName || '').toLowerCase().trim();
+        const oCustomerId = r.customerId || (r as any).customer_id;
+
+        if (currentUserId && oCustomerId && Number(oCustomerId) === Number(currentUserId)) return true;
         if (currentUserEmail && oEmail && oEmail === currentUserEmail) return true;
-        if (currentUserName && oName && oName === currentUserName) return true;
+        if (currentUserName && oName && oName === currentUserName && currentUserName !== 'valued customer') return true;
         return false;
       });
 

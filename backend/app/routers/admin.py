@@ -560,6 +560,7 @@ class ReadymadeOrderItemSchema(BaseModel):
     imageUrl: Optional[str] = None
 
 class CreateReadymadeOrderPayload(BaseModel):
+    customerId: Optional[int] = None
     customerName: str
     email: str
     itemsCount: int
@@ -599,6 +600,7 @@ def get_readymade_orders(db: Session = Depends(get_db)):
         
         res.append({
             "orderId": f"RET-{r.order_id:06d}",
+            "customerId": r.customer_id,
             "customerName": r.customer_name or "Valued Customer",
             "email": r.customer_email or "customer@retailsphere.com",
             "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
@@ -616,7 +618,18 @@ def get_readymade_orders(db: Session = Depends(get_db)):
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
 def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = Depends(get_db)):
     import time
+    cust_id = payload.customerId
+    if not cust_id and payload.email:
+        u = db.query(models.User).filter(models.User.email == payload.email.strip()).first()
+        if u:
+            c = db.query(models.Customer).filter(models.Customer.user_id == u.user_id).first()
+            if c:
+                cust_id = c.customer_id
+            else:
+                cust_id = u.user_id
+
     new_order = models.ReadymadeOrder(
+        customer_id=cust_id,
         customer_name=payload.customerName.strip(),
         customer_email=payload.email.strip(),
         total_amount=payload.totalAmount,

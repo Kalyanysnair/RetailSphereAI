@@ -104,9 +104,14 @@ export const CartPage: React.FC = () => {
       markCouponAsUsed(appliedDiscount.code, currentUserEmail);
     }
 
+    const userEmail = (userObj?.email || userObj?.customer_email || currentUserEmail || '').toLowerCase().trim();
+    const userName = userObj?.full_name || userObj?.name || userObj?.username || 'Valued Customer';
+    const userId = userObj?.id || userObj?.user_id || userObj?.customer_id;
+
     saveStoredRetailOrder({
-      customerName: userObj?.full_name || 'Valued Customer',
-      email: userObj?.email || 'customer@retailsphere.com',
+      customerId: userId,
+      customerName: userName,
+      email: userEmail || 'customer@retailsphere.com',
       itemsCount: totalItemCount,
       totalAmount: grandTotal,
       orderStatus: 'Order Placed',
