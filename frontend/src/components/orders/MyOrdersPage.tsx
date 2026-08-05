@@ -428,26 +428,30 @@ export const MyOrdersPage: React.FC = () => {
                     key={order.orderId}
                     className="ultra-glass-card rounded-2xl p-5 transition-all border border-[#E2D7CB] shadow-xs hover:shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
                   >
-                    {/* Left side: Image, Title, Date & Specs */}
-                    <div className="flex items-center gap-4 min-w-0 flex-1">
-                      {firstItem && (
-                        <img
-                          src={firstItem.image}
-                          alt={firstItem.name}
-                          className="w-14 h-14 rounded-2xl object-cover border border-[#E2D7CB] shrink-0 shadow-xs"
-                        />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2.5 flex-wrap">
-                          <h4 className="text-base font-extrabold text-[#2C241D] tracking-tight">
-                            {firstItem?.name || 'Custom Build Order'}
-                          </h4>
-                          <span className="text-[11px] font-semibold text-[#7A6C5E] flex items-center gap-1 bg-[#FAF7F2] px-2.5 py-0.5 rounded-full border border-[#EFE7DE]">
-                            <Calendar className="w-3 h-3 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
-                          </span>
+                    {/* Left side: Image, Title, Date & Specs for all items in order */}
+                    <div className="flex-1 space-y-3 min-w-0">
+                      {order.items.map((item, idx) => (
+                        <div key={item.id || idx} className="flex items-center gap-4 min-w-0">
+                          <img
+                            src={item.image}
+                            alt={item.name}
+                            className="w-14 h-14 rounded-2xl object-cover border border-[#E2D7CB] shrink-0 shadow-xs"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              <h4 className="text-base font-extrabold text-[#2C241D] tracking-tight">
+                                {item.name}
+                              </h4>
+                              {idx === 0 && (
+                                <span className="text-[11px] font-semibold text-[#7A6C5E] flex items-center gap-1 bg-[#FAF7F2] px-2.5 py-0.5 rounded-full border border-[#EFE7DE]">
+                                  <Calendar className="w-3 h-3 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
+                                </span>
+                              )}
+                            </div>
+                            {item.specifications && renderSpecBadges(item.specifications)}
+                          </div>
                         </div>
-                        {firstItem?.specifications && renderSpecBadges(firstItem.specifications)}
-                      </div>
+                      ))}
                     </div>
 
                     {/* Right side: Price, Single Status Badge & Action Button */}
