@@ -29,12 +29,12 @@ export const DashboardPage: React.FC = () => {
             const rawId = p.product_id || p.id;
             const code = p.productCode || p.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
             
-            let catId = (p.category || '').toLowerCase().replace(/\s+/g, '-');
+            let catId = (p.category || '').toLowerCase().trim();
             if (catId.includes('living')) catId = 'living-room';
             else if (catId.includes('dining')) catId = 'dining-room';
             else if (catId.includes('bed')) catId = 'bedroom';
-            else if (catId.includes('light')) catId = 'lighting-accents';
-            else if (catId.includes('office') || catId.includes('studio')) catId = 'home-office';
+            else if (catId.includes('office') || catId.includes('desk') || catId.includes('studio')) catId = 'office';
+            else if (catId.includes('custom')) catId = 'custom-studio';
 
             return {
               id: p.id || `inv-${p.product_id}`,
@@ -65,6 +65,10 @@ export const DashboardPage: React.FC = () => {
       }
     };
     loadDBProducts();
+
+    const handleReset = () => handleResetFilters();
+    window.addEventListener('reset-dashboard-filters', handleReset);
+    return () => window.removeEventListener('reset-dashboard-filters', handleReset);
   }, []);
 
   // Smooth Hash Scroll & Custom Order Form Trigger
@@ -115,8 +119,14 @@ export const DashboardPage: React.FC = () => {
     const sourceList = dbProducts;
     return sourceList.filter((product) => {
       // Category Filter
-      if (filterState.categoryId !== 'all' && product.category !== filterState.categoryId) {
-        return false;
+      if (filterState.categoryId !== 'all') {
+        const prodCat = (product.category || '').toLowerCase();
+        const filterCat = filterState.categoryId.toLowerCase();
+        const isMatch = prodCat === filterCat || 
+                        (filterCat === 'office' && (prodCat === 'home-office' || prodCat === 'office')) ||
+                        (filterCat === 'home-office' && (prodCat === 'home-office' || prodCat === 'office')) ||
+                        (filterCat === 'custom-studio' && (prodCat === 'custom-studio' || prodCat.includes('custom')));
+        if (!isMatch) return false;
       }
       // Subcategory Filter
       if (

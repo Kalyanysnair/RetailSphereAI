@@ -357,7 +357,13 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       {products.length === 0 ? (
         <div className="bg-white/90 border border-[#E6DDD3] rounded-3xl p-12 text-center text-[#6B5C4D] space-y-3 shadow-md backdrop-blur-xl">
           <p className="text-base font-bold text-[#2C241D]">No furniture designs match your active filters.</p>
-          <p className="text-xs font-medium">Try selecting another subcategory or adjusting your price slider.</p>
+          <p className="text-xs font-medium">Try selecting another category or click below to view all designs.</p>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('reset-dashboard-filters'))}
+            className="mt-2 px-5 py-2 rounded-xl bg-[#48A63E] text-white text-xs font-bold hover:bg-[#3D9134] transition-all shadow-sm cursor-pointer"
+          >
+            Reset All Filters
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
