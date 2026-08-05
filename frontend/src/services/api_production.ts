@@ -151,10 +151,17 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
       const rawUser = localStorage.getItem('user');
       const userObj = rawUser ? JSON.parse(rawUser) : null;
       const userEmail = (userObj?.email || userObj?.customer_email || '').toLowerCase().trim();
+      const userId = userObj?.id || userObj?.user_id || userObj?.customer_id;
 
       const userDbOrders = dbOrders.filter(o => {
-        if (!userEmail) return true;
-        return (o.customer_email || '').toLowerCase().trim() === userEmail;
+        if (!userObj) return false;
+        const oEmail = (o.customer_email || '').toLowerCase().trim();
+        const oCustId = o.customer_id;
+
+        if (userId && oCustId && Number(oCustId) === Number(userId)) return true;
+        if (userEmail && oEmail && oEmail === userEmail) return true;
+
+        return false;
       });
 
       return (!statusFilter || statusFilter === 'All') ? userDbOrders : userDbOrders.filter(o => o.order_status === statusFilter);

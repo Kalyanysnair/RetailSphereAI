@@ -122,12 +122,10 @@ export const MyOrdersPage: React.FC = () => {
         if (!userObj) return false;
         
         const oEmail = (o.customer_email || '').toLowerCase().trim();
-        const oName = (o.customer_name || '').toLowerCase().trim();
         const oId = o.customer_id;
 
+        if (currentUserId && oId && Number(oId) === Number(currentUserId)) return true;
         if (currentUserEmail && oEmail && oEmail === currentUserEmail) return true;
-        if (currentUserId && oId && oId === currentUserId) return true;
-        if (currentUserName && oName && oName === currentUserName) return true;
         
         return false;
       });
@@ -179,12 +177,11 @@ export const MyOrdersPage: React.FC = () => {
       const userRetailOrders = storedRetailOrders.filter((r) => {
         if (!userObj) return false;
         const oEmail = (r.email || '').toLowerCase().trim();
-        const oName = (r.customerName || '').toLowerCase().trim();
         const oCustomerId = r.customerId || (r as any).customer_id;
 
         if (currentUserId && oCustomerId && Number(oCustomerId) === Number(currentUserId)) return true;
         if (currentUserEmail && oEmail && oEmail === currentUserEmail) return true;
-        if (currentUserName && oName && oName === currentUserName && currentUserName !== 'valued customer') return true;
+
         return false;
       });
 
