@@ -575,14 +575,6 @@ def get_readymade_orders(db: Session = Depends(get_db)):
     db_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_id.desc()).all()
     res = []
     for r in db_orders:
-        cust_name = r.customer_name
-        cust_email = r.customer_email
-        if (not cust_name or not cust_email) and r.customer_id:
-            c = db.query(models.Customer).filter(models.Customer.customer_id == r.customer_id).first()
-            if c and c.user:
-                cust_name = cust_name or c.user.full_name
-                cust_email = cust_email or c.user.email
-
         items_list = []
         for i in r.items:
             img = i.image_url
@@ -609,8 +601,8 @@ def get_readymade_orders(db: Session = Depends(get_db)):
         res.append({
             "orderId": f"RET-{r.order_id:06d}",
             "customerId": r.customer_id,
-            "customerName": cust_name or "Valued Customer",
-            "email": cust_email or "customer@retailsphere.com",
+            "customerName": r.customer_name or "Valued Customer",
+            "email": r.customer_email or "customer@retailsphere.com",
             "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
             "totalAmount": float(r.total_amount or 0),
             "orderStatus": r.order_status or "Order Placed",
@@ -653,9 +645,9 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
     # Add items
     for item in payload.items:
         prod_id = None
-        raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
-        if raw_id_str.isdigit():
-            prod_id = int(raw_id_str)
+        clean_id = str(item.id).replace('inv-', '')
+        if clean_id.isdigit():
+            prod_id = int(clean_id)
         
         db_item = models.ReadymadeOrderItem(
             order_id=new_order.order_id,

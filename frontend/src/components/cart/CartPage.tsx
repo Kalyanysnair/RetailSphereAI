@@ -108,7 +108,7 @@ export const CartPage: React.FC = () => {
     const userName = userObj?.full_name || userObj?.name || userObj?.username || 'Valued Customer';
     const userId = userObj?.id || userObj?.user_id || userObj?.customer_id;
 
-    await saveStoredRetailOrder({
+    saveStoredRetailOrder({
       customerId: userId,
       customerName: userName,
       email: userEmail || 'customer@retailsphere.com',
