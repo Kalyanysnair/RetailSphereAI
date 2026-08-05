@@ -628,55 +628,82 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
             else:
                 cust_id = u.user_id
 
-    new_order = models.ReadymadeOrder(
-        customer_id=cust_id,
-        customer_name=payload.customerName.strip(),
-        customer_email=payload.email.strip(),
-        total_amount=payload.totalAmount,
-        payment_status=payload.paymentStatus.strip(),
-        payment_id=payload.paymentId.strip() if payload.paymentId else None,
-        order_status=payload.orderStatus.strip(),
-        delivery_address="Ettumanoor, Kottayam, Kerala 686631"
-    )
-    db.add(new_order)
-    db.commit()
-    db.refresh(new_order)
+    created_orders = []
 
-    # Add items
-    for item in payload.items:
-        prod_id = None
-        clean_id = str(item.id).replace('inv-', '')
-        if clean_id.isdigit():
-            prod_id = int(clean_id)
-        
-        db_item = models.ReadymadeOrderItem(
-            order_id=new_order.order_id,
-            product_id=prod_id,
-            product_name=item.name.strip(),
-            image_url=item.imageUrl,
-            quantity=item.quantity,
-            unit_price=item.price
+    if not payload.items:
+        item_total = payload.totalAmount
+        new_order = models.ReadymadeOrder(
+            customer_id=cust_id,
+            customer_name=payload.customerName.strip(),
+            customer_email=payload.email.strip(),
+            total_amount=item_total,
+            payment_status=payload.paymentStatus.strip(),
+            payment_id=payload.paymentId.strip() if payload.paymentId else None,
+            order_status=payload.orderStatus.strip(),
+            delivery_address="Ettumanoor, Kottayam, Kerala 686631"
         )
-        db.add(db_item)
-    
-    # Also record payment in tbl_payment
-    new_payment = models.Payment(
-        order_type="Readymade",
-        order_id=new_order.order_id,
-        amount=payload.totalAmount,
-        payment_method="Razorpay",
-        transaction_id=payload.paymentId or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
-        payment_status=payload.paymentStatus
-    )
-    db.add(new_payment)
+        db.add(new_order)
+        db.commit()
+        db.refresh(new_order)
+        created_orders.append(new_order)
+    else:
+        # Create a separate, itemized order for EACH item in cart
+        for idx, item in enumerate(payload.items):
+            item_price = float(item.price or 0)
+            item_qty = int(item.quantity or 1)
+            item_total = item_price * item_qty
 
-    db.commit()
-    db.refresh(new_order)
+            prod_id = None
+            raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
+            if raw_id_str.isdigit():
+                prod_id = int(raw_id_str)
 
+            item_pay_id = payload.paymentId
+            if len(payload.items) > 1 and item_pay_id:
+                item_pay_id = f"{item_pay_id}_{idx+1}"
+
+            new_order = models.ReadymadeOrder(
+                customer_id=cust_id,
+                customer_name=payload.customerName.strip(),
+                customer_email=payload.email.strip(),
+                total_amount=item_total,
+                payment_status=payload.paymentStatus.strip(),
+                payment_id=item_pay_id,
+                order_status=payload.orderStatus.strip(),
+                delivery_address="Ettumanoor, Kottayam, Kerala 686631"
+            )
+            db.add(new_order)
+            db.commit()
+            db.refresh(new_order)
+
+            db_item = models.ReadymadeOrderItem(
+                order_id=new_order.order_id,
+                product_id=prod_id,
+                product_name=item.name.strip(),
+                image_url=item.imageUrl,
+                quantity=item_qty,
+                unit_price=item_price
+            )
+            db.add(db_item)
+
+            new_payment = models.Payment(
+                order_type="Readymade",
+                order_id=new_order.order_id,
+                amount=item_total,
+                payment_method="Razorpay",
+                transaction_id=item_pay_id or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
+                payment_status=payload.paymentStatus.strip()
+            )
+            db.add(new_payment)
+            db.commit()
+            db.refresh(new_order)
+            created_orders.append(new_order)
+
+    first_ord = created_orders[0]
     return {
-        "message": "Order placed and stored successfully in database",
-        "orderId": f"RET-{new_order.order_id:06d}",
-        "order_id": new_order.order_id
+        "message": "Order(s) placed and stored successfully in database",
+        "orderId": f"RET-{first_ord.order_id:06d}",
+        "order_id": first_ord.order_id
     }
 
 
