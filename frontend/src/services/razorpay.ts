@@ -49,8 +49,7 @@ export async function openRazorpayCheckout({
   prefill,
   onSuccess,
   onFailure,
-  autoSuccess = true,
-}: RazorpayCheckoutParams & { autoSuccess?: boolean }): Promise<boolean> {
+}: RazorpayCheckoutParams): Promise<boolean> {
   const isLoaded = await loadRazorpayScript();
   if (!isLoaded) {
     onFailure('Failed to load Razorpay SDK script. Please check your network connection.');
@@ -58,7 +57,6 @@ export async function openRazorpayCheckout({
   }
 
   try {
-    const generatedPaymentId = `pay_${Date.now().toString(36)}${Math.random().toString(36).substring(2, 7)}`;
     let isHandled = false;
 
     const options = {
@@ -80,19 +78,18 @@ export async function openRazorpayCheckout({
       handler: (response: RazorpaySuccessResponse) => {
         if (!isHandled) {
           isHandled = true;
-          const pId = response?.razorpay_payment_id || generatedPaymentId;
-          onSuccess(pId);
+          if (response && response.razorpay_payment_id) {
+            onSuccess(response.razorpay_payment_id);
+          } else {
+            onFailure('No payment ID returned from Razorpay.');
+          }
         }
       },
       modal: {
         ondismiss: () => {
           if (!isHandled) {
-            if (autoSuccess) {
-              isHandled = true;
-              onSuccess(generatedPaymentId);
-            } else {
-              onFailure('Payment popup closed before completion.');
-            }
+            isHandled = true;
+            onFailure('Payment cancelled by user.');
           }
         },
       },
@@ -102,39 +99,15 @@ export async function openRazorpayCheckout({
 
     rzp.on('payment.failed', (response: any) => {
       if (!isHandled) {
-        if (autoSuccess) {
-          isHandled = true;
-          onSuccess(generatedPaymentId);
-        } else {
-          onFailure(response.error?.description || 'Payment failed.');
-        }
+        isHandled = true;
+        onFailure(response?.error?.description || 'Payment was cancelled or failed.');
       }
     });
 
     rzp.open();
-
-    // Auto-approve test mode payment seamlessly after brief delay
-    if (autoSuccess) {
-      setTimeout(() => {
-        if (!isHandled) {
-          isHandled = true;
-          try {
-            rzp.close();
-          } catch (e) {
-            // ignore
-          }
-          onSuccess(generatedPaymentId);
-        }
-      }, 1200);
-    }
-
     return true;
   } catch (err: any) {
     console.error('Razorpay checkout initialization error:', err);
-    if (autoSuccess) {
-      onSuccess(`pay_${Date.now().toString(36)}`);
-      return true;
-    }
     onFailure(err?.message || 'Failed to initialize payment gateway.');
     return false;
   }
