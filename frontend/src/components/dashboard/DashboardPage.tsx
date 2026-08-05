@@ -116,7 +116,7 @@ export const DashboardPage: React.FC = () => {
 
   // Filtered Furniture Recommendations & Catalog Products
   const filteredProducts = useMemo(() => {
-    const sourceList = dbProducts;
+    const sourceList = dbProducts.length > 0 ? dbProducts : RECOMMENDATIONS_DATA;
     return sourceList.filter((product) => {
       // Category Filter
       if (filterState.categoryId !== 'all') {
