@@ -17,11 +17,11 @@ import {
   Clock,
   Sparkles
 } from 'lucide-react';
-import { RECOMMENDATIONS_DATA } from '../dashboard/RecommendationSection';
 import { RecommendationProduct } from '../../types/dashboard';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
 import { Header } from '../dashboard/Header';
+import { fetchInventoryFromDB } from '../../services/api';
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -34,8 +34,42 @@ export const ProductDetailPage: React.FC = () => {
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    const found = RECOMMENDATIONS_DATA.find(p => p.id === id) || RECOMMENDATIONS_DATA[0];
-    setProduct(found);
+    const loadProduct = async () => {
+      try {
+        const dbItems = await fetchInventoryFromDB();
+        if (dbItems && dbItems.length > 0) {
+          const match = dbItems.find((p: any) => String(p.id) === String(id) || String(p.product_id) === String(id) || p.sku === id);
+          const target = match || dbItems[0];
+          const rawId = target.product_id || target.id;
+          const code = target.productCode || target.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
+          
+          setProduct({
+            id: target.id || `inv-${target.product_id}`,
+            productCode: code,
+            name: target.name || target.product_name,
+            category: target.category || 'Living Room',
+            subcategory: target.subcategory || 'General',
+            price: typeof target.price === 'number' ? target.price : parseFloat(target.price) || 0,
+            originalPrice: (typeof target.price === 'number' ? target.price : parseFloat(target.price) || 0) * 1.15,
+            stock: target.stockCount || 10,
+            salesCount: 45,
+            status: (target.status || 'In Stock') as any,
+            imageUrl: target.image_url || target.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+            rating: 4.9,
+            reviewCount: 38,
+            material: target.material || 'Solid Teak Wood',
+            color: target.color || 'Natural Wood',
+            dimensions: '200cm x 90cm x 75cm',
+            isCustomizable: true,
+            isTopPick: target.stockCount > 0,
+            badge: code
+          });
+        }
+      } catch (err) {
+        console.warn('Error loading product detail from DB:', err);
+      }
+    };
+    loadProduct();
   }, [id]);
 
   useEffect(() => {

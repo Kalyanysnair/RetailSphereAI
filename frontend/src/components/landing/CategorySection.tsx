@@ -178,7 +178,7 @@ export const CategorySection: React.FC = () => {
 
   const activeTabObj = categories.find((c) => c.name === activeCategory) || categories[0];
 
-  const sourceProducts = dbCatalogProducts.length > 0 ? dbCatalogProducts : demoProducts;
+  const sourceProducts = dbCatalogProducts;
 
   const filteredProducts = sourceProducts.filter((item) => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;

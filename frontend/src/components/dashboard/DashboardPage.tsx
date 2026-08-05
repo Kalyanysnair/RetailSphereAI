@@ -112,7 +112,7 @@ export const DashboardPage: React.FC = () => {
 
   // Filtered Furniture Recommendations & Catalog Products
   const filteredProducts = useMemo(() => {
-    const sourceList = dbProducts.length > 0 ? dbProducts : RECOMMENDATIONS_DATA;
+    const sourceList = dbProducts;
     return sourceList.filter((product) => {
       // Category Filter
       if (filterState.categoryId !== 'all' && product.category !== filterState.categoryId) {
@@ -123,12 +123,20 @@ export const DashboardPage: React.FC = () => {
         filterState.subcategoryId !== 'all-sub' &&
         filterState.subcategoryId !== 'bestsellers' &&
         filterState.subcategoryId !== 'custom-ready' &&
-        filterState.subcategoryId !== 'in-stock' &&
-        product.subcategory !== filterState.subcategoryId
+        filterState.subcategoryId !== 'in-stock'
       ) {
-        return false;
+        const subName = (product.subcategory || '').toLowerCase();
+        const prodName = (product.name || '').toLowerCase();
+        const filterSub = filterState.subcategoryId.toLowerCase().replace(/-/g, ' ');
+
+        const matchesSub = subName.includes(filterSub) || 
+                           prodName.includes(filterSub) || 
+                           filterSub.split(' ').some(w => w.length > 3 && (prodName.includes(w) || subName.includes(w)));
+        if (!matchesSub) {
+          return false;
+        }
       }
-      if (filterState.subcategoryId === 'bestsellers' && !product.badge?.includes('Bestseller')) {
+      if (filterState.subcategoryId === 'bestsellers' && !product.isTopPick) {
         return false;
       }
       if (filterState.subcategoryId === 'custom-ready' && !product.isCustomizable) {
@@ -138,7 +146,7 @@ export const DashboardPage: React.FC = () => {
       // Material Filter
       if (
         filterState.material !== 'All Materials' &&
-        product.material !== filterState.material
+        !product.material.toLowerCase().includes(filterState.material.toLowerCase())
       ) {
         return false;
       }
@@ -154,7 +162,8 @@ export const DashboardPage: React.FC = () => {
         const matchesName = product.name.toLowerCase().includes(query);
         const matchesMaterial = product.material.toLowerCase().includes(query);
         const matchesCategory = product.category.toLowerCase().includes(query);
-        if (!matchesName && !matchesMaterial && !matchesCategory) return false;
+        const matchesCode = (product.productCode || '').toLowerCase().includes(query);
+        if (!matchesName && !matchesMaterial && !matchesCategory && !matchesCode) return false;
       }
 
       return true;

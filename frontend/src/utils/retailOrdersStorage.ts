@@ -37,7 +37,7 @@ export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
     const res = await fetch(`${BASE_URL}/admin/orders`);
     if (res.ok) {
       const dbOrders: RetailOrder[] = await res.json();
-      if (Array.isArray(dbOrders) && dbOrders.length > 0) {
+      if (Array.isArray(dbOrders)) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(dbOrders));
         window.dispatchEvent(new Event('retail-orders-updated'));
         return dbOrders;
