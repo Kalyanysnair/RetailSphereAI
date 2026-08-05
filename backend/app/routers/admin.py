@@ -653,9 +653,9 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
     # Add items
     for item in payload.items:
         prod_id = None
-        clean_id = str(item.id).replace('inv-', '')
-        if clean_id.isdigit():
-            prod_id = int(clean_id)
+        raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
+        if raw_id_str.isdigit():
+            prod_id = int(raw_id_str)
         
         db_item = models.ReadymadeOrderItem(
             order_id=new_order.order_id,

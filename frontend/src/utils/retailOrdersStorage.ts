@@ -50,11 +50,30 @@ export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
   return getStoredRetailOrders();
 }
 
-export function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderId' | 'orderDate'>): RetailOrder {
+export async function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderId' | 'orderDate'>): Promise<RetailOrder> {
+  let dbOrderId: string | null = null;
+
+  // Post directly to Backend PostgreSQL Database
+  try {
+    const res = await fetch(`${BASE_URL}/admin/orders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    if (res.ok) {
+      const result = await res.json();
+      if (result.orderId) {
+        dbOrderId = result.orderId;
+      }
+    }
+  } catch (err) {
+    console.warn('DB order save failed:', err);
+  }
+
   const existing = getStoredRetailOrders();
   const newOrder: RetailOrder = {
     ...orderData,
-    orderId: `RET-${Date.now().toString().slice(-6)}`,
+    orderId: dbOrderId || `RET-${Date.now().toString().slice(-6)}`,
     createdAt: Date.now(),
     orderDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
   };
@@ -62,27 +81,8 @@ export function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderId' | '
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
   window.dispatchEvent(new Event('retail-orders-updated'));
 
-  // Post to Backend PostgreSQL Database
-  fetch(`${BASE_URL}/admin/orders`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(orderData)
-  }).then(async (res) => {
-    if (res.ok) {
-      const result = await res.json();
-      if (result.orderId) {
-        newOrder.orderId = result.orderId;
-        const currentList = getStoredRetailOrders();
-        if (currentList.length > 0) {
-          currentList[0].orderId = result.orderId;
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(currentList));
-          window.dispatchEvent(new Event('retail-orders-updated'));
-        }
-      }
-    }
-  }).catch((err) => {
-    console.warn('DB order save fallback:', err);
-  });
+  // Immediately refresh list from DB to ensure 100% database sync
+  await fetchRetailOrdersFromDB();
 
   return newOrder;
 }
