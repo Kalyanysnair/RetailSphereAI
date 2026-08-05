@@ -27,7 +27,11 @@ const STORAGE_KEY = 'retail_orders_list';
 export function getStoredRetailOrders(): RetailOrder[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    // Filter out old legacy combined mock payment ID pay_Kangaroby902
+    return parsed.filter((o: any) => o.paymentId !== 'pay_Kangaroby902' && o.payment_id !== 'pay_Kangaroby902');
   } catch (err) {
     return [];
   }
