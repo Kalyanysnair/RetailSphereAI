@@ -694,6 +694,29 @@ def cancel_readymade_order(order_id_str: str, db: Session = Depends(get_db)):
     return {"message": f"Order {order_id_str} cancelled successfully", "orderStatus": "Cancelled"}
 
 
+@router.delete("/orders/{order_id_str}")
+def delete_readymade_order(order_id_str: str, db: Session = Depends(get_db)):
+    clean_id = order_id_str.replace("RET-", "").lstrip("0")
+    if not clean_id or not clean_id.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid order ID format")
+    
+    order_num = int(clean_id)
+    
+    # Delete items
+    db.query(models.ReadymadeOrderItem).filter(models.ReadymadeOrderItem.order_id == order_num).delete()
+    
+    # Delete payment
+    db.query(models.Payment).filter(models.Payment.order_type == "Readymade", models.Payment.order_id == order_num).delete()
+
+    # Delete order
+    res = db.query(models.ReadymadeOrder).filter(models.ReadymadeOrder.order_id == order_num).delete()
+    if not res:
+        raise HTTPException(status_code=404, detail="Order not found in database")
+
+    db.commit()
+    return {"message": f"Order {order_id_str} deleted from database successfully"}
+
+
 
 
 

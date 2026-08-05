@@ -177,12 +177,12 @@ export const MyOrdersPage: React.FC = () => {
 
       const storedRetailOrders = await fetchRetailOrdersFromDB();
       const userRetailOrders = storedRetailOrders.filter((r) => {
-        if (!userObj) return true;
+        if (!userObj) return false;
         const oEmail = (r.email || '').toLowerCase().trim();
         const oName = (r.customerName || '').toLowerCase().trim();
         if (currentUserEmail && oEmail && oEmail === currentUserEmail) return true;
         if (currentUserName && oName && oName === currentUserName) return true;
-        return true; // Fallback to show stored orders for customer
+        return false;
       });
 
       const formattedRetailOrders: OrderData[] = userRetailOrders.map((r, index) => ({

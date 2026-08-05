@@ -37,6 +37,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
+import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 
 
 
@@ -1593,6 +1594,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Total Amount</th>
                           <th className="py-3 px-4">Payment Status</th>
                           <th className="py-3 px-4">Order Status</th>
+                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -1668,6 +1670,20 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   <span>Order Placed</span>
                                 </span>
                               )}
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Permanently remove order ${ord.orderId} from PostgreSQL Database?`)) {
+                                    deleteStoredRetailOrder(ord.orderId);
+                                  }
+                                }}
+                                className="p-2 rounded-xl text-rose-600 hover:bg-rose-100 transition-colors inline-flex items-center gap-1 font-extrabold text-xs cursor-pointer border border-rose-200"
+                                title="Delete Order from Database"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Delete</span>
+                              </button>
                             </td>
                           </tr>
                         ))}

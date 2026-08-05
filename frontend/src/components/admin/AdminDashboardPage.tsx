@@ -56,7 +56,7 @@ import {
 
 import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
-import { getStoredRetailOrders, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
+import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders } from '../../services/api_production';
 
 export interface StaffMember {
@@ -1887,6 +1887,7 @@ export const AdminDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Total Amount</th>
                           <th className="py-3 px-4">Payment Status</th>
                           <th className="py-3 px-4">Order Status</th>
+                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -1902,7 +1903,7 @@ export const AdminDashboardPage: React.FC = () => {
                             );
                           }).length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
+                            <td colSpan={7} className="py-8 text-center text-[#7A6C5E]">
                               <ShoppingBag className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
                               <p className="font-extrabold text-xs text-[#2C241D]">No customer orders found</p>
                               <p className="text-[11px] text-[#8C7C6D]">When customers place ready-made furniture orders, they will appear here.</p>
@@ -1981,6 +1982,20 @@ export const AdminDashboardPage: React.FC = () => {
                                       <span>Order Placed</span>
                                     </span>
                                   )}
+                                </td>
+                                <td className="py-4 px-4 text-right">
+                                  <button
+                                    onClick={() => {
+                                      if (window.confirm(`Permanently remove order ${ord.orderId} from PostgreSQL Database?`)) {
+                                        deleteStoredRetailOrder(ord.orderId);
+                                      }
+                                    }}
+                                    className="p-2 rounded-xl text-rose-600 hover:bg-rose-100 transition-colors inline-flex items-center gap-1 font-extrabold text-xs cursor-pointer border border-rose-200"
+                                    title="Delete Order from Database"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Delete</span>
+                                  </button>
                                 </td>
                               </tr>
                             )))}

@@ -105,3 +105,19 @@ export function cancelStoredRetailOrder(orderId: string): boolean {
     return false;
   }
 }
+
+export function deleteStoredRetailOrder(orderId: string): boolean {
+  try {
+    const existing = getStoredRetailOrders();
+    const updated = existing.filter(o => o.orderId !== orderId);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    window.dispatchEvent(new Event('retail-orders-updated'));
+
+    fetch(`${BASE_URL}/admin/orders/${orderId}`, { method: 'DELETE' })
+      .catch((err) => console.warn('Delete DB order error:', err));
+
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
