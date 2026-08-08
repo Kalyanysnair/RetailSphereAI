@@ -387,6 +387,7 @@ export const AdminDashboardPage: React.FC = () => {
   const [productList, setProductList] = useState<RetailProduct[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [priceRangeFilter, setPriceRangeFilter] = useState<string>('All');
+  const [stockStatusFilter, setStockStatusFilter] = useState<'All' | 'In Stock' | 'Low Stock' | 'Out of Stock'>('All');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
 
@@ -429,19 +430,30 @@ export const AdminDashboardPage: React.FC = () => {
     setIsLoadingProducts(true);
     try {
       const dbItems = await fetchInventoryFromDB();
-      if (Array.isArray(dbItems)) {
-        const mapped: RetailProduct[] = dbItems.map((p: any) => ({
-          id: p.id || `inv-${p.product_id}`,
-          sku: `SKU-RS-${p.product_id || p.id}`,
-          name: p.name || 'Untitled Product',
-          category: p.category || 'Living Room',
-          material: p.material || 'Standard',
-          color: p.color || 'Natural Wood',
-          price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
-          stockCount: typeof p.stockCount === 'number' ? p.stockCount : parseInt(p.stockCount) || 0,
-          status: p.status || 'In Stock',
-          image_url: p.image_url,
-        }));
+      if (Array.isArray(dbItems) && dbItems.length > 0) {
+        const mapped: RetailProduct[] = dbItems.map((p: any) => {
+          const stock = typeof p.stockCount === 'number'
+            ? p.stockCount
+            : (typeof p.stock_quantity === 'number' ? p.stock_quantity : (parseInt(p.stock_count || p.stockCount, 10) || 0));
+
+          let derivedStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
+          if (stock <= 0) derivedStatus = 'Out of Stock';
+          else if (stock < 5) derivedStatus = 'Low Stock';
+
+          return {
+            id: p.id || `inv-${p.product_id}`,
+            product_id: p.product_id || p.id,
+            sku: p.sku || `SKU-RS-${p.product_id || p.id}`,
+            name: p.name || p.product_name || 'Untitled Product',
+            category: p.category || 'Living Room',
+            material: p.material || 'Standard',
+            color: p.color || 'Natural Wood',
+            price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+            stockCount: stock,
+            status: derivedStatus,
+            image_url: p.image_url || p.image,
+          };
+        });
         setProductList(mapped);
       }
     } catch (err) {
@@ -1112,7 +1124,9 @@ export const AdminDashboardPage: React.FC = () => {
       item.material.toLowerCase().includes(q) ||
       (item.color && item.color.toLowerCase().includes(q));
 
-    return matchesCategory && matchesPrice && matchesSearch;
+    const matchesStockStatus = stockStatusFilter === 'All' || item.status === stockStatusFilter;
+
+    return matchesCategory && matchesPrice && matchesSearch && matchesStockStatus;
   });
 
   const filteredSuppliers = supplierList.filter((s) => {
@@ -2026,28 +2040,95 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
             )}
 
-              {/* TAB 3: STOCK CONTROL & WAREHOUSE (FROM STAFF DASHBOARD) */}
+              {/* TAB 3: STOCK CONTROL & WAREHOUSE */}
               {activeTab === 'inventory' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="relative w-64">
+                  {/* Stock Summary Overview Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Items</span>
+                        <Package className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{totalProducts}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">{totalInStock} Total Units</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>In Stock</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {productList.filter((p) => p.stockCount >= 5).length}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Sufficient Stock (5+ units)</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Low Stock Alert</span>
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-amber-700 mt-2">
+                        {productList.filter((p) => p.stockCount > 0 && p.stockCount < 5).length}
+                      </div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Under 5 Units Left</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Out of Stock</span>
+                        <AlertTriangle className="w-4 h-4 text-rose-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-rose-700 mt-2">
+                        {productList.filter((p) => p.stockCount <= 0).length}
+                      </div>
+                      <div className="text-[10px] text-rose-700 font-bold mt-1">0 Units Available</div>
+                    </div>
+                  </div>
+
+                  {/* Controls Header */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-b border-[#EFE7DE] py-4">
+                    {/* Stock Status Filter Pills */}
+                    <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                      {(['All', 'In Stock', 'Low Stock', 'Out of Stock'] as const).map((st) => (
+                        <button
+                          key={st}
+                          onClick={() => setStockStatusFilter(st)}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                            stockStatusFilter === st
+                              ? st === 'Out of Stock'
+                                ? 'bg-rose-600 text-white shadow-xs'
+                                : st === 'Low Stock'
+                                ? 'bg-amber-600 text-white shadow-xs'
+                                : 'bg-[#48A63E] text-white shadow-xs'
+                              : 'bg-[#F9F6F0] text-[#6B5C4D] hover:bg-[#EFE7DE]'
+                          }`}
+                        >
+                          {st === 'All' ? 'All Stock' : st}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="relative flex-1 sm:w-64">
                         <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
                         <input
                           type="text"
                           placeholder="Search stock by name, SKU, category..."
                           value={searchQuery}
                           onChange={(e) => setSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E]"
+                          className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E]"
                         />
                       </div>
 
                       <button
                         onClick={() => setShowLowStockModal(true)}
-                        className="px-4 py-2 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                       >
                         <AlertTriangle className="w-4 h-4" />
-                        <span>Low Stock Alert ({lowStockCount})</span>
+                        <span>Low Stock Alert ({lowStockProductsList.length})</span>
                       </button>
                     </div>
                   </div>
@@ -2057,52 +2138,67 @@ export const AdminDashboardPage: React.FC = () => {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Product Name</th>
+                          <th className="py-3 px-4">Product</th>
+                          <th className="py-3 px-4">SKU / Code</th>
                           <th className="py-3 px-4">Category</th>
-                          <th className="py-3 px-4">Price</th>
+                          <th className="py-3 px-4">Unit Price</th>
                           <th className="py-3 px-4">Available Units</th>
-                          <th className="py-3 px-4">Warehouse Status</th>
-                          <th className="py-3 px-4 text-right">Stock Adjustments</th>
+                          <th className="py-3 px-4">Stock Status</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {displayProducts.length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
-                              <SlidersHorizontal className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
+                            <td colSpan={7} className="py-12 text-center text-[#7A6C5E]">
+                              <SlidersHorizontal className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-2" />
                               <p className="font-extrabold text-xs text-[#2C241D]">No stock inventory items found</p>
-                              <p className="text-[11px] text-[#8C7C6D]">Try searching for another product name or clearing filters.</p>
+                              <p className="text-[11px] text-[#8C7C6D]">Try clearing search or choosing another stock status filter.</p>
                             </td>
                           </tr>
                         ) : (
                           displayProducts.map((item) => (
-                          <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                            <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.name}</td>
-                            <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
-                            <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{item.price.toLocaleString('en-IN')}</td>
-                            <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.stockCount} Units</td>
-                            <td className="py-4 px-4">
-                              <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                item.status === 'In Stock'
-                                  ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                  : item.status === 'Low Stock'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-rose-100 text-rose-700'
-                              }`}>
-                                {item.status}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4 text-right">
-                              <button
-                                onClick={() => handleOpenStockModal(item)}
-                                className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs"
-                              >
-                                Update Stock
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
+                            <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                              <td className="py-4 px-4 font-extrabold text-[#2C241D] flex items-center gap-3">
+                                {item.image_url ? (
+                                  <img src={item.image_url} alt={item.name} className="w-9 h-9 rounded-xl object-cover border border-[#E2D7CB] flex-shrink-0" />
+                                ) : (
+                                  <div className="w-9 h-9 rounded-xl bg-[#48A63E]/10 text-[#48A63E] font-bold flex items-center justify-center flex-shrink-0">
+                                    <Package className="w-4 h-4" />
+                                  </div>
+                                )}
+                                <span>{item.name}</span>
+                              </td>
+                              <td className="py-4 px-4 font-mono text-[#48A63E] font-extrabold">
+                                <span className="bg-[#48A63E]/10 border border-[#48A63E]/20 px-2 py-0.5 rounded text-[11px]">
+                                  {item.sku}
+                                </span>
+                              </td>
+                              <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
+                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{item.price.toLocaleString('en-IN')}</td>
+                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.stockCount} Units</td>
+                              <td className="py-4 px-4">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                  item.status === 'In Stock'
+                                    ? 'bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30'
+                                    : item.status === 'Low Stock'
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                      : 'bg-rose-100 text-rose-700 border border-rose-300'
+                                }`}>
+                                  {item.status}
+                                </span>
+                              </td>
+                              <td className="py-4 px-4 text-right">
+                                <button
+                                  onClick={() => handleOpenStockModal(item)}
+                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs"
+                                >
+                                  Update Stock
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>

@@ -671,19 +671,29 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setIsLoadingProducts(true);
     try {
       const dbItems = await fetchInventoryFromDB();
-      if (Array.isArray(dbItems)) {
-        const mapped: RetailProduct[] = dbItems.map((p: any) => ({
-          id: p.id || `inv-${p.product_id}`,
-          sku: `SKU-RS-${p.product_id || p.id}`,
-          name: p.name || 'Untitled Product',
-          category: p.category || 'Living Room',
-          material: p.material || 'Standard',
-          color: p.color || 'Natural Wood',
-          price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
-          stockCount: typeof p.stockCount === 'number' ? p.stockCount : parseInt(p.stockCount) || 0,
-          status: p.status || 'In Stock',
-          image_url: p.image_url,
-        }));
+      if (Array.isArray(dbItems) && dbItems.length > 0) {
+        const mapped: RetailProduct[] = dbItems.map((p: any) => {
+          const stock = typeof p.stockCount === 'number'
+            ? p.stockCount
+            : (typeof p.stock_quantity === 'number' ? p.stock_quantity : (parseInt(p.stock_count || p.stockCount, 10) || 0));
+
+          let derivedStatus: 'In Stock' | 'Low Stock' | 'Out of Stock' = 'In Stock';
+          if (stock <= 0) derivedStatus = 'Out of Stock';
+          else if (stock < 5) derivedStatus = 'Low Stock';
+
+          return {
+            id: p.id || `inv-${p.product_id}`,
+            sku: p.sku || `SKU-RS-${p.product_id || p.id}`,
+            name: p.name || p.product_name || 'Untitled Product',
+            category: p.category || 'Living Room',
+            material: p.material || 'Standard',
+            color: p.color || 'Natural Wood',
+            price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+            stockCount: stock,
+            status: derivedStatus,
+            image_url: p.image_url || p.image,
+          };
+        });
 
         setProductList(mapped);
       }
