@@ -1467,92 +1467,6 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* ADMIN KPI OVERVIEW STAT CARDS */}
-              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-                <div 
-                  onClick={() => setActiveTab('staff')}
-                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#10B981] group"
-                >
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#10B981]">Staff Members</span>
-                    <Users className="w-4 h-4 text-[#10B981]" />
-                  </div>
-                  <div className="text-2xl font-black text-[#2C241D]">{staffMembers.length} Staff</div>
-                  <div>
-                    <span className="text-[10px] font-extrabold text-[#15803D] bg-[#E6F4EA] px-2 py-0.5 rounded-md border border-[#C6F6D5] inline-block">
-                      Active staff accounts
-                    </span>
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setActiveTab('products')}
-                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#2563EB] group"
-                >
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#2563EB]">Total Products</span>
-                    <Package className="w-4 h-4 text-[#2563EB]" />
-                  </div>
-                  <div className="text-2xl font-black text-[#2C241D]">{productList.length} Items</div>
-                  <div>
-                    <span className="text-[10px] font-extrabold text-[#1E40AF] bg-[#EBF5FF] px-2 py-0.5 rounded-md border border-[#DBEAFE] inline-block">
-                      Catalog inventory
-                    </span>
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setActiveTab('orders')}
-                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#D97706] group"
-                >
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#D97706]">Customer Orders</span>
-                    <ShoppingBag className="w-4 h-4 text-[#D97706]" />
-                  </div>
-                  <div className="text-2xl font-black text-[#2C241D]">{orderList.length} Orders</div>
-                  <div>
-                    <span className="text-[10px] font-extrabold text-[#B4690E] bg-[#FDF3E7] px-2 py-0.5 rounded-md border border-[#FDE6D2] inline-block">
-                      Active customer orders
-                    </span>
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => {
-                    setActiveTab('inventory');
-                    setStockStatusFilter('Low Stock');
-                  }}
-                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-amber-500 group"
-                >
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-amber-600">Low / Out of Stock</span>
-                    <AlertTriangle className="w-4 h-4 text-amber-600" />
-                  </div>
-                  <div className="text-2xl font-black text-amber-700">{lowStockCount} Items</div>
-                  <div>
-                    <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block">
-                      Requires replenishment
-                    </span>
-                  </div>
-                </div>
-
-                <div 
-                  onClick={() => setActiveTab('coupons')}
-                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#7C3AED] group"
-                >
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#7C3AED]">Discount Coupons</span>
-                    <Tag className="w-4 h-4 text-[#7C3AED]" />
-                  </div>
-                  <div className="text-2xl font-black text-[#2C241D]">{couponsList.length} Active</div>
-                  <div>
-                    <span className="text-[10px] font-extrabold text-[#6D28D9] bg-[#F3E8FF] px-2 py-0.5 rounded-md border border-[#DDD6FE] inline-block">
-                      Promotional rewards
-                    </span>
-                  </div>
-                </div>
-              </div>
-
               {/* TAB 0: SYSTEM USER MANAGEMENT */}
               {activeTab === 'users' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
@@ -1735,6 +1649,40 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 1: STAFF ACCOUNTS MANAGEMENT (ADMIN FEATURE) */}
               {activeTab === 'staff' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                  {/* Staff Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Staff Members</span>
+                        <Users className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{staffMembers.length}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Active Staff Accounts</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Retail Staff</span>
+                        <ShieldCheck className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {staffMembers.filter(s => s.role === 'Retail Staff').length}
+                      </div>
+                      <div className="text-[10px] text-blue-700 font-bold mt-1">Sales & Customer Operations</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Production Staff</span>
+                        <ShieldCheck className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {staffMembers.filter(s => s.role === 'Production Staff').length}
+                      </div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Manufacturing & Assembly</div>
+                    </div>
+                  </div>
+
                   {/* Header & Create Staff Trigger */}
                   <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <button
@@ -1838,6 +1786,40 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 2: PRODUCTS CATALOG MANAGEMENT */}
               {activeTab === 'products' && (
                 <div className="space-y-5">
+                  {/* Product Catalog Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Products</span>
+                        <Package className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{productList.length}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Furniture Store Catalog</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>In Stock Items</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {productList.filter(p => p.stockCount >= 5).length}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Available for Purchase</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Categories</span>
+                        <Tag className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {new Set(productList.map(p => p.category).filter(Boolean)).size || 5}
+                      </div>
+                      <div className="text-[10px] text-purple-700 font-bold mt-1">Furniture Categories</div>
+                    </div>
+                  </div>
+
                   <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <button
@@ -2144,9 +2126,33 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 4: SUPPLIER DIRECTORY (FROM STAFF DASHBOARD) */}
+              {/* TAB 4: SUPPLIER DIRECTORY */}
               {activeTab === 'suppliers' && (
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                <div className="space-y-5">
+                  {/* Supplier Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Suppliers</span>
+                        <Truck className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{supplierList.length}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Timber & Craft Manufacturers</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Active Partners</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {supplierList.filter(s => s.status === 'Active' || !s.status).length}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Verified Logistics & Timber Partners</div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-3">
                       <div className="relative w-64">
@@ -2221,11 +2227,58 @@ export const AdminDashboardPage: React.FC = () => {
                     })}
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* TAB 5: ORDER FULFILLMENT STUDIO (FROM STAFF DASHBOARD) */}
+              {/* TAB 5: ORDER FULFILLMENT STUDIO */}
               {activeTab === 'orders' && (
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                <div className="space-y-5">
+                  {/* Order Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Orders</span>
+                        <ShoppingBag className="w-4 h-4 text-[#D97706]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{orderList.length}</div>
+                      <div className="text-[10px] text-[#D97706] font-bold mt-1">Customer Purchases</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Pending Orders</span>
+                        <Clock className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {orderList.filter(o => o.orderStatus === 'Pending' || o.orderStatus === 'Order Placed').length}
+                      </div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Awaiting Processing</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>In Production / Shipped</span>
+                        <Truck className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {orderList.filter(o => o.orderStatus === 'Processing' || o.orderStatus === 'Shipped').length}
+                      </div>
+                      <div className="text-[10px] text-blue-700 font-bold mt-1">Fulfillment Active</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Delivered / Completed</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {orderList.filter(o => o.orderStatus === 'Delivered' || o.orderStatus === 'Paid').length}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Successfully Fulfilled</div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                     <div className="flex items-center gap-2 text-xs">
                       <span className="font-extrabold text-[#7A6C5E]">Filter Status:</span>
@@ -2381,7 +2434,8 @@ export const AdminDashboardPage: React.FC = () => {
                     </table>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
               {/* TAB 6: STAFF & CUSTOMER QUERIES */}
               {activeTab === 'queries' && (
@@ -2504,7 +2558,42 @@ export const AdminDashboardPage: React.FC = () => {
 
               {/* TAB 7: COUPONS & DISCOUNTS MANAGEMENT */}
               {activeTab === 'coupons' && (
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                <div className="space-y-5">
+                  {/* Coupon Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Active Coupons</span>
+                        <Tag className="w-4 h-4 text-[#7C3AED]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{couponsList.length}</div>
+                      <div className="text-[10px] text-[#7C3AED] font-bold mt-1">Promotional Discount Codes</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Retail Store Coupons</span>
+                        <Percent className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {couponsList.filter(c => c.audienceType === 'retail' || c.audienceType === 'all' || !c.audienceType).length}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Furniture Store Discounts</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Production & Custom</span>
+                        <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {couponsList.filter(c => c.audienceType === 'production').length}
+                      </div>
+                      <div className="text-[10px] text-blue-700 font-bold mt-1">Custom Furniture Orders</div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Section Heading */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-3">
                     <div>
@@ -2827,7 +2916,8 @@ export const AdminDashboardPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
             </div>
           </main>
         </div>
