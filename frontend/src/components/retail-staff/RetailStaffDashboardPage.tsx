@@ -38,6 +38,7 @@ import {
 } from 'lucide-react';
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
+import { getMessagesForUser, AdminMessage } from '../../utils/adminMessagesStorage';
 
 
 
@@ -142,16 +143,20 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
+  // Admin Messages State
+  const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
+
   useEffect(() => {
-    const loadNotifs = async () => {
+    let email = 'retail.staff@retailsphere.com';
+    const stored = localStorage.getItem('user');
+    if (stored) {
       try {
-        const dbNotifs = await fetchNotificationsFromDB();
-        setNotifications(dbNotifs || []);
-      } catch (err) {
-        setNotifications([]);
-      }
-    };
-    loadNotifs();
+        const parsed = JSON.parse(stored);
+        if (parsed.email) email = parsed.email;
+      } catch (err) {}
+    }
+    const msgs = getMessagesForUser(email, 'Retail Staff');
+    setAdminMessages(msgs);
   }, []);
 
   const unreadCount = notifications.filter(n => n.unread).length;
@@ -1220,6 +1225,35 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                 </div>
               </div>
+
+              {/* ADMIN MESSAGES BANNER */}
+              {adminMessages.length > 0 && (
+                <div className="ultra-glass-card bg-gradient-to-r from-[#FAF7F2] via-white to-[#F5ECE1] rounded-3xl p-5 border-2 border-[#48A63E]/30 shadow-lg space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1.5 rounded-xl bg-[#48A63E] text-white">
+                        <Mail className="w-4 h-4" />
+                      </span>
+                      <h3 className="font-extrabold text-sm text-[#2C241D]">Message from Admin</h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#48A63E]/15 text-[#48A63E]">
+                        Official Executive Directive ({adminMessages.length})
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {adminMessages.map((msg) => (
+                      <div key={msg.id} className="p-3.5 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-extrabold text-[#2C241D] text-sm">{msg.subject}</span>
+                          <span className="font-mono text-[10px] text-[#7A6C5E]">{msg.createdDate}</span>
+                        </div>
+                        <p className="text-xs text-[#5C4E42] leading-relaxed font-medium">{msg.message}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
 
               {/* TAB 1: PRODUCT MANAGEMENT */}

@@ -68,6 +68,8 @@ import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
 import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders } from '../../services/api_production';
+import { getStoredAdminMessages, sendAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
+import { getStoredUserAuthorities, saveUserAuthority, UserAuthorityRecord, CAPABILITY_DEFINITIONS, CapabilityKey } from '../../utils/userAuthoritiesStorage';
 
 export interface SystemUserItem {
   id: string;
@@ -180,8 +182,23 @@ export const INITIAL_INVENTORY: InventoryItem[] = [];
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Active View Tab: staff | products | inventory | suppliers | orders | queries | coupons | users
-  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'queries' | 'coupons' | 'users'>('staff');
+  // Active View Tab: staff | products | inventory | suppliers | orders | queries | coupons | users | broadcast
+  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'queries' | 'coupons' | 'users' | 'broadcast'>('staff');
+
+  // Admin Broadcast & Direct Messages State
+  const [adminMessagesList, setAdminMessagesList] = useState<AdminMessage[]>(getStoredAdminMessages());
+  const [adminMsgRecipientType, setAdminMsgRecipientType] = useState<'All Staff' | 'Retail Staff' | 'Production Staff' | 'Specific Staff' | 'All Suppliers' | 'Specific Supplier'>('All Staff');
+  const [adminMsgTargetEmail, setAdminMsgTargetEmail] = useState('');
+  const [adminMsgSubject, setAdminMsgSubject] = useState('');
+  const [adminMsgContent, setAdminMsgContent] = useState('');
+
+  // Granular Authority & Capability Management State
+  const [userAuthoritiesList, setUserAuthoritiesList] = useState<UserAuthorityRecord[]>(getStoredUserAuthorities());
+  const [isAuthorityModalOpen, setIsAuthorityModalOpen] = useState(false);
+  const [authorityEmail, setAuthorityEmail] = useState('');
+  const [authorityRole, setAuthorityRole] = useState('Staff');
+  const [isFullAdminChecked, setIsFullAdminChecked] = useState(false);
+  const [selectedCapabilities, setSelectedCapabilities] = useState<CapabilityKey[]>([]);
 
   // Header & Controls State
   const [searchQuery, setSearchQuery] = useState('');
@@ -1100,6 +1117,61 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  const handleSendAdminMessageSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminMsgSubject.trim() || !adminMsgContent.trim()) return;
+
+    sendAdminMessage({
+      sender: currentUser.name || 'System Admin',
+      recipientType: adminMsgRecipientType,
+      targetEmail: (adminMsgRecipientType === 'Specific Staff' || adminMsgRecipientType === 'Specific Supplier') ? adminMsgTargetEmail : undefined,
+      subject: adminMsgSubject.trim(),
+      message: adminMsgContent.trim(),
+    });
+
+    setAdminMessagesList(getStoredAdminMessages());
+    setAdminMsgSubject('');
+    setAdminMsgContent('');
+    setAdminMsgTargetEmail('');
+    setSuccessBanner('Official message dispatched from Admin successfully!');
+    setTimeout(() => setSuccessBanner(null), 5000);
+  };
+
+  const handleOpenAuthorityModal = (targetEmail?: string, role?: string) => {
+    const email = targetEmail || '';
+    setAuthorityEmail(email);
+    setAuthorityRole(role || 'Staff');
+    const existing = getStoredUserAuthorities().find(a => a.email.toLowerCase().trim() === email.toLowerCase().trim());
+    if (existing) {
+      setIsFullAdminChecked(existing.isFullAdmin);
+      setSelectedCapabilities(existing.capabilities || []);
+    } else {
+      setIsFullAdminChecked(false);
+      setSelectedCapabilities(['supplier_management', 'coupon_management']);
+    }
+    setIsAuthorityModalOpen(true);
+  };
+
+  const handleSaveAuthoritySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authorityEmail.trim()) return;
+
+    const record: UserAuthorityRecord = {
+      email: authorityEmail.trim(),
+      role: authorityRole,
+      isFullAdmin: isFullAdminChecked,
+      capabilities: isFullAdminChecked ? CAPABILITY_DEFINITIONS.map(c => c.key) : selectedCapabilities,
+      assignedDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+      assignedBy: currentUser.name || 'System Admin',
+    };
+
+    saveUserAuthority(record);
+    setUserAuthoritiesList(getStoredUserAuthorities());
+    setIsAuthorityModalOpen(false);
+    setSuccessBanner(`Granted authority & capabilities assigned to ${authorityEmail}!`);
+    setTimeout(() => setSuccessBanner(null), 5000);
+  };
+
   // Calculations for KPI summary cards
   const totalProducts = productList.length;
   const totalInStock = productList.reduce((acc, item) => acc + item.stockCount, 0);
@@ -1300,6 +1372,20 @@ export const AdminDashboardPage: React.FC = () => {
               <span className="text-sm">Coupons & Discounts</span>
             </div>
           </button>
+
+          <button
+            onClick={() => setActiveTab('broadcast')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'broadcast'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Send className="w-4.5 h-4.5" />
+              <span className="text-sm">Broadcast & Direct Messages</span>
+            </div>
+          </button>
         </nav>
       </aside>
 
@@ -1355,6 +1441,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'orders' && 'Customer Orders'}
                     {activeTab === 'queries' && 'Queries & Request Communications'}
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
+                    {activeTab === 'broadcast' && 'Admin Broadcast & Direct Messages'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                     {activeTab === 'users' && 'View, search, edit, create, activate, or deactivate all user accounts (Customers, Staff, Administrators) across RetailSphere.'}
@@ -1363,6 +1450,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'suppliers' && 'Manage ready-made furniture manufacturers, wholesale product vendors, and catalog stock allocations.'}
                     {activeTab === 'queries' && 'Review staff requests, email change applications, and issue official admin responses.'}
                     {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
+                    {activeTab === 'broadcast' && 'Send official directives and direct messages to Staff members and Supplier partners.'}
                   </p>
                 </div>
 
@@ -2918,6 +3006,175 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+              {/* TAB 8: ADMIN BROADCAST & DIRECT MESSAGES */}
+              {activeTab === 'broadcast' && (
+                <div className="space-y-5">
+                  {/* Broadcast Overview KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Dispatched Messages</span>
+                        <Send className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{adminMessagesList.length}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Admin Directives & Announcements</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Staff Messages</span>
+                        <Users className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {adminMessagesList.filter(m => m.recipientType.includes('Staff')).length}
+                      </div>
+                      <div className="text-[10px] text-blue-700 font-bold mt-1">Retail & Production Directives</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Supplier Notices</span>
+                        <Briefcase className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {adminMessagesList.filter(m => m.recipientType.includes('Supplier')).length}
+                      </div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Furniture Manufacturer Notices</div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
+                    <div className="border-b border-[#EFE7DE] pb-3">
+                      <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-2">
+                        <Send className="w-5 h-5 text-[#48A63E]" />
+                        Dispatch Message from Admin
+                      </h2>
+                      <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                        Send official announcements or direct messages to Staff members and Ready-Made Furniture Suppliers. Messages will appear directly on their dashboards as "Message from Admin".
+                      </p>
+                    </div>
+
+                    {/* Dispatch Form */}
+                    <form onSubmit={handleSendAdminMessageSubmit} className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Target Recipient Audience *</label>
+                          <select
+                            value={adminMsgRecipientType}
+                            onChange={(e) => setAdminMsgRecipientType(e.target.value as any)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                            required
+                          >
+                            <option value="All Staff">All Staff Members (Retail & Production)</option>
+                            <option value="Retail Staff">Retail Staff Only</option>
+                            <option value="Production Staff">Production Staff Only</option>
+                            <option value="Specific Staff">Specific Staff Member (by Email)</option>
+                            <option value="All Suppliers">All Ready-Made Furniture Suppliers</option>
+                            <option value="Specific Supplier">Specific Supplier Partner (by Email)</option>
+                          </select>
+                        </div>
+
+                        {(adminMsgRecipientType === 'Specific Staff' || adminMsgRecipientType === 'Specific Supplier') && (
+                          <div>
+                            <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Target Account Email *</label>
+                            <input
+                              type="email"
+                              placeholder="e.g. staff@retailsphere.com or supplier@furniturecrafts.com"
+                              value={adminMsgTargetEmail}
+                              onChange={(e) => setAdminMsgTargetEmail(e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                              required
+                            />
+                          </div>
+                        )}
+
+                        <div className={(adminMsgRecipientType === 'Specific Staff' || adminMsgRecipientType === 'Specific Supplier') ? 'sm:col-span-2' : ''}>
+                          <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Message Subject *</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Urgent Inventory Count & Quality Assurance Directive"
+                            value={adminMsgSubject}
+                            onChange={(e) => setAdminMsgSubject(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Message Content *</label>
+                        <textarea
+                          rows={3}
+                          placeholder="Type your official announcement or directive message here..."
+                          value={adminMsgContent}
+                          onChange={(e) => setAdminMsgContent(e.target.value)}
+                          className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-medium text-xs focus:outline-none focus:border-[#48A63E]"
+                          required
+                        />
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          className="px-6 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all shadow-md shadow-[#48A63E]/20 flex items-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>Dispatch Message from Admin</span>
+                        </button>
+                      </div>
+                    </form>
+
+                    {/* Dispatched Messages Record Table */}
+                    <div className="space-y-3">
+                      <h4 className="font-extrabold text-sm text-[#2C241D] border-b border-[#EFE7DE] pb-2">Dispatched Admin Messages Log</h4>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                              <th className="py-3 px-4">Recipient Audience</th>
+                              <th className="py-3 px-4">Subject</th>
+                              <th className="py-3 px-4">Message Content</th>
+                              <th className="py-3 px-4">Date Sent</th>
+                              <th className="py-3 px-4">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#EFE7DE]">
+                            {adminMessagesList.length === 0 ? (
+                              <tr>
+                                <td colSpan={5} className="py-8 text-center text-[#7A6C5E]">
+                                  No admin messages dispatched yet.
+                                </td>
+                              </tr>
+                            ) : (
+                              adminMessagesList.map((msg) => (
+                                <tr key={msg.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                  <td className="py-3.5 px-4 font-bold text-[#2C241D]">
+                                    <span className="inline-block px-2.5 py-0.5 rounded-md text-[10px] font-extrabold bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
+                                      {msg.recipientType}
+                                    </span>
+                                    {msg.targetEmail && (
+                                      <div className="text-[10px] text-[#7A6C5E] font-mono mt-0.5">{msg.targetEmail}</div>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{msg.subject}</td>
+                                  <td className="py-3.5 px-4 text-[#6B5C4D] max-w-xs truncate">{msg.message}</td>
+                                  <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">{msg.createdDate}</td>
+                                  <td className="py-3.5 px-4">
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                                      Dispatched ✓
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </main>
         </div>
@@ -3900,6 +4157,105 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         );
       })()}
+
+      {/* MODAL 8: GRANT AUTHORITY & CAPABILITIES */}
+      {isAuthorityModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">Grant Authority & Capabilities</h3>
+                <p className="text-[11px] text-[#7A6C5E]">Assign executive capabilities or admin powers by email with granular checkboxes.</p>
+              </div>
+              <button onClick={() => setIsAuthorityModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAuthoritySubmit} className="space-y-4 text-xs font-semibold">
+              <div>
+                <label className="block font-bold text-[#2C241D] mb-1">Target Account Email *</label>
+                <input
+                  type="email"
+                  placeholder="Enter email e.g. john.staff@retailsphere.com"
+                  value={authorityEmail}
+                  onChange={(e) => setAuthorityEmail(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-mono font-bold focus:outline-none focus:border-[#48A63E]"
+                  required
+                />
+              </div>
+
+              {/* Master Full Admin Toggle */}
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between">
+                <div>
+                  <span className="font-extrabold text-amber-900 text-xs block">Full Executive Admin Authority</span>
+                  <span className="text-[10px] text-amber-800 font-medium">Grant complete unrestricted administrative control</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={isFullAdminChecked}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsFullAdminChecked(checked);
+                    if (checked) {
+                      setSelectedCapabilities(CAPABILITY_DEFINITIONS.map(c => c.key));
+                    }
+                  }}
+                  className="w-4 h-4 accent-[#48A63E] cursor-pointer"
+                />
+              </div>
+
+              {/* Granular Capabilities Checkboxes */}
+              <div className="space-y-2">
+                <label className="block font-extrabold text-[#2C241D] text-xs">Specific Granted Capabilities (Check all that apply):</label>
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {CAPABILITY_DEFINITIONS.filter(c => c.key !== 'full_admin').map((cap) => {
+                    const isChecked = selectedCapabilities.includes(cap.key);
+                    return (
+                      <label key={cap.key} className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${isChecked ? 'bg-[#48A63E]/10 border-[#48A63E]/40' : 'bg-[#FAF7F2] border-[#E2D7CB]'}`}>
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCapabilities(prev => [...prev, cap.key]);
+                            } else {
+                              setSelectedCapabilities(prev => prev.filter(k => k !== cap.key));
+                              setIsFullAdminChecked(false);
+                            }
+                          }}
+                          className="w-4 h-4 accent-[#48A63E] mt-0.5"
+                        />
+                        <div>
+                          <span className="font-extrabold text-[#2C241D] block">{cap.label}</span>
+                          <span className="text-[10px] text-[#7A6C5E] font-medium block">{cap.description}</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAuthorityModalOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-extrabold text-[#7A6C5E]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold shadow-md flex items-center gap-1.5 cursor-pointer"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Save & Assign Granted Authority</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
