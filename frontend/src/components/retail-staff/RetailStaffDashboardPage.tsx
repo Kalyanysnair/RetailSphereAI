@@ -138,6 +138,40 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [newQuerySubject, setNewQuerySubject] = useState('');
   const [newQueryMessage, setNewQueryMessage] = useState('');
 
+  // User Info from localStorage (No hardcoded demo data)
+  const [currentUser, setCurrentUser] = useState<{ name: string; email: string; initials: string }>({
+    name: '',
+    email: '',
+    initials: 'RS'
+  });
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const name = parsed.full_name || parsed.fullName || parsed.name || parsed.email || 'Staff User';
+        const email = parsed.email || '';
+
+        let initials = 'RS';
+        if (name) {
+          const parts = name.trim().split(' ');
+          if (parts.length >= 2) {
+            initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+          } else if (parts[0].length >= 2) {
+            initials = parts[0].substring(0, 2).toUpperCase();
+          } else {
+            initials = parts[0][0].toUpperCase();
+          }
+        }
+
+        setCurrentUser({ name, email, initials });
+      }
+    } catch (err) {
+      console.warn('Error reading user from localStorage:', err);
+    }
+  }, []);
+
   // Notifications & User Menu State
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -147,7 +181,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
 
   const loadAdminMsgs = () => {
-    let email = 'retail.staff@retailsphere.com';
+    let email = currentUser?.email || 'retail.staff@retailsphere.com';
     const stored = localStorage.getItem('user');
     if (stored) {
       try {
@@ -165,9 +199,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
     return () => {
       window.removeEventListener('admin-messages-updated', loadAdminMsgs);
     };
-  }, []);
+  }, [currentUser?.email]);
 
-  const unreadAdminMsgsCount = adminMessages.filter(m => !isMessageReadByUser(m, currentUser.email)).length;
+  const unreadAdminMsgsCount = adminMessages.filter(m => !isMessageReadByUser(m, currentUser?.email || '')).length;
 
   const unreadCount = notifications.filter(n => n.unread).length;
 
@@ -296,39 +330,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
 
 
-  // User Info from localStorage (No hardcoded demo data)
-  const [currentUser, setCurrentUser] = useState<{ name: string; email: string; initials: string }>({
-    name: '',
-    email: '',
-    initials: 'RS'
-  });
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        const name = parsed.full_name || parsed.fullName || parsed.name || parsed.email || 'Staff User';
-        const email = parsed.email || '';
-
-        let initials = 'RS';
-        if (name) {
-          const parts = name.trim().split(' ');
-          if (parts.length >= 2) {
-            initials = (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-          } else if (parts[0].length >= 2) {
-            initials = parts[0].substring(0, 2).toUpperCase();
-          } else {
-            initials = parts[0][0].toUpperCase();
-          }
-        }
-
-        setCurrentUser({ name, email, initials });
-      }
-    } catch (err) {
-      console.warn('Error reading user from localStorage:', err);
-    }
-  }, []);
 
   const handleSignOut = () => {
     localStorage.removeItem('access_token');
