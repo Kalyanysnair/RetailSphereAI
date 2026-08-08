@@ -68,7 +68,7 @@ import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
 import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders } from '../../services/api_production';
-import { getStoredAdminMessages, sendAdminMessage, markAdminMessageRead, AdminMessage } from '../../utils/adminMessagesStorage';
+import { getStoredAdminMessages, sendAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
 import { getStoredUserAuthorities, saveUserAuthority, UserAuthorityRecord, CAPABILITY_DEFINITIONS, CapabilityKey } from '../../utils/userAuthoritiesStorage';
 
 export interface SystemUserItem {
@@ -227,12 +227,6 @@ export const AdminDashboardPage: React.FC = () => {
       window.removeEventListener('storage', refreshMsgs);
     };
   }, []);
-
-  useEffect(() => {
-    if (activeTab === 'broadcast') {
-      setAdminMessagesList(getStoredAdminMessages());
-    }
-  }, [activeTab]);
 
   const unreadCount = notifications.filter(n => n.unread).length;
 
@@ -3167,34 +3161,15 @@ export const AdminDashboardPage: React.FC = () => {
                                   <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">{msg.createdDate}</td>
                                   <td className="py-3.5 px-4">
                                     {msg.read || (msg.readByEmails && msg.readByEmails.length > 0) ? (
-                                      <div className="space-y-0.5">
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-md">
-                                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                          Read ✓ {msg.readByEmails && msg.readByEmails.length > 0 ? `(${msg.readByEmails.length})` : ''}
-                                        </span>
-                                        {msg.readByEmails && msg.readByEmails.length > 0 && (
-                                          <div className="text-[9px] text-[#7A6C5E] font-mono truncate max-w-[160px]">
-                                            By: {msg.readByEmails.join(', ')}
-                                          </div>
-                                        )}
-                                      </div>
+                                      <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1 rounded-xl shadow-xs">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                        Delivered & Read ✓
+                                      </span>
                                     ) : (
-                                      <div className="flex items-center gap-2">
-                                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-md">
-                                          <Clock className="w-3 h-3 text-amber-600" />
-                                          Delivered (Unread)
-                                        </span>
-                                        <button
-                                          onClick={() => {
-                                            markAdminMessageRead(msg.id, 'admin@retailsphere.com');
-                                            setAdminMessagesList(getStoredAdminMessages());
-                                          }}
-                                          className="text-[10px] font-extrabold text-[#48A63E] hover:underline cursor-pointer"
-                                          title="Mark as Read manually"
-                                        >
-                                          Mark Read
-                                        </button>
-                                      </div>
+                                      <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-3 py-1 rounded-xl shadow-xs">
+                                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                        Delivered
+                                      </span>
                                     )}
                                   </td>
                                 </tr>
