@@ -494,20 +494,20 @@ export const AdminDashboardPage: React.FC = () => {
           {
             id: 'sup-101',
             supplier_id: 101,
-            supplier_name: 'Arun Raj',
-            contact_person: 'Arun Raj (Senior Logistics Vendor)',
+            supplier_name: 'Arun Raj Furniture Crafts',
+            contact_person: 'Arun Raj (Master Furniture Manufacturer)',
             phone: '9778237180',
-            address: 'Kerala Furniture Hub, India',
+            address: 'Kerala Wholesale Furniture Hub, India',
             assigned_products_count: 6,
             status: 'Active',
           },
           {
             id: 'sup-102',
             supplier_id: 102,
-            supplier_name: 'Rahul Dev',
-            contact_person: 'Rahul Dev (Supply Partner)',
+            supplier_name: 'Rahul Dev Timber Works',
+            contact_person: 'Rahul Dev (Ready-Made Decor & Craft Producer)',
             phone: '7736783189',
-            address: 'Kochi Timber & Decor, Kerala, India',
+            address: 'Kochi Teak & Ready-Made Decor, Kerala, India',
             assigned_products_count: 7,
             status: 'Active',
           },
@@ -2134,10 +2134,10 @@ export const AdminDashboardPage: React.FC = () => {
                     <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Suppliers</span>
-                        <Truck className="w-4 h-4 text-[#48A63E]" />
+                        <Briefcase className="w-4 h-4 text-[#48A63E]" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{supplierList.length}</div>
-                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Timber & Craft Manufacturers</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Ready-Made Product Manufacturers</div>
                     </div>
 
                     <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
@@ -2148,7 +2148,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
                         {supplierList.filter(s => s.status === 'Active' || !s.status).length}
                       </div>
-                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Verified Logistics & Timber Partners</div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Verified Wholesale & Furniture Vendors</div>
                     </div>
                   </div>
 
@@ -3434,7 +3434,10 @@ export const AdminDashboardPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
           <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-[#2C241D]">Add New Supplier</h3>
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D]">Add Product Supplier</h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">Register wholesale vendors and ready-made product manufacturers.</p>
+              </div>
               <button onClick={() => setIsAddSupplierModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
               </button>
@@ -3442,10 +3445,10 @@ export const AdminDashboardPage: React.FC = () => {
 
             <form onSubmit={handleCreateSupplierSubmit} className="space-y-3 text-xs">
               <div>
-                <label className="block font-bold text-[#2C241D] mb-1">Supplier / Company Name</label>
+                <label className="block font-bold text-[#2C241D] mb-1">Manufacturer / Vendor Company Name</label>
                 <input
                   type="text"
-                  placeholder="e.g. Arun Raj Logistics"
+                  placeholder="e.g. Royal Teak Crafts & Furniture Ltd"
                   value={newSupName}
                   onChange={(e) => setNewSupName(e.target.value)}
                   className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
