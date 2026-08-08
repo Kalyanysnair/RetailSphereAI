@@ -1254,7 +1254,7 @@ export const AdminDashboardPage: React.FC = () => {
             }`}
           >
             <div className="flex items-center gap-3">
-              <Truck className="w-4.5 h-4.5" />
+              <Briefcase className="w-4.5 h-4.5" />
               <span className="text-sm">Supplier Directory</span>
             </div>
           </button>
@@ -1360,7 +1360,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'users' && 'View, search, edit, create, activate, or deactivate all user accounts (Customers, Staff, Administrators) across RetailSphere.'}
                     {activeTab === 'staff' && 'Create and manage Retail Staff and Production Staff user accounts with credentials dispatch.'}
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
-                    {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, and product vendor allocations.'}
+                    {activeTab === 'suppliers' && 'Manage ready-made furniture manufacturers, wholesale product vendors, and catalog stock allocations.'}
                     {activeTab === 'queries' && 'Review staff requests, email change applications, and issue official admin responses.'}
                     {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
                   </p>

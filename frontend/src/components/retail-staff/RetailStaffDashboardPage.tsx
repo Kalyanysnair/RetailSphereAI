@@ -1013,7 +1013,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   }`}
               >
                 <div className="flex items-center gap-3">
-                  <Truck className="w-4 h-4" />
+                  <Briefcase className="w-4 h-4" />
                   <span>Supplier Management</span>
                 </div>
               </button>
@@ -1101,7 +1101,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
                     {activeTab === 'queries' && 'Submit email change requests or system queries directly to system Admin.'}
-                    {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, and product vendor allocations.'}
+                    {activeTab === 'suppliers' && 'Manage ready-made furniture manufacturers, wholesale product vendors, and catalog stock allocations.'}
                     {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
                   </p>
                 </div>
