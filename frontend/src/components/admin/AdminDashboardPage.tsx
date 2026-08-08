@@ -1103,9 +1103,9 @@ export const AdminDashboardPage: React.FC = () => {
   // Calculations for KPI summary cards
   const totalProducts = productList.length;
   const totalInStock = productList.reduce((acc, item) => acc + item.stockCount, 0);
-  const lowStockCount = productList.filter((item) => item.stockCount < 5).length;
+  const lowStockProductsList = productList.filter((item) => item.stockCount < 5);
+  const lowStockCount = lowStockProductsList.length;
   const activeOrdersCount = orderList.filter(o => o.orderStatus === 'Pending' || o.orderStatus === 'Processing').length;
-  const lowStockProductsList = productList.filter(item => item.stockCount < 5);
 
   const displayProducts = productList.filter((item) => {
     const matchesCategory = categoryFilter === 'All' || item.category === categoryFilter;
@@ -1124,7 +1124,14 @@ export const AdminDashboardPage: React.FC = () => {
       item.material.toLowerCase().includes(q) ||
       (item.color && item.color.toLowerCase().includes(q));
 
-    const matchesStockStatus = stockStatusFilter === 'All' || item.status === stockStatusFilter;
+    let matchesStockStatus = true;
+    if (stockStatusFilter === 'Low Stock') {
+      matchesStockStatus = item.stockCount > 0 && item.stockCount < 5;
+    } else if (stockStatusFilter === 'Out of Stock') {
+      matchesStockStatus = item.stockCount <= 0;
+    } else if (stockStatusFilter === 'In Stock') {
+      matchesStockStatus = item.stockCount >= 5;
+    }
 
     return matchesCategory && matchesPrice && matchesSearch && matchesStockStatus;
   });
@@ -1461,54 +1468,85 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               {/* ADMIN KPI OVERVIEW STAT CARDS */}
-              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <div 
+                  onClick={() => setActiveTab('staff')}
+                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#10B981] group"
+                >
                   <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Staff Members</span>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#10B981]">Staff Members</span>
                     <Users className="w-4 h-4 text-[#10B981]" />
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{staffMembers.length} Staff</div>
+                  <div className="text-2xl font-black text-[#2C241D]">{staffMembers.length} Staff</div>
                   <div>
-                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                    <span className="text-[10px] font-extrabold text-[#15803D] bg-[#E6F4EA] px-2 py-0.5 rounded-md border border-[#C6F6D5] inline-block">
                       Active staff accounts
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div 
+                  onClick={() => setActiveTab('products')}
+                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#2563EB] group"
+                >
                   <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Total Products</span>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#2563EB]">Total Products</span>
                     <Package className="w-4 h-4 text-[#2563EB]" />
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{displayProducts.length} Items</div>
+                  <div className="text-2xl font-black text-[#2C241D]">{productList.length} Items</div>
                   <div>
-                    <span className="text-[11px] font-bold text-[#1E40AF] bg-[#EBF5FF] px-2.5 py-0.5 rounded-full border border-[#DBEAFE] inline-block">
+                    <span className="text-[10px] font-extrabold text-[#1E40AF] bg-[#EBF5FF] px-2 py-0.5 rounded-md border border-[#DBEAFE] inline-block">
                       Catalog inventory
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div 
+                  onClick={() => setActiveTab('orders')}
+                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#D97706] group"
+                >
                   <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Customer Orders</span>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#D97706]">Customer Orders</span>
                     <ShoppingBag className="w-4 h-4 text-[#D97706]" />
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{orderList.length} Orders</div>
+                  <div className="text-2xl font-black text-[#2C241D]">{orderList.length} Orders</div>
                   <div>
-                    <span className="text-[11px] font-bold text-[#B4690E] bg-[#FDF3E7] px-2.5 py-0.5 rounded-full border border-[#FDE6D2] inline-block">
+                    <span className="text-[10px] font-extrabold text-[#B4690E] bg-[#FDF3E7] px-2 py-0.5 rounded-md border border-[#FDE6D2] inline-block">
                       Active customer orders
                     </span>
                   </div>
                 </div>
 
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div 
+                  onClick={() => {
+                    setActiveTab('inventory');
+                    setStockStatusFilter('Low Stock');
+                  }}
+                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-amber-500 group"
+                >
                   <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Discount Coupons</span>
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-amber-600">Low / Out of Stock</span>
+                    <AlertTriangle className="w-4 h-4 text-amber-600" />
+                  </div>
+                  <div className="text-2xl font-black text-amber-700">{lowStockCount} Items</div>
+                  <div>
+                    <span className="text-[10px] font-extrabold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block">
+                      Requires replenishment
+                    </span>
+                  </div>
+                </div>
+
+                <div 
+                  onClick={() => setActiveTab('coupons')}
+                  className="bg-white/90 rounded-2xl p-4 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-md cursor-pointer hover:border-[#7C3AED] group"
+                >
+                  <div className="flex items-center justify-between text-[#8C8275]">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#8C8275] group-hover:text-[#7C3AED]">Discount Coupons</span>
                     <Tag className="w-4 h-4 text-[#7C3AED]" />
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{couponsList.length} Active</div>
+                  <div className="text-2xl font-black text-[#2C241D]">{couponsList.length} Active</div>
                   <div>
-                    <span className="text-[11px] font-bold text-[#6D28D9] bg-[#F3E8FF] px-2.5 py-0.5 rounded-full border border-[#DDD6FE] inline-block">
+                    <span className="text-[10px] font-extrabold text-[#6D28D9] bg-[#F3E8FF] px-2 py-0.5 rounded-md border border-[#DDD6FE] inline-block">
                       Promotional rewards
                     </span>
                   </div>
@@ -1797,108 +1835,9 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB 2: PRODUCTS CATALOG MANAGEMENT (FROM STAFF DASHBOARD) */}
+              {/* TAB 2: PRODUCTS CATALOG MANAGEMENT */}
               {activeTab === 'products' && (
                 <div className="space-y-5">
-                  {/* TOP KPI SUMMARY COUNT BOXES */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
-                    {/* Box 1: Total Catalog Products */}
-                    <div 
-                      onClick={() => setActiveTab('products')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-[#48A63E] hover:shadow-xl group"
-                      title="Click to view & manage catalog products"
-                    >
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-[#48A63E] transition-colors">
-                          <Package className="w-3.5 h-3.5 text-[#48A63E]" />
-                          Total Products
-                        </span>
-                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                          {displayProducts.length}
-                        </div>
-                        <p className="text-[11px] font-semibold text-[#8C7C6D] flex items-center gap-1">
-                          Store furniture items
-                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-[#48A63E]" />
-                        </p>
-                      </div>
-                      <div className="w-12 h-12 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/30 text-[#48A63E] flex items-center justify-center shrink-0 shadow-xs group-hover:bg-[#48A63E] group-hover:text-white transition-all">
-                        <Package className="w-6 h-6" />
-                      </div>
-                    </div>
-
-                    {/* Box 2: Customer Orders Count */}
-                    <div 
-                      onClick={() => setActiveTab('orders')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-blue-500 hover:shadow-xl group"
-                      title="Click to view & manage customer orders"
-                    >
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-blue-600 transition-colors">
-                          <ShoppingBag className="w-3.5 h-3.5 text-blue-600" />
-                          Customer Orders
-                        </span>
-                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                          {orderList.length}
-                        </div>
-                        <p className="text-[11px] font-semibold text-blue-700 flex items-center gap-1">
-                          Total orders placed by customers
-                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-blue-600" />
-                        </p>
-                      </div>
-                      <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-200 text-blue-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-blue-600 group-hover:text-white transition-all">
-                        <ShoppingBag className="w-6 h-6" />
-                      </div>
-                    </div>
-
-                    {/* Box 3: Low & Out of Stock */}
-                    <div 
-                      onClick={() => setActiveTab('inventory')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-amber-500 hover:shadow-xl group"
-                      title="Click to inspect warehouse stock & low inventory"
-                    >
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-amber-600 transition-colors">
-                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                          Low / Out of Stock
-                        </span>
-                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                          {displayProducts.filter(p => p.stockCount === 0 || p.status === 'Out of Stock' || p.status === 'Low Stock' || p.stockCount <= 5).length}
-                        </div>
-                        <p className="text-[11px] font-semibold text-amber-700 flex items-center gap-1">
-                          Requires replenishment
-                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-amber-600" />
-                        </p>
-                      </div>
-                      <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-amber-600 group-hover:text-white transition-all">
-                        <AlertTriangle className="w-6 h-6" />
-                      </div>
-                    </div>
-
-                    {/* Box 4: Active Categories */}
-                    <div 
-                      onClick={() => setActiveTab('products')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-purple-500 hover:shadow-xl group"
-                      title="Click to view categories & catalog"
-                    >
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#7A6C5E] flex items-center gap-1.5 group-hover:text-purple-600 transition-colors">
-                          <Tag className="w-3.5 h-3.5 text-purple-600" />
-                          Categories
-                        </span>
-                        <div className="text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                          {new Set(displayProducts.map(p => p.category).filter(Boolean)).size || 5}
-                        </div>
-                        <p className="text-[11px] font-semibold text-purple-700 flex items-center gap-1">
-                          Living, Dining, Bedroom & Studio
-                          <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform text-purple-600" />
-                        </p>
-                      </div>
-                      <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-600 flex items-center justify-center shrink-0 shadow-xs group-hover:bg-purple-600 group-hover:text-white transition-all">
-                        <Tag className="w-6 h-6" />
-                      </div>
-                    </div>
-                  </div>
-
                   <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
                     <button
