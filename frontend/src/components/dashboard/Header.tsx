@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingBag, Heart, LogOut, Plus, User, Package, ChevronDown, Bell, Tag } from 'lucide-react';
+import { ShoppingBag, Heart, LogOut, Plus, User, Package, ChevronDown, Bell, Tag, Gift } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { getCartCount } from '../../utils/cartStorage';
 import { getWishlistCount } from '../../utils/wishlistStorage';
@@ -337,6 +337,15 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
                 >
                   <User className="w-4 h-4 text-[#38A132]" />
                   <span>View Profile</span>
+                </Link>
+
+                <Link
+                  to="/discounts"
+                  onClick={() => setIsDropdownOpen(false)}
+                  className="flex items-center gap-3 px-3 py-2.5 text-xs font-extrabold text-[#1F1812] hover:bg-[#EAE0D4] rounded-xl transition-all"
+                >
+                  <Gift className="w-4 h-4 text-[#38A132]" />
+                  <span>My Discounts & Offers</span>
                 </Link>
 
                 <Link

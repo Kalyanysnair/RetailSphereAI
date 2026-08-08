@@ -36,7 +36,7 @@ import {
   UserCheck,
   ArrowRight
 } from 'lucide-react';
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
+import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 
 
@@ -456,6 +456,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [newCouponDiscount, setNewCouponDiscount] = useState('');
   const [newCouponDesc, setNewCouponDesc] = useState('');
   const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
+  const [newCouponAudience, setNewCouponAudience] = useState<CouponAudienceType>('all');
+  const [newCouponCustomerLimit, setNewCouponCustomerLimit] = useState('10');
+  const [newCouponAutoAllot, setNewCouponAutoAllot] = useState(true);
 
   const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
 
@@ -473,30 +476,49 @@ export const RetailStaffDashboardPage: React.FC = () => {
     };
   }, []);
 
-  const handleCreateCouponSubmit = (e: React.FormEvent) => {
+  const handleBatchDispatchCoupon = async (coupon: Coupon) => {
+    const limit = coupon.customerLimit || 10;
+    const audience = coupon.audienceType || 'all';
+    const result = await sendBulkCouponsToFirstNCustomers(coupon.id, audience, limit);
+    if (result.success) {
+      refreshCoupons();
+      setSuccessNotice(`🎉 ${result.message}`);
+      setTimeout(() => setSuccessNotice(null), 8000);
+    }
+  };
+
+  const handleCreateCouponSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCouponCode.trim() || !newCouponDiscount) return;
 
     const discountVal = parseInt(newCouponDiscount, 10) || 10;
     const targetEmail = newCouponUserEmail.trim();
+    const limitVal = parseInt(newCouponCustomerLimit, 10) || 10;
 
     const updated = addStoredCoupon({
-      code: newCouponCode,
+      code: newCouponCode.trim().toUpperCase(),
       discountPercent: discountVal,
-      description: `${discountVal}% Off Discount`,
+      description: newCouponDesc.trim() || `${discountVal}% Off Discount`,
       targetUserEmail: targetEmail || undefined,
+      customerLimit: limitVal,
+      audienceType: newCouponAudience,
     });
     setCouponsList(updated);
 
-    const noticeText = targetEmail
-      ? `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created and assigned to ${targetEmail}! Notification sent to user dashboard & email.`
-      : `Coupon "${newCouponCode.toUpperCase()}" (${discountVal}% Off) created! You can add/edit assigned user email in the table anytime.`;
+    if (newCouponAutoAllot) {
+      await sendBulkCouponsToFirstNCustomers(newCouponCode.trim().toUpperCase(), newCouponAudience, limitVal);
+    }
 
-    setSuccessNotice(noticeText);
+    const audienceLabel = newCouponAudience === 'retail' ? 'Retail Customers' : newCouponAudience === 'production' ? 'Production Customers' : 'First N Customers';
+
+    setSuccessNotice(`Coupon "${newCouponCode.trim().toUpperCase()}" created for ${audienceLabel} (Limit: ${limitVal})!`);
     setNewCouponCode('');
     setNewCouponDiscount('');
     setNewCouponDesc('');
     setNewCouponUserEmail('');
+    setNewCouponCustomerLimit('10');
+    setNewCouponAudience('all');
+    setNewCouponAutoAllot(true);
     setIsAddCouponModalOpen(false);
     setTimeout(() => setSuccessNotice(null), 6000);
   };
@@ -2017,9 +2039,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
                           <th className="py-3 px-4">Promo Code</th>
-                          <th className="py-3 px-4">Discount %</th>
+                          <th className="py-3 px-4">Discount</th>
+                          <th className="py-3 px-4">Access Provision</th>
+                          <th className="py-3 px-4">Redemptions</th>
                           <th className="py-3 px-4">Assigned User / Email (Editable)</th>
-                          <th className="py-3 px-4">Created Date</th>
                           <th className="py-3 px-4">Status</th>
                           <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
@@ -2027,63 +2050,111 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {couponsList
                           .filter(c => !couponSearchQuery.trim() || c.code.toLowerCase().includes(couponSearchQuery.toLowerCase()) || (c.targetUserEmail && c.targetUserEmail.toLowerCase().includes(couponSearchQuery.toLowerCase())))
-                          .map((coupon) => (
-                            <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                              <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
-                                <div className="flex items-center gap-2">
-                                  <Tag className="w-3.5 h-3.5 text-[#48A63E]" />
-                                  <span className="bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">{coupon.code}</span>
-                                </div>
-                              </td>
+                          .map((coupon) => {
+                            const limitN = coupon.customerLimit || 0;
+                            const redeemed = coupon.currentRedemptions || 0;
+                            const audience = coupon.audienceType || 'all';
 
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    id={`coupon-email-${coupon.id}`}
-                                    type="text"
-                                    placeholder="Enter user email or User ID..."
-                                    defaultValue={coupon.targetUserEmail || ''}
-                                    onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter') {
-                                        handleUpdateCouponUserEmail(coupon.id, (e.target as HTMLInputElement).value);
-                                      }
-                                    }}
-                                    className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
-                                    title="Type customer email or User ID"
-                                  />
+                            let audienceBadge = '🌐 First N Customers';
+                            let audienceBg = 'bg-blue-50 text-blue-700 border-blue-200';
+                            if (audience === 'retail') {
+                              audienceBadge = '🛍️ First N Retail Customers';
+                              audienceBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            } else if (audience === 'production') {
+                              audienceBadge = '🏭 First N Production Customers';
+                              audienceBg = 'bg-amber-50 text-amber-700 border-amber-200';
+                            }
+
+                            return (
+                              <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                                  <div className="flex items-center gap-2">
+                                    <Tag className="w-3.5 h-3.5 text-[#48A63E]" />
+                                    <span className="bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">{coupon.code}</span>
+                                  </div>
+                                </td>
+
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
+                                
+                                <td className="py-3 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${audienceBg}`}>
+                                    {audienceBadge} {limitN > 0 ? `(N = ${limitN})` : ''}
+                                  </span>
+                                </td>
+
+                                <td className="py-3 px-4 font-mono">
+                                  {limitN > 0 ? (
+                                    <div className="space-y-1">
+                                      <span className="font-bold text-[#2C241D] text-[11px]">{redeemed} / {limitN} Used</span>
+                                      <div className="w-24 h-1.5 bg-[#EAE0D4] rounded-full overflow-hidden">
+                                        <div 
+                                          className={`h-full transition-all ${redeemed >= limitN ? 'bg-rose-500' : 'bg-[#48A63E]'}`} 
+                                          style={{ width: `${Math.min(100, Math.round((redeemed / limitN) * 100))}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[#8C7C6D] text-[11px] font-medium">Unlimited</span>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      id={`coupon-email-${coupon.id}`}
+                                      type="text"
+                                      placeholder="Enter user email or User ID..."
+                                      defaultValue={coupon.targetUserEmail || ''}
+                                      onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          handleUpdateCouponUserEmail(coupon.id, (e.target as HTMLInputElement).value);
+                                        }
+                                      }}
+                                      className="w-48 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
+                                      title="Type customer email or User ID"
+                                    />
+                                    <button
+                                      onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
+                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
+                                      title="Send coupon to customer email"
+                                    >
+                                      <Send className="w-3 h-3" />
+                                      <span>Send</span>
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="py-4 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    coupon.status === 'Active' && (!limitN || redeemed < limitN)
+                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                      : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
+                                  </span>
+                                </td>
+
+                                <td className="py-4 px-4 text-right space-x-2">
                                   <button
-                                    onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                    className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
-                                    title="Send coupon to customer dashboard notification & dispatch email"
+                                    onClick={() => handleBatchDispatchCoupon(coupon)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer"
+                                    title="Auto-dispatch notification & email to first N targeted customers"
                                   >
-                                    <Send className="w-3.5 h-3.5" />
-                                    <span>Send Email</span>
+                                    <Send className="w-3 h-3" />
+                                    <span>Dispatch N</span>
                                   </button>
-                                </div>
-                              </td>
-                              <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
-                              <td className="py-4 px-4">
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  coupon.status === 'Active'
-                                    ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                    : 'bg-rose-100 text-rose-700'
-                                }`}>
-                                  {coupon.status}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 text-right">
-                                <button
-                                  onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                                  className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  <span>Remove Coupon</span>
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                                  <button
+                                    onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Remove</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
                       </tbody>
                     </table>
                   </div>
@@ -3084,10 +3155,23 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
             <form onSubmit={handleCreateCouponSubmit} className="space-y-3.5 text-xs font-semibold">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Coupon Promo Code *</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-extrabold text-[#2C241D]">Coupon Promo Code *</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prefix = newCouponAudience === 'retail' ? 'RETAIL' : newCouponAudience === 'production' ? 'PROD' : 'VIP';
+                      const code = `${prefix}FIRST${newCouponCustomerLimit || '10'}_${Math.floor(Math.random() * 90 + 10)}`;
+                      setNewCouponCode(code);
+                    }}
+                    className="text-[10px] font-extrabold text-[#48A63E] hover:underline"
+                  >
+                    ⚡ Auto Generate Code
+                  </button>
+                </div>
                 <input
                   type="text"
-                  placeholder="Enter promo code"
+                  placeholder="e.g. FIRST10OFF"
                   value={newCouponCode}
                   onChange={(e) => setNewCouponCode(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] font-mono font-bold uppercase text-[#2C241D]"
@@ -3095,17 +3179,58 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 />
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Discount % *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="90"
+                    placeholder="e.g. 15 or 25"
+                    value={newCouponDiscount}
+                    onChange={(e) => setNewCouponDiscount(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">First N Limit (N) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="500"
+                    placeholder="e.g. 10"
+                    value={newCouponCustomerLimit}
+                    onChange={(e) => setNewCouponCustomerLimit(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
+                    required
+                  />
+                </div>
+              </div>
+
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Discount Percentage (%) *</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Customer Access Provision *</label>
+                <select
+                  value={newCouponAudience}
+                  onChange={(e) => setNewCouponAudience(e.target.value as any)}
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-extrabold text-xs"
+                >
+                  <option value="all">🌐 First N Customers (All Base)</option>
+                  <option value="retail">🛍️ First N Retail Customers (Readymade Furniture)</option>
+                  <option value="production">🏭 First N Production Customers (Custom Furniture)</option>
+                </select>
+                <p className="text-[10px] text-[#7A6C5E] mt-1 font-medium">Restricts coupon redemption and access rights strictly to the selected customer tier.</p>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Description (Optional)</label>
                 <input
-                  type="number"
-                  min="1"
-                  max="90"
-                  placeholder="e.g. 15 or 25"
-                  value={newCouponDiscount}
-                  onChange={(e) => setNewCouponDiscount(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
-                  required
+                  type="text"
+                  placeholder="e.g. Special offer for first 10 customers"
+                  value={newCouponDesc}
+                  onChange={(e) => setNewCouponDesc(e.target.value)}
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
                 />
               </div>
 
@@ -3113,12 +3238,24 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Target User Email or User ID (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. customer@retailsphere.com or USER-102"
+                  placeholder="e.g. customer@retailsphere.com"
                   value={newCouponUserEmail}
                   onChange={(e) => setNewCouponUserEmail(e.target.value)}
                   className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
                 />
-                <p className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Leave empty or type email ID. You can also add/edit the customer email directly in the table textbox anytime.</p>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="auto-allot-check"
+                  checked={newCouponAutoAllot}
+                  onChange={(e) => setNewCouponAutoAllot(e.target.checked)}
+                  className="w-4 h-4 accent-[#48A63E] rounded cursor-pointer"
+                />
+                <label htmlFor="auto-allot-check" className="text-[11px] font-bold text-[#2C241D] cursor-pointer">
+                  Auto-allot & dispatch dashboard notifications + emails to first N customers
+                </label>
               </div>
 
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
@@ -3133,7 +3270,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
                 >
-                  Create & Activate Coupon
+                  Create & Activate Provision
                 </button>
               </div>
             </form>

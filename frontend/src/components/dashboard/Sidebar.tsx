@@ -10,7 +10,8 @@ import {
   Heart,
   Home,
   Grid,
-  PackageCheck
+  PackageCheck,
+  Gift
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 
@@ -56,9 +57,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { name: 'Browse Furniture', icon: Grid, path: '/dashboard' },
     { name: 'AI Recommendations', icon: Sparkles, path: '/dashboard' },
     { name: 'Custom Studio', icon: SlidersHorizontal, path: '/dashboard' },
+    { name: 'My Discounts & Offers', icon: Gift, path: '/discounts' },
     { name: 'My Cart & Orders', icon: ShoppingBag, path: '/cart' },
     { name: 'Saved Wishlist', icon: Heart, path: '/wishlist' },
-    { name: 'Account Settings', icon: Settings, path: '/dashboard' },
+    { name: 'Account Settings', icon: Settings, path: '/profile' },
   ];
 
   const handleLogout = () => {

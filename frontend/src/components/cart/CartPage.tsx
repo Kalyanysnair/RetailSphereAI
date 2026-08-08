@@ -61,7 +61,19 @@ export const CartPage: React.FC = () => {
     const userObj = rawUser ? JSON.parse(rawUser) : null;
     const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
 
-    const res = validateStoredCoupon(code, currentUserEmail);
+    const userRole = (userObj?.role_name || userObj?.role || '').toLowerCase();
+    const isRetailCustomer = userRole.includes('retail') || userRole === 'customer' || !userRole;
+    const isProductionCustomer = userRole.includes('production') || userRole.includes('custom');
+    
+    const hasRetailItems = items.some(item => !(item as any).isCustom);
+    const hasCustomItems = items.some(item => (item as any).isCustom);
+
+    const res = validateStoredCoupon(code, currentUserEmail, {
+      isRetailCustomer: isRetailCustomer,
+      isProductionCustomer: isProductionCustomer,
+      isRetailCart: hasRetailItems,
+      isProductionCart: hasCustomItems,
+    });
     if (res.valid && res.coupon) {
       setAppliedDiscount({ code: res.coupon.code, percent: res.coupon.discountPercent });
       setPromoMessage({ type: 'success', text: res.message || 'Discount Applied!' });

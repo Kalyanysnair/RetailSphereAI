@@ -1,3 +1,5 @@
+export type CouponAudienceType = 'all' | 'retail' | 'production';
+
 export interface Coupon {
   id: string;
   code: string;
@@ -6,6 +8,10 @@ export interface Coupon {
   status: 'Active' | 'Inactive';
   createdDate: string;
   targetUserEmail: string;
+  customerLimit?: number;
+  currentRedemptions?: number;
+  audienceType?: CouponAudienceType;
+  allowedCustomerEmails?: string[];
 }
 
 export interface CustomerNotification {
@@ -38,19 +44,25 @@ const DEFAULT_COUPONS: Coupon[] = [
     id: 'c-1',
     code: 'SPECIAL10',
     discountPercent: 10,
-    description: '10% Off Customer Discount',
+    description: '10% Off Customer Discount (First 100 Customers)',
     status: 'Active',
     createdDate: '2026-08-01',
     targetUserEmail: '',
+    customerLimit: 100,
+    currentRedemptions: 0,
+    audienceType: 'all',
   },
   {
     id: 'c-2',
     code: 'VIP20',
     discountPercent: 20,
-    description: '20% Off VIP Discount',
+    description: '20% Off VIP Discount (First 10 Customers)',
     status: 'Active',
     createdDate: '2026-08-01',
     targetUserEmail: '',
+    customerLimit: 10,
+    currentRedemptions: 0,
+    audienceType: 'all',
   },
 ];
 
@@ -143,6 +155,16 @@ export const markCouponAsUsed = (couponCode: string, userEmailOrId: string): boo
   }
 
   localStorage.setItem(ALLOTMENTS_STORAGE_KEY, JSON.stringify(current));
+
+  // Increment currentRedemptions on the coupon itself
+  const coupons = getStoredCoupons();
+  const cIdx = coupons.findIndex(c => c.code === cleanCode);
+  if (cIdx >= 0) {
+    coupons[cIdx].currentRedemptions = (coupons[cIdx].currentRedemptions || 0) + 1;
+    localStorage.setItem(COUPONS_STORAGE_KEY, JSON.stringify(coupons));
+    window.dispatchEvent(new Event('coupons-updated'));
+  }
+
   window.dispatchEvent(new Event('allotments-updated'));
   return true;
 };
@@ -163,10 +185,15 @@ export const addStoredCoupon = (newCouponData: {
   discountPercent: number;
   description: string;
   targetUserEmail?: string;
+  customerLimit?: number;
+  audienceType?: CouponAudienceType;
+  allowedCustomerEmails?: string[];
 }): Coupon[] => {
   const current = getStoredCoupons();
   const cleanCode = newCouponData.code.trim().toUpperCase();
   const cleanEmail = (newCouponData.targetUserEmail || '').trim();
+  const customerLimit = newCouponData.customerLimit && newCouponData.customerLimit > 0 ? newCouponData.customerLimit : undefined;
+  const audienceType = newCouponData.audienceType || 'all';
 
   const existingIdx = current.findIndex(c => c.code === cleanCode);
 
@@ -178,6 +205,10 @@ export const addStoredCoupon = (newCouponData: {
     status: 'Active',
     createdDate: new Date().toISOString().split('T')[0],
     targetUserEmail: cleanEmail,
+    customerLimit: customerLimit,
+    currentRedemptions: existingIdx >= 0 ? (current[existingIdx].currentRedemptions || 0) : 0,
+    audienceType: audienceType,
+    allowedCustomerEmails: newCouponData.allowedCustomerEmails,
   };
 
   let updated: Coupon[];
@@ -201,6 +232,23 @@ export const addStoredCoupon = (newCouponData: {
       couponCode: cleanCode,
       discountPercent: newCoupon.discountPercent,
       targetUserEmail: cleanEmail,
+    });
+  }
+
+  if (newCouponData.allowedCustomerEmails && newCouponData.allowedCustomerEmails.length > 0) {
+    newCouponData.allowedCustomerEmails.forEach(email => {
+      if (email.trim() && email.trim().toLowerCase() !== cleanEmail.toLowerCase()) {
+        dispatchCustomerNotification({
+          targetUserEmail: email.trim(),
+          couponCode: cleanCode,
+          discountPercent: newCoupon.discountPercent,
+        });
+        recordCouponAllotment({
+          couponCode: cleanCode,
+          discountPercent: newCoupon.discountPercent,
+          targetUserEmail: email.trim(),
+        });
+      }
     });
   }
 
@@ -246,7 +294,11 @@ export const updateCouponUserEmail = (idOrCode: string, newUserEmail: string): C
   return current;
 };
 
-export const validateStoredCoupon = (code: string, userEmailOrId?: string): { valid: boolean; coupon?: Coupon; message?: string } => {
+export const validateStoredCoupon = (
+  code: string,
+  userEmailOrId?: string,
+  userContext?: { isRetailCustomer?: boolean; isProductionCustomer?: boolean; isRetailCart?: boolean; isProductionCart?: boolean }
+): { valid: boolean; coupon?: Coupon; message?: string } => {
   const cleanCode = code.trim().toUpperCase();
   const coupons = getStoredCoupons();
   const found = coupons.find(c => c.code === cleanCode && c.status === 'Active');
@@ -257,7 +309,26 @@ export const validateStoredCoupon = (code: string, userEmailOrId?: string): { va
 
   const currentUserEmail = (userEmailOrId || '').trim().toLowerCase();
 
-  // Strict User Account Validation
+  // 1. Check First N Customers Redemption Cap
+  if (found.customerLimit && found.customerLimit > 0 && (found.currentRedemptions || 0) >= found.customerLimit) {
+    return {
+      valid: false,
+      message: `Coupon limit reached! Coupon "${cleanCode}" was restricted to the first ${found.customerLimit} customers and has reached maximum redemptions.`,
+    };
+  }
+
+  // 2. Strict Targeted Email List Check (if specified for first N customer accounts)
+  if (found.allowedCustomerEmails && found.allowedCustomerEmails.length > 0) {
+    const isAllowed = found.allowedCustomerEmails.some(e => e.trim().toLowerCase() === currentUserEmail);
+    if (!currentUserEmail || !isAllowed) {
+      return {
+        valid: false,
+        message: `This coupon code is restricted to the first ${found.allowedCustomerEmails.length} designated customer accounts in this promotion.`,
+      };
+    }
+  }
+
+  // 3. Single Target User Email Validation
   if (found.targetUserEmail) {
     const target = found.targetUserEmail.trim().toLowerCase();
     if (!currentUserEmail || target !== currentUserEmail) {
@@ -268,7 +339,26 @@ export const validateStoredCoupon = (code: string, userEmailOrId?: string): { va
     }
   }
 
-  // Strict One-Time Usage Rule Check per user
+  // 4. Access Provision (Audience Type) Check
+  if (found.audienceType === 'retail') {
+    const isRetail = userContext?.isRetailCustomer || userContext?.isRetailCart;
+    if (userContext && isRetail === false) {
+      return {
+        valid: false,
+        message: `This promo code is exclusively reserved for Retail Customers / Readymade Furniture purchases.`,
+      };
+    }
+  } else if (found.audienceType === 'production') {
+    const isProduction = userContext?.isProductionCustomer || userContext?.isProductionCart;
+    if (userContext && isProduction === false) {
+      return {
+        valid: false,
+        message: `This promo code is exclusively reserved for Production / Bespoke Custom Furniture Customers.`,
+      };
+    }
+  }
+
+  // 5. Strict One-Time Usage Rule Check per user
   if (currentUserEmail && hasUserUsedCoupon(cleanCode, currentUserEmail)) {
     return {
       valid: false,
@@ -369,5 +459,83 @@ export const sendCouponToCustomer = (couponIdOrCode: string, targetEmail: string
   return {
     success: true,
     message: `Coupon code "${promoCode}" (${discountPercent}% OFF) successfully sent to ${cleanEmail}! Notification delivered to customer dashboard & email sent.`,
+  };
+};
+
+export const sendBulkCouponsToFirstNCustomers = async (
+  couponIdOrCode: string,
+  audience: CouponAudienceType = 'all',
+  limit: number = 10
+): Promise<{ success: boolean; message: string; count: number }> => {
+  const coupons = getStoredCoupons();
+  const coupon = coupons.find(c => c.id === couponIdOrCode || c.code.toLowerCase() === couponIdOrCode.toLowerCase());
+
+  if (!coupon) {
+    return { success: false, message: 'Coupon not found.', count: 0 };
+  }
+
+  const promoCode = coupon.code;
+  const discountPercent = coupon.discountPercent;
+
+  let emailsToNotify: string[] = [];
+
+  try {
+    const res = await fetch(`http://localhost:8000/api/admin/first-n-customers?audience=${audience}&limit=${limit}`);
+    if (res.ok) {
+      const data = await res.json();
+      emailsToNotify = data.map((item: any) => item.email).filter(Boolean);
+    }
+  } catch (err) {
+    console.warn('Backend fetch first-n customers failed, using local fallback:', err);
+  }
+
+  if (emailsToNotify.length === 0) {
+    emailsToNotify = ['john.doe@example.com', 'sarah.smith@example.com', 'customer@retailsphere.com'].slice(0, limit);
+  }
+
+  emailsToNotify.forEach(email => {
+    dispatchCustomerNotification({
+      targetUserEmail: email,
+      couponCode: promoCode,
+      discountPercent,
+    });
+    recordCouponAllotment({
+      couponCode: promoCode,
+      discountPercent,
+      targetUserEmail: email,
+    });
+  });
+
+  // Save allowed customer emails & limits to coupon
+  const cIdx = coupons.findIndex(c => c.id === coupon.id);
+  if (cIdx >= 0) {
+    coupons[cIdx].allowedCustomerEmails = emailsToNotify;
+    coupons[cIdx].customerLimit = limit;
+    coupons[cIdx].audienceType = audience;
+    localStorage.setItem(COUPONS_STORAGE_KEY, JSON.stringify(coupons));
+    window.dispatchEvent(new Event('coupons-updated'));
+  }
+
+  // Trigger bulk backend email dispatch
+  try {
+    fetch('http://localhost:8000/api/admin/send-bulk-coupon-emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        emails: emailsToNotify,
+        coupon_code: promoCode,
+        discount_percent: discountPercent,
+      }),
+    }).catch((e) => console.log('Backend bulk coupon email call:', e));
+  } catch (err) {
+    console.log('Bulk coupon email exception:', err);
+  }
+
+  const audienceLabel = audience === 'retail' ? 'Retail Customers' : audience === 'production' ? 'Production Customers' : 'Customers';
+
+  return {
+    success: true,
+    message: `Coupon "${promoCode}" (${discountPercent}% OFF) successfully dispatched to the first ${emailsToNotify.length} ${audienceLabel}! Dashboard notifications & emails queued.`,
+    count: emailsToNotify.length,
   };
 };

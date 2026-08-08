@@ -234,6 +234,89 @@ export async function fetchStaffUsers(): Promise<any[]> {
   }
 }
 
+export async function fetchAllUsers(): Promise<any[]> {
+  try {
+    const response = await fetch(`${BASE_URL}/admin/users`);
+    if (!response.ok) return [];
+    return await response.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createAdminUser(payload: {
+  full_name: string;
+  email: string;
+  phone?: string;
+  role_name: string;
+  password?: string;
+  status?: boolean;
+}): Promise<any> {
+  const response = await fetch(`${BASE_URL}/admin/users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to create user account' }));
+    throw new Error(err.detail || 'Failed to create user account');
+  }
+
+  return await response.json();
+}
+
+export async function updateAdminUser(userId: number, payload: {
+  full_name?: string;
+  email?: string;
+  phone?: string;
+  role_name?: string;
+  status?: boolean;
+}): Promise<any> {
+  const response = await fetch(`${BASE_URL}/admin/users/${userId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to update user' }));
+    throw new Error(err.detail || 'Failed to update user');
+  }
+
+  return await response.json();
+}
+
+export async function toggleUserStatus(userId: number): Promise<any> {
+  const response = await fetch(`${BASE_URL}/admin/users/${userId}/status`, {
+    method: 'PUT',
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to toggle status' }));
+    throw new Error(err.detail || 'Failed to toggle status');
+  }
+
+  return await response.json();
+}
+
+export async function deleteUserById(userId: number): Promise<any> {
+  const response = await fetch(`${BASE_URL}/admin/users/${userId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Failed to delete user' }));
+    throw new Error(err.detail || 'Failed to delete user');
+  }
+
+  return await response.json();
+}
+
 export async function updateUserProfile(payload: {
   full_name: string;
   phone?: string;

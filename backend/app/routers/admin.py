@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
-from typing import Optional, Union
+from typing import Optional, Union, List
 import string
 import secrets
 import random
@@ -17,6 +17,12 @@ class SendCouponEmailRequest(BaseModel):
     coupon_code: str
     discount_percent: int
 
+class SendBulkCouponEmailRequest(BaseModel):
+    emails: List[str]
+    coupon_code: str
+    discount_percent: int
+    audience_title: Optional[str] = "Exclusive First Customers Discount"
+
 @router.post("/send-coupon-email", status_code=status.HTTP_200_OK)
 def send_coupon_email_endpoint(payload: SendCouponEmailRequest, background_tasks: BackgroundTasks):
     from app.email_utils import send_coupon_discount_email
@@ -31,6 +37,50 @@ def send_coupon_email_endpoint(payload: SendCouponEmailRequest, background_tasks
         discount_percent=payload.discount_percent
     )
     return {"message": f"Coupon email dispatch scheduled for {email_clean}."}
+
+@router.post("/send-bulk-coupon-emails", status_code=status.HTTP_200_OK)
+def send_bulk_coupon_emails_endpoint(payload: SendBulkCouponEmailRequest, background_tasks: BackgroundTasks):
+    from app.email_utils import send_coupon_discount_email
+    valid_emails = [e.strip() for e in payload.emails if e and e.strip()]
+    if not valid_emails:
+        raise HTTPException(status_code=400, detail="No valid target email addresses provided.")
+    
+    for email in valid_emails:
+        background_tasks.add_task(
+            send_coupon_discount_email,
+            to_email=email,
+            coupon_code=payload.coupon_code.strip(),
+            discount_percent=payload.discount_percent
+        )
+    return {"message": f"Bulk coupon email dispatch scheduled for {len(valid_emails)} customers."}
+
+@router.get("/first-n-customers")
+def get_first_n_customers(audience: str = "all", limit: int = 10, db: Session = Depends(get_db)):
+    cust_role = db.query(models.Role).filter(models.Role.role_name == "Customer").first()
+    query = db.query(models.User)
+    if cust_role:
+        query = query.filter(models.User.role_id == cust_role.role_id)
+    
+    users = query.order_by(models.User.user_id.asc()).all()
+    
+    filtered_customers = []
+    for u in users:
+        cust_type = "Customer"
+        if audience == "retail":
+            cust_type = "Retail Customer"
+        elif audience == "production":
+            cust_type = "Production Customer"
+            
+        filtered_customers.append({
+            "user_id": u.user_id,
+            "email": u.email,
+            "name": u.full_name,
+            "type": cust_type
+        })
+        if len(filtered_customers) >= limit:
+            break
+            
+    return filtered_customers[:limit]
 
 def generate_strong_password(length: int = 12) -> str:
     specials = "@#$%&*"
@@ -136,24 +186,200 @@ def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks,
 
 @router.get("/staff")
 def list_staff(db: Session = Depends(get_db)):
-    staff_roles = db.query(models.Role).filter(models.Role.role_name.in_(["Retail Staff", "Production Staff"])).all()
-    role_ids = [r.role_id for r in staff_roles]
-
-    users = db.query(models.User).filter(models.User.role_id.in_(role_ids)).all()
+    staff_roles = db.query(models.Role).filter(
+        models.Role.role_name.in_(["Retail Staff", "Production Staff"])
+    ).all()
+    staff_role_ids = [r.role_id for r in staff_roles]
+    
+    users = db.query(models.User).filter(
+        models.User.role_id.in_(staff_role_ids),
+        models.User.email != "admin@retailsphere.com",
+        models.User.full_name != "admin"
+    ).order_by(models.User.user_id.asc()).all()
     
     result = []
     for u in users:
+        role_name = u.role.role_name if u.role else "Retail Staff"
         result.append({
             "id": f"st-{u.user_id}",
             "user_id": u.user_id,
             "name": u.full_name,
             "email": u.email,
-            "phone": u.phone,
-            "role": u.role.role_name if u.role else "Staff",
+            "phone": u.phone or "+91 98765 43210",
+            "role": role_name,
             "status": "Active" if u.status else "Inactive",
-            "dateAdded": u.created_at.strftime("%Y-%m-%d")
+            "dateAdded": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent"
         })
     return result
+
+class UserCreateRequest(BaseModel):
+    full_name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    role_name: str  # "Customer", "Retail Staff", "Production Staff", "Admin"
+    password: Optional[str] = None
+    status: Optional[bool] = True
+
+class UserUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    role_name: Optional[str] = None
+    status: Optional[bool] = None
+
+@router.get("/users")
+def list_all_users(db: Session = Depends(get_db)):
+    admin_role = db.query(models.Role).filter(models.Role.role_name == "Admin").first()
+    admin_role_id = admin_role.role_id if admin_role else None
+    
+    query = db.query(models.User).filter(
+        models.User.email != "admin@retailsphere.com",
+        models.User.full_name != "admin"
+    )
+    if admin_role_id:
+        query = query.filter(models.User.role_id != admin_role_id)
+        
+    users = query.order_by(models.User.user_id.asc()).all()
+    
+    result = []
+    for u in users:
+        role_name = u.role.role_name if u.role else "Customer"
+        result.append({
+            "id": f"usr-{u.user_id}",
+            "user_id": u.user_id,
+            "full_name": u.full_name,
+            "name": u.full_name,
+            "email": u.email,
+            "phone": u.phone or "+91 98765 43210",
+            "role_name": role_name,
+            "role": role_name,
+            "status": u.status,
+            "status_text": "Active" if u.status else "Inactive",
+            "created_at": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent",
+            "dateAdded": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent"
+        })
+    return result
+
+@router.post("/users", status_code=status.HTTP_201_CREATED)
+def create_user_admin(payload: UserCreateRequest, db: Session = Depends(get_db)):
+    email_clean = payload.email.strip()
+    role_clean = payload.role_name.strip()
+    phone_clean = payload.phone.strip() if (payload.phone and payload.phone.strip()) else None
+
+    existing_user = db.query(models.User).filter(models.User.email == email_clean).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"An account with email '{email_clean}' already exists."
+        )
+
+    if not phone_clean:
+        phone_clean = f"+91{random.randint(7000000000, 9999999999)}"
+
+    role = db.query(models.Role).filter(models.Role.role_name == role_clean).first()
+    if not role:
+        role = models.Role(role_name=role_clean)
+        db.add(role)
+        db.commit()
+        db.refresh(role)
+
+    generated_password = payload.password.strip() if (payload.password and len(payload.password.strip()) >= 6) else generate_strong_password(12)
+    hashed_pwd = auth.get_password_hash(generated_password)
+
+    new_user = models.User(
+        role_id=role.role_id,
+        full_name=payload.full_name.strip(),
+        email=email_clean,
+        phone=phone_clean,
+        password=hashed_pwd,
+        status=payload.status if payload.status is not None else True
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    if role_clean == "Customer":
+        cust_profile = models.Customer(
+            user_id=new_user.user_id,
+            first_name=payload.full_name.split()[0],
+            last_name=" ".join(payload.full_name.split()[1:]) if len(payload.full_name.split()) > 1 else "",
+            phone=phone_clean
+        )
+        db.add(cust_profile)
+        db.commit()
+
+    return {
+        "message": f"Successfully created {role_clean} account for {new_user.full_name}.",
+        "user_id": new_user.user_id,
+        "full_name": new_user.full_name,
+        "email": new_user.email,
+        "phone": new_user.phone,
+        "role_name": role_clean,
+        "role": role_clean,
+        "status": new_user.status,
+        "generated_password": generated_password
+    }
+
+@router.put("/users/{user_id}")
+def update_user_admin(user_id: int, payload: UserUpdateRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found."
+        )
+
+    if payload.full_name is not None and payload.full_name.strip():
+        user.full_name = payload.full_name.strip()
+
+    if payload.phone is not None:
+        user.phone = payload.phone.strip()
+
+    if payload.status is not None:
+        user.status = payload.status
+
+    if payload.role_name is not None and payload.role_name.strip():
+        role_clean = payload.role_name.strip()
+        role = db.query(models.Role).filter(models.Role.role_name == role_clean).first()
+        if not role:
+            role = models.Role(role_name=role_clean)
+            db.add(role)
+            db.commit()
+            db.refresh(role)
+        user.role_id = role.role_id
+
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": f"Updated user #{user_id} ({user.full_name}) successfully.",
+        "user_id": user.user_id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "role": user.role.role_name if user.role else "Customer",
+        "status": user.status
+    }
+
+@router.put("/users/{user_id}/status")
+def toggle_user_status(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.user_id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with ID {user_id} not found."
+        )
+
+    user.status = not user.status
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "message": f"User status set to {'Active' if user.status else 'Inactive'}.",
+        "user_id": user.user_id,
+        "status": user.status,
+        "status_text": "Active" if user.status else "Inactive"
+    }
 
 @router.delete("/users/{user_id}")
 def delete_user_by_id(user_id: int, db: Session = Depends(get_db)):

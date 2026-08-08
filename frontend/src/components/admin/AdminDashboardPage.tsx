@@ -37,7 +37,12 @@ import {
   ShoppingBag,
   Percent,
   Sliders,
-  ArrowRight
+  ArrowRight,
+  UserX,
+  UserPlus,
+  Edit3,
+  ToggleLeft,
+  ToggleRight
 } from 'lucide-react';
 
 import { 
@@ -51,13 +56,33 @@ import {
   fetchNotificationsFromDB,
   fetchSuppliersFromDB,
   createSupplierInDB,
-  updateUserProfile
+  updateUserProfile,
+  fetchAllUsers,
+  createAdminUser,
+  updateAdminUser,
+  toggleUserStatus,
+  deleteUserById
 } from '../../services/api';
 
 import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment } from '../../utils/couponStorage';
+import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
 import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders } from '../../services/api_production';
+
+export interface SystemUserItem {
+  id: string;
+  user_id: number;
+  full_name: string;
+  name: string;
+  email: string;
+  phone: string;
+  role_name: string;
+  role: string;
+  status: boolean;
+  status_text: 'Active' | 'Inactive';
+  created_at: string;
+  dateAdded: string;
+}
 
 export interface StaffMember {
   id: string;
@@ -105,6 +130,7 @@ export interface RetailProduct {
 
 export interface RetailOrder {
   orderId: string;
+  customerId?: number | string;
   customerName: string;
   email: string;
   itemsCount: number;
@@ -154,8 +180,8 @@ export const INITIAL_INVENTORY: InventoryItem[] = [];
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Active View Tab: staff | products | inventory | suppliers | orders | queries | coupons
-  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'queries' | 'coupons'>('staff');
+  // Active View Tab: staff | products | inventory | suppliers | orders | queries | coupons | users
+  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'queries' | 'coupons' | 'users'>('staff');
 
   // Header & Controls State
   const [searchQuery, setSearchQuery] = useState('');
@@ -237,7 +263,16 @@ export const AdminDashboardPage: React.FC = () => {
     try {
       const dbUsers = await fetchStaffUsers();
       if (dbUsers && Array.isArray(dbUsers)) {
-        const mapped: StaffMember[] = dbUsers.map((u: any) => ({
+        const staffOnly = dbUsers.filter((u: any) => {
+          const role = u.role || '';
+          const email = (u.email || '').toLowerCase();
+          const name = (u.name || u.full_name || '').toLowerCase();
+          if (email === 'admin@retailsphere.com' || name === 'admin' || role === 'Admin' || role === 'Customer') {
+            return false;
+          }
+          return role === 'Retail Staff' || role === 'Production Staff' || role === 'Staff';
+        });
+        const mapped: StaffMember[] = staffOnly.map((u: any) => ({
           id: u.id || `staff-${u.user_id}`,
           user_id: u.user_id || (typeof u.id === 'number' ? u.id : parseInt(String(u.id).replace(/\D/g, '')) || 1),
           name: u.name || u.full_name || (u.email ? u.email.split('@')[0].replace('.', ' ').replace(/^./, (str: string) => str.toUpperCase()) : 'Staff Member'),
@@ -257,6 +292,96 @@ export const AdminDashboardPage: React.FC = () => {
   useEffect(() => {
     loadStaffFromDB();
   }, []);
+
+  // System User Management State
+  const [allUsersList, setAllUsersList] = useState<SystemUserItem[]>([]);
+  const [userRoleFilter, setUserRoleFilter] = useState<'All' | 'Customer' | 'Retail Staff' | 'Production Staff'>('All');
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+
+  // Edit User State
+  const [editingUser, setEditingUser] = useState<SystemUserItem | null>(null);
+  const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
+  const [editUserName, setEditUserName] = useState('');
+  const [editUserPhone, setEditUserPhone] = useState('');
+  const [editUserRole, setEditUserRole] = useState<string>('Customer');
+  const [editUserStatus, setEditUserStatus] = useState<boolean>(true);
+  const [isUpdatingUser, setIsUpdatingUser] = useState(false);
+
+  // Purchased Products Modal State
+  const [selectedUserForPurchases, setSelectedUserForPurchases] = useState<SystemUserItem | null>(null);
+  const [isPurchasedProductsModalOpen, setIsPurchasedProductsModalOpen] = useState(false);
+
+  const handleViewUserPurchases = (u: SystemUserItem) => {
+    setSelectedUserForPurchases(u);
+    setIsPurchasedProductsModalOpen(true);
+  };
+
+  // Load All Users from DB (Excluding Admins)
+  const loadAllUsersFromDB = async () => {
+    try {
+      const data = await fetchAllUsers();
+      if (data && Array.isArray(data)) {
+        const nonAdmin = data.filter((u: any) => {
+          const role = u.role || u.role_name || '';
+          const email = (u.email || '').toLowerCase();
+          const name = (u.full_name || u.name || '').toLowerCase();
+          return role !== 'Admin' && email !== 'admin@retailsphere.com' && name !== 'admin';
+        });
+        setAllUsersList(nonAdmin);
+      }
+    } catch (err) {
+      console.warn('Could not fetch all users:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadAllUsersFromDB();
+  }, []);
+
+  const handleOpenEditUser = (u: SystemUserItem) => {
+    setEditingUser(u);
+    setEditUserName(u.full_name || u.name);
+    setEditUserPhone(u.phone === '+91 98765 43210' ? '' : u.phone);
+    setEditUserRole(u.role || u.role_name || 'Customer');
+    setEditUserStatus(u.status !== false);
+    setIsEditUserModalOpen(true);
+  };
+
+  const handleUpdateUserSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setIsUpdatingUser(true);
+    try {
+      await updateAdminUser(editingUser.user_id, {
+        full_name: editUserName.trim(),
+        phone: editUserPhone.trim() || undefined,
+        role_name: editUserRole,
+        status: editUserStatus,
+      });
+
+      setSuccessBanner(`User "${editUserName.trim()}" updated successfully!`);
+      setIsEditUserModalOpen(false);
+      setEditingUser(null);
+      loadAllUsersFromDB();
+    } catch (err: any) {
+      setSuccessBanner(`Failed to update user: ${err.message}`);
+    } finally {
+      setIsUpdatingUser(false);
+      setTimeout(() => setSuccessBanner(null), 5000);
+    }
+  };
+
+  const handleToggleUserStatus = async (user_id: number) => {
+    try {
+      const res = await toggleUserStatus(user_id);
+      setSuccessBanner(`Account status set to ${res.status_text || (res.status ? 'Active' : 'Inactive')}.`);
+      loadAllUsersFromDB();
+    } catch (err: any) {
+      console.error('Error toggling user status:', err);
+    } finally {
+      setTimeout(() => setSuccessBanner(null), 4000);
+    }
+  };
 
   // Products Catalog Management State
   const [productList, setProductList] = useState<RetailProduct[]>([]);
@@ -478,6 +603,9 @@ export const AdminDashboardPage: React.FC = () => {
   const [newCouponDiscount, setNewCouponDiscount] = useState('');
   const [newCouponDesc, setNewCouponDesc] = useState('');
   const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
+  const [newCouponAudience, setNewCouponAudience] = useState<CouponAudienceType>('all');
+  const [newCouponCustomerLimit, setNewCouponCustomerLimit] = useState('10');
+  const [newCouponAutoAllot, setNewCouponAutoAllot] = useState(true);
   const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
 
   const refreshCoupons = () => {
@@ -822,21 +950,37 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   // Handlers for Create Coupon & Send Email
-  const handleCreateCouponSubmit = (e: React.FormEvent) => {
+  const handleBatchDispatchCoupon = async (coupon: Coupon) => {
+    const limit = coupon.customerLimit || 10;
+    const audience = coupon.audienceType || 'all';
+    const result = await sendBulkCouponsToFirstNCustomers(coupon.id, audience, limit);
+    if (result.success) {
+      refreshCoupons();
+      setSuccessBanner(`🎉 ${result.message}`);
+      setTimeout(() => setSuccessBanner(null), 8000);
+    }
+  };
+
+  const handleCreateCouponSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCouponCode.trim() || !newCouponDiscount) return;
 
     const discountVal = parseInt(newCouponDiscount, 10) || 10;
     const targetEmail = newCouponUserEmail.trim();
+    const limitVal = parseInt(newCouponCustomerLimit, 10) || 10;
 
     addStoredCoupon({
       code: newCouponCode.trim().toUpperCase(),
       discountPercent: discountVal,
       description: newCouponDesc.trim() || `Special ${discountVal}% Discount Coupon`,
-      targetUserEmail: targetEmail || undefined
+      targetUserEmail: targetEmail || undefined,
+      customerLimit: limitVal,
+      audienceType: newCouponAudience,
     });
 
-    if (targetEmail) {
+    if (newCouponAutoAllot) {
+      await sendBulkCouponsToFirstNCustomers(newCouponCode.trim().toUpperCase(), newCouponAudience, limitVal);
+    } else if (targetEmail) {
       sendCouponToCustomer(newCouponCode.trim().toUpperCase(), targetEmail);
     }
 
@@ -845,8 +989,12 @@ export const AdminDashboardPage: React.FC = () => {
     setNewCouponDiscount('');
     setNewCouponDesc('');
     setNewCouponUserEmail('');
+    setNewCouponCustomerLimit('10');
+    setNewCouponAudience('all');
 
-    setSuccessBanner(`Coupon "${newCouponCode.trim().toUpperCase()}" created successfully!`);
+    const audienceLabel = newCouponAudience === 'retail' ? 'Retail Customers' : newCouponAudience === 'production' ? 'Production Customers' : 'First N Customers';
+
+    setSuccessBanner(`Coupon "${newCouponCode.trim().toUpperCase()}" created for ${audienceLabel} (Limit: ${limitVal})!`);
     setTimeout(() => setSuccessBanner(null), 6000);
   };
 
@@ -1021,6 +1169,20 @@ export const AdminDashboardPage: React.FC = () => {
         {/* Sidebar Navigation */}
         <nav className="space-y-2.5">
           <button
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'users'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <UserCheck className="w-4.5 h-4.5" />
+              <span className="text-sm">User Management</span>
+            </div>
+          </button>
+
+          <button
             onClick={() => setActiveTab('staff')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
               activeTab === 'staff'
@@ -1164,6 +1326,7 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                    {activeTab === 'users' && 'System User Management'}
                     {activeTab === 'staff' && 'Staff Accounts Management'}
                     {activeTab === 'products' && 'Retail Product Management'}
                     {activeTab === 'inventory' && 'Inventory Stock Control'}
@@ -1173,6 +1336,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
+                    {activeTab === 'users' && 'View, search, edit, create, activate, or deactivate all user accounts (Customers, Staff, Administrators) across RetailSphere.'}
                     {activeTab === 'staff' && 'Create and manage Retail Staff and Production Staff user accounts with credentials dispatch.'}
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
                     {activeTab === 'suppliers' && 'Manage raw material suppliers, timber mills, and product vendor allocations.'}
@@ -1336,6 +1500,185 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* TAB 0: SYSTEM USER MANAGEMENT */}
+              {activeTab === 'users' && (
+                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                  {/* Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Users</span>
+                        <Users className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{allUsersList.length}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">System User Database</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Customer Accounts</span>
+                        <UserCheck className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {allUsersList.filter(u => (u.role || u.role_name) === 'Customer').length}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Retail & Store Shoppers</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Staff Members</span>
+                        <ShieldCheck className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {allUsersList.filter(u => ['Retail Staff', 'Production Staff'].includes(u.role || u.role_name)).length}
+                      </div>
+                      <div className="text-[10px] text-blue-700 font-bold mt-1">Retail & Production Portals</div>
+                    </div>
+                  </div>
+
+                  {/* Header & Controls */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-b border-[#EFE7DE] py-4">
+                    {/* Role Filter Pills */}
+                    <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                      {(['All', 'Customer', 'Retail Staff', 'Production Staff'] as const).map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setUserRoleFilter(r)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                            userRoleFilter === r
+                              ? 'bg-[#48A63E] text-white shadow-xs'
+                              : 'bg-[#F9F6F0] text-[#6B5C4D] hover:bg-[#EFE7DE]'
+                          }`}
+                        >
+                          {r === 'All' ? 'All Roles' : r}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative w-full sm:w-72">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search name, email, phone..."
+                        value={userSearchQuery}
+                        onChange={(e) => setUserSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Users Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                          <th className="py-3 px-4">User Details</th>
+                          <th className="py-3 px-4">Email / Username</th>
+                          <th className="py-3 px-4">Phone Number</th>
+                          <th className="py-3 px-4">Role</th>
+                          <th className="py-3 px-4">Account Status</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                        {allUsersList
+                          .filter((u) => {
+                            const r = u.role || u.role_name;
+                            if (r === 'Admin' || u.email === 'admin@retailsphere.com' || u.name === 'admin') return false;
+                            if (userRoleFilter === 'All') return true;
+                            return r === userRoleFilter;
+                          })
+                          .filter((u) => {
+                            if (!userSearchQuery.trim()) return true;
+                            const q = userSearchQuery.toLowerCase();
+                            return (
+                              (u.full_name || u.name || '').toLowerCase().includes(q) ||
+                              (u.email || '').toLowerCase().includes(q) ||
+                              (u.phone || '').toLowerCase().includes(q) ||
+                              (u.role || u.role_name || '').toLowerCase().includes(q)
+                            );
+                          })
+                          .map((u) => {
+                            const roleStr = u.role || u.role_name || 'Customer';
+                            const isAct = u.status !== false;
+                            const displayName = u.full_name || u.name || u.email.split('@')[0];
+                            const initials = displayName
+                              .split(' ')
+                              .map((n) => n[0])
+                              .join('')
+                              .substring(0, 2)
+                              .toUpperCase();
+
+                            return (
+                              <tr key={u.id || u.user_id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D] flex items-center gap-2.5">
+                                  <div className="w-8 h-8 rounded-full bg-[#48A63E]/20 text-[#48A63E] font-extrabold flex items-center justify-center text-xs">
+                                    {initials}
+                                  </div>
+                                  <span className="font-extrabold text-[#2C241D]">{displayName}</span>
+                                </td>
+                                <td className="py-4 px-4 font-mono text-[#6B5C4D]">{u.email}</td>
+                                <td className="py-4 px-4 text-[#6B5C4D]">{u.phone || '+91 98765 43210'}</td>
+                                <td className="py-4 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border ${
+                                    roleStr === 'Production Staff'
+                                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                      : roleStr === 'Retail Staff'
+                                      ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                      : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  }`}>
+                                    {roleStr}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    isAct
+                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                      : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {isAct ? 'Active' : 'Inactive'}
+                                  </span>
+                                </td>
+                                <td className="py-4 px-4 text-right space-x-2">
+                                  <button
+                                    onClick={() => handleViewUserPurchases(u)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-600 hover:text-white transition-all border border-purple-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                    title="View Products Purchased by User"
+                                  >
+                                    <ShoppingBag className="w-3.5 h-3.5" />
+                                    <span>Purchases</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenEditUser(u)}
+                                    className="p-1.5 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                    title="Edit User Details"
+                                  >
+                                    <Edit3 className="w-4 h-4" />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleToggleUserStatus(u.user_id)}
+                                    className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition-all shadow-xs cursor-pointer ${
+                                      isAct
+                                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-200'
+                                        : 'bg-[#48A63E]/15 text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30'
+                                    }`}
+                                    title={isAct ? 'Deactivate Account' : 'Activate Account'}
+                                  >
+                                    {isAct ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                                    <span>{isAct ? 'Deactivate' : 'Activate'}</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {/* TAB 1: STAFF ACCOUNTS MANAGEMENT (ADMIN FEATURE) */}
               {activeTab === 'staff' && (
@@ -2140,52 +2483,99 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
 
                   {/* Create Coupon Form */}
-                  <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-3">
-                    <h4 className="font-extrabold text-sm text-[#2C241D]">Create New Promo Code</h4>
-                    <form onSubmit={handleCreateCouponSubmit} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
-                      <div>
-                        <label className="block font-bold text-[#7A6C5E] mb-1">Coupon Code</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. VIP25"
-                          value={newCouponCode}
-                          onChange={(e) => setNewCouponCode(e.target.value)}
-                          className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono uppercase font-bold focus:outline-none focus:border-[#48A63E]"
-                          required
-                        />
+                  <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-extrabold text-sm text-[#2C241D]">Create & Allot First N Customer Coupon</h4>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const prefix = newCouponAudience === 'retail' ? 'RETAIL' : newCouponAudience === 'production' ? 'PROD' : 'VIP';
+                          const code = `${prefix}FIRST${newCouponCustomerLimit || '10'}_${Math.floor(Math.random() * 90 + 10)}`;
+                          setNewCouponCode(code);
+                        }}
+                        className="text-xs font-extrabold text-[#48A63E] hover:underline"
+                      >
+                        ⚡ Auto Generate Code
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleCreateCouponSubmit} className="space-y-3 text-xs font-semibold">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block font-bold text-[#7A6C5E] mb-1">Coupon Code *</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. FIRST10OFF"
+                            value={newCouponCode}
+                            onChange={(e) => setNewCouponCode(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono uppercase font-bold focus:outline-none focus:border-[#48A63E]"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-[#7A6C5E] mb-1">Discount % *</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="90"
+                            placeholder="e.g. 20"
+                            value={newCouponDiscount}
+                            onChange={(e) => setNewCouponDiscount(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                            required
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block font-bold text-[#7A6C5E] mb-1">First N Limit (N) *</label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="500"
+                            placeholder="e.g. 10"
+                            value={newCouponCustomerLimit}
+                            onChange={(e) => setNewCouponCustomerLimit(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                            required
+                          />
+                        </div>
                       </div>
 
-                      <div>
-                        <label className="block font-bold text-[#7A6C5E] mb-1">Discount %</label>
-                        <input
-                          type="number"
-                          placeholder="e.g. 25"
-                          value={newCouponDiscount}
-                          onChange={(e) => setNewCouponDiscount(e.target.value)}
-                          className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                          required
-                        />
-                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+                        <div>
+                          <label className="block font-bold text-[#7A6C5E] mb-1">Customer Access Provision *</label>
+                          <select
+                            value={newCouponAudience}
+                            onChange={(e) => setNewCouponAudience(e.target.value as any)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#48A63E]"
+                          >
+                            <option value="all">🌐 First N Customers (All Base)</option>
+                            <option value="retail">🛍️ First N Retail Customers (Readymade)</option>
+                            <option value="production">🏭 First N Production Customers (Bespoke)</option>
+                          </select>
+                        </div>
 
-                      <div>
-                        <label className="block font-bold text-[#7A6C5E] mb-1">Assigned User / Email (Optional)</label>
-                        <input
-                          type="text"
-                          placeholder="Target customer email..."
-                          value={newCouponUserEmail}
-                          onChange={(e) => setNewCouponUserEmail(e.target.value)}
-                          className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                        />
-                      </div>
+                        <div>
+                          <label className="block font-bold text-[#7A6C5E] mb-1">Target Email (Optional)</label>
+                          <input
+                            type="text"
+                            placeholder="Target email..."
+                            value={newCouponUserEmail}
+                            onChange={(e) => setNewCouponUserEmail(e.target.value)}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                          />
+                        </div>
 
-                      <div className="flex items-end">
-                        <button
-                          type="submit"
-                          className="w-full py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Plus className="w-4 h-4" />
-                          <span>Create Coupon</span>
-                        </button>
+                        <div>
+                          <button
+                            type="submit"
+                            className="w-full py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                          >
+                            <Plus className="w-4 h-4" />
+                            <span>Create & Dispatch Provision</span>
+                          </button>
+                        </div>
                       </div>
                     </form>
                   </div>
@@ -2212,8 +2602,9 @@ export const AdminDashboardPage: React.FC = () => {
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
                           <th className="py-3 px-4">Coupon Code</th>
                           <th className="py-3 px-4">Discount</th>
-                          <th className="py-3 px-4">Assigned Customer Email / User ID</th>
-                          <th className="py-3 px-4">Created Date</th>
+                          <th className="py-3 px-4">Access Provision</th>
+                          <th className="py-3 px-4">Redemptions</th>
+                          <th className="py-3 px-4">Assigned Email (Editable)</th>
                           <th className="py-3 px-4">Status</th>
                           <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
@@ -2229,48 +2620,101 @@ export const AdminDashboardPage: React.FC = () => {
                               (c.description && c.description.toLowerCase().includes(cq))
                             );
                           })
-                          .map((coupon) => (
-                          <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                            <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
-                              <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">{coupon.code}</span>
-                            </td>
-                            <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <input
-                                  id={`coupon-email-${coupon.id}`}
-                                  type="text"
-                                  placeholder="Enter user email or User ID..."
-                                  defaultValue={coupon.targetUserEmail || ''}
-                                  onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
-                                  className="w-56 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
-                                />
-                                <button
-                                  onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                  className="inline-flex items-center gap-1 text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
-                                >
-                                  <Send className="w-3.5 h-3.5" />
-                                  <span>Send Email</span>
-                                </button>
-                              </div>
-                            </td>
-                            <td className="py-4 px-4 font-mono text-[#7A6C5E]">{coupon.createdDate}</td>
-                            <td className="py-4 px-4">
-                              <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
-                                {coupon.status}
-                              </span>
-                            </td>
-                            <td className="py-4 px-4 text-right">
-                              <button
-                                onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                                className="inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Remove</span>
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                          .map((coupon) => {
+                            const limitN = coupon.customerLimit || 0;
+                            const redeemed = coupon.currentRedemptions || 0;
+                            const audience = coupon.audienceType || 'all';
+
+                            let audienceBadge = '🌐 First N Customers';
+                            let audienceBg = 'bg-blue-50 text-blue-700 border-blue-200';
+                            if (audience === 'retail') {
+                              audienceBadge = '🛍️ First N Retail Customers';
+                              audienceBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            } else if (audience === 'production') {
+                              audienceBadge = '🏭 First N Production Customers';
+                              audienceBg = 'bg-amber-50 text-amber-700 border-amber-200';
+                            }
+
+                            return (
+                              <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                                  <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">{coupon.code}</span>
+                                </td>
+
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
+                                
+                                <td className="py-3 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${audienceBg}`}>
+                                    {audienceBadge} {limitN > 0 ? `(N = ${limitN})` : ''}
+                                  </span>
+                                </td>
+
+                                <td className="py-3 px-4 font-mono">
+                                  {limitN > 0 ? (
+                                    <div className="space-y-1">
+                                      <span className="font-bold text-[#2C241D] text-[11px]">{redeemed} / {limitN} Used</span>
+                                      <div className="w-24 h-1.5 bg-[#EAE0D4] rounded-full overflow-hidden">
+                                        <div 
+                                          className={`h-full transition-all ${redeemed >= limitN ? 'bg-rose-500' : 'bg-[#48A63E]'}`} 
+                                          style={{ width: `${Math.min(100, Math.round((redeemed / limitN) * 100))}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[#8C7C6D] text-[11px] font-medium">Unlimited</span>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      id={`coupon-email-${coupon.id}`}
+                                      type="text"
+                                      placeholder="Enter user email or User ID..."
+                                      defaultValue={coupon.targetUserEmail || ''}
+                                      onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
+                                      className="w-48 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
+                                    />
+                                    <button
+                                      onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
+                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
+                                    >
+                                      <Send className="w-3 h-3" />
+                                      <span>Send</span>
+                                    </button>
+                                  </div>
+                                </td>
+
+                                <td className="py-4 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    coupon.status === 'Active' && (!limitN || redeemed < limitN)
+                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                      : 'bg-rose-100 text-rose-700'
+                                  }`}>
+                                    {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
+                                  </span>
+                                </td>
+
+                                <td className="py-4 px-4 text-right space-x-2">
+                                  <button
+                                    onClick={() => handleBatchDispatchCoupon(coupon)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer"
+                                    title="Auto-dispatch notification & email to first N targeted customers"
+                                  >
+                                    <Send className="w-3 h-3" />
+                                    <span>Dispatch N</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Remove</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
                       </tbody>
                     </table>
                   </div>
@@ -3076,6 +3520,258 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+      {/* MODAL: EDIT USER */}
+      {isEditUserModalOpen && editingUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">Edit User Profile</h3>
+                <p className="text-[11px] text-[#7A6C5E] font-mono">{editingUser.email}</p>
+              </div>
+              <button onClick={() => setIsEditUserModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateUserSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-bold text-[#6B5C4D] mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={editUserName}
+                  onChange={(e) => setEditUserName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#6B5C4D] mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={editUserPhone}
+                  onChange={(e) => setEditUserPhone(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#6B5C4D] mb-1">Account Role</label>
+                <select
+                  value={editUserRole}
+                  onChange={(e) => setEditUserRole(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                >
+                  <option value="Customer">Customer</option>
+                  <option value="Retail Staff">Retail Staff</option>
+                  <option value="Production Staff">Production Staff</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#6B5C4D] mb-1">Account Status</label>
+                <div className="flex items-center gap-4 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-[#2C241D]">
+                    <input
+                      type="radio"
+                      name="editStatus"
+                      checked={editUserStatus === true}
+                      onChange={() => setEditUserStatus(true)}
+                      className="accent-[#48A63E]"
+                    />
+                    <span>Active</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-rose-700">
+                    <input
+                      type="radio"
+                      name="editStatus"
+                      checked={editUserStatus === false}
+                      onChange={() => setEditUserStatus(false)}
+                      className="accent-rose-600"
+                    />
+                    <span>Inactive</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditUserModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold hover:bg-[#F5ECE1]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingUser}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold shadow-md transition-all flex items-center justify-center gap-1.5"
+                >
+                  {isUpdatingUser ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: USER PURCHASED PRODUCTS */}
+      {isPurchasedProductsModalOpen && selectedUserForPurchases && (() => {
+        const userEmail = (selectedUserForPurchases.email || '').toLowerCase().trim();
+        const userId = selectedUserForPurchases.user_id;
+
+        const userOrders = orderList.filter((o) => {
+          const orderEmail = (o.email || '').toLowerCase().trim();
+          if (orderEmail && orderEmail === userEmail) return true;
+          if (o.customerId && (o.customerId === userId || String(o.customerId) === String(userId))) return true;
+          return false;
+        });
+
+        const purchasedItems = userOrders.flatMap((order) =>
+          (order.items || []).map((item, idx) => ({
+            key: `${order.orderId}-${idx}`,
+            orderId: order.orderId,
+            orderDate: order.orderDate,
+            orderStatus: order.orderStatus,
+            paymentStatus: order.paymentStatus,
+            name: item.name || 'Furniture Item',
+            sku: item.productCode || item.sku || 'SKU-RS-STORE',
+            price: item.price || 0,
+            quantity: item.quantity || 1,
+            total: (item.price || 0) * (item.quantity || 1),
+            imageUrl: item.imageUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80',
+          }))
+        );
+
+        const totalSpent = userOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+        const totalItemsCount = purchasedItems.reduce((sum, i) => sum + i.quantity, 0);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
+            <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-3xl max-h-[88vh] flex flex-col shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-4 flex-shrink-0">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-12 h-12 rounded-full bg-[#38A132] text-white font-black flex items-center justify-center text-base shadow-md flex-shrink-0">
+                    {(selectedUserForPurchases.full_name || selectedUserForPurchases.name || selectedUserForPurchases.email)
+                      .split(' ')
+                      .map((n) => n[0])
+                      .join('')
+                      .substring(0, 2)
+                      .toUpperCase()}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-[#1A140E] tracking-tight flex items-center gap-2">
+                      <span>Purchased Products History</span>
+                      <span className="text-xs font-black px-2.5 py-0.5 rounded-lg bg-[#38A132]/15 text-[#2C6B27] border border-[#38A132]/40">
+                        {selectedUserForPurchases.role || selectedUserForPurchases.role_name || 'Customer'}
+                      </span>
+                    </h3>
+                    <p className="text-sm font-extrabold text-[#2C241D] mt-1 flex items-center gap-2 flex-wrap">
+                      <span className="text-[#1A140E] font-black text-sm">{selectedUserForPurchases.full_name || selectedUserForPurchases.name}</span>
+                      <span className="text-[#4A3E32] font-extrabold font-mono text-xs bg-[#EFE7DE] px-2.5 py-0.5 rounded-md border border-[#D8CCBD]">
+                        {selectedUserForPurchases.email}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsPurchasedProductsModalOpen(false)}
+                  className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Purchase Overview Stats */}
+              <div className="grid grid-cols-3 gap-3 flex-shrink-0">
+                <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] shadow-xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">Total Orders</span>
+                  <div className="text-xl font-black text-[#1A140E] mt-0.5">{userOrders.length}</div>
+                </div>
+                <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] shadow-xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">Items Purchased</span>
+                  <div className="text-xl font-black text-[#2C6B27] mt-0.5">{totalItemsCount} Products</div>
+                </div>
+                <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] shadow-xs">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">Total Amount Spent</span>
+                  <div className="text-xl font-black text-[#1A140E] mt-0.5">₹{totalSpent.toLocaleString('en-IN')}</div>
+                </div>
+              </div>
+
+              {/* Products List Body */}
+              <div className="flex-1 overflow-y-auto min-h-0 pr-1 space-y-3">
+                {purchasedItems.length === 0 ? (
+                  <div className="py-12 text-center space-y-2">
+                    <ShoppingBag className="w-12 h-12 text-[#9E9082] mx-auto" />
+                    <h4 className="font-extrabold text-base text-[#1A140E]">No Purchased Products Found</h4>
+                    <p className="text-xs text-[#5C4D3E] font-medium">This user has not completed any product orders yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {purchasedItems.map((item) => (
+                      <div
+                        key={item.key}
+                        className="bg-white p-4 rounded-2xl border border-[#E2D7CB] flex items-center justify-between gap-4 shadow-xs hover:border-[#38A132] transition-all"
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0">
+                          <img
+                            src={item.imageUrl}
+                            alt={item.name}
+                            className="w-16 h-16 rounded-xl object-cover border border-[#E2D7CB] flex-shrink-0"
+                          />
+                          <div className="min-w-0">
+                            <h4 className="font-black text-sm text-[#1A140E] truncate">{item.name}</h4>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className="text-[10px] font-mono bg-[#EFE7DE] text-[#2C241D] px-2 py-0.5 rounded-md font-extrabold border border-[#D8CCBD]">
+                                {item.sku}
+                              </span>
+                              <span className="text-xs text-[#4A3E32] font-extrabold">
+                                Qty: <strong className="text-[#1A140E] font-black">{item.quantity}</strong>
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-[#6B5C4D] font-medium mt-1">
+                              Order #{item.orderId} • {item.orderDate}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right flex-shrink-0 space-y-1">
+                          <div className="font-black text-base text-[#1A140E]">
+                            ₹{item.total.toLocaleString('en-IN')}
+                          </div>
+                          <div className="text-[11px] text-[#5C4D3E] font-bold">
+                            ₹{item.price.toLocaleString('en-IN')} each
+                          </div>
+                          <span className={`inline-block text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                            item.orderStatus === 'Delivered'
+                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                              : item.orderStatus === 'Processing' || item.orderStatus === 'Shipped'
+                              ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                              : 'bg-amber-100 text-amber-900 border border-amber-300'
+                          }`}>
+                            {item.orderStatus}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="pt-3 border-t-2 border-[#EFE7DE] flex justify-end flex-shrink-0">
+                <button
+                  onClick={() => setIsPurchasedProductsModalOpen(false)}
+                  className="px-6 py-2.5 rounded-xl bg-[#2C241D] text-white font-extrabold text-xs hover:bg-[#1A140E] transition-all cursor-pointer shadow-md"
+                >
+                  Close History
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
