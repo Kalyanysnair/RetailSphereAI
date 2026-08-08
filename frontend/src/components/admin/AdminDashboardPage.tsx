@@ -300,9 +300,12 @@ export const AdminDashboardPage: React.FC = () => {
           dateAdded: u.dateAdded || (u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent')
         }));
         setStaffMembers(mapped);
+      } else {
+        setStaffMembers([]);
       }
     } catch (err) {
       console.warn('Could not fetch DB staff members:', err);
+      setStaffMembers([]);
     }
   };
 
@@ -345,9 +348,12 @@ export const AdminDashboardPage: React.FC = () => {
           return role !== 'Admin' && email !== 'admin@retailsphere.com' && name !== 'admin';
         });
         setAllUsersList(nonAdmin);
+      } else {
+        setAllUsersList([]);
       }
     } catch (err) {
       console.warn('Could not fetch all users:', err);
+      setAllUsersList([]);
     }
   };
 
@@ -447,7 +453,7 @@ export const AdminDashboardPage: React.FC = () => {
     setIsLoadingProducts(true);
     try {
       const dbItems = await fetchInventoryFromDB();
-      if (Array.isArray(dbItems) && dbItems.length > 0) {
+      if (Array.isArray(dbItems)) {
         const mapped: RetailProduct[] = dbItems.map((p: any) => {
           const stock = typeof p.stockCount === 'number'
             ? p.stockCount
@@ -472,9 +478,12 @@ export const AdminDashboardPage: React.FC = () => {
           };
         });
         setProductList(mapped);
+      } else {
+        setProductList([]);
       }
     } catch (err) {
       console.warn('Could not fetch DB inventory for admin:', err);
+      setProductList([]);
     } finally {
       setIsLoadingProducts(false);
     }
@@ -504,34 +513,14 @@ export const AdminDashboardPage: React.FC = () => {
   const loadSuppliersFromDB = async () => {
     try {
       const dbSups = await fetchSuppliersFromDB();
-      if (dbSups && Array.isArray(dbSups) && dbSups.length > 0) {
+      if (dbSups && Array.isArray(dbSups)) {
         setSupplierList(dbSups);
       } else {
-        setSupplierList([
-          {
-            id: 'sup-101',
-            supplier_id: 101,
-            supplier_name: 'Arun Raj Furniture Crafts',
-            contact_person: 'Arun Raj (Master Furniture Manufacturer)',
-            phone: '9778237180',
-            address: 'Kerala Wholesale Furniture Hub, India',
-            assigned_products_count: 6,
-            status: 'Active',
-          },
-          {
-            id: 'sup-102',
-            supplier_id: 102,
-            supplier_name: 'Rahul Dev Timber Works',
-            contact_person: 'Rahul Dev (Ready-Made Decor & Craft Producer)',
-            phone: '7736783189',
-            address: 'Kochi Teak & Ready-Made Decor, Kerala, India',
-            assigned_products_count: 7,
-            status: 'Active',
-          },
-        ]);
+        setSupplierList([]);
       }
     } catch (err) {
       console.warn('Could not load suppliers from DB:', err);
+      setSupplierList([]);
     }
   };
 

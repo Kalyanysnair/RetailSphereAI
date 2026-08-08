@@ -580,11 +580,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setIsLoadingSuppliers(true);
     try {
       const dbSuppliers = await fetchSuppliersFromDB();
-      if (Array.isArray(dbSuppliers) && dbSuppliers.length > 0) {
+      if (Array.isArray(dbSuppliers)) {
         setSupplierList(dbSuppliers);
+      } else {
+        setSupplierList([]);
       }
     } catch (err) {
       console.warn('Could not fetch suppliers from DB:', err);
+      setSupplierList([]);
     } finally {
       setIsLoadingSuppliers(false);
     }
@@ -676,7 +679,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setIsLoadingProducts(true);
     try {
       const dbItems = await fetchInventoryFromDB();
-      if (Array.isArray(dbItems) && dbItems.length > 0) {
+      if (Array.isArray(dbItems)) {
         const mapped: RetailProduct[] = dbItems.map((p: any) => {
           const stock = typeof p.stockCount === 'number'
             ? p.stockCount
@@ -701,9 +704,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
         });
 
         setProductList(mapped);
+      } else {
+        setProductList([]);
       }
     } catch (err) {
       console.warn('Could not fetch DB inventory for retail staff:', err);
+      setProductList([]);
     } finally {
       setIsLoadingProducts(false);
     }
