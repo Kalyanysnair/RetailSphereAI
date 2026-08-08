@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
-import { getMessagesForUser, AdminMessage } from '../../utils/adminMessagesStorage';
+import { getMessagesForUser, markAdminMessageRead, markAllAdminMessagesReadForUser, isMessageReadByUser, AdminMessage } from '../../utils/adminMessagesStorage';
 
 
 
@@ -129,8 +129,8 @@ export const INITIAL_ORDERS: RetailOrder[] = [];
 export const RetailStaffDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Active Tab: inventory | products | orders | queries | suppliers | coupons
-  const [activeTab, setActiveTab] = useState<'products' | 'inventory' | 'orders' | 'queries' | 'suppliers' | 'coupons'>('products');
+  // Active Tab: inventory | products | orders | queries | suppliers | coupons | admin_messages
+  const [activeTab, setActiveTab] = useState<'products' | 'inventory' | 'orders' | 'queries' | 'suppliers' | 'coupons' | 'admin_messages'>('products');
 
   // Queries State
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
@@ -146,7 +146,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   // Admin Messages State
   const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
 
-  useEffect(() => {
+  const loadAdminMsgs = () => {
     let email = 'retail.staff@retailsphere.com';
     const stored = localStorage.getItem('user');
     if (stored) {
@@ -157,7 +157,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
     }
     const msgs = getMessagesForUser(email, 'Retail Staff');
     setAdminMessages(msgs);
+  };
+
+  useEffect(() => {
+    loadAdminMsgs();
+    window.addEventListener('admin-messages-updated', loadAdminMsgs);
+    return () => {
+      window.removeEventListener('admin-messages-updated', loadAdminMsgs);
+    };
   }, []);
+
+  const unreadAdminMsgsCount = adminMessages.filter(m => !isMessageReadByUser(m, currentUser.email)).length;
 
   const unreadCount = notifications.filter(n => n.unread).length;
 
@@ -1038,8 +1048,26 @@ export const RetailStaffDashboardPage: React.FC = () => {
               >
                 <div className="flex items-center gap-3">
                   <Tag className="w-4 h-4" />
-                  <span>Coupons & Discounts</span>
+                  <span>Discounts & Coupons</span>
                 </div>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('admin_messages')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'admin_messages'
+                    ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/20 font-extrabold'
+                    : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                  }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Mail className="w-4 h-4" />
+                  <span>Admin Directives & Messages</span>
+                </div>
+                {unreadAdminMsgsCount > 0 && (
+                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white animate-pulse">
+                    {unreadAdminMsgsCount}
+                  </span>
+                )}
               </button>
             </nav>
 
@@ -1108,12 +1136,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     {activeTab === 'queries' && 'Staff Queries & Admin Request Center'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
+                    {activeTab === 'admin_messages' && 'Admin Directives & Messages'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
                     {activeTab === 'queries' && 'Submit email change requests or system queries directly to system Admin.'}
                     {activeTab === 'suppliers' && 'Manage ready-made furniture manufacturers, wholesale product vendors, and catalog stock allocations.'}
                     {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
+                    {activeTab === 'admin_messages' && 'Review official executive directives, announcements, and direct messages from System Admin.'}
                   </p>
                 </div>
 
@@ -1131,21 +1161,24 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       title="System Notifications"
                     >
                       <Bell className="w-3.5 h-3.5 text-[#48A63E]" />
-                      {unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-600 text-white font-extrabold text-[8px] rounded-full flex items-center justify-center animate-pulse">
-                          {unreadCount}
+                      {(unreadCount + unreadAdminMsgsCount) > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-600 text-white font-extrabold text-[9px] rounded-full flex items-center justify-center animate-pulse">
+                          {unreadCount + unreadAdminMsgsCount}
                         </span>
                       )}
                     </button>
 
                     {/* Notifications Dropdown */}
                     {isNotificationsOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-72 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-3 z-[100] animate-fadeIn space-y-2">
+                      <div className="absolute right-0 top-full mt-2 w-80 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-3 z-[100] animate-fadeIn space-y-2">
                         <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
                           <span className="font-extrabold text-xs text-[#2C241D]">System Notifications</span>
-                          {unreadCount > 0 && (
+                          {unreadAdminMsgsCount > 0 && (
                             <button
-                              onClick={() => setNotifications(prev => prev.map(n => ({ ...n, unread: false })))}
+                              onClick={() => {
+                                markAllAdminMessagesReadForUser(currentUser.email, 'Retail Staff');
+                                setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+                              }}
                               className="text-[10px] font-bold text-[#48A63E] hover:underline"
                             >
                               Mark all read
@@ -1153,11 +1186,32 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           )}
                         </div>
 
-                        <div className="space-y-1.5 max-h-60 overflow-y-auto text-xs">
-                          {notifications.length === 0 ? (
+                        <div className="space-y-2 max-h-72 overflow-y-auto text-xs">
+                          {/* Unread Admin Directives Alerts */}
+                          {adminMessages.filter(m => !isMessageReadByUser(m, currentUser.email)).map((msg) => (
+                            <div
+                              key={`notif-${msg.id}`}
+                              onClick={() => {
+                                setActiveTab('admin_messages');
+                                setIsNotificationsOpen(false);
+                              }}
+                              className="p-2.5 rounded-xl border border-amber-300 bg-amber-50 cursor-pointer hover:bg-amber-100/80 transition-colors space-y-1"
+                            >
+                              <div className="flex items-center justify-between text-[11px] font-extrabold text-amber-900">
+                                <span className="flex items-center gap-1">📩 Admin Directive Notice</span>
+                                <span className="text-[9px] font-mono text-amber-700">{msg.createdDate}</span>
+                              </div>
+                              <p className="text-[11px] text-amber-800 font-bold truncate">{msg.subject}</p>
+                              <div className="text-[10px] text-[#48A63E] font-extrabold hover:underline">
+                                Click to open Admin Directives page →
+                              </div>
+                            </div>
+                          ))}
+
+                          {notifications.length === 0 && unreadAdminMsgsCount === 0 ? (
                             <div className="p-4 text-center text-[#8C7C6D]">
                               <p className="text-xs font-extrabold">No new notifications</p>
-                              <p className="text-[10px] text-[#A09080]">System notifications from PostgreSQL will appear here</p>
+                              <p className="text-[10px] text-[#A09080]">System notifications & admin messages will appear here</p>
                             </div>
                           ) : (
                             notifications.map(n => (
@@ -1232,31 +1286,127 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* ADMIN MESSAGES BANNER */}
-              {adminMessages.length > 0 && (
-                <div className="ultra-glass-card bg-gradient-to-r from-[#FAF7F2] via-white to-[#F5ECE1] rounded-3xl p-5 border-2 border-[#48A63E]/30 shadow-lg space-y-3 animate-fadeIn">
-                  <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="p-1.5 rounded-xl bg-[#48A63E] text-white">
-                        <Mail className="w-4 h-4" />
-                      </span>
-                      <h3 className="font-extrabold text-sm text-[#2C241D]">Message from Admin</h3>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#48A63E]/15 text-[#48A63E]">
-                        Official Executive Directive ({adminMessages.length})
-                      </span>
+              {/* TAB: DEDICATED ADMIN DIRECTIVES & MESSAGES PAGE */}
+              {activeTab === 'admin_messages' && (
+                <div className="space-y-5">
+                  {/* Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Directives</span>
+                        <Mail className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{adminMessages.length}</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Messages from System Admin</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Unread Directives</span>
+                        <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{unreadAdminMsgsCount}</div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Pending Review</div>
+                    </div>
+
+                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Read & Acknowledged</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {adminMessages.length - unreadAdminMsgsCount}
+                      </div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Acknowledged</div>
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    {adminMessages.map((msg) => (
-                      <div key={msg.id} className="p-3.5 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="font-extrabold text-[#2C241D] text-sm">{msg.subject}</span>
-                          <span className="font-mono text-[10px] text-[#7A6C5E]">{msg.createdDate}</span>
-                        </div>
-                        <p className="text-xs text-[#5C4E42] leading-relaxed font-medium">{msg.message}</p>
+                  {/* Main Messages Container */}
+                  <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                      <div>
+                        <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-2">
+                          <Mail className="w-5 h-5 text-[#48A63E]" />
+                          Messages & Directives from System Admin
+                        </h2>
+                        <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                          Official executive announcements, store operational directives, and direct messages.
+                        </p>
                       </div>
-                    ))}
+
+                      {unreadAdminMsgsCount > 0 && (
+                        <button
+                          onClick={() => markAllAdminMessagesReadForUser(currentUser.email, 'Retail Staff')}
+                          className="px-4 py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer self-start sm:self-auto"
+                        >
+                          <Check className="w-4 h-4" />
+                          <span>Mark All as Read</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Messages List */}
+                    <div className="space-y-4">
+                      {adminMessages.length === 0 ? (
+                        <div className="p-10 text-center text-[#7A6C5E] space-y-2">
+                          <Mail className="w-8 h-8 text-[#A09080] mx-auto opacity-50" />
+                          <p className="text-sm font-extrabold text-[#2C241D]">No Admin Messages Received</p>
+                          <p className="text-xs text-[#7A6C5E]">Official announcements dispatched by System Admin will appear on this page.</p>
+                        </div>
+                      ) : (
+                        adminMessages.map((msg) => {
+                          const isRead = isMessageReadByUser(msg, currentUser.email);
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`p-5 rounded-2xl border transition-all space-y-3 ${
+                                isRead
+                                  ? 'bg-[#FAF7F2]/80 border-[#E2D7CB] text-[#5C4E42]'
+                                  : 'bg-gradient-to-r from-amber-50/90 via-white to-amber-50/40 border-2 border-amber-300 shadow-md'
+                              }`}
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-extrabold text-base text-[#2C241D]">{msg.subject}</span>
+                                  {isRead ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      Read ✓
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white shadow-xs animate-pulse">
+                                      <Bell className="w-3 h-3" />
+                                      Unread (New Directive)
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="font-mono text-xs text-[#7A6C5E] font-bold">{msg.createdDate}</span>
+                              </div>
+
+                              <p className="text-xs sm:text-sm text-[#2C241D] font-medium leading-relaxed whitespace-pre-line">
+                                {msg.message}
+                              </p>
+
+                              <div className="flex items-center justify-between pt-2 border-t border-[#EFE7DE]">
+                                <span className="text-[11px] font-bold text-[#7A6C5E]">
+                                  Sender: <strong className="text-[#2C241D]">{msg.sender}</strong> ({msg.recipientType})
+                                </span>
+
+                                {!isRead && (
+                                  <button
+                                    onClick={() => markAdminMessageRead(msg.id, currentUser.email)}
+                                    className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Mark as Read</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

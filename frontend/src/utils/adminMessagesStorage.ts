@@ -7,6 +7,8 @@ export interface AdminMessage {
   message: string;
   createdDate: string;
   read: boolean;
+  readByEmails?: string[];
+  readAt?: string;
 }
 
 const STORAGE_KEY = 'retailsphere_admin_broadcast_messages';
@@ -20,6 +22,7 @@ const INITIAL_MESSAGES: AdminMessage[] = [
     message: 'Team, please ensure all living room and bedroom items stock counts are updated before end of week.',
     createdDate: new Date(Date.now() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
     read: false,
+    readByEmails: [],
   },
   {
     id: 'msg-102',
@@ -29,6 +32,7 @@ const INITIAL_MESSAGES: AdminMessage[] = [
     message: 'To all manufacturing partners: New stock deliveries for teak and marble collections are scheduled for dispatch.',
     createdDate: new Date(Date.now() - 172800000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
     read: false,
+    readByEmails: [],
   }
 ];
 
@@ -45,16 +49,18 @@ export const getStoredAdminMessages = (): AdminMessage[] => {
   }
 };
 
-export const sendAdminMessage = (msgData: Omit<AdminMessage, 'id' | 'createdDate' | 'read'>): AdminMessage => {
+export const sendAdminMessage = (msgData: Omit<AdminMessage, 'id' | 'createdDate' | 'read' | 'readByEmails'>): AdminMessage => {
   const current = getStoredAdminMessages();
   const newMsg: AdminMessage = {
     ...msgData,
     id: `msg-${Date.now()}`,
     createdDate: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
     read: false,
+    readByEmails: [],
   };
   const updated = [newMsg, ...current];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event('admin-messages-updated'));
   return newMsg;
 };
 
@@ -72,8 +78,32 @@ export const getMessagesForUser = (userEmail: string, role: string): AdminMessag
   });
 };
 
-export const markAdminMessageRead = (msgId: string) => {
+export const markAdminMessageRead = (msgId: string, userEmail?: string) => {
   const current = getStoredAdminMessages();
-  const updated = current.map(m => m.id === msgId ? { ...m, read: true } : m);
+  const updated = current.map(m => {
+    if (m.id === msgId) {
+      const readBy = m.readByEmails || [];
+      const updatedReadBy = userEmail && !readBy.includes(userEmail) ? [...readBy, userEmail] : readBy;
+      return {
+        ...m,
+        read: true,
+        readByEmails: updatedReadBy,
+        readAt: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+      };
+    }
+    return m;
+  });
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event('admin-messages-updated'));
+};
+
+export const markAllAdminMessagesReadForUser = (userEmail: string, role: string) => {
+  const userMsgs = getMessagesForUser(userEmail, role);
+  userMsgs.forEach(m => markAdminMessageRead(m.id, userEmail));
+};
+
+export const isMessageReadByUser = (msg: AdminMessage, userEmail?: string): boolean => {
+  if (msg.read) return true;
+  if (userEmail && msg.readByEmails?.includes(userEmail)) return true;
+  return false;
 };

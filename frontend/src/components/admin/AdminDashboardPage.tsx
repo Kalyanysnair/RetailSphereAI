@@ -218,6 +218,12 @@ export const AdminDashboardPage: React.FC = () => {
     loadNotifs();
   }, []);
 
+  useEffect(() => {
+    const refreshMsgs = () => setAdminMessagesList(getStoredAdminMessages());
+    window.addEventListener('admin-messages-updated', refreshMsgs);
+    return () => window.removeEventListener('admin-messages-updated', refreshMsgs);
+  }, []);
+
   const unreadCount = notifications.filter(n => n.unread).length;
 
   // Current Admin Profile State
@@ -3150,9 +3156,17 @@ export const AdminDashboardPage: React.FC = () => {
                                   <td className="py-3.5 px-4 text-[#6B5C4D] max-w-xs truncate">{msg.message}</td>
                                   <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">{msg.createdDate}</td>
                                   <td className="py-3.5 px-4">
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                                      Dispatched ✓
-                                    </span>
+                                    {msg.read || (msg.readByEmails && msg.readByEmails.length > 0) ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-md">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        Read ✓ {msg.readByEmails && msg.readByEmails.length > 0 ? `(${msg.readByEmails.length})` : ''}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-md">
+                                        <Clock className="w-3 h-3 text-amber-600" />
+                                        Delivered (Unread)
+                                      </span>
+                                    )}
                                   </td>
                                 </tr>
                               ))
