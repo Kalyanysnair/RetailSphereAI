@@ -93,7 +93,7 @@ export function addToCart(product: { id: string; name: string; material?: string
       material: product.material || 'Premium Finish',
       price: product.price,
       quantity: 1,
-      imageUrl: product.imageUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+      imageUrl: product.imageUrl || '',
     });
   }
 

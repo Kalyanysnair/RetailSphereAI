@@ -387,4 +387,123 @@ Use code {coupon_code.upper()} at checkout at http://localhost:3000.
         return True
 
 
+def send_order_receipt_email(
+    to_email: str,
+    order_id: str,
+    subtotal: float,
+    coupon_code: str,
+    discount_type: str,
+    discount_amount: float,
+    shipping_fee: float,
+    grand_total: float,
+    items_count: int
+) -> bool:
+    """
+    Sends an official order payment confirmation email with full itemized breakdown and discount receipt.
+    """
+    subject = f"🛍️ Order Confirmation & Payment Receipt #{order_id} - RetailSphere"
+    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
+    from_name = settings.EMAILS_FROM_NAME or "RetailSphere Orders"
+
+    clean_username = to_email.split('@')[0].capitalize() if (to_email and '@' in to_email) else "Valued Customer"
+
+    coupon_breakdown_html = f"""
+    <div style="background: #f0fdf4; border: 1px border #48A63E; border-radius: 12px; padding: 14px; margin: 16px 0;">
+      <div style="font-weight: 800; color: #48A63E; font-size: 13px;">🏷️ PROMO CODE APPLIED: {coupon_code} ({discount_type})</div>
+      <div style="font-size: 13px; color: #15803d; font-weight: 700; margin-top: 4px;">Discount Amount Deducted: -₹{discount_amount:,.2f}</div>
+    </div>
+    """ if coupon_code else ""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Payment Receipt</title>
+      <style>
+        body {{ font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f7f4f0; margin: 0; padding: 24px; }}
+        .container {{ max-width: 580px; margin: 0 auto; background: #ffffff; border-radius: 20px; padding: 36px; box-shadow: 0 12px 30px rgba(0,0,0,0.06); border: 1px solid #e6ddd3; }}
+        .header {{ text-align: center; border-bottom: 2px solid #48A63E; padding-bottom: 18px; margin-bottom: 24px; }}
+        .header h1 {{ color: #2C241D; margin: 0; font-size: 24px; font-weight: 800; }}
+        .receipt-box {{ background: #faf8f5; border: 1px solid #eae1d5; border-radius: 14px; padding: 20px; margin: 20px 0; }}
+        .row {{ display: flex; justify-content: space-between; margin: 8px 0; font-size: 13px; color: #2C241D; }}
+        .footer {{ font-size: 11px; color: #8e8071; text-align: center; margin-top: 36px; }}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>RetailSphere <span style="color: #48A63E;">Orders</span></h1>
+        </div>
+        
+        <p>Hello <strong>{clean_username}</strong>,</p>
+        <p>Thank you for your purchase! Your order <strong>#{order_id}</strong> containing <strong>{items_count} item(s)</strong> has been successfully placed and confirmed.</p>
+
+        <div class="receipt-box">
+          <div style="font-weight: 800; font-size: 14px; border-bottom: 1px solid #eae1d5; padding-bottom: 8px; margin-bottom: 12px; color: #2C241D;">RECEIPT & PAYMENT BREAKDOWN</div>
+          
+          <div style="margin-bottom: 8px; font-size: 13px;"><strong>Original Cart Subtotal:</strong> ₹{subtotal:,.2f}</div>
+          
+          {coupon_breakdown_html}
+          
+          <div style="margin-bottom: 8px; font-size: 13px;"><strong>Standard Delivery Shipping:</strong> {"FREE" if shipping_fee == 0 else f"₹{shipping_fee:,.2f}"}</div>
+          
+          <div style="font-weight: 800; font-size: 16px; color: #48A63E; border-top: 2px dashed #eae1d5; padding-top: 12px; margin-top: 12px;">
+            FINAL TOTAL CHARGED: ₹{grand_total:,.2f}
+          </div>
+        </div>
+
+        <p style="font-size: 12px; color: #6B5C4D;">View trackable status anytime in your customer dashboard under <a href="http://localhost:3000/orders" style="color: #48A63E; font-weight: 700;">My Orders</a>.</p>
+
+        <div class="footer">
+          &copy; RetailSphere Inc. All rights reserved.
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    plain_text = f"""Payment Receipt #{order_id}
+Hello {clean_username},
+
+Original Subtotal: ₹{subtotal:,.2f}
+Coupon Code: {coupon_code if coupon_code else 'N/A'} ({discount_type if discount_type else 'None'})
+Discount Deducted: -₹{discount_amount:,.2f}
+Shipping Fee: ₹{shipping_fee:,.2f}
+Final Total Paid: ₹{grand_total:,.2f}
+
+Thank you for choosing RetailSphere!
+"""
+
+    if settings.SMTP_USER and settings.SMTP_PASSWORD:
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"{from_name} <{from_address}>"
+            msg["To"] = to_email
+
+            msg.attach(MIMEText(plain_text, "plain"))
+            msg.attach(MIMEText(html_content, "html"))
+
+            smtp_user = settings.SMTP_USER.strip()
+            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
+
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_address, [to_email], msg.as_string())
+
+            logger.info(f"Successfully sent receipt email to {to_email}")
+            print(f"[EMAIL SERVICE SUCCESS] Order receipt email sent via SMTP to {to_email}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send receipt email to {to_email}: {e}")
+            print(f"[EMAIL SERVICE ERROR] SMTP error when sending receipt email to {to_email}: {e}")
+            return False
+    else:
+        logger.info(f"SMTP notice: Order receipt email for {to_email} with order #{order_id}")
+        print(f"[EMAIL SERVICE NOTICE] Dispatched order receipt email for #{order_id} to '{to_email}' (Subtotal: ₹{subtotal:,.2f}, Discount: -₹{discount_amount:,.2f}, Final Total: ₹{grand_total:,.2f})")
+        return True
+
+
 

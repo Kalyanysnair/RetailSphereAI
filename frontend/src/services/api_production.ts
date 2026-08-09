@@ -28,6 +28,11 @@ export interface CustomOrderData {
   latest_remarks?: string;
   is_locked?: boolean;
   payment_status?: 'Pending' | 'Paid' | string;
+  originalSubtotal?: number;
+  couponCode?: string;
+  discountType?: string;
+  discountDeducted?: number;
+  shippingFee?: number;
 }
 
 export interface WorkerData {
@@ -425,39 +430,36 @@ export async function fetchOrderTrackingTimeline(orderId: number): Promise<Order
   }
 }
 
-export function getFurnitureImageUrl(furnitureType: string = '', referenceImage?: string): string {
-  if (referenceImage && referenceImage.startsWith('http')) {
-    return referenceImage;
-  }
+export function isDefaultUnsplashUrl(url?: string): boolean {
+  if (!url) return false;
+  const defaults = [
+    'photo-1615066390971',
+    'photo-1533779283484',
+    'photo-1518455027359',
+    'photo-1540518614846',
+    'photo-1505693416388',
+    'photo-1567538096630',
+    'photo-1595428774223',
+    'photo-1555041469',
+    'photo-1538688525198'
+  ];
+  return defaults.some((d) => url.includes(d));
+}
 
-  const type = furnitureType.toLowerCase();
+export function sanitizeCustomOrders(orders: CustomOrderData[]): CustomOrderData[] {
+  return orders.map((o) => {
+    if (o.reference_image && isDefaultUnsplashUrl(o.reference_image)) {
+      return { ...o, reference_image: undefined };
+    }
+    return o;
+  });
+}
 
-  if (type.includes('table') && type.includes('dining')) {
-    return 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80';
+export function getFurnitureImageUrl(_furnitureType: string = '', referenceImage?: string): string | undefined {
+  if (referenceImage && referenceImage.trim() && !isDefaultUnsplashUrl(referenceImage)) {
+    return referenceImage.trim();
   }
-  if (type.includes('coffee') || (type.includes('table') && type.includes('center'))) {
-    return 'https://images.unsplash.com/photo-1533779283484-8ad4940aa3a8?auto=format&fit=crop&w=800&q=80';
-  }
-  if (type.includes('desk') || type.includes('office') || type.includes('workstation')) {
-    return 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80';
-  }
-  if (type.includes('daybed') || type.includes('bench') || type.includes('lounge')) {
-    return 'https://images.unsplash.com/photo-1540518614846-7ede433c5163?auto=format&fit=crop&w=800&q=80';
-  }
-  if (type.includes('bed') || type.includes('cot') || type.includes('headboard')) {
-    return 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80';
-  }
-  if (type.includes('chair') || type.includes('armchair') || type.includes('seat')) {
-    return 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80';
-  }
-  if (type.includes('cabinet') || type.includes('credenza') || type.includes('sideboard') || type.includes('wardrobe')) {
-    return 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80';
-  }
-  if (type.includes('sofa') || type.includes('couch')) {
-    return 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80';
-  }
-
-  return 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80';
+  return undefined;
 }
 
 export async function submitCustomOrderRequest(
@@ -470,7 +472,9 @@ export async function submitCustomOrderRequest(
 ): Promise<CustomOrderData> {
   const storedUser = localStorage.getItem('user');
   const userObj = storedUser ? JSON.parse(storedUser) : null;
-  const matchedImg = getFurnitureImageUrl(furnitureType, referenceImage);
+  const cleanRefImg = (referenceImage && referenceImage.trim() && !isDefaultUnsplashUrl(referenceImage))
+    ? referenceImage.trim()
+    : undefined;
 
   const payload = {
     customer_id: userObj?.id || userObj?.customer_id || 1,
@@ -482,7 +486,7 @@ export async function submitCustomOrderRequest(
     dimensions,
     color,
     design_description: notes,
-    reference_image: matchedImg
+    reference_image: cleanRefImg
   };
 
   try {
@@ -493,9 +497,10 @@ export async function submitCustomOrderRequest(
     });
     if (!res.ok) throw new Error('API Request Failed');
     const created: CustomOrderData = await res.json();
+    const cleanCreated = isDefaultUnsplashUrl(created.reference_image) ? { ...created, reference_image: undefined } : created;
     const currentOrders = getStoredCustomOrders();
-    saveStoredCustomOrders([created, ...currentOrders]);
-    return created;
+    saveStoredCustomOrders([cleanCreated, ...currentOrders]);
+    return cleanCreated;
   } catch {
     const currentOrders = getStoredCustomOrders();
     const newId = 101 + currentOrders.length;
@@ -510,7 +515,7 @@ export async function submitCustomOrderRequest(
       dimensions,
       color,
       design_description: notes,
-      reference_image: matchedImg,
+      reference_image: cleanRefImg,
       order_status: 'Pending',
       order_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
       assigned_workers: [],
@@ -520,5 +525,112 @@ export async function submitCustomOrderRequest(
     };
     saveStoredCustomOrders([newOrder, ...currentOrders]);
     return newOrder;
+  }
+}
+
+export function downloadPaymentReceipt(order: CustomOrderData) {
+  const receiptId = `REC-CUST-${order.custom_order_id}-${Date.now().toString().slice(-6)}`;
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const finalPrice = order.estimated_price || 0;
+  const originalSubtotal = order.originalSubtotal || (finalPrice + (order.discountDeducted || 0));
+  const discountDeducted = order.discountDeducted || 0;
+
+  const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Payment Receipt - Order #${order.custom_order_id}</title>
+  <style>
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #faf7f2; color: #2c241d; padding: 40px; margin: 0; }
+    .receipt-card { max-width: 650px; margin: 0 auto; background: #ffffff; border: 2px solid #e2d7cb; border-radius: 24px; padding: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); }
+    .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #f0e6da; padding-bottom: 20px; margin-bottom: 25px; }
+    .brand { font-size: 26px; font-weight: 800; color: #38a132; letter-spacing: -0.5px; }
+    .subtitle { font-size: 12px; color: #7a6c5e; font-weight: 700; margin-top: 2px; }
+    .badge { background: #dcfce7; color: #166534; font-weight: 800; padding: 8px 18px; border-radius: 50px; font-size: 12px; border: 1px solid #bbf7d0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px; background: #faf7f2; padding: 20px; border-radius: 16px; border: 1px solid #e2d7cb; }
+    .meta-item label { display: block; font-size: 10px; font-weight: 800; color: #7a6c5e; text-transform: uppercase; margin-bottom: 3px; }
+    .meta-item span { font-size: 13px; font-weight: 700; color: #2c241d; }
+    .specs-table { width: 100%; border-collapse: collapse; margin-bottom: 25px; }
+    .specs-table th { text-align: left; font-size: 11px; font-weight: 800; color: #7a6c5e; text-transform: uppercase; border-bottom: 2px solid #e2d7cb; padding: 10px 0; }
+    .specs-table td { font-size: 13px; font-weight: 600; padding: 12px 0; border-bottom: 1px solid #f0e6da; }
+    .breakdown-box { background: #fdfbf7; border: 1px solid #e2d7cb; border-radius: 16px; padding: 18px; margin-bottom: 20px; }
+    .breakdown-row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; padding: 6px 0; color: #2c241d; }
+    .breakdown-row.discount { color: #15803d; font-weight: 800; }
+    .total-box { display: flex; justify-content: space-between; align-items: center; background: #2c241d; color: #ffffff; padding: 24px; border-radius: 18px; }
+    .total-box .amount { font-size: 26px; font-weight: 800; color: #48a63e; }
+    .footer { text-align: center; margin-top: 30px; font-size: 11px; color: #7a6c5e; border-top: 1px solid #f0e6da; padding-top: 20px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="receipt-card">
+    <div class="header">
+      <div>
+        <div class="brand">RetailSphere AI</div>
+        <div class="subtitle">Bespoke Artisan Furniture Studio • Official Payment Receipt</div>
+      </div>
+      <div class="badge">✓ PAID IN FULL</div>
+    </div>
+
+    <div class="meta-grid">
+      <div class="meta-item"><label>Receipt No.</label><span>${receiptId}</span></div>
+      <div class="meta-item"><label>Date Paid</label><span>${dateStr}</span></div>
+      <div class="meta-item"><label>Customer Name</label><span>${order.customer_name}</span></div>
+      <div class="meta-item"><label>Customer Email</label><span>${order.customer_email || 'Registered Client'}</span></div>
+    </div>
+
+    <table class="specs-table">
+      <thead>
+        <tr><th>Furniture Specifications</th><th>Details</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Furniture Item</td><td>${order.furniture_type}</td></tr>
+        <tr><td>Custom Dimensions</td><td>${order.dimensions}</td></tr>
+        <tr><td>Timber / Material</td><td>${order.material}</td></tr>
+        <tr><td>Color & Finish</td><td>${order.color}</td></tr>
+      </tbody>
+    </table>
+
+    <div class="breakdown-box">
+      <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #7a6c5e; margin-bottom: 10px; border-bottom: 1px solid #e2d7cb; padding-bottom: 6px;">Financial Breakdown</div>
+      <div class="breakdown-row">
+        <span>Original Subtotal</span>
+        <span>₹${originalSubtotal.toLocaleString('en-IN')}</span>
+      </div>
+      ${order.couponCode ? `
+      <div class="breakdown-row discount">
+        <span>🏷️ Promo Discount (${order.couponCode}${order.discountType ? ` - ${order.discountType}` : ''})</span>
+        <span>-₹${discountDeducted.toLocaleString('en-IN')}</span>
+      </div>
+      ` : ''}
+      <div class="breakdown-row">
+        <span>Standard Shipping & Delivery</span>
+        <span>${order.shippingFee === 0 || !order.shippingFee ? 'FREE' : `₹${order.shippingFee.toLocaleString('en-IN')}`}</span>
+      </div>
+    </div>
+
+    <div class="total-box">
+      <div>
+        <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #d0c8be; margin-bottom: 4px;">Final Amount Paid After Discounts</div>
+        <div style="font-size: 12px; color: #e2d7cb;">Status: Verified Electronic Payment</div>
+      </div>
+      <div class="amount">₹${finalPrice.toLocaleString('en-IN')}</div>
+    </div>
+
+    <div class="footer">
+      Thank you for choosing RetailSphere AI. Official E-Receipt & Tax Invoice Document.
+    </div>
+  </div>
+  <script>
+    window.onload = function() { window.print(); }
+  </script>
+</body>
+</html>
+  `;
+
+  const printWin = window.open('', '_blank');
+  if (printWin) {
+    printWin.document.write(htmlContent);
+    printWin.document.close();
   }
 }

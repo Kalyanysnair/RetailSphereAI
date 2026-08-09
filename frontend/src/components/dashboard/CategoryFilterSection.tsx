@@ -74,16 +74,6 @@ export const CATEGORIES_DATA: CategoryItem[] = [
       { id: 'desks', name: 'Executive Desks', count: 2 },
       { id: 'ergonomic', name: 'Ergonomic Chairs', count: 1 },
     ]
-  },
-  {
-    id: 'custom-studio',
-    name: 'Custom Studio',
-    icon: 'Palette',
-    count: 3,
-    subcategories: [
-      { id: 'custom-sofas', name: 'Bespoke Sofas', count: 2 },
-      { id: 'custom-wood', name: 'Teak Woodwork', count: 1 },
-    ]
   }
 ];
 

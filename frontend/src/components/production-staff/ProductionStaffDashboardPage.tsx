@@ -30,7 +30,17 @@ import {
   Send,
   X,
   Eye,
-  RefreshCw
+  RefreshCw,
+  Percent,
+  Tag,
+  Copy,
+  Trash2,
+  UserCheck,
+  Mail,
+  Check,
+  AlertCircle,
+  Image as ImageIcon,
+  Download
 } from 'lucide-react';
 import {
   fetchCustomOrders,
@@ -41,7 +51,8 @@ import {
   assignWorkerTask,
   updateProductionProgress,
   CustomOrderData,
-  WorkerData
+  WorkerData,
+  downloadPaymentReceipt
 } from '../../services/api_production';
 import {
   fetchQueriesFromDB,
@@ -50,14 +61,38 @@ import {
   updateUserProfile
 } from '../../services/api';
 import { StaffQuery, addStaffQuery } from '../../utils/staffQueriesStorage';
+import {
+  getCouponsApi,
+  createCouponApi,
+  deleteCouponApi,
+  regenerateCouponApi,
+  Coupon,
+  CouponAllotment
+} from '../../services/api_coupons';
+import {
+  getMessagesForUser,
+  markAdminMessageRead,
+  markAllAdminMessagesReadForUser,
+  isMessageReadByUser,
+  AdminMessage
+} from '../../utils/adminMessagesStorage';
 
 export const ProductionStaffDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
+  const currentUser = React.useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : { email: 'production.staff@retailsphere.com', role: 'Production Staff' };
+    } catch {
+      return { email: 'production.staff@retailsphere.com', role: 'Production Staff' };
+    }
+  }, []);
+
   const [orders, setOrders] = useState<CustomOrderData[]>([]);
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'orders' | 'approvals' | 'assignments' | 'workers' | 'queries'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'approvals' | 'assignments' | 'workers' | 'queries' | 'coupons' | 'admin_messages'>('orders');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [approvalFilter, setApprovalFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -92,6 +127,102 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [newQuerySubject, setNewQuerySubject] = useState('');
   const [newQueryMessage, setNewQueryMessage] = useState('');
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+
+  // Admin Directives & Messages State
+  const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
+
+  const loadAdminMessages = () => {
+    const userEmail = currentUser.email || 'production.staff@retailsphere.com';
+    const userRole = currentUser.role || 'Production Staff';
+    setAdminMessages(getMessagesForUser(userEmail, userRole));
+  };
+
+  useEffect(() => {
+    loadAdminMessages();
+    window.addEventListener('admin-messages-updated', loadAdminMessages);
+    window.addEventListener('storage', loadAdminMessages);
+    return () => {
+      window.removeEventListener('admin-messages-updated', loadAdminMessages);
+      window.removeEventListener('storage', loadAdminMessages);
+    };
+  }, [currentUser]);
+
+  const unreadAdminMsgsCount = adminMessages.filter(m => !isMessageReadByUser(m, currentUser.email)).length;
+
+  // Coupons Management State
+  const [couponsList, setCouponsList] = useState<Coupon[]>([]);
+  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>([]);
+  const [couponSearchQuery, setCouponSearchQuery] = useState('');
+  const [isAddCouponModalOpen, setIsAddCouponModalOpen] = useState(false);
+
+  // New Coupon Form State
+  const [newCouponCode, setNewCouponCode] = useState('');
+  const [newCouponDiscount, setNewCouponDiscount] = useState<number>(10);
+  const [newCouponDescription, setNewCouponDescription] = useState('');
+  const [newCouponTargetEmail, setNewCouponTargetEmail] = useState('');
+  const [newCouponCustomerLimit, setNewCouponCustomerLimit] = useState<number | ''>(10);
+  const [newCouponAudience, setNewCouponAudience] = useState<string>('production');
+  const [newCouponAutoAllot, setNewCouponAutoAllot] = useState(false);
+
+  const loadCouponsData = async () => {
+    try {
+      const res = await getCouponsApi();
+      setCouponsList(res.coupons);
+      setAllotmentsList(res.allotments);
+    } catch (e) {
+      setCouponsList([]);
+      setAllotmentsList([]);
+    }
+  };
+
+  useEffect(() => {
+    loadCouponsData();
+  }, []);
+
+  const handleCreateCouponSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCouponCode.trim()) return;
+
+    const limitVal = typeof newCouponCustomerLimit === 'number' ? newCouponCustomerLimit : undefined;
+
+    try {
+      await createCouponApi({
+        code: newCouponCode.trim().toUpperCase(),
+        coupon_type: 'percentage_notification',
+        discount_percent: newCouponDiscount,
+        description: newCouponDescription.trim() || `${newCouponDiscount}% OFF Custom Furniture Offer`,
+        target_user_email: newCouponTargetEmail.trim() || undefined,
+        customer_limit: limitVal
+      });
+
+      await loadCouponsData();
+      setSuccessNotice(`Custom Furniture Coupon "${newCouponCode.trim().toUpperCase()}" created successfully!`);
+      setNewCouponCode('');
+      setNewCouponDiscount(10);
+      setNewCouponDescription('');
+      setNewCouponTargetEmail('');
+      setNewCouponCustomerLimit(10);
+      setNewCouponAudience('production');
+      setNewCouponAutoAllot(false);
+      setIsAddCouponModalOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to create coupon.');
+    }
+    setTimeout(() => setSuccessNotice(null), 5000);
+  };
+
+  const handleRemoveCoupon = async (id: string, code: string) => {
+    if (window.confirm(`Are you sure you want to deactivate and remove coupon "${code}"?`)) {
+      try {
+        await deleteCouponApi(id);
+        await loadCouponsData();
+        setSuccessNotice(`Coupon "${code}" removed.`);
+      } catch (err: any) {
+        alert(err.message || 'Failed to remove coupon.');
+      }
+      setTimeout(() => setSuccessNotice(null), 3000);
+    }
+  };
 
   // Modals state
   const [selectedOrderForDetails, setSelectedOrderForDetails] = useState<CustomOrderData | null>(null);
@@ -225,7 +356,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         const parsed = JSON.parse(stored);
         userFullName = parsed.full_name || parsed.name || 'Production Staff';
       }
-    } catch (e) {}
+    } catch (e) { }
 
     try {
       await updateUserProfile({
@@ -286,13 +417,70 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadData();
   };
 
+  const renderColorSwatchBadge = (colorStr?: string, explicitHex?: string | null) => {
+    if (!colorStr) return <span className="font-bold text-[#2C241D]">Natural Finish</span>;
+    const hexMatch = explicitHex || colorStr.match(/#(?:[0-9a-fA-F]{3}){1,2}/)?.[0] || null;
+    return (
+      <div className="flex items-center gap-2 flex-wrap mt-0.5">
+        {hexMatch && (
+          <span
+            className="w-4 h-4 rounded-full inline-block border border-black/30 shadow-xs shrink-0"
+            style={{ backgroundColor: hexMatch }}
+          />
+        )}
+        <span className="font-extrabold text-xs text-[#2C241D]">{colorStr}</span>
+        {hexMatch && (
+          <span className="px-2 py-0.5 rounded-md bg-[#38A132]/10 font-mono text-[10px] font-extrabold text-[#38A132] border border-[#38A132]/30">
+            {hexMatch.toUpperCase()}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   const parseOrderSpecDetails = (ord: CustomOrderData) => {
-    const fields: { label: string; value: string }[] = [
-      { label: 'Furniture Type', value: ord.furniture_type },
-      { label: 'Custom Dimensions', value: ord.dimensions },
-      { label: 'Primary Timber / Material', value: ord.material },
-      { label: 'Color / Polish Finish', value: ord.color || 'Natural Finish' }
-    ];
+    const fields: { label: string; value: string; isColor?: boolean; hex?: string | null }[] = [];
+
+    // 1. Furniture Category Determination
+    let categoryName = 'Bespoke Custom Furniture';
+    const typeLower = (ord.furniture_type || '').toLowerCase();
+    if (typeLower.includes('sofa') || typeLower.includes('chair') || typeLower.includes('seat') || typeLower.includes('recliner') || typeLower.includes('daybed') || typeLower.includes('sectional')) {
+      categoryName = 'Sofas & Living Room Seating';
+    } else if (typeLower.includes('table') || typeLower.includes('dining') || typeLower.includes('coffee')) {
+      categoryName = 'Dining & Center Tables';
+    } else if (typeLower.includes('desk') || typeLower.includes('office') || typeLower.includes('workstation')) {
+      categoryName = 'Executive Desks & Workspace';
+    } else if (typeLower.includes('bed') || typeLower.includes('headboard') || typeLower.includes('bedroom')) {
+      categoryName = 'Bespoke Beds & Bedroom';
+    } else if (typeLower.includes('cabinet') || typeLower.includes('credenza') || typeLower.includes('wardrobe') || typeLower.includes('sideboard')) {
+      categoryName = 'Storage & Architectural Cabinets';
+    }
+
+    fields.push({ label: 'Furniture Category', value: categoryName });
+    fields.push({ label: 'Specific Furniture Type', value: ord.furniture_type });
+    fields.push({ label: 'Custom Dimensions', value: ord.dimensions });
+    fields.push({ label: 'Primary Timber / Material', value: ord.material });
+
+    // 2. Parse Upholstery Fabric / Texture Finish vs Color / Polish Finish
+    let colorVal = ord.color || 'Natural Finish';
+    let fabricVal = 'Standard Custom Finish';
+
+    const matchParen = colorVal.match(/^(.*?)\s*\((.*?)\)$/);
+    if (matchParen) {
+      fabricVal = matchParen[1].trim();
+      colorVal = matchParen[2].trim();
+    }
+
+    const hexMatch = colorVal.match(/#(?:[0-9a-fA-F]{3}){1,2}/);
+    const hexCode = hexMatch ? hexMatch[0] : null;
+
+    fields.push({ label: 'Upholstery Fabric / Texture Finish', value: fabricVal });
+    fields.push({
+      label: 'Color / Polish Finish',
+      value: colorVal,
+      isColor: true,
+      hex: hexCode
+    });
 
     if (ord.design_description) {
       const desc = ord.design_description;
@@ -303,7 +491,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           const [k, v] = pair.split(':').map(s => s?.trim());
           if (k && v) {
             const formattedLabel = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
-            fields.push({ label: formattedLabel, value: v });
+            if (formattedLabel.toLowerCase() !== 'furniture category') {
+              fields.push({ label: formattedLabel, value: v });
+            }
           }
         });
       }
@@ -321,9 +511,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleRejectOrder = async () => {
     if (!selectedOrderForReview) return;
-    await updateOrderStatus(selectedOrderForReview.custom_order_id, 'Rejected', undefined, approvalRemarks);
+    const remarks = approvalRemarks.trim() || 'Custom order request rejected by production staff.';
+    await updateOrderStatus(selectedOrderForReview.custom_order_id, 'Rejected', 0, remarks);
     setSelectedOrderForReview(null);
+    setApprovalPrice('');
     setApprovalRemarks('');
+    setSuccessNotice(`Customization Order #${selectedOrderForReview.custom_order_id} marked as Rejected.`);
+    setTimeout(() => setSuccessNotice(null), 5000);
     loadData();
   };
 
@@ -391,14 +585,22 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     );
   });
 
-  const pendingCount = orders.filter(o => o.order_status === 'Pending').length;
-  const inProductionCount = orders.filter(o => o.order_status === 'In Production' || o.order_status === 'Approved').length;
-  const completedCount = orders.filter(o => o.order_status === 'Completed').length;
+  const paidOrdersCount = orders.filter(isPaidCustomOrder).length;
+  const inProductionCount = orders.filter(
+    (o) =>
+      isPaidCustomOrder(o) &&
+      o.order_status !== 'Completed' &&
+      ((o.assigned_workers && o.assigned_workers.length > 0) || o.order_status === 'In Production')
+  ).length;
+  const approvedCount = orders.filter((o) => o.order_status === 'Approved' && !isPaidCustomOrder(o)).length;
+  const pendingCount = orders.filter((o) => (o.order_status === 'Pending' || o.order_status === 'Pending Approval') && !isPaidCustomOrder(o)).length;
+  const rejectedCount = orders.filter((o) => o.order_status === 'Rejected').length;
+  const completedCount = orders.filter((o) => o.order_status === 'Completed').length;
 
   return (
     <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
       {/* Background Image Layer */}
-      <div 
+      <div
         className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
         style={{
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
@@ -423,11 +625,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         <nav className="space-y-2.5">
           <button
             onClick={() => setActiveTab('orders')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'orders'
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'orders'
                 ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
+              }`}
           >
             <div className="flex items-center gap-3">
               <Sliders className="w-4.5 h-4.5" />
@@ -437,11 +638,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('approvals')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'approvals'
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'approvals'
                 ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
+              }`}
           >
             <div className="flex items-center gap-3">
               <CheckCircle2 className="w-4.5 h-4.5 flex-shrink-0" />
@@ -451,11 +651,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('assignments')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'assignments'
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'assignments'
                 ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
+              }`}
           >
             <div className="flex items-center gap-3">
               <Layers className="w-4.5 h-4.5 flex-shrink-0" />
@@ -465,11 +664,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('workers')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'workers'
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'workers'
                 ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
+              }`}
           >
             <div className="flex items-center gap-3">
               <Users className="w-4.5 h-4.5" />
@@ -479,16 +677,46 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('queries')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
-              activeTab === 'queries'
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'queries'
                 ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
+              }`}
           >
             <div className="flex items-center gap-3">
               <MessageSquare className="w-4.5 h-4.5" />
               <span className="text-sm">Queries & Requests</span>
             </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('coupons')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'coupons'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              }`}
+          >
+            <div className="flex items-center gap-3">
+              <Tag className="w-4.5 h-4.5" />
+              <span className="text-sm">Coupons & Offers</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('admin_messages')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'admin_messages'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              }`}
+          >
+            <div className="flex items-center gap-3">
+              <Mail className="w-4.5 h-4.5" />
+              <span className="text-sm">Admin Directives</span>
+            </div>
+            {unreadAdminMsgsCount > 0 && (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white animate-pulse">
+                {unreadAdminMsgsCount}
+              </span>
+            )}
           </button>
         </nav>
       </aside>
@@ -525,6 +753,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             >
               Workers
             </button>
+            <button
+              onClick={() => setActiveTab('coupons')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'coupons' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Coupons
+            </button>
+            <button
+              onClick={() => setActiveTab('admin_messages')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold relative ${activeTab === 'admin_messages' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              <span>Directives</span>
+              {unreadAdminMsgsCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 text-[9px] font-extrabold rounded-full bg-amber-500 text-white">
+                  {unreadAdminMsgsCount}
+                </span>
+              )}
+            </button>
           </div>
         </div>
 
@@ -545,6 +790,29 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
+            {/* Unread Admin Directives Banner */}
+            {unreadAdminMsgsCount > 0 && activeTab !== 'admin_messages' && (
+              <div className="relative z-10 p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/5 border-2 border-amber-400 text-amber-900 flex items-center justify-between gap-3 shadow-md animate-fadeIn">
+                <div className="flex items-center gap-3">
+                  <Bell className="w-5 h-5 text-amber-600 animate-bounce flex-shrink-0" />
+                  <div>
+                    <span className="font-black text-xs block">
+                      📢 You have {unreadAdminMsgsCount} unread Admin Directive{unreadAdminMsgsCount > 1 ? 's' : ''}!
+                    </span>
+                    <span className="text-[11px] text-amber-800 font-medium">
+                      System Admin has dispatched official instructions to Production Staff.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setActiveTab('admin_messages')}
+                  className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-xs transition-all whitespace-nowrap cursor-pointer"
+                >
+                  View Directives →
+                </button>
+              </div>
+            )}
+
             {/* Page Top Header */}
             <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
               <div>
@@ -554,6 +822,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {activeTab === 'assignments' && 'Artisan Task Assignments Hub'}
                   {activeTab === 'workers' && 'Artisan Technicians Directory'}
                   {activeTab === 'queries' && 'Production Staff Queries & Admin Request Center'}
+                  {activeTab === 'coupons' && 'Custom Furniture Coupon & Promotions Hub'}
+                  {activeTab === 'admin_messages' && 'Admin Directives & Official Messages'}
                 </h1>
                 <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                   {activeTab === 'orders' && 'Review custom quotes, assign skilled craftsmen, and update workshop build stages.'}
@@ -561,6 +831,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {activeTab === 'assignments' && 'Assign skilled workshop craftsmen and technicians to approved custom furniture builds, specify craft stages, and track active task distribution.'}
                   {activeTab === 'workers' && 'Manage workshop craftsmen, specializations, and active assigned furniture builds.'}
                   {activeTab === 'queries' && 'Submit email change requests or system queries directly to system Admin.'}
+                  {activeTab === 'coupons' && 'Manage promotional discount codes for bespoke furniture custom orders, set First N Customer payment limits, and issue targeted VIP customer offers.'}
+                  {activeTab === 'admin_messages' && 'Official executive announcements, workshop operational directives, and direct messages from System Admin.'}
                 </p>
               </div>
 
@@ -608,9 +880,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           notifications.map(n => (
                             <div
                               key={n.id}
-                              className={`p-2.5 rounded-xl border transition-colors ${
-                                n.unread ? 'bg-[#F3EDE5] border-[#48A63E]/40 font-bold' : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#6B5C4D]'
-                              }`}
+                              className={`p-2.5 rounded-xl border transition-colors ${n.unread ? 'bg-[#F3EDE5] border-[#48A63E]/40 font-bold' : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#6B5C4D]'
+                                }`}
                             >
                               <div className="flex items-center justify-between text-[11px] mb-0.5">
                                 <span className="font-extrabold text-[#2C241D]">{n.title}</span>
@@ -678,13 +949,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
                   <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Pending Review</span>
-                    <Clock className="w-4 h-4 text-[#D97706]" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Paid Custom Orders</span>
+                    <DollarSign className="w-4 h-4 text-[#48A63E]" />
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{pendingCount} Orders</div>
+                  <div className="text-2xl font-extrabold text-[#2C241D]">{paidOrdersCount} Orders</div>
                   <div>
-                    <span className="text-[11px] font-bold text-[#B4690E] bg-[#FDF3E7] px-2.5 py-0.5 rounded-full border border-[#FDE6D2] inline-block">
-                      Requires staff quote
+                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                      Customer payment received
                     </span>
                   </div>
                 </div>
@@ -697,20 +968,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   <div className="text-2xl font-extrabold text-[#2C241D]">{inProductionCount} Builds</div>
                   <div>
                     <span className="text-[11px] font-bold text-[#1E40AF] bg-[#EBF5FF] px-2.5 py-0.5 rounded-full border border-[#DBEAFE] inline-block">
-                      Active workshop builds
+                      Artisan assigned builds
                     </span>
                   </div>
                 </div>
 
                 <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
                   <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Artisan Workers</span>
-                    <Users className="w-4 h-4 text-[#10B981]" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Approved Custom Orders</span>
+                    <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{workers.length} Technicians</div>
+                  <div className="text-2xl font-extrabold text-[#2C241D]">{approvedCount} Orders</div>
                   <div>
                     <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
-                      Active craftsmen
+                      Staff approved & quoted
                     </span>
                   </div>
                 </div>
@@ -767,110 +1038,141 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   filteredOrders
                     .filter(isPaidCustomOrder)
                     .map((ord) => (
-                    <div
-                      key={ord.custom_order_id}
-                      className="ultra-glass-card rounded-3xl p-6 shadow-xl border border-[#E2D7CB] bg-white/85 text-[#2C241D] space-y-4 hover:border-[#48A63E]/50 transition-all"
-                    >
-                      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
-                        {/* Order Info */}
-                        <div className="space-y-2 flex-1">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="text-xs font-mono font-extrabold text-[#48A63E] px-2.5 py-0.5 rounded-full bg-[#48A63E]/10 border border-[#48A63E]/30">
+                      <div
+                        key={ord.custom_order_id}
+                        className="ultra-glass-card rounded-3xl p-5 shadow-lg border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-4 hover:border-[#38A132]/40 transition-all hover:shadow-xl"
+                      >
+                        {/* Top Badges & Price Header */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
                               ORDER #{ord.custom_order_id}
                             </span>
 
-                            <span className={`text-[11px] font-extrabold px-3 py-0.5 rounded-full ${
-                              ord.order_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                              ord.order_status === 'Approved' ? 'bg-blue-100 text-blue-800' :
-                              ord.order_status === 'In Production' ? 'bg-emerald-100 text-emerald-800' :
-                              ord.order_status === 'Completed' ? 'bg-purple-100 text-purple-800' :
-                              'bg-rose-100 text-rose-800'
-                            }`}>
-                              {ord.order_status}
-                            </span>
+                            {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
+                              <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Paid & Verified</span>
+                              </span>
+                            ) : (
+                              <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                                ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+                                ord.order_status === 'In Production' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
+                                ord.order_status === 'Completed' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                                'bg-rose-50 text-rose-800 border border-rose-200'
+                              }`}>
+                                {ord.order_status}
+                              </span>
+                            )}
                           </div>
 
-                          <h3 className="text-lg font-extrabold text-[#2C241D]">
+                          {ord.estimated_price && ord.estimated_price > 0 && (
+                            <div className="text-base font-black text-[#38A132] bg-[#38A132]/10 px-3.5 py-1 rounded-xl border border-[#38A132]/20">
+                              ₹{ord.estimated_price.toLocaleString('en-IN')}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Title & Specifications Grid */}
+                        <div className="space-y-3">
+                          <h3 className="text-xl font-black text-[#2C241D] tracking-tight">
                             {ord.furniture_type}
                           </h3>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-[#6B5C4D]">
-                            <div><span className="font-bold">Client:</span> {ord.customer_name}</div>
-                            <div><span className="font-bold">Dimensions:</span> {ord.dimensions}</div>
-                            <div><span className="font-bold">Material:</span> {ord.material}</div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#EAE0D4] text-xs">
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Name</span>
+                              <span className="font-bold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
+                            </div>
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
+                              <span className="font-bold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
+                            </div>
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
+                              <span className="font-bold text-[#2C241D] block truncate">🪵 {ord.material}</span>
+                            </div>
+                            <div className="space-y-0.5">
+                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
+                              <span className="font-bold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Order Actions: 1. View Specs, 2. Just a Lock Sign, 3. Edit Price */}
-                        <div className="flex items-center gap-2.5 flex-wrap self-start lg:self-center">
-                          {/* 1. View Specs */}
-                          <button
-                            onClick={() => setSelectedOrderForDetails(ord)}
-                            className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                          >
-                            <Eye className="w-3.5 h-3.5 text-slate-600" />
-                            <span>View Specs</span>
-                          </button>
-
-                          {/* 2. Lock / Unlock Sign Toggle (Approved or Priced requests are ALWAYS locked) */}
-                          {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
+                        {/* Action Buttons Toolbar */}
+                        <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between gap-3 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end ml-auto">
                             <button
-                              onClick={() => handleToggleLock(ord)}
-                              className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
-                              title="Specs Unlocked. Click to Lock Specs (removes edit option on customer dashboard)."
+                              onClick={() => setSelectedOrderForDetails(ord)}
+                              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
                             >
-                              <Unlock className="w-4 h-4 text-amber-600" />
+                              <Eye className="w-3.5 h-3.5 text-slate-600" />
+                              <span>View Specs</span>
                             </button>
-                          ) : (
-                            <button
-                              disabled
-                              className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs opacity-90 cursor-not-allowed"
-                              title="Specifications Locked (Edit option removed from customer dashboard)."
-                            >
-                              <Lock className="w-4 h-4 text-emerald-600" />
-                            </button>
-                          )}
 
-                          {/* 3. Edit Price */}
-                          {!(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') ? (
-                            <button
-                              onClick={() => handleOpenPriceModal(ord)}
-                              className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                            >
-                              <DollarSign className="w-4 h-4 text-amber-600" />
-                              <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
-                            </button>
-                          ) : (
-                            <span className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold flex items-center gap-1.5" title="Payment completed by customer. Price editing is locked.">
-                              <Lock className="w-3.5 h-3.5 text-emerald-600" />
-                              <span>Price Locked (₹{ord.estimated_price ? ord.estimated_price.toLocaleString() : 0})</span>
-                            </span>
-                          )}
-
-                          {/* ASSIGN WORKER & UPDATE STAGE AVAILABLE ONLY WHEN PAYMENT IS MADE! */}
-                          {(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') && (
-                            <>
+                            {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
                               <button
-                                onClick={() => setSelectedOrderForWorker(ord)}
-                                className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                onClick={() => handleToggleLock(ord)}
+                                className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
+                                title="Specs Unlocked. Click to Lock Specs."
                               >
-                                <Users className="w-3.5 h-3.5" />
-                                <span>{ord.assigned_workers && ord.assigned_workers.length > 0 ? 'Reassign Worker' : 'Assign Worker'}</span>
+                                <Unlock className="w-4 h-4 text-amber-600" />
                               </button>
-
+                            ) : (
                               <button
-                                onClick={() => setSelectedOrderForProgress(ord)}
-                                className="px-3.5 py-2 rounded-xl bg-[#38A132]/10 hover:bg-[#38A132]/20 text-[#38A132] border border-[#38A132]/30 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                disabled
+                                className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs opacity-90 cursor-not-allowed"
+                                title="Specifications Locked."
                               >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                                <span>Update Build Stage</span>
+                                <Lock className="w-4 h-4 text-emerald-600" />
                               </button>
-                            </>
-                          )}
+                            )}
+
+                            {!(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') ? (
+                              <button
+                                onClick={() => handleOpenPriceModal(ord)}
+                                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                              >
+                                <DollarSign className="w-4 h-4 text-amber-600" />
+                                <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
+                              </button>
+                            ) : (
+                              (ord.payment_status === 'Paid' || ord.order_status === 'Paid') && (
+                                <button
+                                  onClick={() => downloadPaymentReceipt(ord)}
+                                  className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
+                                  title="Download official paid invoice receipt"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-white" />
+                                  <span>Receipt</span>
+                                </button>
+                              )
+                            )}
+
+                            {(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') && (
+                              <>
+                                <button
+                                  onClick={() => setSelectedOrderForWorker(ord)}
+                                  className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                >
+                                  <Users className="w-3.5 h-3.5" />
+                                  <span>{ord.assigned_workers && ord.assigned_workers.length > 0 ? 'Reassign Worker' : 'Assign Worker'}</span>
+                                </button>
+
+                                <button
+                                  onClick={() => setSelectedOrderForProgress(ord)}
+                                  className="px-3.5 py-2 rounded-xl bg-[#38A132]/10 hover:bg-[#38A132]/20 text-[#38A132] border border-[#38A132]/30 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  <span>Update Build Stage</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    ))
                 ) : (
                   <div className="bg-white p-12 rounded-3xl border border-[#E2D7CB] text-center space-y-3">
                     <Sliders className="w-10 h-10 text-[#A09080] mx-auto" />
@@ -884,6 +1186,48 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* TAB 2: CUSTOMIZATION APPROVALS */}
             {activeTab === 'approvals' && (
               <div className="space-y-6">
+                {/* Quotes & Approvals Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-sm">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Pending Review</span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{pendingCount} Requests</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200 inline-block">
+                        Awaiting review & quote
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-sm">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Approved Quotes</span>
+                      <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{approvedCount} Orders</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                        Quoted, awaiting customer payment
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2 transition-all hover:shadow-sm">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Rejected Requests</span>
+                      <XCircle className="w-4 h-4 text-rose-600" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{rejectedCount} Requests</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-rose-800 bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200 inline-block">
+                        Declined requests
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-extrabold text-[#7A6C5E]">Filter Status:</span>
@@ -891,13 +1235,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       <button
                         key={st}
                         onClick={() => setApprovalFilter(st as any)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all ${
-                          approvalFilter === st
+                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all ${approvalFilter === st
                             ? 'bg-[#48A63E] text-white shadow-xs'
                             : 'bg-white border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F5ECE1]'
-                        }`}
+                          }`}
                       >
-                        {st === 'Pending' ? `Pending Review (${pendingCount})` : st}
+                        {st === 'Pending' ? `Pending Review (${pendingCount})` : st === 'Approved' ? `Approved (${approvedCount})` : st}
                       </button>
                     ))}
                   </div>
@@ -958,16 +1301,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               <h3 className="font-extrabold text-sm sm:text-base text-[#2C241D]">{ord.furniture_type}</h3>
                             </div>
 
-                            <span className={`px-3 py-1 rounded-full text-xs font-extrabold self-start sm:self-auto ${
-                              ord.order_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                              ord.order_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                              'bg-rose-100 text-rose-800'
-                            }`}>
+                            <span className={`px-3 py-1 rounded-full text-xs font-extrabold self-start sm:self-auto ${ord.order_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
+                                ord.order_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
+                                  'bg-rose-100 text-rose-800'
+                              }`}>
                               {ord.order_status}
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs text-[#6B5C4D]">
+                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs text-[#6B5C4D]">
                             <div>
                               <span className="font-bold block text-[#7A6C5E] text-[10px]">Client Name</span>
                               <span className="font-extrabold text-[#2C241D]">{ord.customer_name}</span>
@@ -975,6 +1317,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             <div>
                               <span className="font-bold block text-[#7A6C5E] text-[10px]">Material Finish</span>
                               <span className="font-bold text-[#2C241D]">{ord.material}</span>
+                            </div>
+                            <div>
+                              <span className="font-bold block text-[#7A6C5E] text-[10px]">Color / Polish</span>
+                              <span className="font-bold">{renderColorSwatchBadge(ord.color)}</span>
                             </div>
                             <div>
                               <span className="font-bold block text-[#7A6C5E] text-[10px]">Quoted Price</span>
@@ -1168,43 +1514,75 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {workers
-                    .filter((w) => {
-                      if (!searchQuery.trim()) return true;
-                      const q = searchQuery.toLowerCase();
-                      return (
-                        w.full_name.toLowerCase().includes(q) ||
-                        w.email.toLowerCase().includes(q) ||
-                        (w.specialization && w.specialization.toLowerCase().includes(q)) ||
-                        (w.phone && w.phone.toLowerCase().includes(q))
-                      );
-                    })
-                    .map((worker) => (
-                    <div key={worker.worker_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold flex items-center justify-center text-sm shadow-md">
-                          {(worker.full_name || 'Worker').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <h4 className="font-extrabold text-sm text-[#2C241D]">{worker.full_name}</h4>
-                          <p className="text-[11px] text-[#48A63E] font-bold">{worker.specialization || 'Craft Specialist'}</p>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5 text-xs text-[#6B5C4D]">
-                        <p><span className="font-bold">Email:</span> {worker.email}</p>
-                        <p><span className="font-bold">Phone:</span> {worker.phone || 'N/A'}</p>
-                        <p>
-                          <span className="font-bold">Status:</span>{' '}
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${worker.status ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
-                            {worker.status ? 'Active Technician' : 'Inactive'}
-                          </span>
-                        </p>
-                      </div>
+                {workers.filter((w) => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase();
+                  return (
+                    w.full_name.toLowerCase().includes(q) ||
+                    w.email.toLowerCase().includes(q) ||
+                    (w.specialization && w.specialization.toLowerCase().includes(q)) ||
+                    (w.phone && w.phone.toLowerCase().includes(q))
+                  );
+                }).length === 0 ? (
+                  <div className="py-12 px-4 text-center bg-white rounded-3xl border border-[#E2D7CB] space-y-3">
+                    <div className="w-14 h-14 rounded-2xl bg-[#F5ECE1] text-[#8C7C6D] flex items-center justify-center mx-auto shadow-xs">
+                      <Users className="w-7 h-7" />
                     </div>
-                  ))}
-                </div>
+                    <h4 className="font-extrabold text-base text-[#2C241D]">No workers yet</h4>
+                    <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto font-medium">
+                      {searchQuery.trim()
+                        ? `No artisan technicians match "${searchQuery}". Try a different search keyword.`
+                        : 'No artisan technicians registered yet. Click below to add a craftsman to the workshop directory.'}
+                    </p>
+                    {!searchQuery.trim() && (
+                      <button
+                        onClick={() => setIsAddWorkerModalOpen(true)}
+                        className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer mt-1"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add First Worker</span>
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {workers
+                      .filter((w) => {
+                        if (!searchQuery.trim()) return true;
+                        const q = searchQuery.toLowerCase();
+                        return (
+                          w.full_name.toLowerCase().includes(q) ||
+                          w.email.toLowerCase().includes(q) ||
+                          (w.specialization && w.specialization.toLowerCase().includes(q)) ||
+                          (w.phone && w.phone.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((worker) => (
+                        <div key={worker.worker_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold flex items-center justify-center text-sm shadow-md">
+                              {(worker.full_name || 'Worker').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-sm text-[#2C241D]">{worker.full_name}</h4>
+                              <p className="text-[11px] text-[#48A63E] font-bold">{worker.specialization || 'Craft Specialist'}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5 text-xs text-[#6B5C4D]">
+                            <p><span className="font-bold">Email:</span> {worker.email}</p>
+                            <p><span className="font-bold">Phone:</span> {worker.phone || 'N/A'}</p>
+                            <p>
+                              <span className="font-bold">Status:</span>{' '}
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${worker.status ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
+                                {worker.status ? 'Active Technician' : 'Inactive'}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1304,48 +1682,424 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             );
                           })
                           .map((query) => (
-                          <div key={query.id} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#48A63E]/10 text-[#48A63E] mb-1">
-                                  {query.category}
+                            <div key={query.id} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <span className="inline-block text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-[#48A63E]/10 text-[#48A63E] mb-1">
+                                    {query.category}
+                                  </span>
+                                  <h5 className="font-extrabold text-sm text-[#2C241D]">{query.subject}</h5>
+                                  <p className="text-[11px] text-[#7A6C5E] font-medium">{query.createdAt}</p>
+                                </div>
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${query.status === 'Pending' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+                                    query.status === 'In Review' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                                      query.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                        'bg-slate-100 text-slate-800 border border-slate-200'
+                                  }`}>
+                                  {query.status}
                                 </span>
-                                <h5 className="font-extrabold text-sm text-[#2C241D]">{query.subject}</h5>
-                                <p className="text-[11px] text-[#7A6C5E] font-medium">{query.createdAt}</p>
                               </div>
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${
-                                query.status === 'Pending' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
-                                query.status === 'In Review' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
-                                query.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                                'bg-slate-100 text-slate-800 border border-slate-200'
-                              }`}>
-                                {query.status}
-                              </span>
+
+                              <p className="text-xs text-[#5C4E42] bg-[#FAF7F2] p-3 rounded-xl border border-[#EFE7DE] leading-relaxed">
+                                {query.message}
+                              </p>
+
+                              {query.adminResponse ? (
+                                <div className="p-3.5 rounded-xl bg-[#48A63E]/10 border border-[#48A63E]/30 space-y-1 text-xs">
+                                  <div className="flex items-center gap-1.5 text-[#3D9134] font-extrabold">
+                                    <ShieldCheck className="w-4 h-4" />
+                                    <span>Admin Response & Feedback ({query.updatedAt || 'Recently'}):</span>
+                                  </div>
+                                  <p className="text-[#2C241D] font-medium leading-relaxed italic">
+                                    "{query.adminResponse}"
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="text-[11px] font-bold text-amber-700 flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  <span>Waiting for Admin review and response...</span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 6: CUSTOM FURNITURE COUPONS & PROMOTIONS HUB */}
+            {activeTab === 'coupons' && (
+              <div className="space-y-6 pt-2">
+                {/* Coupon KPI Overview Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Total Promo Provisions</span>
+                      <Tag className="w-4 h-4 text-[#48A63E]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{couponsList.length}</div>
+                    <div className="text-[10px] text-[#48A63E] font-bold mt-1">Active Custom Offers</div>
+                  </div>
+
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>First N Payment Offers</span>
+                      <Users className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                      {couponsList.filter(c => c.customerLimit && c.customerLimit > 0).length}
+                    </div>
+                    <div className="text-[10px] text-amber-700 font-bold mt-1">Payment Cap Offers</div>
+                  </div>
+
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Targeted VIP Offers</span>
+                      <Sparkles className="w-4 h-4 text-purple-600" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                      {couponsList.filter(c => c.targetUserEmail && c.targetUserEmail.trim()).length}
+                    </div>
+                    <div className="text-[10px] text-purple-700 font-bold mt-1">Direct VIP Customer Offers</div>
+                  </div>
+
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Total Redemptions</span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                      {couponsList.reduce((acc, c) => acc + (c.currentRedemptions || 0), 0)}
+                    </div>
+                    <div className="text-[10px] text-emerald-700 font-bold mt-1">Redeemed At Checkout</div>
+                  </div>
+                </div>
+
+                {/* Main Table Card */}
+                <div className="ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
+                  {/* Action Bar */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
+                    <div className="relative w-full sm:w-72">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7A6C5E]" />
+                      <input
+                        type="text"
+                        placeholder="Search coupons by code or email..."
+                        value={couponSearchQuery}
+                        onChange={(e) => setCouponSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-medium focus:outline-none focus:border-[#48A63E]"
+                      />
+                    </div>
+
+                    <button
+                      onClick={() => setIsAddCouponModalOpen(true)}
+                      className="px-5 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all shadow-md shadow-[#48A63E]/20 flex items-center gap-2 cursor-pointer w-full sm:w-auto justify-center active:scale-95"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Create Coupon Provision</span>
+                    </button>
+                  </div>
+
+                  {/* Coupon List Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                          <th className="py-3 px-4">Coupon Code</th>
+                          <th className="py-3 px-4">Discount</th>
+                          <th className="py-3 px-4">Audience / Offer Type</th>
+                          <th className="py-3 px-4">Payment Limit Progress</th>
+                          <th className="py-3 px-4">Target VIP Customer Email / Allotment</th>
+                          <th className="py-3 px-4">Status</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                        {couponsList
+                          .filter(c => !couponSearchQuery.trim() || c.code.toLowerCase().includes(couponSearchQuery.toLowerCase()) || (c.targetUserEmail && c.targetUserEmail.toLowerCase().includes(couponSearchQuery.toLowerCase())))
+                          .map((coupon) => {
+                            const limitN = coupon.customerLimit || 0;
+                            const redeemed = coupon.currentRedemptions || 0;
+                            const audience = coupon.audienceType || 'production';
+
+                            let audienceBadge = '🏭 First N Production Customers';
+                            let audienceBg = 'bg-amber-50 text-amber-700 border-amber-200';
+                            if (audience === 'retail') {
+                              audienceBadge = '🛍️ First N Retail Customers';
+                              audienceBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            } else if (audience === 'all') {
+                              audienceBadge = '🌐 First N Customers (All)';
+                              audienceBg = 'bg-blue-50 text-blue-700 border-blue-200';
+                            }
+
+                            if (coupon.targetUserEmail && coupon.targetUserEmail.trim()) {
+                              audienceBadge = '⭐ VIP / Special Offer';
+                              audienceBg = 'bg-purple-50 text-purple-700 border-purple-200';
+                            }
+
+                            return (
+                              <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                                  <div className="flex items-center gap-2">
+                                    <Tag className="w-3.5 h-3.5 text-[#48A63E]" />
+                                    <span className="bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">{coupon.code}</span>
+                                  </div>
+                                </td>
+
+                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
+
+                                <td className="py-3 px-4">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${audienceBg}`}>
+                                    {audienceBadge} {limitN > 0 ? `(N = ${limitN})` : ''}
+                                  </span>
+                                </td>
+
+                                <td className="py-3 px-4 font-mono">
+                                  {limitN > 0 ? (
+                                    <div className="space-y-1">
+                                      <span className="font-bold text-[#2C241D] text-[11px]">{redeemed} / {limitN} Used</span>
+                                      <div className="w-24 h-1.5 bg-[#EAE0D4] rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full transition-all ${redeemed >= limitN ? 'bg-rose-500' : 'bg-[#48A63E]'}`}
+                                          style={{ width: `${Math.min(100, Math.round((redeemed / limitN) * 100))}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[#8C7C6D] text-[11px] font-medium">Unlimited</span>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4 text-[#6B5C4D]">
+                                   {coupon.targetUserEmail ? `🎯 ${coupon.targetUserEmail}` : '🌐 All Customers'}
+                                 </td>
+
+                                <td className="py-4 px-4">
+                                   <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${coupon.status === 'Active' && (!limitN || redeemed < limitN)
+                                       ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                       : 'bg-rose-100 text-rose-700'
+                                     }`}>
+                                     {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
+                                   </span>
+                                 </td>
+
+                                <td className="py-4 px-4 text-right space-x-2">
+                                  <button
+                                    onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>Remove</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Allotment & One-Time Usage Record Table */}
+                  <div className="mt-8 border-t border-[#EFE7DE] pt-6 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                          <UserCheck className="w-4 h-4 text-[#48A63E]" />
+                          <span>Customer Coupon Allotment & One-Time Usage Records</span>
+                        </h4>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Maintains complete record of users allotted coupons, delivery status, and single-use enforcement.</p>
+                      </div>
+                      <span className="text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-lg border border-[#48A63E]/20">
+                        {allotmentsList.length} Total Records
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                            <th className="py-3 px-4">Allotted Customer Email / User ID</th>
+                            <th className="py-3 px-4">Coupon Code</th>
+                            <th className="py-3 px-4">Discount</th>
+                            <th className="py-3 px-4">Allotted Date</th>
+                            <th className="py-3 px-4">Usage Status</th>
+                            <th className="py-3 px-4">Redeemed Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE] font-medium">
+                          {allotmentsList.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="py-6 text-center text-[#8C7C6D] italic">
+                                No customer coupon allotments recorded yet. When a coupon is sent to a customer email, it will be tracked here.
+                              </td>
+                            </tr>
+                          ) : (
+                            allotmentsList.map((alt) => (
+                              <tr key={alt.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
+                                  ✉️ {alt.targetUserEmail}
+                                </td>
+                                <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
+                                  <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">
+                                    {alt.couponCode}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                  {alt.discountPercent}% OFF
+                                </td>
+                                <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
+                                  {alt.allottedDate}
+                                </td>
+                                <td className="py-3.5 px-4">
+                                  {alt.used ? (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
+                                      Used ✓ (Redeemed)
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                      Delivered
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
+                                  {alt.usedDate || '—'}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 7: DEDICATED ADMIN DIRECTIVES & MESSAGES PAGE */}
+            {activeTab === 'admin_messages' && (
+              <div className="space-y-5">
+                {/* Summary Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Total Directives</span>
+                      <Mail className="w-4 h-4 text-[#48A63E]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{adminMessages.length}</div>
+                    <div className="text-[10px] text-[#48A63E] font-bold mt-1">Messages from System Admin</div>
+                  </div>
+
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Unread Directives</span>
+                      <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{unreadAdminMsgsCount}</div>
+                    <div className="text-[10px] text-amber-700 font-bold mt-1">Pending Review</div>
+                  </div>
+
+                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Read & Acknowledged</span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                      {adminMessages.length - unreadAdminMsgsCount}
+                    </div>
+                    <div className="text-[10px] text-emerald-700 font-bold mt-1">Acknowledged</div>
+                  </div>
+                </div>
+
+                {/* Main Messages Container */}
+                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                    <div>
+                      <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-2">
+                        <Mail className="w-5 h-5 text-[#48A63E]" />
+                        Messages & Directives from System Admin
+                      </h2>
+                      <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                        Official executive announcements, workshop operational directives, and direct messages.
+                      </p>
+                    </div>
+
+                    {unreadAdminMsgsCount > 0 && (
+                      <button
+                        onClick={() => {
+                          markAllAdminMessagesReadForUser(currentUser.email, 'Production Staff');
+                          loadAdminMessages();
+                        }}
+                        className="px-4 py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all shadow-sm flex items-center gap-1.5 cursor-pointer self-start sm:self-auto active:scale-95"
+                      >
+                        <Check className="w-4 h-4" />
+                        <span>Mark All as Read</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Messages List */}
+                  <div className="space-y-4">
+                    {adminMessages.length === 0 ? (
+                      <div className="p-10 text-center text-[#7A6C5E] space-y-2 bg-white rounded-2xl border border-[#E2D7CB]">
+                        <Mail className="w-8 h-8 text-[#A09080] mx-auto opacity-50" />
+                        <p className="text-sm font-extrabold text-[#2C241D]">No Admin Messages Received</p>
+                        <p className="text-xs text-[#7A6C5E]">Official announcements dispatched by System Admin to Production Staff will appear here.</p>
+                      </div>
+                    ) : (
+                      adminMessages.map((msg) => {
+                        const isRead = isMessageReadByUser(msg, currentUser.email);
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`p-5 rounded-2xl border transition-all space-y-3 ${isRead
+                                ? 'bg-[#FAF7F2]/80 border-[#E2D7CB] text-[#5C4E42]'
+                                : 'bg-gradient-to-r from-amber-50/90 via-white to-amber-50/40 border-2 border-amber-300 shadow-md'
+                              }`}
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-base text-[#2C241D]">{msg.subject}</span>
+                                {isRead ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    Read ✓
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500 text-white shadow-xs animate-pulse">
+                                    <Bell className="w-3 h-3" />
+                                    Unread (New Directive)
+                                  </span>
+                                )}
+                              </div>
+                              <span className="font-mono text-xs text-[#7A6C5E] font-bold">{msg.createdDate}</span>
                             </div>
 
-                            <p className="text-xs text-[#5C4E42] bg-[#FAF7F2] p-3 rounded-xl border border-[#EFE7DE] leading-relaxed">
-                              {query.message}
+                            <p className="text-xs sm:text-sm text-[#2C241D] font-medium leading-relaxed whitespace-pre-line">
+                              {msg.message}
                             </p>
 
-                            {query.adminResponse ? (
-                              <div className="p-3.5 rounded-xl bg-[#48A63E]/10 border border-[#48A63E]/30 space-y-1 text-xs">
-                                <div className="flex items-center gap-1.5 text-[#3D9134] font-extrabold">
-                                  <ShieldCheck className="w-4 h-4" />
-                                  <span>Admin Response & Feedback ({query.updatedAt || 'Recently'}):</span>
-                                </div>
-                                <p className="text-[#2C241D] font-medium leading-relaxed italic">
-                                  "{query.adminResponse}"
-                                </p>
-                              </div>
-                            ) : (
-                              <div className="text-[11px] font-bold text-amber-700 flex items-center gap-1.5">
-                                <Clock className="w-3.5 h-3.5" />
-                                <span>Waiting for Admin review and response...</span>
-                              </div>
-                            )}
+                            <div className="flex items-center justify-between pt-2 border-t border-[#EFE7DE]">
+                              <span className="text-[11px] font-bold text-[#7A6C5E]">
+                                Sender: <strong className="text-[#2C241D]">{msg.sender}</strong> ({msg.recipientType})
+                              </span>
+
+                              {!isRead && (
+                                <button
+                                  onClick={() => {
+                                    markAdminMessageRead(msg.id, currentUser.email);
+                                    loadAdminMessages();
+                                  }}
+                                  className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer active:scale-95"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Mark as Read</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        ))}
-                      </div>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -1473,49 +2227,109 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             </div>
 
-            {/* SEPARATED PRODUCT FIELDS GRID */}
+            {/* 1. CLIENT & ORDER TIMELINE SUMMARY */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+              <h4 className="text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Client Contact & Order Record</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Client Name</span>
+                  <span className="font-extrabold text-[#2C241D] truncate block">{selectedOrderForDetails.customer_name}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Email Address</span>
+                  <span className="font-bold text-[#2C241D] block break-all text-[11px]" title={selectedOrderForDetails.customer_email}>{selectedOrderForDetails.customer_email || 'Not Provided'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Phone Contact</span>
+                  <span className="font-bold text-[#2C241D] block truncate">{selectedOrderForDetails.customer_phone || 'Not Provided'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Submission Date</span>
+                  <span className="font-bold text-[#2C241D] block truncate">
+                    {selectedOrderForDetails.order_date
+                      ? new Date(selectedOrderForDetails.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      : 'Recent'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. SEPARATED PRODUCT FIELDS GRID */}
             <div className="space-y-3">
               <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Product Specifications & Parameters</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                 {parseOrderSpecDetails(selectedOrderForDetails).map((field, idx) => (
                   <div key={idx} className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
                     <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">{field.label}</span>
-                    <span className="font-extrabold text-xs text-[#2C241D] block">{field.value}</span>
+                    {field.isColor || field.label.toLowerCase().includes('color') ? (
+                      renderColorSwatchBadge(field.value, field.hex)
+                    ) : (
+                      <span className="font-extrabold text-xs text-[#2C241D] block">{field.value}</span>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* STATUS & QUOTATION SUMMARY */}
-            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div>
-                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Order Status</span>
-                <span className="inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 text-blue-800">
-                  {selectedOrderForDetails.order_status}
-                </span>
+            {/* 3. CUSTOMER PROVIDED REFERENCE DESIGN IMAGES */}
+            {selectedOrderForDetails.reference_image && selectedOrderForDetails.reference_image.trim() && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
+                  <Eye className="w-4 h-4 text-[#48A63E]" />
+                  Customer Provided Reference Images ({selectedOrderForDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).length})
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {selectedOrderForDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, i) => (
+                    <a
+                      key={i}
+                      href={imgUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all block h-32"
+                    >
+                      <img
+                        src={imgUrl}
+                        alt={`Reference Design ${i + 1}`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          const target = e.target as HTMLElement;
+                          target.style.display = 'none';
+                          if (target.nextElementSibling) {
+                            target.nextElementSibling.classList.remove('hidden');
+                          }
+                        }}
+                      />
+                      <div className="hidden absolute inset-0 bg-[#F5ECE1] flex flex-col items-center justify-center p-3 text-center">
+                        <ImageIcon className="w-6 h-6 text-[#9E9082] mb-1" />
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E]">Reference Photo #{i + 1}</span>
+                        <span className="text-[9px] text-[#48A63E] underline font-bold mt-1">Open Image URL</span>
+                      </div>
+                      <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-lg bg-black/60 text-white text-[9px] font-extrabold backdrop-blur-xs flex items-center gap-1">
+                        <Eye className="w-3 h-3" /> Photo #{i + 1}
+                      </div>
+                    </a>
+                  ))}
+                </div>
               </div>
+            )}
 
-              <div>
-                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Quoted Price</span>
-                <span className="font-extrabold text-sm text-[#38A132] mt-0.5 block">
-                  {selectedOrderForDetails.estimated_price ? `₹${selectedOrderForDetails.estimated_price.toLocaleString()}` : 'Pending Quote'}
-                </span>
-              </div>
 
-              <div>
-                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Assigned Technician</span>
-                <span className="font-extrabold text-xs text-[#2C241D] mt-0.5 block">
-                  {selectedOrderForDetails.assigned_workers && selectedOrderForDetails.assigned_workers.length > 0
-                    ? selectedOrderForDetails.assigned_workers[0].worker_name
-                    : 'Unassigned'}
-                </span>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-[#E2D7CB] pt-4">
+            <div className="flex items-center justify-between gap-3 border-t border-[#E2D7CB] pt-4">
+              {(selectedOrderForDetails.payment_status === 'Paid' || selectedOrderForDetails.order_status === 'Paid') ? (
+                <button
+                  onClick={() => downloadPaymentReceipt(selectedOrderForDetails)}
+                  className="px-4 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-white" />
+                  <span>Download Payment Receipt</span>
+                </button>
+              ) : (
+                <div />
+              )}
               <button
                 onClick={() => setSelectedOrderForDetails(null)}
-                className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-md cursor-pointer"
+                className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#42372D] text-white font-extrabold text-xs shadow-md cursor-pointer"
               >
                 Close Specifications
               </button>
@@ -1549,9 +2363,28 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <p><span className="font-bold text-[#7A6C5E]">Furniture Type:</span> {selectedOrderForReview.furniture_type}</p>
               <p><span className="font-bold text-[#7A6C5E]">Dimensions:</span> {selectedOrderForReview.dimensions}</p>
               <p><span className="font-bold text-[#7A6C5E]">Material:</span> {selectedOrderForReview.material}</p>
+              <p><span className="font-bold text-[#7A6C5E]">Color / Polish Shade:</span> <strong className="text-[#48A63E]">{selectedOrderForReview.color || 'Natural Finish'}</strong></p>
               {selectedOrderForReview.estimated_price ? (
                 <p><span className="font-bold text-[#7A6C5E]">Current Quote:</span> <strong className="text-[#38A132]">₹{selectedOrderForReview.estimated_price.toLocaleString()}</strong></p>
               ) : null}
+
+              {selectedOrderForReview.reference_image && (
+                <div className="space-y-1.5 pt-2 border-t border-[#EFE7DE]">
+                  <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Customer Reference Photos ({selectedOrderForReview.reference_image.split(',').map(s => s.trim()).filter(Boolean).length})</span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {selectedOrderForReview.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, idx) => (
+                      <a key={idx} href={imgUrl} target="_blank" rel="noopener noreferrer" className="block relative group">
+                        <img
+                          src={imgUrl}
+                          alt={`Reference ${idx + 1}`}
+                          className="w-14 h-14 rounded-xl object-cover border border-[#E2D7CB] group-hover:scale-105 transition-transform"
+                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                        />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div>
@@ -1585,17 +2418,26 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedOrderForReview(null)}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1]"
+                className="px-4 py-2.5 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1] transition-all cursor-pointer"
               >
                 Cancel
               </button>
 
               <button
                 type="button"
-                onClick={handleApproveOrder}
-                className="bg-[#38A132] hover:bg-[#32922D] px-5 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-md shadow-[#38A132]/20 flex items-center gap-1.5 cursor-pointer"
+                onClick={handleRejectOrder}
+                className="bg-rose-600 hover:bg-rose-700 px-4 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-md shadow-rose-600/20 flex items-center gap-1.5 cursor-pointer transition-all"
               >
-                <CheckCircle2 className="w-4 h-4" />
+                <XCircle className="w-4 h-4 text-white" />
+                <span>Reject Request</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleApproveOrder}
+                className="bg-[#38A132] hover:bg-[#32922D] px-5 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-md shadow-[#38A132]/20 flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <CheckCircle2 className="w-4 h-4 text-white" />
                 <span>Approve & Save Price</span>
               </button>
             </div>
@@ -1814,9 +2656,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
 
               {passwordNotice && (
-                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
-                  passwordNotice.type === 'success' ? 'bg-[#48A63E]/15 text-[#3D9134] border border-[#48A63E]/30' : 'bg-rose-100 text-rose-800 border border-rose-200'
-                }`}>
+                <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${passwordNotice.type === 'success' ? 'bg-[#48A63E]/15 text-[#3D9134] border border-[#48A63E]/30' : 'bg-rose-100 text-rose-800 border border-rose-200'
+                  }`}>
                   {passwordNotice.type === 'success' ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <XCircle className="w-4 h-4 flex-shrink-0" />}
                   <span>{passwordNotice.text}</span>
                 </div>
@@ -1873,6 +2714,135 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CREATE COUPON PROVISION */}
+      {isAddCouponModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn max-h-[90vh] overflow-y-auto text-[#2C241D]">
+            <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-lg font-black text-[#1A140E]">Create Custom Furniture Coupon</h3>
+                <p className="text-xs font-medium text-[#7A6C5E]">Configure First N customer payment limits or VIP targeted customer special offers.</p>
+              </div>
+              <button
+                onClick={() => setIsAddCouponModalOpen(false)}
+                className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCouponSubmit} className="space-y-4 text-xs font-semibold">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Coupon Promo Code *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. BESPOKE15 or VIPPROD20"
+                    value={newCouponCode}
+                    onChange={(e) => setNewCouponCode(e.target.value.toUpperCase())}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Discount Percentage (%) *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={newCouponDiscount}
+                    onChange={(e) => setNewCouponDiscount(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Offer Description</label>
+                <input
+                  type="text"
+                  placeholder="e.g. 15% Off Custom Bespoke Furniture Orders (First 10 Customers)"
+                  value={newCouponDescription}
+                  onChange={(e) => setNewCouponDescription(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Target Audience & Category</label>
+                <select
+                  value={newCouponAudience}
+                  onChange={(e) => setNewCouponAudience(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="production">Production & Custom Furniture Customers Only</option>
+                  <option value="retail">Retail Readymade Customers Only</option>
+                  <option value="all">All RetailSphere Customers</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-3.5 rounded-2xl border border-[#E2D7CB]">
+                <div>
+                  <label className="block font-bold text-[#2C241D] text-xs mb-1">First N Payment Limit</label>
+                  <input
+                    type="number"
+                    min={1}
+                    placeholder="e.g. 10"
+                    value={newCouponCustomerLimit}
+                    onChange={(e) => setNewCouponCustomerLimit(e.target.value ? Number(e.target.value) : '')}
+                    className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                  />
+                  <p className="text-[10px] text-[#7A6C5E] mt-1 font-medium">Caps redemptions to first N paying customers.</p>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-[#2C241D] text-xs mb-1">Target VIP Customer Email (Optional)</label>
+                  <input
+                    type="email"
+                    placeholder="e.g. vip.customer@gmail.com"
+                    value={newCouponTargetEmail}
+                    onChange={(e) => setNewCouponTargetEmail(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-mono text-xs font-bold focus:outline-none focus:border-[#48A63E]"
+                  />
+                  <p className="text-[10px] text-[#7A6C5E] mt-1 font-medium">Dispatches email + notification to specific VIP.</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="prod-auto-allot-check"
+                  checked={newCouponAutoAllot}
+                  onChange={(e) => setNewCouponAutoAllot(e.target.checked)}
+                  className="w-4 h-4 accent-[#48A63E] rounded cursor-pointer"
+                />
+                <label htmlFor="prod-auto-allot-check" className="text-[11px] font-bold text-[#2C241D] cursor-pointer">
+                  Auto-allot & dispatch dashboard notifications + emails to first N customers
+                </label>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCouponModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
+                >
+                  Create & Activate Provision
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

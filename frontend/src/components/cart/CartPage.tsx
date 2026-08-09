@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X } from 'lucide-react';
+import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X, Sliders } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import {
   CartItem,
@@ -13,7 +13,8 @@ import { getWishlistItems } from '../../utils/wishlistStorage';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { saveStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { payCustomOrder } from '../../services/api_production';
-import { validateStoredCoupon, markCouponAsUsed } from '../../utils/couponStorage';
+import { validateCouponApi, redeemCouponApi, getCouponsApi, Coupon } from '../../services/api_coupons';
+import { calculateOrderPricing } from '../../utils/pricingUtils';
 
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
@@ -49,33 +50,50 @@ export const CartPage: React.FC = () => {
   };
 
   const [promoCodeInput, setPromoCodeInput] = useState('');
-  const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; percent: number } | null>(null);
+  const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; percent?: number; flatAmount?: number } | null>(null);
   const [promoMessage, setPromoMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const handleApplyPromo = (e: React.FormEvent) => {
+  useEffect(() => {
+    // Auto-apply active First N Customers coupon for payment
+    const checkFirstN = async () => {
+      try {
+        const res = await getCouponsApi();
+        const activeFirstN = res.coupons.find((c: Coupon) => 
+          c.status === 'Active' && 
+          c.type === 'first_n_customers' && 
+          c.customerLimit && 
+          c.customerLimit > 0 && 
+          (c.currentRedemptions || 0) < c.customerLimit
+        );
+
+        if (activeFirstN) {
+          setAppliedDiscount({
+            code: activeFirstN.code,
+            percent: activeFirstN.discountPercent || 0,
+            flatAmount: activeFirstN.flatDiscountAmount || 0,
+          });
+          setPromoMessage({
+            type: 'success',
+            text: `🎉 Exclusive First ${activeFirstN.customerLimit} Customers Offer (${activeFirstN.discountPercent}% Off) automatically applied for your payment!`,
+          });
+        }
+      } catch (e) {}
+    };
+    checkFirstN();
+  }, []);
+
+  const handleApplyPromo = async (e: React.FormEvent) => {
     e.preventDefault();
     const code = promoCodeInput.trim().toUpperCase();
     if (!code) return;
 
-    const rawUser = localStorage.getItem('user');
-    const userObj = rawUser ? JSON.parse(rawUser) : null;
-    const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
-
-    const userRole = (userObj?.role_name || userObj?.role || '').toLowerCase();
-    const isRetailCustomer = userRole.includes('retail') || userRole === 'customer' || !userRole;
-    const isProductionCustomer = userRole.includes('production') || userRole.includes('custom');
-    
-    const hasRetailItems = items.some(item => !(item as any).isCustom);
-    const hasCustomItems = items.some(item => (item as any).isCustom);
-
-    const res = validateStoredCoupon(code, currentUserEmail, {
-      isRetailCustomer: isRetailCustomer,
-      isProductionCustomer: isProductionCustomer,
-      isRetailCart: hasRetailItems,
-      isProductionCart: hasCustomItems,
-    });
+    const res = await validateCouponApi(code);
     if (res.valid && res.coupon) {
-      setAppliedDiscount({ code: res.coupon.code, percent: res.coupon.discountPercent });
+      setAppliedDiscount({
+        code: res.coupon.code,
+        percent: res.coupon.discountPercent || 0,
+        flatAmount: res.coupon.flatDiscountAmount || 0,
+      });
       setPromoMessage({ type: 'success', text: res.message || 'Discount Applied!' });
     } else {
       setPromoMessage({ type: 'error', text: res.message || 'Invalid promo code or not assigned to your user account.' });
@@ -89,16 +107,14 @@ export const CartPage: React.FC = () => {
   };
 
   const subtotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
-  const discountAmount = appliedDiscount ? Math.round((subtotal * appliedDiscount.percent) / 100) : 0;
-  const shippingFee = (subtotal - discountAmount) > 50000 || subtotal === 0 ? 0 : 2500;
-  const grandTotal = Math.max(0, subtotal - discountAmount + shippingFee);
+  const rawShipping = (subtotal > 50000 || subtotal === 0) ? 0 : 2500;
+  const pricing = calculateOrderPricing(subtotal, appliedDiscount, rawShipping);
+  const discountAmount = pricing.discountAmount;
+  const shippingFee = pricing.shippingFee;
+  const grandTotal = pricing.grandTotal;
   const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
 
   const processOrderCompletion = async (paymentId: string) => {
-    const rawUser = localStorage.getItem('user');
-    const userObj = rawUser ? JSON.parse(rawUser) : null;
-    const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
-
     setLastPaymentId(paymentId);
     setPaymentError(null);
 
@@ -112,9 +128,17 @@ export const CartPage: React.FC = () => {
       }
     }
 
-    if (appliedDiscount && currentUserEmail) {
-      markCouponAsUsed(appliedDiscount.code, currentUserEmail);
+    if (appliedDiscount) {
+      try {
+        await redeemCouponApi(appliedDiscount.code, paymentId);
+      } catch (err) {
+        console.warn('Coupon redemption recorded on backend:', err);
+      }
     }
+
+    const rawUser = localStorage.getItem('user');
+    const userObj = rawUser ? JSON.parse(rawUser) : null;
+    const currentUserEmail = userObj?.email || userObj?.user_id || userObj?.id || '';
 
     const userEmail = (userObj?.email || userObj?.customer_email || currentUserEmail || '').toLowerCase().trim();
     const userName = userObj?.full_name || userObj?.name || userObj?.username || 'Valued Customer';
@@ -125,7 +149,12 @@ export const CartPage: React.FC = () => {
       customerName: userName,
       email: userEmail || 'customer@retailsphere.com',
       itemsCount: totalItemCount,
-      totalAmount: grandTotal,
+      totalAmount: pricing.grandTotal,
+      originalSubtotal: pricing.originalSubtotal,
+      couponCode: pricing.couponCode || undefined,
+      discountType: pricing.discountType || undefined,
+      discountDeducted: pricing.discountAmount,
+      shippingFee: pricing.shippingFee,
       orderStatus: 'Order Placed',
       paymentStatus: 'Paid',
       paymentId: paymentId,
@@ -147,28 +176,27 @@ export const CartPage: React.FC = () => {
     setIsProcessingPayment(true);
     const rawUser = localStorage.getItem('user');
     const userObj = rawUser ? JSON.parse(rawUser) : null;
-    const fallbackPaymentId = `pay_${Date.now().toString().slice(-8)}`;
 
     const success = await openRazorpayCheckout({
-      amount: Math.round(grandTotal * 100), // amount in paise
+      amount: Math.round(pricing.grandTotal * 100), // amount in paise
       name: 'RetailSphere Furniture Store',
-      description: `Payment for ${totalItemCount} furniture items`,
+      description: pricing.descriptionText,
       prefill: {
         name: userObj?.full_name || 'Valued Customer',
         email: userObj?.email || 'customer@retailsphere.com',
       },
       onSuccess: async (paymentId) => {
-        await processOrderCompletion(paymentId || fallbackPaymentId);
+        await processOrderCompletion(paymentId || `pay_${Date.now().toString().slice(-8)}`);
       },
-      onFailure: async (reason) => {
-        console.warn('Razorpay payment fallback:', reason);
-        // Guarantee DB order creation even if Razorpay popup fails or is dismissed in test environment
-        await processOrderCompletion(fallbackPaymentId);
+      onFailure: (reason) => {
+        console.warn('Razorpay payment cancelled or failed:', reason);
+        setIsProcessingPayment(false);
+        setPaymentError(reason || 'Payment was cancelled. Order has not been placed.');
       }
     });
 
     if (!success) {
-      await processOrderCompletion(fallbackPaymentId);
+      setIsProcessingPayment(false);
     }
   };
 
@@ -308,11 +336,24 @@ export const CartPage: React.FC = () => {
                     >
                       {/* Product Thumbnail & Details */}
                       <div className="flex items-center gap-4 w-full sm:w-auto">
-                        <img
-                          src={item.imageUrl}
-                          alt={item.name}
-                          className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl bg-[#F4ECE1] flex-shrink-0 border border-[#E6DDD3]"
-                        />
+                        {item.imageUrl && item.imageUrl.trim() !== '' ? (
+                          <img
+                            src={item.imageUrl}
+                            alt={item.name}
+                            className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl bg-[#F4ECE1] flex-shrink-0 border border-[#E6DDD3]"
+                            onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"; }}
+                          />
+                        ) : item.name.toLowerCase().includes('custom') || item.id.includes('custom') ? (
+                          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex-shrink-0 flex items-center justify-center font-extrabold text-[#38A132] shadow-2xs">
+                            <Sliders className="w-8 h-8 text-[#38A132]" />
+                          </div>
+                        ) : (
+                          <img
+                            src="https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"
+                            alt={item.name}
+                            className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl bg-[#F4ECE1] flex-shrink-0 border border-[#E6DDD3]"
+                          />
+                        )}
                         <div>
                           <span className="text-[10px] font-bold uppercase tracking-wider text-[#48A63E]">
                             {item.material}
@@ -381,17 +422,28 @@ export const CartPage: React.FC = () => {
                       </div>
 
                       {appliedDiscount && (
-                        <div className="flex justify-between text-[#48A63E] font-bold bg-[#48A63E]/10 p-2 rounded-xl border border-[#48A63E]/20">
-                          <div className="flex items-center gap-1.5">
-                            <span>Dearest Discount ({appliedDiscount.code} - {appliedDiscount.percent}%)</span>
+                        <div className="bg-[#48A63E]/10 p-3.5 rounded-2xl border border-[#48A63E]/30 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-xs font-black text-[#2C241D] flex items-center gap-1">
+                                🏷️ Promo ({appliedDiscount.code})
+                              </span>
+                              <span className="text-[10px] font-black bg-[#38A132] text-white px-2 py-0.5 rounded-md shadow-2xs">
+                                {appliedDiscount.flatAmount && appliedDiscount.flatAmount > 0 ? `₹${appliedDiscount.flatAmount} OFF` : `${appliedDiscount.percent}% OFF`}
+                              </span>
+                            </div>
                             <button
+                              type="button"
                               onClick={handleRemoveDiscount}
-                              className="text-[10px] text-rose-600 underline ml-1 hover:text-rose-800"
+                              className="text-[11px] font-extrabold text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-0.5 rounded-lg transition-all cursor-pointer shrink-0"
                             >
                               Remove
                             </button>
                           </div>
-                          <span>-₹{discountAmount.toLocaleString('en-IN')}</span>
+                          <div className="flex justify-between items-center text-xs font-extrabold text-[#38A132] border-t border-[#38A132]/20 pt-1.5">
+                            <span>Discount Amount Deducted</span>
+                            <span className="text-sm font-black">-₹{discountAmount.toLocaleString('en-IN')}</span>
+                          </div>
                         </div>
                       )}
 

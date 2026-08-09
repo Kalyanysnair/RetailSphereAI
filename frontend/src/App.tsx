@@ -11,10 +11,7 @@ import { MyOrdersPage } from './components/orders/MyOrdersPage';
 import { AdminDashboardPage } from './components/admin/AdminDashboardPage';
 import { RetailStaffDashboardPage } from './components/retail-staff/RetailStaffDashboardPage';
 import { ProductionStaffDashboardPage } from './components/production-staff/ProductionStaffDashboardPage';
-
 import { ProductDetailPage } from './components/product/ProductDetailPage';
-import { MyDiscountsPage } from './components/discounts/MyDiscountsPage';
-
 export const App: React.FC = () => {
   return (
     <BrowserRouter>
@@ -34,8 +31,8 @@ export const App: React.FC = () => {
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/orders" element={<MyOrdersPage />} />
         <Route path="/my-orders" element={<MyOrdersPage />} />
-        <Route path="/discounts" element={<MyDiscountsPage />} />
-        <Route path="/my-discounts" element={<MyDiscountsPage />} />
+        <Route path="/discounts" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/my-discounts" element={<Navigate to="/dashboard" replace />} />
 
         {/* Admin Portal Dashboard Route */}
         <Route path="/admin/*" element={<AdminDashboardPage />} />

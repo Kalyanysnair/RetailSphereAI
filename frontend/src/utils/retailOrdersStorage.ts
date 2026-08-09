@@ -13,6 +13,11 @@ export interface RetailOrder {
   email: string;
   itemsCount: number;
   totalAmount: number;
+  originalSubtotal?: number;
+  couponCode?: string;
+  discountType?: string;
+  discountDeducted?: number;
+  shippingFee?: number;
   orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Cancelled';
   paymentStatus: 'Paid' | 'Pending' | 'Cancelled';
   paymentId?: string;

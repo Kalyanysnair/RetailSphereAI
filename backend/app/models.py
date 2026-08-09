@@ -303,3 +303,36 @@ class StaffQuery(Base):
 
     user = relationship("User")
 
+
+class Coupon(Base):
+    __tablename__ = "tbl_coupon"
+
+    coupon_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    code = Column(String(50), unique=True, index=True, nullable=False)
+    coupon_type = Column(String(50), nullable=False)  # 'percentage_notification', 'first_n_customers', 'flat_amount'
+    discount_percent = Column(Integer, default=0, nullable=False)
+    flat_discount_amount = Column(Numeric(10, 2), default=0, nullable=True)
+    description = Column(Text, nullable=False)
+    customer_limit = Column(Integer, nullable=True)
+    current_redemptions = Column(Integer, default=0, nullable=False)
+    target_user_email = Column(String(100), nullable=True)
+    status = Column(String(20), default="Active", nullable=False)  # 'Active', 'Inactive'
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    redemptions = relationship("CouponRedemption", back_populates="coupon", cascade="all, delete-orphan")
+
+
+class CouponRedemption(Base):
+    __tablename__ = "tbl_coupon_redemption"
+
+    redemption_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    coupon_id = Column(Integer, ForeignKey("tbl_coupon.coupon_id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=False)
+    user_email = Column(String(100), nullable=False)
+    order_id = Column(String(100), nullable=True)
+    redeemed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    coupon = relationship("Coupon", back_populates="redemptions")
+    user = relationship("User")
+
+

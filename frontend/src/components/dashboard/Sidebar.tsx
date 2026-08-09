@@ -56,8 +56,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     { name: 'Home Storefront', icon: Home, path: '/' },
     { name: 'Browse Furniture', icon: Grid, path: '/dashboard' },
     { name: 'AI Recommendations', icon: Sparkles, path: '/dashboard' },
-    { name: 'Custom Studio', icon: SlidersHorizontal, path: '/dashboard' },
-    { name: 'My Discounts & Offers', icon: Gift, path: '/discounts' },
     { name: 'My Cart & Orders', icon: ShoppingBag, path: '/cart' },
     { name: 'Saved Wishlist', icon: Heart, path: '/wishlist' },
     { name: 'Account Settings', icon: Settings, path: '/profile' },

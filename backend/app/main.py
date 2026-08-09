@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
-from app.routers import auth, admin, production
+from app.routers import auth, admin, production, coupons
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -41,6 +41,7 @@ def startup_db():
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(production.router)
+app.include_router(coupons.router)
 
 @app.get("/")
 def read_root():

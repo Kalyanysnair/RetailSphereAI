@@ -31,10 +31,14 @@ import {
   User,
   ChevronDown,
   Lock,
+  Unlock,
+  Download,
   Key,
   Truck,
+  FileText,
   Clock,
   ShoppingBag,
+  PackageCheck,
   Percent,
   Sliders,
   ArrowRight,
@@ -65,10 +69,17 @@ import {
 } from '../../services/api';
 
 import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
+import {
+  createCouponApi,
+  getCouponsApi,
+  deleteCouponApi,
+  regenerateCouponApi,
+  Coupon,
+  CouponAllotment
+} from '../../services/api_coupons';
 import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
-import { fetchCustomOrders } from '../../services/api_production';
-import { getStoredAdminMessages, sendAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
+import { fetchCustomOrders, updateOrderStatus, toggleLockOrderSpecifications, downloadPaymentReceipt, CustomOrderData } from '../../services/api_production';
+import { getStoredAdminMessages, sendAdminMessage, deleteAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
 import { getStoredUserAuthorities, saveUserAuthority, UserAuthorityRecord, CAPABILITY_DEFINITIONS, CapabilityKey } from '../../utils/userAuthoritiesStorage';
 
 export interface SystemUserItem {
@@ -182,12 +193,21 @@ export const INITIAL_INVENTORY: InventoryItem[] = [];
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Active View Tab: staff | products | inventory | suppliers | orders | queries | coupons | users | broadcast
-  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'queries' | 'coupons' | 'users' | 'broadcast'>('staff');
+  // Active View Tab: staff | products | inventory | suppliers | orders | custom_orders | queries | coupons | users | broadcast
+  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'custom_orders' | 'queries' | 'coupons' | 'users' | 'broadcast'>('staff');
+
+  // Custom Orders Admin Studio State
+  const [allAdminCustomOrders, setAllAdminCustomOrders] = useState<CustomOrderData[]>([]);
+  const [customOrderSubTab, setCustomOrderSubTab] = useState<'all' | 'requests' | 'paid'>('all');
+  const [customOrderSearchQuery, setCustomOrderSearchQuery] = useState('');
+  const [selectedCustomForAdminDetails, setSelectedCustomForAdminDetails] = useState<CustomOrderData | null>(null);
+  const [selectedCustomForAdminReview, setSelectedCustomForAdminReview] = useState<CustomOrderData | null>(null);
+  const [adminPriceInput, setAdminPriceInput] = useState('');
+  const [adminReviewRemarks, setAdminReviewRemarks] = useState('');
 
   // Admin Broadcast & Direct Messages State
   const [adminMessagesList, setAdminMessagesList] = useState<AdminMessage[]>(getStoredAdminMessages());
-  const [adminMsgRecipientType, setAdminMsgRecipientType] = useState<'All Staff' | 'Retail Staff' | 'Production Staff' | 'Specific Staff' | 'All Suppliers' | 'Specific Supplier'>('All Staff');
+  const [adminMsgRecipientType, setAdminMsgRecipientType] = useState<'All Staff' | 'Retail Staff' | 'Production Staff' | 'Specific Staff'>('All Staff');
   const [adminMsgTargetEmail, setAdminMsgTargetEmail] = useState('');
   const [adminMsgSubject, setAdminMsgSubject] = useState('');
   const [adminMsgContent, setAdminMsgContent] = useState('');
@@ -221,11 +241,7 @@ export const AdminDashboardPage: React.FC = () => {
   useEffect(() => {
     const refreshMsgs = () => setAdminMessagesList(getStoredAdminMessages());
     window.addEventListener('admin-messages-updated', refreshMsgs);
-    window.addEventListener('storage', refreshMsgs);
-    return () => {
-      window.removeEventListener('admin-messages-updated', refreshMsgs);
-      window.removeEventListener('storage', refreshMsgs);
-    };
+    return () => window.removeEventListener('admin-messages-updated', refreshMsgs);
   }, []);
 
   const unreadCount = notifications.filter(n => n.unread).length;
@@ -340,6 +356,61 @@ export const AdminDashboardPage: React.FC = () => {
   // Purchased Products Modal State
   const [selectedUserForPurchases, setSelectedUserForPurchases] = useState<SystemUserItem | null>(null);
   const [isPurchasedProductsModalOpen, setIsPurchasedProductsModalOpen] = useState(false);
+
+  // Edit Order Modal State
+  const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<RetailOrder | null>(null);
+  const [editOrderStatusValue, setEditOrderStatusValue] = useState<string>('Order Placed');
+  const [editOrderPaymentStatusValue, setEditOrderPaymentStatusValue] = useState<string>('Paid');
+
+  const handleOpenEditOrder = (ord: RetailOrder) => {
+    setSelectedOrderForEdit(ord);
+    setEditOrderStatusValue(ord.orderStatus || 'Order Placed');
+    setEditOrderPaymentStatusValue(ord.paymentStatus || 'Paid');
+  };
+
+  const handleSaveEditOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrderForEdit) return;
+
+    const updatedList = orderList.map((o) =>
+      o.orderId === selectedOrderForEdit.orderId
+        ? { ...o, orderStatus: editOrderStatusValue as any, paymentStatus: editOrderPaymentStatusValue as any }
+        : o
+    );
+    setOrderList(updatedList as any);
+    localStorage.setItem('retailsphere_retail_orders_v1', JSON.stringify(updatedList));
+    localStorage.setItem('retail_orders_list', JSON.stringify(updatedList));
+    window.dispatchEvent(new Event('retail-orders-updated'));
+
+    setSelectedOrderForEdit(null);
+    setSuccessBanner(`Order #${selectedOrderForEdit.orderId} updated successfully!`);
+    setTimeout(() => setSuccessBanner(null), 4000);
+  };
+
+  const formatPaymentTime = (ord: any) => {
+    if (ord.createdAt) {
+      try {
+        const d = new Date(ord.createdAt);
+        if (!isNaN(d.getTime())) {
+          const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          return `${dateStr} at ${timeStr}`;
+        }
+      } catch (e) {}
+    }
+    if (ord.orderDate) {
+      try {
+        const d = new Date(ord.orderDate);
+        if (!isNaN(d.getTime())) {
+          const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          return `${dateStr} at ${timeStr}`;
+        }
+      } catch (e) {}
+      return ord.orderDate;
+    }
+    return 'Recent';
+  };
 
   const handleViewUserPurchases = (u: SystemUserItem) => {
     setSelectedUserForPurchases(u);
@@ -549,15 +620,20 @@ export const AdminDashboardPage: React.FC = () => {
     try {
       const dbStoreOrders = await fetchRetailOrdersFromDB();
       const allCustomOrders = await fetchCustomOrders('All', true);
+      setAllAdminCustomOrders(allCustomOrders || []);
+
+      const paidCustomOrders = (allCustomOrders || []).filter(
+        (c) => (c.payment_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'in production' || (c.order_status || '').toLowerCase() === 'completed'
+      );
       
-      const formattedCustom: RetailOrder[] = allCustomOrders.map((c) => ({
+      const formattedCustom: RetailOrder[] = paidCustomOrders.map((c) => ({
         orderId: `CUSTOM-${c.custom_order_id}`,
         customerName: c.customer_name || 'Bespoke Customer',
         email: c.customer_email || 'customer@retailsphere.com',
         itemsCount: 1,
         totalAmount: c.estimated_price || 0,
-        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : (c.order_status as any || 'Pending')),
-        paymentStatus: (c.payment_status === 'Paid' || c.order_status === 'Paid') ? 'Paid' : 'Pending',
+        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : 'Processing'),
+        paymentStatus: 'Paid',
         orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
         createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
         items: [{
@@ -565,7 +641,7 @@ export const AdminDashboardPage: React.FC = () => {
           name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
           price: c.estimated_price || 0,
           quantity: 1,
-          imageUrl: c.reference_image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80'
+          imageUrl: c.reference_image ? c.reference_image.split(',')[0].trim() : ''
         }]
       }));
 
@@ -598,6 +674,125 @@ export const AdminDashboardPage: React.FC = () => {
     setTimeout(() => setSuccessBanner(null), 5000);
   };
 
+  const handleAdminToggleLock = async (ord: CustomOrderData) => {
+    await toggleLockOrderSpecifications(ord.custom_order_id);
+    setSuccessBanner(`Customization Order #${ord.custom_order_id} specification lock toggled.`);
+    setTimeout(() => setSuccessBanner(null), 5000);
+    loadAllOrdersForAdmin();
+  };
+
+  const handleAdminOpenPriceModal = (ord: CustomOrderData) => {
+    setSelectedCustomForAdminReview(ord);
+    setAdminPriceInput(ord.estimated_price ? ord.estimated_price.toString() : '');
+    setAdminReviewRemarks(ord.latest_remarks || '');
+  };
+
+  const handleAdminSubmitQuote = async (status: 'Approved' | 'Rejected') => {
+    if (!selectedCustomForAdminReview) return;
+    const priceNum = parseFloat(adminPriceInput);
+    if (status === 'Approved' && (isNaN(priceNum) || priceNum <= 0)) {
+      alert('Please enter a valid estimated price quote in ₹.');
+      return;
+    }
+    await updateOrderStatus(selectedCustomForAdminReview.custom_order_id, status, priceNum, adminReviewRemarks);
+    setSelectedCustomForAdminReview(null);
+    setAdminPriceInput('');
+    setAdminReviewRemarks('');
+    setSuccessBanner(`Customization Order #${selectedCustomForAdminReview.custom_order_id} status updated to ${status}.`);
+    setTimeout(() => setSuccessBanner(null), 5000);
+    loadAllOrdersForAdmin();
+  };
+
+  const renderColorSwatchBadge = (colorStr?: string) => {
+    if (!colorStr) return <span className="font-bold text-[#2C241D]">Natural Finish</span>;
+    const hexMatch = colorStr.match(/#(?:[0-9a-fA-F]{3}){1,2}/)?.[0] || null;
+    return (
+      <div className="flex items-center gap-2 flex-wrap">
+        {hexMatch && (
+          <span
+            className="w-3.5 h-3.5 rounded-full inline-block border border-black/30 shadow-2xs shrink-0"
+            style={{ backgroundColor: hexMatch }}
+          />
+        )}
+        <span className="font-extrabold text-xs text-[#2C241D]">{colorStr}</span>
+        {hexMatch && (
+          <span className="px-2 py-0.5 rounded-md bg-[#38A132]/10 font-mono text-[10px] font-extrabold text-[#38A132] border border-[#38A132]/30">
+            {hexMatch.toUpperCase()}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  const parseOrderSpecDetails = (ord: CustomOrderData) => {
+    const fields: { label: string; value: string; isColor?: boolean; hex?: string | null }[] = [];
+
+    let categoryName = 'Bespoke Custom Furniture';
+    const typeLower = (ord.furniture_type || '').toLowerCase();
+    if (typeLower.includes('sofa') || typeLower.includes('chair') || typeLower.includes('seat') || typeLower.includes('recliner') || typeLower.includes('daybed')) {
+      categoryName = 'Sofas & Living Room Seating';
+    } else if (typeLower.includes('table') || typeLower.includes('dining') || typeLower.includes('coffee')) {
+      categoryName = 'Dining & Center Tables';
+    } else if (typeLower.includes('desk') || typeLower.includes('office') || typeLower.includes('workstation')) {
+      categoryName = 'Executive Desks & Workspace';
+    } else if (typeLower.includes('bed') || typeLower.includes('headboard') || typeLower.includes('bedroom')) {
+      categoryName = 'Bespoke Beds & Bedroom';
+    } else if (typeLower.includes('cabinet') || typeLower.includes('credenza') || typeLower.includes('wardrobe')) {
+      categoryName = 'Storage & Architectural Cabinets';
+    }
+
+    fields.push({ label: 'Furniture Category', value: categoryName });
+    fields.push({ label: 'Specific Furniture Type', value: ord.furniture_type });
+    fields.push({ label: 'Custom Dimensions', value: ord.dimensions });
+    fields.push({ label: 'Primary Timber / Material', value: ord.material });
+
+    let colorVal = ord.color || 'Natural Finish';
+    let fabricVal = 'Standard Custom Finish';
+
+    const matchParen = colorVal.match(/^(.*?)\s*\((.*?)\)$/);
+    if (matchParen) {
+      fabricVal = matchParen[1].trim();
+      colorVal = matchParen[2].trim();
+    }
+
+    const hexMatch = colorVal.match(/#(?:[0-9a-fA-F]{3}){1,2}/);
+    const hexCode = hexMatch ? hexMatch[0] : null;
+
+    fields.push({ label: 'Upholstery Fabric / Texture Finish', value: fabricVal });
+    fields.push({
+      label: 'Color / Polish Finish',
+      value: colorVal,
+      isColor: true,
+      hex: hexCode
+    });
+
+    if (ord.design_description) {
+      const desc = ord.design_description;
+      const aspectsMatch = desc.match(/Aspects:\s*\[(.*?)\]/);
+      if (aspectsMatch && aspectsMatch[1]) {
+        const pairs = aspectsMatch[1].split(';');
+        pairs.forEach(pair => {
+          const [k, v] = pair.split(':').map(s => s?.trim());
+          if (k && v) {
+            const formattedLabel = k.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+            if (formattedLabel.toLowerCase() !== 'furniture category') {
+              fields.push({ label: formattedLabel, value: v });
+            }
+          }
+        });
+      }
+
+      const reqMatch = desc.match(/Special Requirements:\s*(.*)/i);
+      if (reqMatch && reqMatch[1] && reqMatch[1].trim()) {
+        fields.push({ label: 'Special Customer Requirements', value: reqMatch[1].trim() });
+      } else if (!aspectsMatch && desc.trim()) {
+        fields.push({ label: 'Custom Notes', value: desc.trim() });
+      }
+    }
+
+    return fields;
+  };
+
   // Staff & Admin Queries State
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
   const [queryFilter, setQueryFilter] = useState<'All' | 'Pending' | 'Resolved'>('All');
@@ -625,30 +820,18 @@ export const AdminDashboardPage: React.FC = () => {
   }, []);
 
   // Coupons Management State
-  const [couponsList, setCouponsList] = useState<Coupon[]>(() => getStoredCoupons());
+  const [couponsList, setCouponsList] = useState<Coupon[]>([]);
   const [couponSearchQuery, setCouponSearchQuery] = useState('');
+  const [newCouponType, setNewCouponType] = useState<string>('percentage_notification');
   const [newCouponCode, setNewCouponCode] = useState('');
-  const [newCouponDiscount, setNewCouponDiscount] = useState('');
+  const [newCouponDiscount, setNewCouponDiscount] = useState('15');
+  const [newCouponFlatAmount, setNewCouponFlatAmount] = useState('500');
   const [newCouponDesc, setNewCouponDesc] = useState('');
   const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
-  const [newCouponAudience, setNewCouponAudience] = useState<CouponAudienceType>('all');
+  const [newCouponAudience, setNewCouponAudience] = useState<string>('all');
   const [newCouponCustomerLimit, setNewCouponCustomerLimit] = useState('10');
   const [newCouponAutoAllot, setNewCouponAutoAllot] = useState(true);
-  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
-
-  const refreshCoupons = () => {
-    setCouponsList(getStoredCoupons());
-    setAllotmentsList(getCouponAllotments());
-  };
-
-  useEffect(() => {
-    window.addEventListener('coupons-updated', refreshCoupons);
-    window.addEventListener('allotments-updated', refreshCoupons);
-    return () => {
-      window.removeEventListener('coupons-updated', refreshCoupons);
-      window.removeEventListener('allotments-updated', refreshCoupons);
-    };
-  }, []);
+  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>([]);
 
   // Admin Profile Modal & Password Update State
   const [isAdminProfileModalOpen, setIsAdminProfileModalOpen] = useState(false);
@@ -979,89 +1162,79 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Handlers for Create Coupon & Send Email
   const handleBatchDispatchCoupon = async (coupon: Coupon) => {
-    const limit = coupon.customerLimit || 10;
-    const audience = coupon.audienceType || 'all';
-    const result = await sendBulkCouponsToFirstNCustomers(coupon.id, audience, limit);
-    if (result.success) {
-      refreshCoupons();
-      setSuccessBanner(`🎉 ${result.message}`);
-      setTimeout(() => setSuccessBanner(null), 8000);
-    }
-  };
-
-  const handleCreateCouponSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCouponCode.trim() || !newCouponDiscount) return;
-
-    const discountVal = parseInt(newCouponDiscount, 10) || 10;
-    const targetEmail = newCouponUserEmail.trim();
-    const limitVal = parseInt(newCouponCustomerLimit, 10) || 10;
-
-    addStoredCoupon({
-      code: newCouponCode.trim().toUpperCase(),
-      discountPercent: discountVal,
-      description: newCouponDesc.trim() || `Special ${discountVal}% Discount Coupon`,
-      targetUserEmail: targetEmail || undefined,
-      customerLimit: limitVal,
-      audienceType: newCouponAudience,
-    });
-
-    if (newCouponAutoAllot) {
-      await sendBulkCouponsToFirstNCustomers(newCouponCode.trim().toUpperCase(), newCouponAudience, limitVal);
-    } else if (targetEmail) {
-      sendCouponToCustomer(newCouponCode.trim().toUpperCase(), targetEmail);
-    }
-
-    setCouponsList(getStoredCoupons());
-    setNewCouponCode('');
-    setNewCouponDiscount('');
-    setNewCouponDesc('');
-    setNewCouponUserEmail('');
-    setNewCouponCustomerLimit('10');
-    setNewCouponAudience('all');
-
-    const audienceLabel = newCouponAudience === 'retail' ? 'Retail Customers' : newCouponAudience === 'production' ? 'Production Customers' : 'First N Customers';
-
-    setSuccessBanner(`Coupon "${newCouponCode.trim().toUpperCase()}" created for ${audienceLabel} (Limit: ${limitVal})!`);
-    setTimeout(() => setSuccessBanner(null), 6000);
-  };
-
-  const handleRemoveCoupon = (idOrCode: string, code: string) => {
-    const updated = removeStoredCoupon(idOrCode);
-    setCouponsList(updated);
-    setSuccessBanner(`Coupon "${code}" removed successfully!`);
+    await refreshCoupons();
+    setSuccessBanner(`Promo coupon ${coupon.code} active for all eligible customers.`);
     setTimeout(() => setSuccessBanner(null), 5000);
   };
 
-  const handleUpdateCouponUserEmail = (couponId: string, newUserEmail: string) => {
-    const updated = updateCouponUserEmail(couponId, newUserEmail);
-    setCouponsList(updated);
-  };
-
-  const handleSendCouponNotification = (couponId: string, currentEmailInput: string) => {
-    const email = currentEmailInput.trim();
-    if (!email) {
-      alert('Please enter a customer email or User ID in the textbox before sending the coupon notification.');
-      return;
-    }
-
-    const result = sendCouponToCustomer(couponId, email);
-    if (result.success) {
-      const inputEl = document.getElementById(`coupon-email-${couponId}`) as HTMLInputElement;
-      if (inputEl) {
-        inputEl.value = '';
-      }
-      updateCouponUserEmail(couponId, '');
-      setCouponsList(getStoredCoupons());
-      setAllotmentsList(getCouponAllotments());
-
-      setSuccessBanner(`🎉 ${result.message}`);
-      setTimeout(() => setSuccessBanner(null), 7000);
-    } else {
-      alert(result.message);
+  const refreshCoupons = async () => {
+    try {
+      const res = await getCouponsApi();
+      setCouponsList(res.coupons);
+      setAllotmentsList(res.allotments);
+    } catch (e) {
+      setCouponsList([]);
+      setAllotmentsList([]);
     }
   };
 
+  useEffect(() => {
+    refreshCoupons();
+  }, []);
+
+  const handleCreateCouponSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCouponCode.trim()) return;
+
+    const code = newCouponCode.trim().toUpperCase();
+    const discountVal = parseInt(newCouponDiscount, 10) || 15;
+    const flatVal = parseFloat(newCouponFlatAmount) || 500;
+    const targetEmail = newCouponUserEmail.trim();
+    const limitVal = parseInt(newCouponCustomerLimit, 10) || 10;
+
+    try {
+      await createCouponApi({
+        code,
+        coupon_type: newCouponType,
+        discount_percent: newCouponType === 'flat_amount' ? 0 : discountVal,
+        flat_discount_amount: newCouponType === 'flat_amount' ? flatVal : 0,
+        description: newCouponDesc.trim() || (newCouponType === 'flat_amount' ? `₹${flatVal} OFF Flat Discount` : `${discountVal}% Off Discount`),
+        customer_limit: newCouponType === 'first_n_customers' ? limitVal : undefined,
+        target_user_email: targetEmail || undefined
+      });
+
+      setSuccessBanner(`Coupon "${code}" created and saved to database successfully!`);
+      await refreshCoupons();
+      setNewCouponCode('');
+      setNewCouponDesc('');
+      setNewCouponUserEmail('');
+    } catch (err: any) {
+      alert(err.message || 'Failed to create coupon.');
+    }
+    setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  const handleRemoveCoupon = async (id: string, code: string) => {
+    try {
+      await deleteCouponApi(id);
+      await refreshCoupons();
+      setSuccessBanner(`Coupon "${code}" removed from database!`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to remove coupon.');
+    }
+    setTimeout(() => setSuccessBanner(null), 5000);
+  };
+
+  const handleRegenerateCoupon = async (coupon: Coupon) => {
+    try {
+      await regenerateCouponApi(coupon.id);
+      await refreshCoupons();
+      setSuccessBanner(`⚡ Promo Coupon "${coupon.code}" reactivated!`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to reactivate coupon.');
+    }
+    setTimeout(() => setSuccessBanner(null), 5000);
+  };
   const handleSaveAdminProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
@@ -1123,7 +1296,7 @@ export const AdminDashboardPage: React.FC = () => {
     sendAdminMessage({
       sender: currentUser.name || 'System Admin',
       recipientType: adminMsgRecipientType,
-      targetEmail: (adminMsgRecipientType === 'Specific Staff' || adminMsgRecipientType === 'Specific Supplier') ? adminMsgTargetEmail : undefined,
+      targetEmail: adminMsgRecipientType === 'Specific Staff' ? adminMsgTargetEmail : undefined,
       subject: adminMsgSubject.trim(),
       message: adminMsgContent.trim(),
     });
@@ -1345,6 +1518,20 @@ export const AdminDashboardPage: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('custom_orders')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'custom_orders'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Sliders className="w-4.5 h-4.5" />
+              <span className="text-sm">Customization Orders</span>
+            </div>
+          </button>
+
+          <button
             onClick={() => setActiveTab('queries')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
               activeTab === 'queries'
@@ -1437,7 +1624,8 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'products' && 'Retail Product Management'}
                     {activeTab === 'inventory' && 'Inventory Stock Control'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
-                    {activeTab === 'orders' && 'Customer Orders'}
+                    {activeTab === 'orders' && 'Customer Store Orders'}
+                    {activeTab === 'custom_orders' && 'Bespoke Customization Orders & Approval Requests'}
                     {activeTab === 'queries' && 'Queries & Request Communications'}
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
                     {activeTab === 'broadcast' && 'Admin Broadcast & Direct Messages'}
@@ -1449,7 +1637,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'suppliers' && 'Manage ready-made furniture manufacturers, wholesale product vendors, and catalog stock allocations.'}
                     {activeTab === 'queries' && 'Review staff requests, email change applications, and issue official admin responses.'}
                     {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
-                    {activeTab === 'broadcast' && 'Send official directives and direct messages to Staff members and Supplier partners.'}
+                    {activeTab === 'broadcast' && 'Send official directives and direct messages to Staff members.'}
                   </p>
                 </div>
 
@@ -1694,36 +1882,49 @@ export const AdminDashboardPage: React.FC = () => {
                                     {isAct ? 'Active' : 'Inactive'}
                                   </span>
                                 </td>
-                                <td className="py-4 px-4 text-right space-x-2">
-                                  <button
-                                    onClick={() => handleViewUserPurchases(u)}
-                                    className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-600 hover:text-white transition-all border border-purple-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                    title="View Products Purchased by User"
-                                  >
-                                    <ShoppingBag className="w-3.5 h-3.5" />
-                                    <span>Purchases</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenEditUser(u)}
-                                    className="p-1.5 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                    title="Edit User Details"
-                                  >
-                                    <Edit3 className="w-4 h-4" />
-                                    <span>Edit</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleToggleUserStatus(u.user_id)}
-                                    className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition-all shadow-xs cursor-pointer ${
-                                      isAct
-                                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-200'
-                                        : 'bg-[#48A63E]/15 text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30'
-                                    }`}
-                                    title={isAct ? 'Deactivate Account' : 'Activate Account'}
-                                  >
-                                    {isAct ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
-                                    <span>{isAct ? 'Deactivate' : 'Activate'}</span>
-                                  </button>
-                                </td>
+                                 <td className="py-4 px-4 text-right whitespace-nowrap">
+                                   <div className="flex items-center justify-end gap-2">
+                                     {roleStr.toLowerCase().includes('staff') ? (
+                                       <button
+                                         onClick={() => handleViewUserPurchases(u)}
+                                         className="px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all border border-emerald-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                         title="View Products Sold by Staff"
+                                       >
+                                         <PackageCheck className="w-3.5 h-3.5" />
+                                         <span>Sold Products</span>
+                                       </button>
+                                     ) : (
+                                       <button
+                                         onClick={() => handleViewUserPurchases(u)}
+                                         className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-600 hover:text-white transition-all border border-purple-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                         title="View Products Purchased by User"
+                                       >
+                                         <ShoppingBag className="w-3.5 h-3.5" />
+                                         <span>Purchases</span>
+                                       </button>
+                                     )}
+                                     <button
+                                       onClick={() => handleOpenEditUser(u)}
+                                       className="p-1.5 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                       title="Edit User Details"
+                                     >
+                                       <Edit3 className="w-4 h-4" />
+                                       <span>Edit</span>
+                                     </button>
+                                     <button
+                                       onClick={() => handleToggleUserStatus(u.user_id)}
+                                       className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition-all shadow-xs cursor-pointer ${
+                                         isAct
+                                           ? 'bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-200'
+                                           : 'bg-[#48A63E]/15 text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30'
+                                       }`}
+                                       title={isAct ? 'Deactivate Account' : 'Activate Account'}
+                                     >
+                                       {isAct ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                                       <span>{isAct ? 'Deactivate' : 'Activate'}</span>
+                                     </button>
+                                   </div>
+                                 </td>
                               </tr>
                             );
                           })}
@@ -2403,8 +2604,7 @@ export const AdminDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Customer Details</th>
                           <th className="py-3 px-4">Items & Product Code</th>
                           <th className="py-3 px-4">Total Amount</th>
-                          <th className="py-3 px-4">Payment Status</th>
-                          <th className="py-3 px-4">Order Status</th>
+                          <th className="py-3 px-4">Payment Time</th>
                           <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
@@ -2421,7 +2621,7 @@ export const AdminDashboardPage: React.FC = () => {
                             );
                           }).length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="py-8 text-center text-[#7A6C5E]">
+                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
                               <ShoppingBag className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
                               <p className="font-extrabold text-xs text-[#2C241D]">No customer orders found</p>
                               <p className="text-[11px] text-[#8C7C6D]">When customers place ready-made furniture orders, they will appear here.</p>
@@ -2482,37 +2682,33 @@ export const AdminDashboardPage: React.FC = () => {
                                 <td className="py-4 px-4 font-extrabold text-[#2C241D] text-sm">
                                   ₹{ord.totalAmount.toLocaleString('en-IN')}
                                 </td>
-                                <td className="py-4 px-4">
-                                  <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>Paid</span>
-                                  </span>
-                                </td>
-                                <td className="py-4 px-4">
-                                  {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
-                                    <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
-                                      <X className="w-3.5 h-3.5 text-rose-600" />
-                                      <span>Cancelled</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>Order Placed</span>
-                                    </span>
-                                  )}
+                                <td className="py-4 px-4 whitespace-nowrap">
+                                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#2C241D]">
+                                    <Clock className="w-3.5 h-3.5 text-[#48A63E]" />
+                                    <span>{formatPaymentTime(ord)}</span>
+                                  </div>
+                                  <div className="text-[10px] text-[#7A6C5E] font-semibold mt-0.5">
+                                    {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
+                                      <span className="text-rose-600 font-extrabold flex items-center gap-1">
+                                        <X className="w-3 h-3 text-rose-600" />
+                                        Payment Cancelled
+                                      </span>
+                                    ) : (
+                                      <span className="text-emerald-700 font-extrabold flex items-center gap-1">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        Paid & Verified
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="py-4 px-4 text-right">
                                   <button
-                                    onClick={() => {
-                                      if (window.confirm(`Permanently remove order ${ord.orderId} from PostgreSQL Database?`)) {
-                                        deleteStoredRetailOrder(ord.orderId);
-                                      }
-                                    }}
-                                    className="p-2 rounded-xl text-rose-600 hover:bg-rose-100 transition-colors inline-flex items-center gap-1 font-extrabold text-xs cursor-pointer border border-rose-200"
-                                    title="Delete Order from Database"
+                                    onClick={() => handleOpenEditOrder(ord)}
+                                    className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                    title="Edit Order Status & Details"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    <span>Delete</span>
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
                                   </button>
                                 </td>
                               </tr>
@@ -2524,7 +2720,269 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
             )}
 
-              {/* TAB 6: STAFF & CUSTOMER QUERIES */}
+              {/* TAB 5b: BESPOKE CUSTOMIZATION ORDERS & APPROVAL REQUESTS STUDIO */}
+            {activeTab === 'custom_orders' && (
+              <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
+                {/* Top Stats Overview Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Total Customization Requests</span>
+                    <span className="text-2xl font-black text-[#2C241D] block">{allAdminCustomOrders.length}</span>
+                    <span className="text-[10px] text-[#48A63E] font-bold">All custom studio builds</span>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Approval Requests & Quotes Pending</span>
+                    <span className="text-2xl font-black text-amber-600 block">
+                      {allAdminCustomOrders.filter(c => c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved').length}
+                    </span>
+                    <span className="text-[10px] text-amber-700 font-bold">Awaiting quotation or customer payment</span>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Custom Orders Placed & Paid</span>
+                    <span className="text-2xl font-black text-emerald-600 block">
+                      {allAdminCustomOrders.filter(c => c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production' || c.order_status === 'Completed').length}
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-bold">Paid & verified custom builds</span>
+                  </div>
+
+                  <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Completed Artisan Builds</span>
+                    <span className="text-2xl font-black text-purple-600 block">
+                      {allAdminCustomOrders.filter(c => c.order_status === 'Completed').length}
+                    </span>
+                    <span className="text-[10px] text-purple-700 font-bold">Delivered to customer</span>
+                  </div>
+                </div>
+
+                {/* Filter & Search Header */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                  <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                    {[
+                      { key: 'all', label: `All Custom Orders (${allAdminCustomOrders.length})` },
+                      { key: 'requests', label: `Approval Requests (${allAdminCustomOrders.filter(c => c.order_status === 'Pending' || c.order_status === 'Pending Approval').length})` },
+                      { key: 'paid', label: `Orders Placed (${allAdminCustomOrders.filter(c => c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production').length})` }
+                    ].map((tb) => (
+                      <button
+                        key={tb.key}
+                        onClick={() => setCustomOrderSubTab(tb.key as any)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors cursor-pointer shrink-0 ${
+                          customOrderSubTab === tb.key
+                            ? 'bg-[#38A132] text-white shadow-md'
+                            : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                        }`}
+                      >
+                        {tb.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative w-full sm:w-72">
+                    <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search custom order #, furniture, client..."
+                      value={customOrderSearchQuery}
+                      onChange={(e) => setCustomOrderSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D] shadow-xs"
+                    />
+                  </div>
+                </div>
+
+                {/* Custom Orders List Grid */}
+                <div className="space-y-4">
+                  {allAdminCustomOrders
+                    .filter((c) => {
+                      if (customOrderSubTab === 'requests') {
+                        return c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved';
+                      }
+                      if (customOrderSubTab === 'paid') {
+                        return c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production' || c.order_status === 'Completed';
+                      }
+                      return true;
+                    })
+                    .filter((c) => {
+                      if (!customOrderSearchQuery.trim()) return true;
+                      const q = customOrderSearchQuery.toLowerCase();
+                      return (
+                        c.custom_order_id.toString().includes(q) ||
+                        c.furniture_type.toLowerCase().includes(q) ||
+                        c.customer_name.toLowerCase().includes(q) ||
+                        (c.customer_email && c.customer_email.toLowerCase().includes(q)) ||
+                        c.material.toLowerCase().includes(q) ||
+                        c.color.toLowerCase().includes(q)
+                      );
+                    }).length === 0 ? (
+                    <div className="p-8 text-center bg-white rounded-2xl border border-[#E2D7CB] text-[#7A6C5E]">
+                      <Sliders className="w-10 h-10 text-[#9E9082] mx-auto opacity-50 mb-2" />
+                      <p className="font-extrabold text-sm text-[#2C241D]">No custom orders found</p>
+                      <p className="text-xs text-[#8C7C6D] mt-0.5">Customization requests submitted by customers will be displayed here.</p>
+                    </div>
+                  ) : (
+                    allAdminCustomOrders
+                      .filter((c) => {
+                        if (customOrderSubTab === 'requests') {
+                          return c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved';
+                        }
+                        if (customOrderSubTab === 'paid') {
+                          return c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production' || c.order_status === 'Completed';
+                        }
+                        return true;
+                      })
+                      .filter((c) => {
+                        if (!customOrderSearchQuery.trim()) return true;
+                        const q = customOrderSearchQuery.toLowerCase();
+                        return (
+                          c.custom_order_id.toString().includes(q) ||
+                          c.furniture_type.toLowerCase().includes(q) ||
+                          c.customer_name.toLowerCase().includes(q) ||
+                          (c.customer_email && c.customer_email.toLowerCase().includes(q)) ||
+                          c.material.toLowerCase().includes(q) ||
+                          c.color.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((ord) => (
+                        <div
+                          key={ord.custom_order_id}
+                          className="ultra-glass-card rounded-3xl p-5 shadow-lg border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-4 hover:border-[#38A132]/40 transition-all hover:shadow-xl"
+                        >
+                          {/* Top Badges & Price Header */}
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
+                                ORDER #{ord.custom_order_id}
+                              </span>
+
+                              {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
+                                <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>Paid in Full</span>
+                                </span>
+                              ) : (
+                                <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                                  ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                  ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+                                  ord.order_status === 'In Production' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                                  ord.order_status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
+                                  'bg-rose-50 text-rose-800 border border-rose-200'
+                                }`}>
+                                  Status: {ord.order_status}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-base font-black text-[#38A132] bg-[#38A132]/10 px-3.5 py-1 rounded-xl border border-[#38A132]/20">
+                              {ord.estimated_price ? `₹${ord.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}
+                            </div>
+                          </div>
+
+                          {/* Title & Specifications Grid */}
+                          <div className="space-y-3">
+                            <h3 className="text-xl font-black text-[#2C241D] tracking-tight">
+                              {ord.furniture_type}
+                            </h3>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#EAE0D4] text-xs">
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Name</span>
+                                <span className="font-bold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || 'N/A'}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
+                                <span className="font-bold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
+                                <span className="font-bold text-[#2C241D] block truncate">🪵 {ord.material}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
+                                <span className="font-bold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Reference Images Thumbnails */}
+                          {ord.reference_image && ord.reference_image.split(',').map(s => s.trim()).filter(Boolean).length > 0 && (
+                            <div className="flex items-center gap-2 pt-2 border-t border-[#EFE7DE]">
+                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mr-2">Reference Images:</span>
+                              {ord.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, i) => (
+                                <a
+                                  key={i}
+                                  href={imgUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-10 h-10 rounded-lg overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0"
+                                >
+                                  <img
+                                    src={imgUrl}
+                                    alt={`Ref ${i + 1}`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                  />
+                                </a>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Action Buttons Toolbar */}
+                          <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end ml-auto">
+                              <button
+                                onClick={() => setSelectedCustomForAdminDetails(ord)}
+                                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                <span>View Full Specs</span>
+                              </button>
+
+                              <button
+                                onClick={() => handleAdminOpenPriceModal(ord)}
+                                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                              >
+                                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                                <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
+                              </button>
+
+                              {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
+                                <button
+                                  onClick={() => handleAdminToggleLock(ord)}
+                                  className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
+                                  title="Specs Unlocked. Click to Lock Specs."
+                                >
+                                  <Unlock className="w-4 h-4 text-amber-600" />
+                                </button>
+                              ) : (
+                                <button
+                                  disabled
+                                  className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs opacity-90 cursor-not-allowed"
+                                  title="Specs Locked."
+                                >
+                                  <Lock className="w-4 h-4 text-emerald-600" />
+                                </button>
+                              )}
+
+                              {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') && (
+                                <button
+                                  onClick={() => downloadPaymentReceipt(ord)}
+                                  className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                                >
+                                  <Download className="w-3.5 h-3.5 text-white" />
+                                  <span>Download Receipt</span>
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 6: STAFF & CUSTOMER QUERIES */}
               {activeTab === 'queries' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
@@ -2695,254 +3153,277 @@ export const AdminDashboardPage: React.FC = () => {
 
                   {/* Create Coupon Form */}
                   <div className="bg-[#FAF7F2] p-5 rounded-2xl border border-[#E2D7CB] space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h4 className="font-extrabold text-sm text-[#2C241D]">Create & Allot First N Customer Coupon</h4>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const prefix = newCouponAudience === 'retail' ? 'RETAIL' : newCouponAudience === 'production' ? 'PROD' : 'VIP';
-                          const code = `${prefix}FIRST${newCouponCustomerLimit || '10'}_${Math.floor(Math.random() * 90 + 10)}`;
-                          setNewCouponCode(code);
-                        }}
-                        className="text-xs font-extrabold text-[#48A63E] hover:underline"
-                      >
-                        ⚡ Auto Generate Code
-                      </button>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <h4 className="font-extrabold text-sm text-[#2C241D]">Create & Configure Promotional Coupon</h4>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const prefix = newCouponType === 'percentage_notification' ? 'PROMO' : newCouponType === 'first_n_customers' ? 'FIRST' : 'FLAT';
+                            const code = `${prefix}${newCouponDiscount || '15'}_${Math.floor(Math.random() * 90 + 10)}`;
+                            setNewCouponCode(code);
+                          }}
+                          className="text-xs font-extrabold text-[#38A132] hover:underline cursor-pointer"
+                        >
+                          ⚡ Auto Generate Code
+                        </button>
+                      </div>
                     </div>
 
-                    <form onSubmit={handleCreateCouponSubmit} className="space-y-3 text-xs font-semibold">
+                    <form onSubmit={handleCreateCouponSubmit} className="space-y-4 text-xs font-semibold">
+                      <div>
+                        <label className="block font-bold text-[#7A6C5E] mb-1.5">Select Coupon Type *</label>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setNewCouponType('percentage_notification')}
+                            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                              newCouponType === 'percentage_notification'
+                                ? 'bg-[#38A132]/10 border-[#38A132] text-[#2C241D] font-extrabold shadow-2xs'
+                                : 'bg-white border-[#E2D7CB] text-[#6B5C4D]'
+                            }`}
+                          >
+                            <div className="font-extrabold text-xs text-[#38A132]">1. Percentage % Coupon</div>
+                            <div className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Delivers notification popover/bell to customer dashboard</div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setNewCouponType('first_n_customers')}
+                            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                              newCouponType === 'first_n_customers'
+                                ? 'bg-[#38A132]/10 border-[#38A132] text-[#2C241D] font-extrabold shadow-2xs'
+                                : 'bg-white border-[#E2D7CB] text-[#6B5C4D]'
+                            }`}
+                          >
+                            <div className="font-extrabold text-xs text-[#38A132]">2. First N Customers Coupon</div>
+                            <div className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Valid for first N customers during payment (0 prior notification)</div>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setNewCouponType('flat_amount')}
+                            className={`p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                              newCouponType === 'flat_amount'
+                                ? 'bg-[#38A132]/10 border-[#38A132] text-[#2C241D] font-extrabold shadow-2xs'
+                                : 'bg-white border-[#E2D7CB] text-[#6B5C4D]'
+                            }`}
+                          >
+                            <div className="font-extrabold text-xs text-[#38A132]">3. Flat Amount (₹ OFF)</div>
+                            <div className="text-[10px] text-[#7A6C5E] mt-0.5 font-medium">Fixed rupee discount off total cart subtotal</div>
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                         <div>
                           <label className="block font-bold text-[#7A6C5E] mb-1">Coupon Code *</label>
                           <input
                             type="text"
-                            placeholder="e.g. FIRST10OFF"
+                            placeholder="e.g. SUMMER15"
                             value={newCouponCode}
                             onChange={(e) => setNewCouponCode(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono uppercase font-bold focus:outline-none focus:border-[#48A63E]"
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono uppercase font-bold focus:outline-none focus:border-[#38A132]"
                             required
                           />
                         </div>
 
-                        <div>
-                          <label className="block font-bold text-[#7A6C5E] mb-1">Discount % *</label>
-                          <input
-                            type="number"
-                            min="1"
-                            max="90"
-                            placeholder="e.g. 20"
-                            value={newCouponDiscount}
-                            onChange={(e) => setNewCouponDiscount(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                            required
-                          />
-                        </div>
+                        {newCouponType !== 'flat_amount' ? (
+                          <div>
+                            <label className="block font-bold text-[#7A6C5E] mb-1">Discount % *</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="90"
+                              placeholder="e.g. 15"
+                              value={newCouponDiscount}
+                              onChange={(e) => setNewCouponDiscount(e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                              required
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block font-bold text-[#7A6C5E] mb-1">Flat Discount Amount (INR ₹) *</label>
+                            <input
+                              type="number"
+                              min="10"
+                              placeholder="e.g. 500"
+                              value={newCouponFlatAmount}
+                              onChange={(e) => setNewCouponFlatAmount(e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                              required
+                            />
+                          </div>
+                        )}
 
-                        <div>
-                          <label className="block font-bold text-[#7A6C5E] mb-1">First N Limit (N) *</label>
-                          <input
-                            type="number"
-                            min="1"
-                            max="500"
-                            placeholder="e.g. 10"
-                            value={newCouponCustomerLimit}
-                            onChange={(e) => setNewCouponCustomerLimit(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                            required
-                          />
-                        </div>
+                        {newCouponType === 'first_n_customers' ? (
+                          <div>
+                            <label className="block font-bold text-[#7A6C5E] mb-1">First N Customer Limit (N) *</label>
+                            <input
+                              type="number"
+                              min="1"
+                              max="500"
+                              placeholder="e.g. 10"
+                              value={newCouponCustomerLimit}
+                              onChange={(e) => setNewCouponCustomerLimit(e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                              required
+                            />
+                          </div>
+                        ) : (
+                          <div>
+                            <label className="block font-bold text-[#7A6C5E] mb-1">Target Customer Email (Optional)</label>
+                            <input
+                              type="text"
+                              placeholder="Leave blank for all customers..."
+                              value={newCouponUserEmail}
+                              onChange={(e) => setNewCouponUserEmail(e.target.value)}
+                              className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                            />
+                          </div>
+                        )}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
-                        <div>
-                          <label className="block font-bold text-[#7A6C5E] mb-1">Customer Access Provision *</label>
-                          <select
-                            value={newCouponAudience}
-                            onChange={(e) => setNewCouponAudience(e.target.value as any)}
-                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#48A63E]"
-                          >
-                            <option value="all">🌐 First N Customers (All Base)</option>
-                            <option value="retail">🛍️ First N Retail Customers (Readymade)</option>
-                            <option value="production">🏭 First N Production Customers (Bespoke)</option>
-                          </select>
+                      <div className="flex items-center justify-between gap-4 pt-2">
+                        <div className="text-[11px] text-[#7A6C5E] font-medium">
+                          {newCouponType === 'percentage_notification' && '📢 Dispatches notification directly to Customer Dashboard bell icon.'}
+                          {newCouponType === 'first_n_customers' && '🔒 First N customers redemption lock. Zero prior notifications sent.'}
+                          {newCouponType === 'flat_amount' && '💵 Flat rupee discount applied directly during checkout payment.'}
                         </div>
 
-                        <div>
-                          <label className="block font-bold text-[#7A6C5E] mb-1">Target Email (Optional)</label>
-                          <input
-                            type="text"
-                            placeholder="Target email..."
-                            value={newCouponUserEmail}
-                            onChange={(e) => setNewCouponUserEmail(e.target.value)}
-                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                          />
-                        </div>
-
-                        <div>
-                          <button
-                            type="submit"
-                            className="w-full py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                          >
-                            <Plus className="w-4 h-4" />
-                            <span>Create & Dispatch Provision</span>
-                          </button>
-                        </div>
+                        <button
+                          type="submit"
+                          className="px-6 py-2.5 bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold rounded-xl transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Create Coupon</span>
+                        </button>
                       </div>
                     </form>
                   </div>
 
-                  {/* Coupons Header with Search Bar */}
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                    <h4 className="font-extrabold text-sm text-[#2C241D]">Active Promo & Discount Codes</h4>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search promo code, email..."
-                        value={couponSearchQuery}
-                        onChange={(e) => setCouponSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Coupons List Table */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Coupon Code</th>
-                          <th className="py-3 px-4">Discount</th>
-                          <th className="py-3 px-4">Access Provision</th>
-                          <th className="py-3 px-4">Redemptions</th>
-                          <th className="py-3 px-4">Assigned Email (Editable)</th>
-                          <th className="py-3 px-4">Status</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {couponsList
-                          .filter((c) => {
-                            if (!couponSearchQuery.trim()) return true;
-                            const cq = couponSearchQuery.toLowerCase();
-                            return (
-                              c.code.toLowerCase().includes(cq) ||
-                              (c.targetUserEmail && c.targetUserEmail.toLowerCase().includes(cq)) ||
-                              (c.description && c.description.toLowerCase().includes(cq))
-                            );
-                          })
-                          .map((coupon) => {
-                            const limitN = coupon.customerLimit || 0;
-                            const redeemed = coupon.currentRedemptions || 0;
-                            const audience = coupon.audienceType || 'all';
-
-                            let audienceBadge = '🌐 First N Customers';
-                            let audienceBg = 'bg-blue-50 text-blue-700 border-blue-200';
-                            if (audience === 'retail') {
-                              audienceBadge = '🛍️ First N Retail Customers';
-                              audienceBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                            } else if (audience === 'production') {
-                              audienceBadge = '🏭 First N Production Customers';
-                              audienceBg = 'bg-amber-50 text-amber-700 border-amber-200';
-                            }
-
-                            return (
-                              <tr key={coupon.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                                <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
-                                  <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">{coupon.code}</span>
-                                </td>
-
-                                <td className="py-4 px-4 font-extrabold text-[#2C241D]">{coupon.discountPercent}% OFF</td>
-                                
-                                <td className="py-3 px-4">
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${audienceBg}`}>
-                                    {audienceBadge} {limitN > 0 ? `(N = ${limitN})` : ''}
-                                  </span>
-                                </td>
-
-                                <td className="py-3 px-4 font-mono">
-                                  {limitN > 0 ? (
-                                    <div className="space-y-1">
-                                      <span className="font-bold text-[#2C241D] text-[11px]">{redeemed} / {limitN} Used</span>
-                                      <div className="w-24 h-1.5 bg-[#EAE0D4] rounded-full overflow-hidden">
-                                        <div 
-                                          className={`h-full transition-all ${redeemed >= limitN ? 'bg-rose-500' : 'bg-[#48A63E]'}`} 
-                                          style={{ width: `${Math.min(100, Math.round((redeemed / limitN) * 100))}%` }}
-                                        />
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <span className="text-[#8C7C6D] text-[11px] font-medium">Unlimited</span>
-                                  )}
-                                </td>
-
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      id={`coupon-email-${coupon.id}`}
-                                      type="text"
-                                      placeholder="Enter user email or User ID..."
-                                      defaultValue={coupon.targetUserEmail || ''}
-                                      onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
-                                      className="w-48 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold"
-                                    />
-                                    <button
-                                      onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
-                                    >
-                                      <Send className="w-3 h-3" />
-                                      <span>Send</span>
-                                    </button>
-                                  </div>
-                                </td>
-
-                                <td className="py-4 px-4">
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                    coupon.status === 'Active' && (!limitN || redeemed < limitN)
-                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                      : 'bg-rose-100 text-rose-700'
-                                  }`}>
-                                    {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
-                                  </span>
-                                </td>
-
-                                <td className="py-4 px-4 text-right space-x-2">
-                                  <button
-                                    onClick={() => handleBatchDispatchCoupon(coupon)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer"
-                                    title="Auto-dispatch notification & email to first N targeted customers"
-                                  >
-                                    <Send className="w-3 h-3" />
-                                    <span>Dispatch N</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                    <span>Remove</span>
-                                  </button>
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Allotment & One-Time Usage Record Table */}
-                  <div className="mt-8 border-t border-[#EFE7DE] pt-6 space-y-3">
+                  {/* Active Created Coupons & First N Offers Card Grid */}
+                  <div className="space-y-3 pt-2">
                     <div className="flex items-center justify-between">
+                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                        <Tag className="w-4 h-4 text-[#38A132]" />
+                        <span>Active Created Coupons & Promotional Offers</span>
+                      </h4>
+                      <span className="text-xs font-extrabold text-[#38A132] bg-[#38A132]/10 px-3 py-1 rounded-lg border border-[#38A132]/20">
+                        {couponsList.length} Active Codes
+                      </span>
+                    </div>
+
+                    {couponsList.length === 0 ? (
+                      <div className="p-6 bg-white rounded-2xl border border-[#E2D7CB] text-center text-[#8C7C6D] italic text-xs">
+                        No created coupons currently stored. Use the form above to generate a Percentage, First N Customer, or Flat Amount coupon!
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {couponsList.map((c) => {
+                          const isFirstN = c.type === 'first_n_customers' || (c.customerLimit && c.customerLimit > 0);
+                          const limitN = c.customerLimit || 0;
+                          const redeemed = c.currentRedemptions || 0;
+                          const isExhausted = (limitN > 0 && redeemed >= limitN) || c.status === 'Inactive';
+
+                          return (
+                            <div
+                              key={c.id}
+                              className={`p-4 rounded-2xl border transition-all space-y-2 relative overflow-hidden shadow-2xs ${
+                                isExhausted ? 'bg-rose-50/50 border-rose-200' : 'bg-white border-[#E2D7CB] hover:border-[#38A132]'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <span className="font-mono text-sm font-black text-[#38A132] bg-[#38A132]/10 px-2.5 py-0.5 rounded-lg border border-[#38A132]/25 inline-block uppercase">
+                                    {c.code}
+                                  </span>
+                                  <div className="text-xs font-extrabold text-[#2C241D] mt-1">
+                                    {c.flatDiscountAmount ? `₹${c.flatDiscountAmount.toLocaleString('en-IN')} OFF` : `${c.discountPercent}% OFF`}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRegenerateCoupon(c)}
+                                    className="px-2 py-1 rounded-lg bg-[#38A132]/10 text-[#38A132] hover:bg-[#38A132] hover:text-white transition-all border border-[#38A132]/30 text-[10px] font-extrabold cursor-pointer flex items-center gap-1"
+                                    title="Regenerate & Reactivate Coupon Code"
+                                  >
+                                    ⚡ Regenerate
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveCoupon(c.id, c.code)}
+                                    className="p-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 cursor-pointer"
+                                    title="Delete Coupon Code"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              <p className="text-[11px] text-[#6B5C4D] font-medium line-clamp-1">{c.description}</p>
+
+                              <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between text-[10px] font-bold">
+                                {isFirstN ? (
+                                  <div className="space-y-1 w-full">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-blue-700 font-extrabold">🔒 First {limitN} Customers</span>
+                                      <span className="text-[#2C241D] font-mono">{redeemed} / {limitN} Used</span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-[#EAE0D4] rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full transition-all ${isExhausted ? 'bg-rose-500' : 'bg-[#38A132]'}`}
+                                        style={{ width: `${limitN > 0 ? Math.min(100, Math.round((redeemed / limitN) * 100)) : 0}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between w-full">
+                                    <span className="text-[#7A6C5E] truncate">
+                                      {c.targetUserEmail ? `🎯 ${c.targetUserEmail}` : '🌐 All Customers'}
+                                    </span>
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${isExhausted ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                      {isExhausted ? 'Expired' : 'Active'}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Unified Customer Coupon Allotment & One-Time Usage Record Table */}
+                  <div className="mt-4 space-y-4">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                       <div>
                         <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
-                          <UserCheck className="w-4 h-4 text-[#48A63E]" />
-                          <span>Customer Coupon Allotment & One-Time Usage Records</span>
+                          <UserCheck className="w-4 h-4 text-[#38A132]" />
+                          <span>Customer Coupon Allotment & Usage Records</span>
                         </h4>
-                        <p className="text-[11px] text-[#7A6C5E] font-medium">Maintains complete record of users allotted coupons, usage status (Used / Unused), and single-use enforcement.</p>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Maintains complete record of customer allotted coupons, delivery status, and single-use enforcement.</p>
                       </div>
-                      <span className="text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-lg border border-[#48A63E]/20">
-                        {allotmentsList.length} Total Records
-                      </span>
+
+                      <div className="flex items-center gap-3 w-full sm:w-auto">
+                        <div className="relative w-full sm:w-64">
+                          <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Search promo code, email..."
+                            value={couponSearchQuery}
+                            onChange={(e) => setCouponSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                          />
+                        </div>
+                        <span className="text-xs font-extrabold text-[#38A132] bg-[#38A132]/10 px-3 py-1.5 rounded-xl border border-[#38A132]/20 shrink-0">
+                          {allotmentsList.length} Records
+                        </span>
+                      </div>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -2955,48 +3436,78 @@ export const AdminDashboardPage: React.FC = () => {
                             <th className="py-3 px-4">Allotted Date</th>
                             <th className="py-3 px-4">Usage Status</th>
                             <th className="py-3 px-4">Redeemed Date</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                          {allotmentsList.length === 0 ? (
+                          {allotmentsList
+                            .filter((alt) => {
+                              if (!couponSearchQuery.trim()) return true;
+                              const cq = couponSearchQuery.toLowerCase();
+                              return (
+                                alt.couponCode.toLowerCase().includes(cq) ||
+                                alt.targetUserEmail.toLowerCase().includes(cq)
+                              );
+                            })
+                            .length === 0 ? (
                             <tr>
-                              <td colSpan={6} className="py-6 text-center text-[#8C7C6D] italic">
-                                No customer coupon allotments recorded yet. When a coupon is sent to a customer email, it will be tracked here.
+                              <td colSpan={7} className="py-8 text-center text-[#8C7C6D] italic">
+                                No customer coupon allotments recorded yet. When a coupon is issued or dispatched to a customer email, it will be tracked here.
                               </td>
                             </tr>
                           ) : (
-                            allotmentsList.map((alt) => (
-                              <tr key={alt.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                                <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
-                                  ✉️ {alt.targetUserEmail}
-                                </td>
-                                <td className="py-3.5 px-4 font-mono font-extrabold text-[#48A63E]">
-                                  <span className="bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">
-                                    {alt.couponCode}
-                                  </span>
-                                </td>
-                                <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                                  {alt.discountPercent}% OFF
-                                </td>
-                                <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
-                                  {alt.allottedDate}
-                                </td>
-                                <td className="py-3.5 px-4">
-                                  {alt.used ? (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
-                                      Used ✓ (Redeemed)
+                            allotmentsList
+                              .filter((alt) => {
+                                if (!couponSearchQuery.trim()) return true;
+                                const cq = couponSearchQuery.toLowerCase();
+                                return (
+                                  alt.couponCode.toLowerCase().includes(cq) ||
+                                  alt.targetUserEmail.toLowerCase().includes(cq)
+                                );
+                              })
+                              .map((alt) => (
+                                <tr key={alt.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                  <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
+                                    ✉️ {alt.targetUserEmail}
+                                  </td>
+                                  <td className="py-3.5 px-4 font-mono font-extrabold text-[#38A132]">
+                                    <span className="bg-[#38A132]/10 px-2 py-0.5 rounded-md border border-[#38A132]/20">
+                                      {alt.couponCode}
                                     </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
-                                      Unused (Pending)
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
-                                  {alt.usedDate || '—'}
-                                </td>
-                              </tr>
-                            ))
+                                  </td>
+                                  <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                    {alt.discountPercent > 0 ? `${alt.discountPercent}% OFF` : 'Flat OFF'}
+                                  </td>
+                                  <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
+                                    {alt.allottedDate}
+                                  </td>
+                                  <td className="py-3.5 px-4">
+                                    {alt.used ? (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-[#38A132]/15 text-[#38A132] border border-[#38A132]/30">
+                                        Used ✓ (Redeemed)
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                        Delivered
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">
+                                    {alt.usedDate || '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4 text-right">
+                                    <button
+                                      onClick={() => {
+                                        setAllotmentsList(prev => prev.filter(a => a.id !== alt.id));
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-2xs cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Remove</span>
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
                           )}
                         </tbody>
                       </table>
@@ -3010,7 +3521,7 @@ export const AdminDashboardPage: React.FC = () => {
               {activeTab === 'broadcast' && (
                 <div className="space-y-5">
                   {/* Broadcast Overview KPI Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Dispatched Messages</span>
@@ -3030,17 +3541,6 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                       <div className="text-[10px] text-blue-700 font-bold mt-1">Retail & Production Directives</div>
                     </div>
-
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Supplier Notices</span>
-                        <Briefcase className="w-4 h-4 text-amber-600" />
-                      </div>
-                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {adminMessagesList.filter(m => m.recipientType.includes('Supplier')).length}
-                      </div>
-                      <div className="text-[10px] text-amber-700 font-bold mt-1">Furniture Manufacturer Notices</div>
-                    </div>
                   </div>
 
                   <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
@@ -3050,7 +3550,7 @@ export const AdminDashboardPage: React.FC = () => {
                         Dispatch Message from Admin
                       </h2>
                       <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
-                        Send official announcements or direct messages to Staff members and Ready-Made Furniture Suppliers. Messages will appear directly on their dashboards as "Message from Admin".
+                        Send official announcements or direct messages to Staff members. Messages will appear directly on their dashboards as "Message from Admin".
                       </p>
                     </div>
 
@@ -3069,17 +3569,15 @@ export const AdminDashboardPage: React.FC = () => {
                             <option value="Retail Staff">Retail Staff Only</option>
                             <option value="Production Staff">Production Staff Only</option>
                             <option value="Specific Staff">Specific Staff Member (by Email)</option>
-                            <option value="All Suppliers">All Ready-Made Furniture Suppliers</option>
-                            <option value="Specific Supplier">Specific Supplier Partner (by Email)</option>
                           </select>
                         </div>
 
-                        {(adminMsgRecipientType === 'Specific Staff' || adminMsgRecipientType === 'Specific Supplier') && (
+                        {adminMsgRecipientType === 'Specific Staff' && (
                           <div>
                             <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Target Account Email *</label>
                             <input
                               type="email"
-                              placeholder="e.g. staff@retailsphere.com or supplier@furniturecrafts.com"
+                              placeholder="e.g. staff@retailsphere.com"
                               value={adminMsgTargetEmail}
                               onChange={(e) => setAdminMsgTargetEmail(e.target.value)}
                               className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-mono font-bold text-xs focus:outline-none focus:border-[#48A63E]"
@@ -3088,7 +3586,7 @@ export const AdminDashboardPage: React.FC = () => {
                           </div>
                         )}
 
-                        <div className={(adminMsgRecipientType === 'Specific Staff' || adminMsgRecipientType === 'Specific Supplier') ? 'sm:col-span-2' : ''}>
+                        <div className={adminMsgRecipientType === 'Specific Staff' ? 'sm:col-span-2' : ''}>
                           <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Message Subject *</label>
                           <input
                             type="text"
@@ -3136,44 +3634,67 @@ export const AdminDashboardPage: React.FC = () => {
                               <th className="py-3 px-4">Message Content</th>
                               <th className="py-3 px-4">Date Sent</th>
                               <th className="py-3 px-4">Status</th>
+                              <th className="py-3 px-4 text-right">Action</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#EFE7DE]">
-                            {adminMessagesList.length === 0 ? (
+                            {adminMessagesList.filter((msg) => 
+                              msg.recipientType === 'All Staff' || 
+                              msg.recipientType === 'Retail Staff' || 
+                              msg.recipientType === 'Production Staff' || 
+                              msg.recipientType === 'Specific Staff'
+                            ).length === 0 ? (
                               <tr>
-                                <td colSpan={5} className="py-8 text-center text-[#7A6C5E]">
-                                  No admin messages dispatched yet.
+                                <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
+                                  No active staff admin messages dispatched.
                                 </td>
                               </tr>
                             ) : (
-                              adminMessagesList.map((msg) => (
-                                <tr key={msg.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                                  <td className="py-3.5 px-4 font-bold text-[#2C241D]">
-                                    <span className="inline-block px-2.5 py-0.5 rounded-md text-[10px] font-extrabold bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
-                                      {msg.recipientType}
-                                    </span>
-                                    {msg.targetEmail && (
-                                      <div className="text-[10px] text-[#7A6C5E] font-mono mt-0.5">{msg.targetEmail}</div>
-                                    )}
-                                  </td>
-                                  <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{msg.subject}</td>
-                                  <td className="py-3.5 px-4 text-[#6B5C4D] max-w-xs truncate">{msg.message}</td>
-                                  <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">{msg.createdDate}</td>
-                                  <td className="py-3.5 px-4">
-                                    {msg.read || (msg.readByEmails && msg.readByEmails.length > 0) ? (
-                                      <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-3 py-1 rounded-xl shadow-xs">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                        Delivered & Read ✓
+                              adminMessagesList
+                                .filter((msg) => 
+                                  msg.recipientType === 'All Staff' || 
+                                  msg.recipientType === 'Retail Staff' || 
+                                  msg.recipientType === 'Production Staff' || 
+                                  msg.recipientType === 'Specific Staff'
+                                )
+                                .map((msg) => (
+                                  <tr key={msg.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                    <td className="py-3.5 px-4 font-bold text-[#2C241D]">
+                                      <span className="inline-block px-2.5 py-0.5 rounded-md text-[10px] font-extrabold bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
+                                        {msg.recipientType}
                                       </span>
-                                    ) : (
-                                      <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-3 py-1 rounded-xl shadow-xs">
-                                        <Clock className="w-3.5 h-3.5 text-amber-600" />
-                                        Delivered
-                                      </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))
+                                      {msg.targetEmail && (
+                                        <div className="text-[10px] text-[#7A6C5E] font-mono mt-0.5">{msg.targetEmail}</div>
+                                      )}
+                                    </td>
+                                    <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{msg.subject}</td>
+                                    <td className="py-3.5 px-4 text-[#6B5C4D] max-w-xs truncate">{msg.message}</td>
+                                    <td className="py-3.5 px-4 font-mono text-[#7A6C5E]">{msg.createdDate}</td>
+                                    <td className="py-3.5 px-4">
+                                      {msg.read || (msg.readByEmails && msg.readByEmails.length > 0) ? (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2.5 py-0.5 rounded-md">
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                          Read ✓ {msg.readByEmails && msg.readByEmails.length > 0 ? `(${msg.readByEmails.length})` : ''}
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center gap-1 text-[10px] font-extrabold text-amber-800 bg-amber-100 border border-amber-300 px-2.5 py-0.5 rounded-md">
+                                          <Clock className="w-3 h-3 text-amber-600" />
+                                          Delivered (Unread)
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-right">
+                                      <button
+                                        onClick={() => setAdminMessagesList(deleteAdminMessage(msg.id))}
+                                        className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 transition-colors inline-flex items-center gap-1 text-xs font-bold border border-rose-200 cursor-pointer"
+                                        title="Delete Message Record"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <span>Delete</span>
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
                             )}
                           </tbody>
                         </table>
@@ -4007,16 +4528,105 @@ export const AdminDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
-      {/* MODAL: USER PURCHASED PRODUCTS */}
+      {/* MODAL 6: EDIT ORDER */}
+      {selectedOrderForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-lg font-black text-[#1A140E]">Edit Order Details</h3>
+                <p className="text-xs font-mono font-bold text-[#48A63E] mt-0.5">#{selectedOrderForEdit.orderId}</p>
+              </div>
+              <button
+                onClick={() => setSelectedOrderForEdit(null)}
+                className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditOrder} className="space-y-4 text-xs font-semibold">
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                <div className="text-[#1A140E] font-black text-sm">{selectedOrderForEdit.customerName}</div>
+                <div className="text-[#6B5C4D] font-mono text-xs">{selectedOrderForEdit.email}</div>
+                <div className="text-[#48A63E] font-black text-sm pt-1">Total Amount: ₹{selectedOrderForEdit.totalAmount.toLocaleString('en-IN')}</div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Order Status</label>
+                <select
+                  value={editOrderStatusValue}
+                  onChange={(e) => setEditOrderStatusValue(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Order Placed">Order Placed</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Processing">Processing</option>
+                  <option value="Shipped">Shipped</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Payment Status</label>
+                <select
+                  value={editOrderPaymentStatusValue}
+                  onChange={(e) => setEditOrderPaymentStatusValue(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Paid">Paid</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrderForEdit(null)}
+                  className="px-4 py-2 rounded-xl border border-[#D8CCBD] text-[#4A3E32] font-bold hover:bg-[#EFE7DE] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] text-white font-extrabold shadow-md hover:bg-[#38A132] transition-colors cursor-pointer"
+                >
+                  Save Order
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: USER PURCHASED / SOLD PRODUCTS */}
       {isPurchasedProductsModalOpen && selectedUserForPurchases && (() => {
         const userEmail = (selectedUserForPurchases.email || '').toLowerCase().trim();
         const userId = selectedUserForPurchases.user_id;
+        const userRole = selectedUserForPurchases.role || selectedUserForPurchases.role_name || 'Customer';
+        const isStaff = userRole.toLowerCase().includes('staff');
 
-        const userOrders = orderList.filter((o) => {
-          const orderEmail = (o.email || '').toLowerCase().trim();
-          if (orderEmail && orderEmail === userEmail) return true;
-          if (o.customerId && (o.customerId === userId || String(o.customerId) === String(userId))) return true;
-          return false;
+        const userOrders = orderList.filter((o: any) => {
+          if (isStaff) {
+            const oStaffEmail = (o.staffEmail || o.staff_email || o.handledBy || o.processedBy || '').toLowerCase().trim();
+            if (oStaffEmail && oStaffEmail === userEmail) return true;
+            if (o.staffId && (o.staffId === userId || String(o.staffId) === String(userId))) return true;
+            if (o.retailStaffId && (o.retailStaffId === userId || String(o.retailStaffId) === String(userId))) return true;
+            if (o.productionStaffId && (o.productionStaffId === userId || String(o.productionStaffId) === String(userId))) return true;
+
+            const hasOtherStaff = (o.staffId && String(o.staffId) !== String(userId)) ||
+                                  (o.retailStaffId && String(o.retailStaffId) !== String(userId)) ||
+                                  (o.productionStaffId && String(o.productionStaffId) !== String(userId));
+            if (!hasOtherStaff) return true;
+            return false;
+          } else {
+            const orderEmail = (o.email || '').toLowerCase().trim();
+            if (orderEmail && orderEmail === userEmail) return true;
+            if (o.customerId && (o.customerId === userId || String(o.customerId) === String(userId))) return true;
+            return false;
+          }
         });
 
         const purchasedItems = userOrders.flatMap((order) =>
@@ -4044,7 +4654,7 @@ export const AdminDashboardPage: React.FC = () => {
               {/* Modal Header */}
               <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-4 flex-shrink-0">
                 <div className="flex items-center gap-3.5">
-                  <div className="w-12 h-12 rounded-full bg-[#38A132] text-white font-black flex items-center justify-center text-base shadow-md flex-shrink-0">
+                  <div className={`w-12 h-12 rounded-full ${isStaff ? 'bg-emerald-600' : 'bg-[#38A132]'} text-white font-black flex items-center justify-center text-base shadow-md flex-shrink-0`}>
                     {(selectedUserForPurchases.full_name || selectedUserForPurchases.name || selectedUserForPurchases.email)
                       .split(' ')
                       .map((n) => n[0])
@@ -4054,9 +4664,13 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
                   <div>
                     <h3 className="text-xl font-black text-[#1A140E] tracking-tight flex items-center gap-2">
-                      <span>Purchased Products History</span>
-                      <span className="text-xs font-black px-2.5 py-0.5 rounded-lg bg-[#38A132]/15 text-[#2C6B27] border border-[#38A132]/40">
-                        {selectedUserForPurchases.role || selectedUserForPurchases.role_name || 'Customer'}
+                      <span>{isStaff ? 'Sold Products History' : 'Purchased Products History'}</span>
+                      <span className={`text-xs font-black px-2.5 py-0.5 rounded-lg ${
+                        isStaff
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-[#38A132]/15 text-[#2C6B27] border border-[#38A132]/40'
+                      }`}>
+                        {userRole}
                       </span>
                     </h3>
                     <p className="text-sm font-extrabold text-[#2C241D] mt-1 flex items-center gap-2 flex-wrap">
@@ -4075,18 +4689,24 @@ export const AdminDashboardPage: React.FC = () => {
                 </button>
               </div>
 
-              {/* Purchase Overview Stats */}
+              {/* Purchase / Sales Overview Stats */}
               <div className="grid grid-cols-3 gap-3 flex-shrink-0">
                 <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] shadow-xs">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">Total Orders</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">
+                    {isStaff ? 'Orders Processed' : 'Total Orders'}
+                  </span>
                   <div className="text-xl font-black text-[#1A140E] mt-0.5">{userOrders.length}</div>
                 </div>
                 <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] shadow-xs">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">Items Purchased</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">
+                    {isStaff ? 'Products Sold' : 'Items Purchased'}
+                  </span>
                   <div className="text-xl font-black text-[#2C6B27] mt-0.5">{totalItemsCount} Products</div>
                 </div>
                 <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] shadow-xs">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">Total Amount Spent</span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#5C4D3E]">
+                    {isStaff ? 'Total Revenue Sold' : 'Total Amount Spent'}
+                  </span>
                   <div className="text-xl font-black text-[#1A140E] mt-0.5">₹{totalSpent.toLocaleString('en-IN')}</div>
                 </div>
               </div>
@@ -4096,8 +4716,14 @@ export const AdminDashboardPage: React.FC = () => {
                 {purchasedItems.length === 0 ? (
                   <div className="py-12 text-center space-y-2">
                     <ShoppingBag className="w-12 h-12 text-[#9E9082] mx-auto" />
-                    <h4 className="font-extrabold text-base text-[#1A140E]">No Purchased Products Found</h4>
-                    <p className="text-xs text-[#5C4D3E] font-medium">This user has not completed any product orders yet.</p>
+                    <h4 className="font-extrabold text-base text-[#1A140E]">
+                      {isStaff ? 'No Sold Products Found' : 'No Purchased Products Found'}
+                    </h4>
+                    <p className="text-xs text-[#5C4D3E] font-medium">
+                      {isStaff
+                        ? 'This staff member has not processed or sold any products yet.'
+                        : 'This user has not completed any product orders yet.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -4107,11 +4733,18 @@ export const AdminDashboardPage: React.FC = () => {
                         className="bg-white p-4 rounded-2xl border border-[#E2D7CB] flex items-center justify-between gap-4 shadow-xs hover:border-[#38A132] transition-all"
                       >
                         <div className="flex items-center gap-3.5 min-w-0">
-                          <img
-                            src={item.imageUrl}
-                            alt={item.name}
-                            className="w-16 h-16 rounded-xl object-cover border border-[#E2D7CB] flex-shrink-0"
-                          />
+                          {item.imageUrl && item.imageUrl.trim() !== '' ? (
+                            <img
+                              src={item.imageUrl}
+                              alt={item.name}
+                              className="w-16 h-16 rounded-xl object-cover border border-[#E2D7CB] flex-shrink-0"
+                              onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex-shrink-0 flex items-center justify-center font-extrabold text-[#38A132] shadow-2xs">
+                              <FileText className="w-6 h-6 text-[#38A132]" />
+                            </div>
+                          )}
                           <div className="min-w-0">
                             <h4 className="font-black text-sm text-[#1A140E] truncate">{item.name}</h4>
                             <div className="flex items-center gap-2 mt-1">
@@ -4260,6 +4893,202 @@ export const AdminDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN MODAL 1: Detailed Custom Order Specifications */}
+      {selectedCustomForAdminDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setSelectedCustomForAdminDetails(null)}
+              className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-[#38A132] to-[#32922D] text-white flex items-center justify-center font-extrabold shadow-md">
+                <FileText className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#38A132]/15 border border-[#38A132]/40 text-[#38A132]">
+                  ORDER #{selectedCustomForAdminDetails.custom_order_id}
+                </span>
+                <h3 className="text-xl font-extrabold text-[#2C241D] mt-0.5">{selectedCustomForAdminDetails.furniture_type}</h3>
+                <p className="text-xs text-[#6B5C4D] font-medium">Client: {selectedCustomForAdminDetails.customer_name}</p>
+              </div>
+            </div>
+
+            {/* 1. CLIENT & ORDER TIMELINE SUMMARY */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+              <h4 className="text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Client Contact & Order Record</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Client Name</span>
+                  <span className="font-extrabold text-[#2C241D] truncate block">{selectedCustomForAdminDetails.customer_name}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Email Address</span>
+                  <span className="font-bold text-[#2C241D] block break-all text-[11px]">{selectedCustomForAdminDetails.customer_email || 'Not Provided'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Phone Contact</span>
+                  <span className="font-bold text-[#2C241D] block truncate">{selectedCustomForAdminDetails.customer_phone || 'Not Provided'}</span>
+                </div>
+                <div className="min-w-0">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] block">Submission Date</span>
+                  <span className="font-bold text-[#2C241D] block truncate">
+                    {selectedCustomForAdminDetails.order_date
+                      ? new Date(selectedCustomForAdminDetails.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                      : 'Recent'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. SEPARATED PRODUCT FIELDS GRID */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Product Specifications & Parameters</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {parseOrderSpecDetails(selectedCustomForAdminDetails).map((field, idx) => (
+                  <div key={idx} className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">{field.label}</span>
+                    {field.isColor || field.label.toLowerCase().includes('color') ? (
+                      renderColorSwatchBadge(field.value)
+                    ) : (
+                      <span className="font-extrabold text-xs text-[#2C241D] block">{field.value}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. CUSTOMER PROVIDED REFERENCE DESIGN IMAGES */}
+            {selectedCustomForAdminDetails.reference_image && selectedCustomForAdminDetails.reference_image.trim() && (
+              <div className="space-y-3">
+                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
+                  <Eye className="w-4 h-4 text-[#38A132]" />
+                  Customer Provided Reference Images ({selectedCustomForAdminDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).length})
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  {selectedCustomForAdminDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, i) => (
+                    <a
+                      key={i}
+                      href={imgUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all block h-32"
+                    >
+                      <img
+                        src={imgUrl}
+                        alt={`Reference Design ${i + 1}`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                      />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+
+
+            <div className="flex items-center justify-between gap-3 border-t border-[#E2D7CB] pt-4">
+              {(selectedCustomForAdminDetails.payment_status === 'Paid' || selectedCustomForAdminDetails.order_status === 'Paid') ? (
+                <button
+                  onClick={() => downloadPaymentReceipt(selectedCustomForAdminDetails)}
+                  className="px-4 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-white" />
+                  <span>Download Payment Receipt</span>
+                </button>
+              ) : (
+                <div />
+              )}
+              <button
+                onClick={() => setSelectedCustomForAdminDetails(null)}
+                className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#42372D] text-white font-extrabold text-xs shadow-md cursor-pointer"
+              >
+                Close Specifications
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN MODAL 2: Set/Update Price Quote & Approval */}
+      {selectedCustomForAdminReview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 relative">
+            <button
+              onClick={() => setSelectedCustomForAdminReview(null)}
+              className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-4">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-white flex items-center justify-center font-extrabold shadow-md">
+                <DollarSign className="w-6 h-6" />
+              </div>
+              <div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-800">
+                  ADMIN PRICE QUOTE & APPROVAL
+                </span>
+                <h3 className="text-xl font-extrabold text-[#2C241D] mt-0.5">Order #{selectedCustomForAdminReview.custom_order_id}</h3>
+                <p className="text-xs text-[#6B5C4D] font-medium">{selectedCustomForAdminReview.furniture_type} • Client: {selectedCustomForAdminReview.customer_name}</p>
+              </div>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#5C4E42] mb-1">
+                  Estimated Price Quote (INR ₹):
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 font-extrabold text-sm text-[#38A132]">₹</span>
+                  <input
+                    type="number"
+                    value={adminPriceInput}
+                    onChange={(e) => setAdminPriceInput(e.target.value)}
+                    placeholder="Enter estimated custom build price..."
+                    className="w-full pl-8 pr-4 py-2.5 bg-white border border-[#E2D7CB] rounded-xl font-extrabold text-sm focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#5C4E42] mb-1">
+                  Approval Remarks / Staff Notes:
+                </label>
+                <textarea
+                  rows={3}
+                  value={adminReviewRemarks}
+                  onChange={(e) => setAdminReviewRemarks(e.target.value)}
+                  placeholder="Notes regarding timber sourcing, estimated lead time..."
+                  className="w-full p-3 bg-white border border-[#E2D7CB] rounded-xl font-semibold text-xs focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 border-t border-[#E2D7CB] pt-4">
+              <button
+                type="button"
+                onClick={() => handleAdminSubmitQuote('Rejected')}
+                className="px-4 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-extrabold text-xs cursor-pointer"
+              >
+                Reject Request
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAdminSubmitQuote('Approved')}
+                className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-md cursor-pointer"
+              >
+                Approve & Send Quote
+              </button>
+            </div>
           </div>
         </div>
       )}

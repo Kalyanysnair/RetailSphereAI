@@ -17,13 +17,12 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Header } from '../dashboard/Header';
 import { Sidebar } from '../dashboard/Sidebar';
 import { 
-  getStoredCoupons, 
-  getCouponAllotments, 
-  getCustomerNotifications, 
+  getCouponsApi, 
+  getCustomerNotificationsApi, 
   Coupon, 
   CouponAllotment, 
   CustomerNotification 
-} from '../../utils/couponStorage';
+} from '../../services/api_coupons';
 
 export const MyDiscountsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -38,7 +37,7 @@ export const MyDiscountsPage: React.FC = () => {
   const [allotments, setAllotments] = useState<CouponAllotment[]>([]);
   const [notifications, setNotifications] = useState<CustomerNotification[]>([]);
 
-  const loadData = () => {
+  const loadData = async () => {
     try {
       const rawUser = localStorage.getItem('user');
       const userObj = rawUser ? JSON.parse(rawUser) : null;
@@ -46,9 +45,12 @@ export const MyDiscountsPage: React.FC = () => {
       const email = (userObj?.email || userObj?.user_id || userObj?.id || userObj?.username || '').toLowerCase().trim();
       setCurrentUserEmail(email);
 
-      setAllCoupons(getStoredCoupons());
-      setAllotments(getCouponAllotments());
-      setNotifications(getCustomerNotifications(email));
+      const res = await getCouponsApi();
+      setAllCoupons(res.coupons);
+      setAllotments(res.allotments);
+
+      const notifs = await getCustomerNotificationsApi();
+      setNotifications(notifs);
     } catch (err) {
       console.warn('Error loading discounts data:', err);
     }
@@ -371,7 +373,9 @@ export const MyDiscountsPage: React.FC = () => {
                             {c.audienceType === 'retail' ? '🛍️ Retail Buyers' : c.audienceType === 'production' ? '🏭 Custom Furniture' : '🌐 All Customers'}
                           </span>
                         </div>
-                        <span className="text-lg font-extrabold text-[#48A63E]">{c.discountPercent}% OFF</span>
+                        <span className="text-lg font-extrabold text-[#48A63E]">
+                          {c.flatDiscountAmount && c.flatDiscountAmount > 0 ? `₹${c.flatDiscountAmount.toLocaleString('en-IN')} OFF` : `${c.discountPercent}% OFF`}
+                        </span>
                       </div>
 
                       <div>

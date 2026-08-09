@@ -3,7 +3,7 @@ import { ShoppingBag, Heart, LogOut, Plus, User, Package, ChevronDown, Bell, Tag
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { getCartCount } from '../../utils/cartStorage';
 import { getWishlistCount } from '../../utils/wishlistStorage';
-import { getCustomerNotifications, CustomerNotification } from '../../utils/couponStorage';
+import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
 
 interface HeaderProps {
   cartCount?: number;
@@ -118,26 +118,31 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const [userNotifs, setUserNotifs] = useState<CustomerNotification[]>([]);
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  const refreshNotifs = () => {
+  const refreshNotifs = async () => {
     try {
       const stored = localStorage.getItem('user');
       const parsed = stored ? JSON.parse(stored) : null;
       setUserProfile(parsed);
-      const currentEmail = parsed?.email || parsed?.user_id || parsed?.id || parsed?.username || '';
-      setUserNotifs(getCustomerNotifications(currentEmail));
+      const notifs = await getCustomerNotificationsApi();
+      setUserNotifs(notifs);
     } catch (e) {
-      setUserNotifs(getCustomerNotifications());
+      setUserNotifs([]);
     }
   };
 
   useEffect(() => {
     refreshNotifs();
     window.addEventListener('customer-notifications-updated', refreshNotifs);
+    window.addEventListener('allotments-updated', refreshNotifs);
+    window.addEventListener('coupons-updated', refreshNotifs);
     window.addEventListener('storage', refreshNotifs);
     window.addEventListener('user-logged-in', refreshNotifs);
     return () => {
       window.removeEventListener('customer-notifications-updated', refreshNotifs);
+      window.removeEventListener('allotments-updated', refreshNotifs);
+      window.removeEventListener('coupons-updated', refreshNotifs);
       window.removeEventListener('storage', refreshNotifs);
       window.removeEventListener('user-logged-in', refreshNotifs);
     };
@@ -281,11 +286,12 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
                           <button
                             onClick={() => {
                               navigator.clipboard.writeText(n.couponCode);
-                              alert(`Coupon code "${n.couponCode}" copied to clipboard! You can paste it at checkout.`);
+                              setCopiedCode(n.couponCode);
+                              setTimeout(() => setCopiedCode(null), 2500);
                             }}
-                            className="text-[10px] font-extrabold text-[#48A63E] hover:underline"
+                            className={`text-[10px] font-extrabold transition-colors ${copiedCode === n.couponCode ? 'text-[#38A132] font-black' : 'text-[#48A63E] hover:underline'}`}
                           >
-                            Copy Code
+                            {copiedCode === n.couponCode ? 'Copied! ✓' : 'Copy Code'}
                           </button>
                         </div>
                       </div>
@@ -337,15 +343,6 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
                 >
                   <User className="w-4 h-4 text-[#38A132]" />
                   <span>View Profile</span>
-                </Link>
-
-                <Link
-                  to="/discounts"
-                  onClick={() => setIsDropdownOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 text-xs font-extrabold text-[#1F1812] hover:bg-[#EAE0D4] rounded-xl transition-all"
-                >
-                  <Gift className="w-4 h-4 text-[#38A132]" />
-                  <span>My Discounts & Offers</span>
                 </Link>
 
                 <Link

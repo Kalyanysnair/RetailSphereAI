@@ -1,7 +1,7 @@
 export interface AdminMessage {
   id: string;
   sender: string;
-  recipientType: 'All Staff' | 'Retail Staff' | 'Production Staff' | 'Specific Staff' | 'All Suppliers' | 'Specific Supplier';
+  recipientType: 'All Staff' | 'Retail Staff' | 'Production Staff' | 'Specific Staff';
   targetEmail?: string;
   subject: string;
   message: string;
@@ -23,16 +23,6 @@ const INITIAL_MESSAGES: AdminMessage[] = [
     createdDate: new Date(Date.now() - 86400000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
     read: false,
     readByEmails: [],
-  },
-  {
-    id: 'msg-102',
-    sender: 'System Admin',
-    recipientType: 'All Suppliers',
-    subject: 'Q3 Ready-Made Furniture Production Procurement',
-    message: 'To all manufacturing partners: New stock deliveries for teak and marble collections are scheduled for dispatch.',
-    createdDate: new Date(Date.now() - 172800000).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-    read: false,
-    readByEmails: [],
   }
 ];
 
@@ -43,10 +33,33 @@ export const getStoredAdminMessages = (): AdminMessage[] => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_MESSAGES));
       return INITIAL_MESSAGES;
     }
-    return JSON.parse(raw);
+    const parsed: any[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_MESSAGES));
+      return INITIAL_MESSAGES;
+    }
+    // Filter out messages for recipient types that do not have dashboards (e.g. Suppliers)
+    const validStaffMessages: AdminMessage[] = parsed.filter(m =>
+      m.recipientType === 'All Staff' ||
+      m.recipientType === 'Retail Staff' ||
+      m.recipientType === 'Production Staff' ||
+      m.recipientType === 'Specific Staff'
+    );
+    if (validStaffMessages.length !== parsed.length) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(validStaffMessages));
+    }
+    return validStaffMessages;
   } catch {
     return INITIAL_MESSAGES;
   }
+};
+
+export const deleteAdminMessage = (msgId: string): AdminMessage[] => {
+  const current = getStoredAdminMessages();
+  const updated = current.filter(m => m.id !== msgId);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event('admin-messages-updated'));
+  return updated;
 };
 
 export const sendAdminMessage = (msgData: Omit<AdminMessage, 'id' | 'createdDate' | 'read' | 'readByEmails'>): AdminMessage => {
@@ -70,8 +83,7 @@ export const getMessagesForUser = (userEmail: string, role: string): AdminMessag
     if (msg.recipientType === 'All Staff') return role === 'Retail Staff' || role === 'Production Staff' || role === 'Staff';
     if (msg.recipientType === 'Retail Staff') return role === 'Retail Staff';
     if (msg.recipientType === 'Production Staff') return role === 'Production Staff';
-    if (msg.recipientType === 'All Suppliers') return role === 'Supplier' || role === 'Vendor';
-    if (msg.recipientType === 'Specific Staff' || msg.recipientType === 'Specific Supplier') {
+    if (msg.recipientType === 'Specific Staff') {
       return msg.targetEmail?.toLowerCase().trim() === userEmail.toLowerCase().trim();
     }
     return false;

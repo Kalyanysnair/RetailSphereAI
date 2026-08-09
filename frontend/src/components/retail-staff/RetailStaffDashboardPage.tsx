@@ -34,9 +34,10 @@ import {
   Trash2,
   Mail,
   UserCheck,
-  ArrowRight
+  ArrowRight,
+  Edit3
 } from 'lucide-react';
-import { getStoredCoupons, addStoredCoupon, removeStoredCoupon, updateCouponUserEmail, sendCouponToCustomer, getCouponAllotments, Coupon, CouponAllotment, CouponAudienceType, sendBulkCouponsToFirstNCustomers } from '../../utils/couponStorage';
+import { getCouponsApi, createCouponApi, deleteCouponApi, regenerateCouponApi, Coupon, CouponAllotment } from '../../services/api_coupons';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { getMessagesForUser, markAdminMessageRead, markAllAdminMessagesReadForUser, isMessageReadByUser, AdminMessage } from '../../utils/adminMessagesStorage';
 
@@ -273,19 +274,75 @@ export const RetailStaffDashboardPage: React.FC = () => {
   // Orders State
   const [orderList, setOrderList] = useState<RetailOrder[]>(() => getStoredRetailOrders() as any);
 
+  // Edit Order Modal State
+  const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<RetailOrder | null>(null);
+  const [editOrderStatusValue, setEditOrderStatusValue] = useState<string>('Order Placed');
+  const [editOrderPaymentStatusValue, setEditOrderPaymentStatusValue] = useState<string>('Paid');
+
+  const handleOpenEditOrder = (ord: RetailOrder) => {
+    setSelectedOrderForEdit(ord);
+    setEditOrderStatusValue(ord.orderStatus || 'Order Placed');
+    setEditOrderPaymentStatusValue(ord.paymentStatus || 'Paid');
+  };
+
+  const handleSaveEditOrder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedOrderForEdit) return;
+
+    const updatedList = orderList.map((o) =>
+      o.orderId === selectedOrderForEdit.orderId
+        ? { ...o, orderStatus: editOrderStatusValue as any, paymentStatus: editOrderPaymentStatusValue as any }
+        : o
+    );
+    setOrderList(updatedList as any);
+    localStorage.setItem('retailsphere_retail_orders_v1', JSON.stringify(updatedList));
+    localStorage.setItem('retail_orders_list', JSON.stringify(updatedList));
+    window.dispatchEvent(new Event('retail-orders-updated'));
+
+    setSelectedOrderForEdit(null);
+  };
+
+  const formatPaymentTime = (ord: any) => {
+    if (ord.createdAt) {
+      try {
+        const d = new Date(ord.createdAt);
+        if (!isNaN(d.getTime())) {
+          const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          return `${dateStr} at ${timeStr}`;
+        }
+      } catch (e) {}
+    }
+    if (ord.orderDate) {
+      try {
+        const d = new Date(ord.orderDate);
+        if (!isNaN(d.getTime())) {
+          const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+          const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+          return `${dateStr} at ${timeStr}`;
+        }
+      } catch (e) {}
+      return ord.orderDate;
+    }
+    return 'Recent';
+  };
+
   const loadAllOrdersForStaff = async () => {
     try {
       const dbStoreOrders = await fetchRetailOrdersFromDB();
       const allCustomOrders = await fetchCustomOrders('All', true);
+      const paidCustomOrders = allCustomOrders.filter(
+        (c) => (c.payment_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'in production' || (c.order_status || '').toLowerCase() === 'completed'
+      );
       
-      const formattedCustom: RetailOrder[] = allCustomOrders.map((c) => ({
+      const formattedCustom: RetailOrder[] = paidCustomOrders.map((c) => ({
         orderId: `CUSTOM-${c.custom_order_id}`,
         customerName: c.customer_name || 'Bespoke Customer',
         email: c.customer_email || 'customer@retailsphere.com',
         itemsCount: 1,
         totalAmount: c.estimated_price || 0,
-        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : (c.order_status as any || 'Pending')),
-        paymentStatus: (c.payment_status === 'Paid' || c.order_status === 'Paid') ? 'Paid' : 'Pending',
+        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : 'Processing'),
+        paymentStatus: 'Paid',
         orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
         createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
         items: [{
@@ -293,7 +350,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
           name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
           price: c.estimated_price || 0,
           quantity: 1,
-          imageUrl: c.reference_image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80'
+          imageUrl: c.reference_image ? c.reference_image.split(',')[0].trim() : ''
         }]
       }));
 
@@ -466,43 +523,33 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
   const [modalProductSearchQuery, setModalProductSearchQuery] = useState('');
   // Coupon & Discount Management State
-  const [couponsList, setCouponsList] = useState<Coupon[]>(() => getStoredCoupons());
+  const [couponsList, setCouponsList] = useState<Coupon[]>([]);
   const [isAddCouponModalOpen, setIsAddCouponModalOpen] = useState(false);
   const [couponSearchQuery, setCouponSearchQuery] = useState('');
   const [newCouponCode, setNewCouponCode] = useState('');
   const [newCouponDiscount, setNewCouponDiscount] = useState('');
   const [newCouponDesc, setNewCouponDesc] = useState('');
   const [newCouponUserEmail, setNewCouponUserEmail] = useState('');
-  const [newCouponAudience, setNewCouponAudience] = useState<CouponAudienceType>('all');
+  const [newCouponAudience, setNewCouponAudience] = useState<string>('all');
   const [newCouponCustomerLimit, setNewCouponCustomerLimit] = useState('10');
   const [newCouponAutoAllot, setNewCouponAutoAllot] = useState(true);
 
-  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>(() => getCouponAllotments());
+  const [allotmentsList, setAllotmentsList] = useState<CouponAllotment[]>([]);
 
-  const refreshCoupons = () => {
-    setCouponsList(getStoredCoupons());
-    setAllotmentsList(getCouponAllotments());
+  const refreshCoupons = async () => {
+    try {
+      const res = await getCouponsApi();
+      setCouponsList(res.coupons);
+      setAllotmentsList(res.allotments);
+    } catch (e) {
+      setCouponsList([]);
+      setAllotmentsList([]);
+    }
   };
 
   useEffect(() => {
-    window.addEventListener('coupons-updated', refreshCoupons);
-    window.addEventListener('allotments-updated', refreshCoupons);
-    return () => {
-      window.removeEventListener('coupons-updated', refreshCoupons);
-      window.removeEventListener('allotments-updated', refreshCoupons);
-    };
+    refreshCoupons();
   }, []);
-
-  const handleBatchDispatchCoupon = async (coupon: Coupon) => {
-    const limit = coupon.customerLimit || 10;
-    const audience = coupon.audienceType || 'all';
-    const result = await sendBulkCouponsToFirstNCustomers(coupon.id, audience, limit);
-    if (result.success) {
-      refreshCoupons();
-      setSuccessNotice(`🎉 ${result.message}`);
-      setTimeout(() => setSuccessNotice(null), 8000);
-    }
-  };
 
   const handleCreateCouponSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -512,73 +559,43 @@ export const RetailStaffDashboardPage: React.FC = () => {
     const targetEmail = newCouponUserEmail.trim();
     const limitVal = parseInt(newCouponCustomerLimit, 10) || 10;
 
-    const updated = addStoredCoupon({
-      code: newCouponCode.trim().toUpperCase(),
-      discountPercent: discountVal,
-      description: newCouponDesc.trim() || `${discountVal}% Off Discount`,
-      targetUserEmail: targetEmail || undefined,
-      customerLimit: limitVal,
-      audienceType: newCouponAudience,
-    });
-    setCouponsList(updated);
-
-    if (newCouponAutoAllot) {
-      await sendBulkCouponsToFirstNCustomers(newCouponCode.trim().toUpperCase(), newCouponAudience, limitVal);
+    try {
+      await createCouponApi({
+        code: newCouponCode.trim().toUpperCase(),
+        coupon_type: 'percentage_notification',
+        discount_percent: discountVal,
+        description: newCouponDesc.trim() || `${discountVal}% Off Discount`,
+        customer_limit: limitVal,
+        target_user_email: targetEmail || undefined
+      });
+      await refreshCoupons();
+      setSuccessNotice(`Coupon "${newCouponCode.trim().toUpperCase()}" created and saved to database!`);
+      setNewCouponCode('');
+      setNewCouponDiscount('');
+      setNewCouponDesc('');
+      setNewCouponUserEmail('');
+      setNewCouponCustomerLimit('10');
+      setNewCouponAudience('all');
+      setNewCouponAutoAllot(true);
+      setIsAddCouponModalOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to create coupon.');
     }
-
-    const audienceLabel = newCouponAudience === 'retail' ? 'Retail Customers' : newCouponAudience === 'production' ? 'Production Customers' : 'First N Customers';
-
-    setSuccessNotice(`Coupon "${newCouponCode.trim().toUpperCase()}" created for ${audienceLabel} (Limit: ${limitVal})!`);
-    setNewCouponCode('');
-    setNewCouponDiscount('');
-    setNewCouponDesc('');
-    setNewCouponUserEmail('');
-    setNewCouponCustomerLimit('10');
-    setNewCouponAudience('all');
-    setNewCouponAutoAllot(true);
-    setIsAddCouponModalOpen(false);
     setTimeout(() => setSuccessNotice(null), 6000);
   };
 
-  const handleRemoveCoupon = (idOrCode: string, code: string) => {
-    const updated = removeStoredCoupon(idOrCode);
-    setCouponsList(updated);
-    setSuccessNotice(`Coupon "${code}" removed successfully!`);
+  const handleRemoveCoupon = async (id: string, code: string) => {
+    try {
+      await deleteCouponApi(id);
+      await refreshCoupons();
+      setSuccessNotice(`Coupon "${code}" removed successfully!`);
+    } catch (err: any) {
+      alert(err.message || 'Failed to remove coupon.');
+    }
     setTimeout(() => setSuccessNotice(null), 5000);
   };
 
-  const handleUpdateCouponUserEmail = (couponId: string, newUserEmail: string) => {
-    const updated = updateCouponUserEmail(couponId, newUserEmail);
-    setCouponsList(updated);
-  };
 
-  const handleSendCouponNotification = (couponId: string, currentEmailInput: string) => {
-    const email = currentEmailInput.trim();
-    if (!email) {
-      alert('Please enter a customer email or User ID in the textbox before sending the coupon notification.');
-      return;
-    }
-
-    const result = sendCouponToCustomer(couponId, email);
-    if (result.success) {
-      // Clear textbox input field in DOM
-      const inputEl = document.getElementById(`coupon-email-${couponId}`) as HTMLInputElement;
-      if (inputEl) {
-        inputEl.value = '';
-      }
-      // Reset targetUserEmail on the promo code row to empty
-      updateCouponUserEmail(couponId, '');
-
-      // Refresh list states immediately
-      setCouponsList(getStoredCoupons());
-      setAllotmentsList(getCouponAllotments());
-
-      setSuccessNotice(`🎉 ${result.message}`);
-      setTimeout(() => setSuccessNotice(null), 7000);
-    } else {
-      alert(result.message);
-    }
-  };
 
   // New Supplier Form State
   const [newSupName, setNewSupName] = useState('');
@@ -1816,8 +1833,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Customer Details</th>
                           <th className="py-3 px-4">Items & Product Code</th>
                           <th className="py-3 px-4">Total Amount</th>
-                          <th className="py-3 px-4">Payment Status</th>
-                          <th className="py-3 px-4">Order Status</th>
+                          <th className="py-3 px-4">Payment Time</th>
                           <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
@@ -1876,37 +1892,33 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             <td className="py-4 px-4 font-extrabold text-[#2C241D] text-sm">
                               ₹{ord.totalAmount.toLocaleString('en-IN')}
                             </td>
-                            <td className="py-4 px-4">
-                              <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Paid</span>
-                              </span>
-                            </td>
-                            <td className="py-4 px-4">
-                              {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
-                                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-rose-100 text-rose-800 border border-rose-300">
-                                  <X className="w-3.5 h-3.5 text-rose-600" />
-                                  <span>Cancelled</span>
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1.5 text-[11px] font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>Order Placed</span>
-                                </span>
-                              )}
+                            <td className="py-4 px-4 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5 text-xs font-bold text-[#2C241D]">
+                                <Clock className="w-3.5 h-3.5 text-[#48A63E]" />
+                                <span>{formatPaymentTime(ord)}</span>
+                              </div>
+                              <div className="text-[10px] text-[#7A6C5E] font-semibold mt-0.5">
+                                {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
+                                  <span className="text-rose-600 font-extrabold flex items-center gap-1">
+                                    <X className="w-3 h-3 text-rose-600" />
+                                    Payment Cancelled
+                                  </span>
+                                ) : (
+                                  <span className="text-emerald-700 font-extrabold flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    Paid & Verified
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="py-4 px-4 text-right">
                               <button
-                                onClick={() => {
-                                  if (window.confirm(`Permanently remove order ${ord.orderId} from PostgreSQL Database?`)) {
-                                    deleteStoredRetailOrder(ord.orderId);
-                                  }
-                                }}
-                                className="p-2 rounded-xl text-rose-600 hover:bg-rose-100 transition-colors inline-flex items-center gap-1 font-extrabold text-xs cursor-pointer border border-rose-200"
-                                title="Delete Order from Database"
+                                onClick={() => handleOpenEditOrder(ord)}
+                                className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                title="Edit Order Status & Details"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete</span>
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit</span>
                               </button>
                             </td>
                           </tr>
@@ -2300,31 +2312,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   )}
                                 </td>
 
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      id={`coupon-email-${coupon.id}`}
-                                      type="text"
-                                      placeholder="Enter user email or User ID..."
-                                      defaultValue={coupon.targetUserEmail || ''}
-                                      onBlur={(e) => handleUpdateCouponUserEmail(coupon.id, e.target.value)}
-                                      onKeyDown={(e) => {
-                                        if (e.key === 'Enter') {
-                                          handleUpdateCouponUserEmail(coupon.id, (e.target as HTMLInputElement).value);
-                                        }
-                                      }}
-                                      className="w-48 px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs font-bold shadow-xs transition-colors"
-                                      title="Type customer email or User ID"
-                                    />
-                                    <button
-                                      onClick={() => handleSendCouponNotification(coupon.id, (document.getElementById(`coupon-email-${coupon.id}`) as HTMLInputElement)?.value || coupon.targetUserEmail || '')}
-                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-1.5 rounded-xl bg-[#48A63E] text-white hover:bg-[#388531] transition-all shadow-xs cursor-pointer whitespace-nowrap active:scale-95"
-                                      title="Send coupon to customer email"
-                                    >
-                                      <Send className="w-3 h-3" />
-                                      <span>Send</span>
-                                    </button>
-                                  </div>
+                                <td className="py-3 px-4 text-[#6B5C4D]">
+                                  {coupon.targetUserEmail ? `🎯 ${coupon.targetUserEmail}` : '🌐 All Customers'}
                                 </td>
 
                                 <td className="py-4 px-4">
@@ -2338,14 +2327,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 </td>
 
                                 <td className="py-4 px-4 text-right space-x-2">
-                                  <button
-                                    onClick={() => handleBatchDispatchCoupon(coupon)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer"
-                                    title="Auto-dispatch notification & email to first N targeted customers"
-                                  >
-                                    <Send className="w-3 h-3" />
-                                    <span>Dispatch N</span>
-                                  </button>
                                   <button
                                     onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
                                     className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
@@ -2369,7 +2350,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <UserCheck className="w-4 h-4 text-[#48A63E]" />
                           <span>Customer Coupon Allotment & One-Time Usage Records</span>
                         </h4>
-                        <p className="text-[11px] text-[#7A6C5E] font-medium">Maintains complete record of users allotted coupons, usage status (Used / Unused), and single-use enforcement.</p>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Maintains complete record of users allotted coupons, delivery status, and single-use enforcement.</p>
                       </div>
                       <span className="text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-lg border border-[#48A63E]/20">
                         {allotmentsList.length} Total Records
@@ -2418,8 +2399,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                       Used ✓ (Redeemed)
                                     </span>
                                   ) : (
-                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-amber-100 text-amber-800 border border-amber-200">
-                                      Unused (Pending)
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                      Delivered
                                     </span>
                                   )}
                                 </td>
@@ -3479,7 +3460,78 @@ export const RetailStaffDashboardPage: React.FC = () => {
           </div>
         </div>
       )}
+      {/* MODAL: EDIT ORDER */}
+      {selectedOrderForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-lg font-black text-[#1A140E]">Edit Order Details</h3>
+                <p className="text-xs font-mono font-bold text-[#48A63E] mt-0.5">#{selectedOrderForEdit.orderId}</p>
+              </div>
+              <button
+                onClick={() => setSelectedOrderForEdit(null)}
+                className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
+            <form onSubmit={handleSaveEditOrder} className="space-y-4 text-xs font-semibold">
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                <div className="text-[#1A140E] font-black text-sm">{selectedOrderForEdit.customerName}</div>
+                <div className="text-[#6B5C4D] font-mono text-xs">{selectedOrderForEdit.email}</div>
+                <div className="text-[#48A63E] font-black text-sm pt-1">Total Amount: ₹{selectedOrderForEdit.totalAmount.toLocaleString('en-IN')}</div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Order Status</label>
+                <select
+                  value={editOrderStatusValue}
+                  onChange={(e) => setEditOrderStatusValue(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Order Placed">Order Placed</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Processing">Processing</option>
+                  <option value="Shipped">Shipped</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Payment Status</label>
+                <select
+                  value={editOrderPaymentStatusValue}
+                  onChange={(e) => setEditOrderPaymentStatusValue(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Paid">Paid</option>
+                  <option value="Pending">Pending</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div className="pt-2 flex gap-2 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedOrderForEdit(null)}
+                  className="px-4 py-2 rounded-xl border border-[#D8CCBD] text-[#4A3E32] font-bold hover:bg-[#EFE7DE] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] text-white font-extrabold shadow-md hover:bg-[#38A132] transition-colors cursor-pointer"
+                >
+                  Save Order
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

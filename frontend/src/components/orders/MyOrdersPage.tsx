@@ -16,10 +16,12 @@ import {
   ShoppingBag,
   AlertCircle,
   CreditCard,
-  CheckCircle2
+  CheckCircle2,
+  FileText,
+  Download
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
-import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder } from '../../services/api_production';
+import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData } from '../../services/api_production';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getStoredRetailOrders, cancelStoredRetailOrder, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
@@ -41,6 +43,11 @@ interface OrderData {
   date: string;
   status: string;
   totalPrice: number;
+  originalSubtotal?: number;
+  couponCode?: string;
+  discountType?: string;
+  discountDeducted?: number;
+  shippingFee?: number;
   items: OrderItem[];
   isCustomBuild?: boolean;
   deliveryAddress?: string;
@@ -162,7 +169,7 @@ export const MyOrdersPage: React.FC = () => {
               id: `item-${o.custom_order_id}`,
               name: o.furniture_type,
               category: 'Custom Studio',
-              image: getFurnitureImageUrl(o.furniture_type, o.reference_image),
+              image: o.reference_image ? o.reference_image.split(',')[0].trim() : '',
               price: o.estimated_price || 0,
               quantity: 1,
               specifications: `Material: ${o.material} • Upholstery: ${o.color} • Specs: ${o.dimensions}`
@@ -199,6 +206,11 @@ export const MyOrdersPage: React.FC = () => {
         date: r.orderDate,
         status: r.orderStatus === 'Cancelled' ? 'Cancelled' : (r.paymentStatus === 'Paid' ? 'Order Placed' : r.orderStatus),
         totalPrice: r.totalAmount,
+        originalSubtotal: r.originalSubtotal,
+        couponCode: r.couponCode,
+        discountType: r.discountType,
+        discountDeducted: r.discountDeducted,
+        shippingFee: r.shippingFee,
         isCustomBuild: false,
         is_locked: true,
         sortTimestamp: r.createdAt || (r.orderDate ? new Date(r.orderDate).getTime() : Date.now() - index * 1000),
@@ -439,11 +451,20 @@ export const MyOrdersPage: React.FC = () => {
                     <div className="flex-1 space-y-3 min-w-0">
                       {order.items.map((item, idx) => (
                         <div key={item.id || idx} className="flex items-center gap-4 min-w-0">
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="w-14 h-14 rounded-2xl object-cover border border-[#E2D7CB] shrink-0 shadow-xs"
-                          />
+                          {item.image && item.image.trim() !== '' ? (
+                            <img
+                              src={item.image}
+                              alt={item.name}
+                              className="w-14 h-14 rounded-2xl object-cover border border-[#E2D7CB] shrink-0 shadow-xs"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div className="w-14 h-14 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] shrink-0 flex items-center justify-center font-extrabold text-[#38A132] shadow-2xs">
+                              <FileText className="w-6 h-6 text-[#38A132]" />
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2.5 flex-wrap">
                               <h4 className="text-base font-extrabold text-[#2C241D] tracking-tight">
@@ -461,13 +482,31 @@ export const MyOrdersPage: React.FC = () => {
                       ))}
                     </div>
 
-                    {/* Right side: Price, Single Status Badge & Action Button */}
+                    {/* Right side: Price Breakdown, Single Status Badge & Action Button */}
                     <div className="flex items-center gap-3 shrink-0 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-[#EFE7DE]">
-                      {order.totalPrice > 0 && (
-                        <span className="text-base font-extrabold text-[#38A132] px-1">
-                          ₹{order.totalPrice.toLocaleString('en-IN')}
-                        </span>
-                      )}
+                      {order.totalPrice > 0 && (() => {
+                        const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                        const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
+                        const hasDiscount = calculatedDiscount > 0 || !!order.couponCode;
+
+                        return (
+                          <div className="text-right px-1">
+                            {hasDiscount && (
+                              <div className="text-[10px] text-[#6B5C4D] space-y-0.5 mb-1 font-semibold bg-[#FAF7F2] p-2 rounded-xl border border-[#EAE0D4]">
+                                <div>Original Subtotal: <span className="line-through font-bold">₹{calculatedSubtotal.toLocaleString('en-IN')}</span></div>
+                                <div className="text-[#38A132] font-black">
+                                  🏷️ {order.couponCode || 'PROMO APPLIED'}{order.discountType ? ` (${order.discountType})` : ''}: -₹{calculatedDiscount.toLocaleString('en-IN')}
+                                </div>
+                                <div className="text-[9px] text-[#7A6C5E]">Shipping: {order.shippingFee === 0 || !order.shippingFee ? 'FREE' : `₹${order.shippingFee}`}</div>
+                              </div>
+                            )}
+                            <div className="text-[10px] uppercase tracking-wider font-extrabold text-[#7A6C5E] mb-0.5">Final Amount Paid</div>
+                            <span className="text-lg font-black text-[#38A132]">
+                              ₹{order.totalPrice.toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        );
+                      })()}
 
                       {/* SINGLE STATUS BADGE */}
                       {order.status === 'Cancelled' ? (
@@ -475,10 +514,51 @@ export const MyOrdersPage: React.FC = () => {
                           <span>Status: Cancelled</span>
                         </span>
                       ) : order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered' ? (
-                        <span className="px-3.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-extrabold flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Status: Order Placed</span>
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-3.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-extrabold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Status: Paid & Placed</span>
+                          </span>
+
+                          <button
+                            onClick={() => {
+                              const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                              const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
+
+                              const ordObj: CustomOrderData = {
+                                custom_order_id: order.numericId,
+                                customer_id: 1,
+                                customer_name: 'Valued Customer',
+                                customer_email: '',
+                                customer_phone: '',
+                                furniture_type: firstItem?.name || 'Artisan Furniture',
+                                material: firstItem?.specifications || 'Premium Build',
+                                dimensions: 'Standard Specs',
+                                color: 'Custom Finish',
+                                estimated_price: order.totalPrice,
+                                order_status: 'Paid',
+                                payment_status: 'Paid',
+                                order_date: order.date || new Date().toISOString(),
+                                assigned_workers: [],
+                                current_stage: 'Paid',
+                                progress_percentage: 100,
+
+                                // Full itemized breakdown for receipt
+                                originalSubtotal: calculatedSubtotal,
+                                couponCode: order.couponCode || (calculatedDiscount > 0 ? 'PROMO APPLIED' : undefined),
+                                discountType: order.discountType || (calculatedDiscount > 0 ? 'Discount Deducted' : undefined),
+                                discountDeducted: calculatedDiscount,
+                                shippingFee: order.shippingFee || 0
+                              };
+                              downloadPaymentReceipt(ordObj);
+                            }}
+                            className="px-3 py-1 rounded-full bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-xs"
+                            title="Download official paid invoice receipt"
+                          >
+                            <Download className="w-3.5 h-3.5 text-white" />
+                            <span>Receipt</span>
+                          </button>
+                        </div>
                       ) : (
                         <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
                           order.status === 'Approved'
@@ -519,7 +599,7 @@ export const MyOrdersPage: React.FC = () => {
                               name: firstItem?.name || 'Custom Furniture Build',
                               material: firstItem?.specifications || 'Custom Specs',
                               price: order.totalPrice > 0 ? order.totalPrice : 50000,
-                              imageUrl: firstItem?.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80'
+                              imageUrl: firstItem?.image || ''
                             });
                             navigate('/cart');
                           }}

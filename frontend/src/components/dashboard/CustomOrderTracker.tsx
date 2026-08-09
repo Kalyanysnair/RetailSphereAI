@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageCheck, AlertCircle, Plus, X, Send, Palette, Ruler, ArrowRight, ArrowLeft, Layers, MessageSquareText, Edit3, Lock } from 'lucide-react';
-import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder } from '../../services/api_production';
+import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageCheck, AlertCircle, Plus, X, Send, Palette, Ruler, ArrowRight, ArrowLeft, Layers, MessageSquareText, Edit3, Lock, Image, Trash2, FileText, Download } from 'lucide-react';
+import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder, downloadPaymentReceipt } from '../../services/api_production';
 
 // Category Definitions & Aspect Specs
 interface CategorySpec {
@@ -189,8 +189,13 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   const [selectedCategory, setSelectedCategory] = useState<CategorySpec>(CATEGORY_SPECS[0]);
   const [furnitureType, setFurnitureType] = useState(CATEGORY_SPECS[0].types[0]);
   const [material, setMaterial] = useState(CATEGORY_SPECS[0].materials[0]);
+  const [customMaterialInput, setCustomMaterialInput] = useState('');
   const [fabricOrFinish, setFabricOrFinish] = useState(CATEGORY_SPECS[0].fabricsOrFinishes[0]);
+  const [selectedColor, setSelectedColor] = useState('Cream White');
+  const [customColorInput, setCustomColorInput] = useState('');
+  const [customPickerHex, setCustomPickerHex] = useState('#38A132');
   const [aspectSelections, setAspectSelections] = useState<Record<string, string>>({});
+  const [referenceImageUrls, setReferenceImageUrls] = useState<string[]>(['']);
 
   // Dimensions & Specific Requirements State
   const [lengthCm, setLengthCm] = useState('220');
@@ -294,6 +299,12 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
     setFurnitureType(order.furniture_type);
     setMaterial(order.material);
     setFabricOrFinish(order.color);
+    if (order.reference_image) {
+      const images = order.reference_image.split(',').map((s) => s.trim()).filter(Boolean);
+      setReferenceImageUrls(images.length > 0 ? images : ['']);
+    } else {
+      setReferenceImageUrls(['']);
+    }
 
     if (order.dimensions) {
       const match = order.dimensions.match(/(\d+)cm L × (\d+)cm W × (\d+)cm H/);
@@ -327,7 +338,17 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
         .map(([k, v]) => `${k}: ${v}`)
         .join('; ');
 
+      const finalMaterial = material === 'Other' ? (customMaterialInput.trim() || 'Custom Material') : material;
+      let finalColor = selectedColor;
+      if (selectedColor === 'Custom Color Picker' || selectedColor === 'Other') {
+        const shadeName = customColorInput.trim() || 'Custom Shade';
+        finalColor = `${shadeName} (${customPickerHex.toUpperCase()})`;
+      }
+      const combinedColorFinish = `${fabricOrFinish} (${finalColor})`;
+
       const fullNotes = `Aspects: [${aspectSummary}]. Special Requirements: ${customNotes || 'None'}`;
+
+      const validRefImages = referenceImageUrls.map(u => u.trim()).filter(Boolean).join(', ');
 
       if (editingOrderId) {
         // Edit existing pending order
@@ -337,10 +358,11 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               ? {
                   ...o,
                   furniture_type: furnitureType,
-                  material,
+                  material: finalMaterial,
                   dimensions: formattedDimensions,
-                  color: fabricOrFinish,
+                  color: combinedColorFinish,
                   design_description: fullNotes,
+                  reference_image: validRefImages || o.reference_image,
                 }
               : o
           )
@@ -350,10 +372,11 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
         // Create new custom order
         const created = await submitCustomOrderRequest(
           furnitureType,
-          material,
+          finalMaterial,
           formattedDimensions,
-          fabricOrFinish,
-          fullNotes
+          combinedColorFinish,
+          fullNotes,
+          validRefImages || undefined
         );
         setUserOrders((prev) => [created, ...prev]);
         setSelectedOrderId(created.custom_order_id);
@@ -543,7 +566,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                       Primary Timber / Structural Material
                     </label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {selectedCategory.materials.map((mat) => (
+                      {[...selectedCategory.materials, 'Other'].map((mat) => (
                         <button
                           key={mat}
                           type="button"
@@ -554,16 +577,146 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                               : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
                           }`}
                         >
-                          {mat}
+                          {mat === 'Other' ? '✨ Other Material' : mat}
                         </button>
                       ))}
                     </div>
+                    {material === 'Other' && (
+                      <div className="mt-2.5 animate-fadeIn">
+                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">
+                          Specify Your Custom Structural Material:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Italian Carrara Gold Marble, Reclaimed Oak Timber, Brass Frame..."
+                          value={customMaterialInput}
+                          onChange={(e) => setCustomMaterialInput(e.target.value)}
+                          required={material === 'Other'}
+                          className="w-full px-3.5 py-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* COLOR & POLISH SELECTION WITH VISUAL PALETTE & INTERACTIVE COLOR PICKER */}
+                  <div>
+                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
+                      <Palette className="w-4 h-4 text-[#38A132]" />
+                      Color & Polish Shade Selection (Visual Palette & Color Picker)
+                    </label>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {[
+                        { name: 'Cream White', hex: '#FDFBF7' },
+                        { name: 'Emerald Green', hex: '#0B4F37' },
+                        { name: 'Terracotta Orange', hex: '#C85A32' },
+                        { name: 'Charcoal Grey', hex: '#2F3337' },
+                        { name: 'Navy Blue', hex: '#1E293B' },
+                        { name: 'Natural Teak Wax', hex: '#A87948' },
+                        { name: 'Dark Walnut Polish', hex: '#4A3525' },
+                        { name: 'Gold / Brass Accent', hex: '#D4AF37' },
+                        { name: 'Custom Color Picker', hex: 'CUSTOM_PICKER' }
+                      ].map((swatch) => {
+                        const isSelected = selectedColor === swatch.name;
+                        if (swatch.hex === 'CUSTOM_PICKER') {
+                          return (
+                            <button
+                              key={swatch.name}
+                              type="button"
+                              onClick={() => setSelectedColor(swatch.name)}
+                              className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                                isSelected
+                                  ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs ring-1 ring-[#38A132]'
+                                  : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
+                              }`}
+                            >
+                              <div className="w-5 h-5 rounded-full border border-dashed border-[#38A132] flex items-center justify-center text-[10px] shrink-0 font-mono">
+                                🎨
+                              </div>
+                              <span className="text-xs truncate">Custom Color Picker</span>
+                            </button>
+                          );
+                        }
+
+                        return (
+                          <button
+                            key={swatch.name}
+                            type="button"
+                            onClick={() => setSelectedColor(swatch.name)}
+                            className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                              isSelected
+                                ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs ring-1 ring-[#38A132]'
+                                : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
+                            }`}
+                          >
+                            <span
+                              className="w-4 h-4 rounded-full inline-block border border-black/20 shadow-2xs shrink-0"
+                              style={{ backgroundColor: swatch.hex }}
+                            />
+                            <span className="text-xs truncate">{swatch.name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* INTERACTIVE COLOR PICKER & CUSTOM COLOR NAME INPUT */}
+                    {(selectedColor === 'Custom Color Picker' || selectedColor === 'Other') && (
+                      <div className="mt-3 p-4 bg-white border border-[#E2D7CB] rounded-2xl space-y-3 animate-fadeIn shadow-xs">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <div>
+                            <label className="block text-[11px] font-extrabold text-[#7A6C5E] mb-1">
+                              Pick Color Hex:
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={customPickerHex}
+                                onChange={(e) => setCustomPickerHex(e.target.value)}
+                                className="w-10 h-10 rounded-xl border border-[#E2D7CB] cursor-pointer bg-transparent p-0.5"
+                              />
+                              <span className="font-mono text-xs font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1.5 rounded-lg border border-[#E2D7CB]">
+                                {customPickerHex.toUpperCase()}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex-1 min-w-[200px]">
+                            <label className="block text-[11px] font-extrabold text-[#7A6C5E] mb-1">
+                              Custom Color / Shade Name:
+                            </label>
+                            <input
+                              type="text"
+                              placeholder="e.g. Sage Green, Dusty Rose Velvet, Royal Burgundy..."
+                              value={customColorInput}
+                              onChange={(e) => setCustomColorInput(e.target.value)}
+                              className="w-full px-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Visual Live Swatch Preview */}
+                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] flex items-center gap-3">
+                          <div
+                            className="w-8 h-8 rounded-xl border border-black/20 shadow-xs shrink-0"
+                            style={{ backgroundColor: customPickerHex }}
+                          />
+                          <div className="text-xs space-y-0.5">
+                            <span className="font-extrabold text-[#2C241D] block">
+                              Selected Color Preview: {customColorInput.trim() || 'Custom Shade'}
+                            </span>
+                            <span className="text-[11px] text-[#48A63E] font-extrabold font-mono block">
+                              HEX Code: {customPickerHex.toUpperCase()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div>
                     <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <Palette className="w-4 h-4 text-[#38A132]" />
-                      Upholstery Fabric / Shade / Polish Finish
+                      <Sliders className="w-4 h-4 text-[#38A132]" />
+                      Upholstery Fabric / Texture Finish
                     </label>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                       {selectedCategory.fabricsOrFinishes.map((fab) => (
@@ -672,6 +825,79 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                     </div>
                   </div>
 
+                  {/* REFERENCE DESIGN IMAGES PROVISION (OPTIONAL MULTI-IMAGE) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="font-extrabold text-[#5C4E42] flex items-center gap-1.5 text-xs">
+                        <Image className="w-4 h-4 text-[#38A132]" />
+                        Reference Design Images (Optional - Add any number of reference photos)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setReferenceImageUrls((prev) => [...prev, ''])}
+                        className="text-xs font-extrabold text-[#38A132] hover:text-[#32922D] flex items-center gap-1 cursor-pointer bg-[#38A132]/10 px-2.5 py-1 rounded-xl border border-[#38A132]/30"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Add Another Image</span>
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {referenceImageUrls.map((url, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="url"
+                              value={url}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setReferenceImageUrls((prev) => {
+                                  const next = [...prev];
+                                  next[idx] = val;
+                                  return next;
+                                });
+                              }}
+                              placeholder={`Paste reference photo URL ${idx + 1} (Unsplash, Pinterest, Instagram, drive link)...`}
+                              className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                            />
+                            {referenceImageUrls.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReferenceImageUrls((prev) => prev.filter((_, i) => i !== idx))
+                                }
+                                className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
+                                title="Remove image URL"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Live Image Preview */}
+                          {url.trim() && (
+                            <div className="p-3 bg-white border border-[#E2D7CB] rounded-2xl flex items-center gap-3 animate-fadeIn">
+                              <img
+                                src={url.trim()}
+                                alt={`Reference Preview ${idx + 1}`}
+                                className="w-14 h-14 rounded-xl object-cover border border-[#EFE7DE] flex-shrink-0"
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                              <div className="text-xs font-semibold space-y-0.5 min-w-0 flex-1">
+                                <span className="text-[#38A132] font-extrabold flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" /> Reference Photo #{idx + 1} Loaded
+                                </span>
+                                <p className="text-[11px] text-[#7A6C5E] truncate">{url.trim()}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
                       <MessageSquareText className="w-4 h-4 text-[#38A132]" />
@@ -774,6 +1000,18 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                     Status: {activeOrder.order_status}
                   </span>
 
+                  {/* DOWNLOAD PAYMENT RECEIPT PROVISION */}
+                  {(activeOrder.payment_status === 'Paid' || activeOrder.order_status === 'Paid') && (
+                    <button
+                      onClick={() => downloadPaymentReceipt(activeOrder)}
+                      className="px-3.5 py-1.5 rounded-full bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-md animate-fadeIn"
+                      title="Download official paid invoice & receipt"
+                    >
+                      <Download className="w-3.5 h-3.5 text-white" />
+                      <span>Download Receipt</span>
+                    </button>
+                  )}
+
                   {/* EDIT PROVISION (Available only for Pending orders, locked once Approved!) */}
                   {isEditable ? (
                     <button
@@ -803,38 +1041,68 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   )}
                 </div>
 
-                <h3 className="text-2xl font-extrabold text-[#2C241D] tracking-tight">
-                  {activeOrder.furniture_type}
-                </h3>
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  {activeOrder.reference_image && activeOrder.reference_image.split(',').map(s => s.trim()).filter(Boolean).length > 0 && (
+                    <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+                      {activeOrder.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, idx) => (
+                        <div key={idx} className="relative group shrink-0">
+                          <a href={imgUrl} target="_blank" rel="noopener noreferrer">
+                            <img
+                              src={imgUrl}
+                              alt={`Design Reference ${idx + 1}`}
+                              className="w-20 h-20 rounded-2xl object-cover border-2 border-[#E2D7CB] shadow-md group-hover:scale-105 transition-transform"
+                              onError={(e) => {
+                                const target = e.target as HTMLElement;
+                                target.style.display = 'none';
+                                if (target.parentElement && target.parentElement.parentElement) {
+                                  target.parentElement.parentElement.style.display = 'none';
+                                }
+                              }}
+                            />
+                            <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-[#2C241D]/80 text-white font-extrabold text-[9px] backdrop-blur-xs">
+                              Ref #{idx + 1}
+                            </span>
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
-                {/* ELEGANT SPECIFICATION PILLS (Formatted cleanly, no raw text strings!) */}
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
-                    <span className="text-[#7A6C5E]">Wood/Frame:</span> {activeOrder.material}
-                  </span>
-                  <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
-                    <span className="text-[#7A6C5E]">Upholstery/Finish:</span> {activeOrder.color}
-                  </span>
-                  <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
-                    <span className="text-[#7A6C5E]">Dimensions:</span> {activeOrder.dimensions}
-                  </span>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-extrabold text-[#2C241D] tracking-tight">
+                      {activeOrder.furniture_type}
+                    </h3>
 
-                  {aspectPills.map((asp, i) => (
-                    <span key={i} className="px-3 py-1.5 rounded-xl bg-[#38A132]/10 border border-[#38A132]/30 text-xs font-bold text-[#2C241D] flex items-center gap-1.5">
-                      <span className="text-[#38A132]">{asp.label}:</span> {asp.value}
-                    </span>
-                  ))}
-                </div>
+                    {/* ELEGANT SPECIFICATION PILLS (Formatted cleanly, no raw text strings!) */}
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
+                        <span className="text-[#7A6C5E]">Wood/Frame:</span> {activeOrder.material}
+                      </span>
+                      <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
+                        <span className="text-[#7A6C5E]">Upholstery/Finish:</span> {activeOrder.color}
+                      </span>
+                      <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
+                        <span className="text-[#7A6C5E]">Dimensions:</span> {activeOrder.dimensions}
+                      </span>
 
-                {/* CLEAN SPECIAL CUSTOMIZATION REQUIREMENTS */}
-                {specialNotes && specialNotes !== 'None' && (
-                  <div className="mt-2 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] text-xs font-medium text-[#524538]">
-                    <strong className="text-[#2C241D] font-extrabold flex items-center gap-1.5 mb-1">
-                      📌 Special Customization Requirements:
-                    </strong>
-                    <span>{specialNotes}</span>
+                      {aspectPills.map((asp, i) => (
+                        <span key={i} className="px-3 py-1.5 rounded-xl bg-[#38A132]/10 border border-[#38A132]/30 text-xs font-bold text-[#2C241D] flex items-center gap-1.5">
+                          <span className="text-[#38A132]">{asp.label}:</span> {asp.value}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* CLEAN SPECIAL CUSTOMIZATION REQUIREMENTS */}
+                    {specialNotes && specialNotes !== 'None' && (
+                      <div className="mt-2 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] text-xs font-medium text-[#524538]">
+                        <strong className="text-[#2C241D] font-extrabold flex items-center gap-1.5 mb-1">
+                          📌 Special Customization Requirements:
+                        </strong>
+                        <span>{specialNotes}</span>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
 
               <div className="text-left md:text-right bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] shrink-0">

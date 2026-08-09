@@ -23,7 +23,7 @@ import { Header } from '../dashboard/Header';
 import { getCurrentUser, updateUserProfile, UserProfile } from '../../services/api';
 import { getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
-import { getCustomerNotifications, CustomerNotification } from '../../utils/couponStorage';
+import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
 
 export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
@@ -72,14 +72,12 @@ export const ProfilePage: React.FC = () => {
   const [myNotifs, setMyNotifs] = useState<CustomerNotification[]>([]);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  const refreshCustomerNotifs = () => {
+  const refreshCustomerNotifs = async () => {
     try {
-      const stored = localStorage.getItem('user');
-      const parsed = stored ? JSON.parse(stored) : null;
-      const currentEmail = parsed?.email || parsed?.user_id || parsed?.id || parsed?.username || '';
-      setMyNotifs(getCustomerNotifications(currentEmail));
+      const notifs = await getCustomerNotificationsApi();
+      setMyNotifs(notifs);
     } catch {
-      setMyNotifs(getCustomerNotifications());
+      setMyNotifs([]);
     }
   };
 
@@ -332,14 +330,6 @@ export const ProfilePage: React.FC = () => {
                 {/* Actions Footer */}
                 <div className="pt-4 flex flex-wrap items-center justify-between gap-3 border-t border-[#EFE7DE] relative z-10">
                   <div className="flex flex-wrap items-center gap-3">
-                    <Link
-                      to="/discounts"
-                      className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-md shadow-amber-600/20 transition-all inline-flex items-center gap-2"
-                    >
-                      <Gift className="w-4 h-4" />
-                      <span>My Discounts & Offers Page</span>
-                    </Link>
-
                     <Link
                       to="/orders"
                       className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 transition-all inline-flex items-center gap-2"

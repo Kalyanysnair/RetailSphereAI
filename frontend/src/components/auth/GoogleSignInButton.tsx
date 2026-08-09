@@ -131,11 +131,11 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
           <div className="relative">
             <input
               type="email"
-              placeholder="Enter Google Email (e.g. user@gmail.com)"
+              placeholder="Enter Google Email..."
               value={googleEmail}
               onChange={(e) => setGoogleEmail(e.target.value)}
               required
-              className="w-full py-2.5 px-3.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium text-xs focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all"
+              className="w-full py-2.5 pl-3.5 pr-28 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium text-xs focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all truncate"
             />
             <button
               type="submit"

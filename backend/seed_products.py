@@ -35,7 +35,7 @@ def seed_database():
         if not supplier:
             supplier = models.Supplier(
                 supplier_name="Artisan Crafts & Timber Co.",
-                contact_person="Master Woodworker Marcus",
+                contact_person="Master Woodworker Ramesh Kumar",
                 phone="+91 9876543210",
                 email="supplier@retailsphere.com",
                 address="124 Furniture Industrial Estate, Bengaluru, India"
