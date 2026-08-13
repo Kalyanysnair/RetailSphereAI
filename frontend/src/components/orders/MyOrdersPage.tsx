@@ -445,7 +445,7 @@ export const MyOrdersPage: React.FC = () => {
                 return (
                   <div
                     key={order.orderId}
-                    className="ultra-glass-card rounded-2xl p-5 transition-all border border-[#E2D7CB] shadow-xs hover:shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
+                    className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 transition-all border border-white/80 shadow-md hover:shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
                   >
                     {/* Left side: Image, Title, Date & Specs for all items in order */}
                     <div className="flex-1 space-y-3 min-w-0">

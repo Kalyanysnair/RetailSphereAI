@@ -63,6 +63,7 @@ export async function signupUser(payload: UserSignupPayload): Promise<AuthRespon
   if (data.access_token) {
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('user', JSON.stringify(data.user));
+    window.dispatchEvent(new Event('storage'));
   }
   return data;
 }
@@ -91,6 +92,7 @@ export async function loginUser(payload: UserLoginPayload): Promise<AuthResponse
   if (data.access_token) {
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('user', JSON.stringify(data.user));
+    window.dispatchEvent(new Event('storage'));
   }
   return data;
 }

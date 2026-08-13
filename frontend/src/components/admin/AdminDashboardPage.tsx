@@ -1747,7 +1747,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Summary Stat Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Users</span>
                         <Users className="w-4 h-4 text-[#48A63E]" />
@@ -1756,7 +1756,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">System User Database</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Customer Accounts</span>
                         <UserCheck className="w-4 h-4 text-emerald-600" />
@@ -1767,7 +1767,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-emerald-700 font-bold mt-1">Retail & Store Shoppers</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Staff Members</span>
                         <ShieldCheck className="w-4 h-4 text-blue-600" />
@@ -1939,7 +1939,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Staff Summary Stat Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Staff Members</span>
                         <Users className="w-4 h-4 text-[#48A63E]" />
@@ -1948,7 +1948,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">Active Staff Accounts</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Retail Staff</span>
                         <ShieldCheck className="w-4 h-4 text-blue-600" />
@@ -1959,7 +1959,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-blue-700 font-bold mt-1">Sales & Customer Operations</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Production Staff</span>
                         <ShieldCheck className="w-4 h-4 text-amber-600" />
@@ -2076,7 +2076,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="space-y-5">
                   {/* Product Catalog Summary Stat Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Products</span>
                         <Package className="w-4 h-4 text-[#48A63E]" />
@@ -2085,7 +2085,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">Furniture Store Catalog</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>In Stock Items</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -2096,7 +2096,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-emerald-700 font-bold mt-1">Available for Purchase</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Categories</span>
                         <Tag className="w-4 h-4 text-purple-600" />
@@ -2254,7 +2254,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Stock Summary Overview Cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Items</span>
                         <Package className="w-4 h-4 text-[#48A63E]" />
@@ -2263,7 +2263,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">{totalInStock} Total Units</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>In Stock</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -2274,7 +2274,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-emerald-700 font-bold mt-1">Sufficient Stock (5+ units)</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Low Stock Alert</span>
                         <AlertTriangle className="w-4 h-4 text-amber-600" />
@@ -2285,7 +2285,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-amber-700 font-bold mt-1">Under 5 Units Left</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Out of Stock</span>
                         <AlertTriangle className="w-4 h-4 text-rose-600" />
@@ -2419,7 +2419,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="space-y-5">
                   {/* Supplier Summary Stat Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Suppliers</span>
                         <Briefcase className="w-4 h-4 text-[#48A63E]" />
@@ -2428,7 +2428,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">Ready-Made Product Manufacturers</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Active Partners</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -2523,7 +2523,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="space-y-5">
                   {/* Order Summary Stat Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Orders</span>
                         <ShoppingBag className="w-4 h-4 text-[#D97706]" />
@@ -2532,7 +2532,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#D97706] font-bold mt-1">Customer Purchases</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Pending Orders</span>
                         <Clock className="w-4 h-4 text-amber-600" />
@@ -2543,7 +2543,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-amber-700 font-bold mt-1">Awaiting Processing</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>In Production / Shipped</span>
                         <Truck className="w-4 h-4 text-blue-600" />
@@ -2554,7 +2554,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-blue-700 font-bold mt-1">Fulfillment Active</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Delivered / Completed</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -2845,7 +2845,7 @@ export const AdminDashboardPage: React.FC = () => {
                       .map((ord) => (
                         <div
                           key={ord.custom_order_id}
-                          className="ultra-glass-card rounded-3xl p-5 shadow-lg border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-4 hover:border-[#38A132]/40 transition-all hover:shadow-xl"
+                          className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-white/80 bg-white/60 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-[#38A132]/50 hover:bg-white/70 transition-all"
                         >
                           {/* Top Badges & Price Header */}
                           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
@@ -2883,23 +2883,23 @@ export const AdminDashboardPage: React.FC = () => {
                               {ord.furniture_type}
                             </h3>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#EAE0D4] text-xs">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/50 backdrop-blur-md p-3.5 rounded-2xl border border-white/70 text-xs shadow-inner">
                               <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Name</span>
-                                <span className="font-bold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
-                                <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || 'N/A'}</span>
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client Name</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
+                                <span className="text-[10px] text-[#5C4E42] block truncate">{ord.customer_email || 'N/A'}</span>
                               </div>
                               <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
-                                <span className="font-bold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
                               </div>
                               <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
-                                <span className="font-bold text-[#2C241D] block truncate">🪵 {ord.material}</span>
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Timber / Material</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
                               </div>
                               <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
-                                <span className="font-bold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
+                                <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
                               </div>
                             </div>
                           </div>
@@ -3106,7 +3106,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="space-y-5">
                   {/* Coupon Summary Stat Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Active Coupons</span>
                         <Tag className="w-4 h-4 text-[#7C3AED]" />
@@ -3115,7 +3115,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#7C3AED] font-bold mt-1">Promotional Discount Codes</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Retail Store Coupons</span>
                         <Percent className="w-4 h-4 text-emerald-600" />
@@ -3126,7 +3126,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-emerald-700 font-bold mt-1">Furniture Store Discounts</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Production & Custom</span>
                         <CheckCircle2 className="w-4 h-4 text-blue-600" />
@@ -3522,7 +3522,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="space-y-5">
                   {/* Broadcast Overview KPI Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Dispatched Messages</span>
                         <Send className="w-4 h-4 text-[#48A63E]" />
@@ -3531,7 +3531,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">Admin Directives & Announcements</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Staff Messages</span>
                         <Users className="w-4 h-4 text-blue-600" />

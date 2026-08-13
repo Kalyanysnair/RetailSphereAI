@@ -947,7 +947,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* KPI Stat Cards (Shown ONLY on Custom Orders section) */}
             {activeTab === 'orders' && (
               <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
                   <div className="flex items-center justify-between text-[#8C8275]">
                     <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Paid Custom Orders</span>
                     <DollarSign className="w-4 h-4 text-[#48A63E]" />
@@ -960,7 +960,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
                   <div className="flex items-center justify-between text-[#8C8275]">
                     <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">In Production</span>
                     <Layers className="w-4 h-4 text-[#2563EB]" />
@@ -973,7 +973,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
                   <div className="flex items-center justify-between text-[#8C8275]">
                     <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Approved Custom Orders</span>
                     <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
@@ -986,7 +986,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-white/90 rounded-2xl p-5 shadow-xs border border-[#E5DEC9] space-y-2.5 transition-all hover:shadow-sm">
+                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
                   <div className="flex items-center justify-between text-[#8C8275]">
                     <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Completed Builds</span>
                     <PackageCheck className="w-4 h-4 text-[#10B981]" />
@@ -1013,7 +1013,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       placeholder="Search order specs or client..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-semibold focus:outline-none focus:border-[#48A63E] shadow-xs"
+                      className="w-full pl-9 pr-4 py-2 text-xs bg-white/80 backdrop-blur-md border border-white/80 rounded-xl text-[#2C241D] font-semibold focus:outline-none focus:border-[#48A63E] shadow-xs"
                     />
                   </div>
 
@@ -1022,7 +1022,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <select
                       value={statusFilter}
                       onChange={(e) => setStatusFilter(e.target.value)}
-                      className="text-xs font-bold text-[#2C241D] bg-white border border-[#E2D7CB] rounded-xl py-2 px-3 focus:outline-none focus:border-[#48A63E] shadow-xs"
+                      className="text-xs font-bold text-[#2C241D] bg-white/80 backdrop-blur-md border border-white/80 rounded-xl py-2 px-3 focus:outline-none focus:border-[#48A63E] shadow-xs"
                     >
                       <option value="All">All Statuses</option>
                       <option value="Pending">Pending</option>
@@ -1040,7 +1040,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     .map((ord) => (
                       <div
                         key={ord.custom_order_id}
-                        className="ultra-glass-card rounded-3xl p-5 shadow-lg border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-4 hover:border-[#38A132]/40 transition-all hover:shadow-xl"
+                        className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-white/80 bg-white/60 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-[#38A132]/50 hover:bg-white/70 transition-all"
                       >
                         {/* Top Badges & Price Header */}
                         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
@@ -1080,22 +1080,22 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             {ord.furniture_type}
                           </h3>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#EAE0D4] text-xs">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/50 backdrop-blur-md p-3.5 rounded-2xl border border-white/70 text-xs shadow-inner">
                             <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Name</span>
-                              <span className="font-bold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
+                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client Name</span>
+                              <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
                             </div>
                             <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
-                              <span className="font-bold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
+                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
+                              <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
                             </div>
                             <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
-                              <span className="font-bold text-[#2C241D] block truncate">🪵 {ord.material}</span>
+                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Timber / Material</span>
+                              <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
                             </div>
                             <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
-                              <span className="font-bold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
+                              <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
                             </div>
                           </div>
                         </div>
@@ -1734,7 +1734,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <div className="space-y-6 pt-2">
                 {/* Coupon KPI Overview Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>Total Promo Provisions</span>
                       <Tag className="w-4 h-4 text-[#48A63E]" />
@@ -1743,7 +1743,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="text-[10px] text-[#48A63E] font-bold mt-1">Active Custom Offers</div>
                   </div>
 
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>First N Payment Offers</span>
                       <Users className="w-4 h-4 text-amber-600" />
@@ -1754,7 +1754,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="text-[10px] text-amber-700 font-bold mt-1">Payment Cap Offers</div>
                   </div>
 
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>Targeted VIP Offers</span>
                       <Sparkles className="w-4 h-4 text-purple-600" />
@@ -1765,7 +1765,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="text-[10px] text-purple-700 font-bold mt-1">Direct VIP Customer Offers</div>
                   </div>
 
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>Total Redemptions</span>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -1981,7 +1981,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <div className="space-y-5">
                 {/* Summary Cards */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>Total Directives</span>
                       <Mail className="w-4 h-4 text-[#48A63E]" />
@@ -1990,7 +1990,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="text-[10px] text-[#48A63E] font-bold mt-1">Messages from System Admin</div>
                   </div>
 
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>Unread Directives</span>
                       <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
@@ -1999,7 +1999,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="text-[10px] text-amber-700 font-bold mt-1">Pending Review</div>
                   </div>
 
-                  <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                     <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                       <span>Read & Acknowledged</span>
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />

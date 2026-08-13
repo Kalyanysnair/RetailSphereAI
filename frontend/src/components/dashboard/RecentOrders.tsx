@@ -36,7 +36,7 @@ export const RecentOrders: React.FC<RecentOrdersProps> = ({ orders }) => {
   };
 
   return (
-    <div className="bg-white border border-[#E6E1DA] rounded-2xl p-5 sm:p-6 shadow-sm overflow-hidden">
+    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-2xl p-5 sm:p-6 shadow-md overflow-hidden">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-base font-bold text-slate-900">My Recent Purchases</h3>

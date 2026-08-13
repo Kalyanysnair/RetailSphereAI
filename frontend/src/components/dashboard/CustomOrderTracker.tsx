@@ -946,7 +946,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
       {/* SINGLE UNIFIED GLASS CARD CONTAINER FOR TRACKER (Only rendered when user has active custom orders) */}
       {userOrders.length > 0 && activeOrder && (
-        <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
+        <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-[2rem] p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
           <div className="glass-sheen" aria-hidden="true" />
 
           {/* Card Header & Action Bar */}
@@ -1016,14 +1016,14 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   {isEditable ? (
                     <button
                       onClick={() => handleStartEditOrder(activeOrder)}
-                      className="px-3 py-1 rounded-full bg-[#FAF7F2] hover:bg-[#F4ECE1] border border-[#E2D7CB] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                      className="px-3 py-1 rounded-full bg-white/80 hover:bg-white border border-white/80 text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
                       title="Edit specifications before production approval"
                     >
                       <Edit3 className="w-3.5 h-3.5 text-[#38A132]" />
                       <span>Edit Specifications</span>
                     </button>
                   ) : (
-                    <span className="px-3 py-1 rounded-full bg-[#F4ECE1]/90 border border-[#E2D7CB] text-[#8C7C6D] text-[11px] font-extrabold flex items-center gap-1.5" title="Order has been approved by production staff. Specs are locked.">
+                    <span className="px-3 py-1 rounded-full bg-white/60 border border-white/80 text-[#8C7C6D] text-[11px] font-extrabold flex items-center gap-1.5" title="Order has been approved by production staff. Specs are locked.">
                       <Lock className="w-3.5 h-3.5 text-[#8C7C6D]" />
                       Specs Locked (Order Approved)
                     </span>
@@ -1075,14 +1075,14 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                     {/* ELEGANT SPECIFICATION PILLS (Formatted cleanly, no raw text strings!) */}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                      <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
-                        <span className="text-[#7A6C5E]">Wood/Frame:</span> {activeOrder.material}
+                      <span className="px-3 py-1.5 rounded-xl bg-white/50 backdrop-blur-md border border-white/70 text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
+                        <span className="text-[#5C4E42]">Wood/Frame:</span> {activeOrder.material}
                       </span>
-                      <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
-                        <span className="text-[#7A6C5E]">Upholstery/Finish:</span> {activeOrder.color}
+                      <span className="px-3 py-1.5 rounded-xl bg-white/50 backdrop-blur-md border border-white/70 text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
+                        <span className="text-[#5C4E42]">Upholstery/Finish:</span> {activeOrder.color}
                       </span>
-                      <span className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
-                        <span className="text-[#7A6C5E]">Dimensions:</span> {activeOrder.dimensions}
+                      <span className="px-3 py-1.5 rounded-xl bg-white/50 backdrop-blur-md border border-white/70 text-xs font-bold text-[#2C241D] flex items-center gap-1.5 shadow-2xs">
+                        <span className="text-[#5C4E42]">Dimensions:</span> {activeOrder.dimensions}
                       </span>
 
                       {aspectPills.map((asp, i) => (
@@ -1094,7 +1094,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                     {/* CLEAN SPECIAL CUSTOMIZATION REQUIREMENTS */}
                     {specialNotes && specialNotes !== 'None' && (
-                      <div className="mt-2 bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] text-xs font-medium text-[#524538]">
+                      <div className="mt-2 bg-white/50 backdrop-blur-md p-3.5 rounded-2xl border border-white/70 text-xs font-medium text-[#2C241D] shadow-inner">
                         <strong className="text-[#2C241D] font-extrabold flex items-center gap-1.5 mb-1">
                           📌 Special Customization Requirements:
                         </strong>

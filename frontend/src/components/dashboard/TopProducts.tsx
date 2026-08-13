@@ -8,7 +8,7 @@ interface TopProductsProps {
 
 export const TopProducts: React.FC<TopProductsProps> = ({ products }) => {
   return (
-    <div className="bg-white border border-[#E6E1DA] rounded-2xl p-5 sm:p-6 shadow-sm">
+    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-2xl p-5 sm:p-6 shadow-md">
       <div className="flex items-center justify-between mb-5">
         <div>
           <h3 className="text-base font-bold text-slate-900">Trending Furniture</h3>

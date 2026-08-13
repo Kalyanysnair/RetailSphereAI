@@ -186,25 +186,6 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
         })}
       </div>
 
-      {/* Search Bar on Customer Catalog */}
-      <div className="relative max-w-xl mx-auto mb-4">
-        <Search className="w-4 h-4 text-[#9E9082] absolute left-4 top-1/2 -translate-y-1/2" />
-        <input
-          type="text"
-          placeholder="Search furniture title, material finish, color, category..."
-          value={filterState.searchQuery || ''}
-          onChange={(e) => onFilterChange({ searchQuery: e.target.value })}
-          className="w-full pl-11 pr-4 py-3 text-xs bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-full text-[#2C241D] font-extrabold focus:outline-none focus:border-[#48A63E] shadow-sm transition-all placeholder-[#9E9082]"
-        />
-        {filterState.searchQuery && (
-          <button
-            onClick={() => onFilterChange({ searchQuery: '' })}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 p-1 text-[#7A6C5E] hover:text-[#2C241D] rounded-full"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
 
       {/* Subcategory Chips & Quick Filters Bar */}
       <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-5 shadow-sm space-y-4">

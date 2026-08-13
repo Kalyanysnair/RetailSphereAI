@@ -19,7 +19,7 @@ export const StatCard: React.FC<{ metric: KpiMetric }> = ({ metric }) => {
   };
 
   return (
-    <div className="bg-white/90 backdrop-blur-md border border-[#E8E2D9] rounded-2xl p-5 shadow-sm hover:shadow-md transition-all duration-300 hover:-translate-y-0.5">
+    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-2xl p-5 shadow-md hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
           {metric.title}

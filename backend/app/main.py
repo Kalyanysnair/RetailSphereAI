@@ -4,6 +4,7 @@ from app.database import engine, Base
 from app.routers import auth, admin, production, coupons
 
 # Initialize FastAPI application
+# RetailSphere AI Backend Service
 app = FastAPI(
     title="RetailSphere AI Backend",
     description="FastAPI Backend for RetailSphere AI E-Commerce & Custom Furniture Platform",
@@ -33,9 +34,10 @@ def startup_db():
     try:
         Base.metadata.create_all(bind=engine)
         print("Database tables initialized successfully.")
+        from seed_admin import seed_admin_user
+        seed_admin_user()
     except Exception as e:
         print(f"Warning: Could not automatically initialize database tables: {e}")
-        print("Please ensure PostgreSQL server is running and database exists.")
 
 # Include routers
 app.include_router(auth.router)

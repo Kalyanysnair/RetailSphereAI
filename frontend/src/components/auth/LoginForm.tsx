@@ -40,6 +40,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
     if (!validateForm()) return;
 
     setInternalLoading(true);
+    setErrors({});
     try {
       let res: any = null;
       if (onSubmit) {
@@ -54,7 +55,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
       const roleName = res?.user?.role_name || '';
       const usernameClean = credentials.username.trim().toLowerCase();
-      const isAdmin = roleName === 'Admin' || usernameClean === 'admin';
+      const isAdmin = roleName === 'Admin' || usernameClean === 'admin' || res?.user?.email?.toLowerCase().includes('admin');
       const isRetailStaff = roleName === 'Retail Staff' || usernameClean.includes('retail');
       const isProductionStaff = roleName === 'Production Staff' || usernameClean.includes('production');
 
@@ -70,20 +71,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
     } catch (err: any) {
       const msg = typeof err?.message === 'string' ? err.message : 'Authentication failed. Please check your credentials.';
       setErrors({ general: msg });
-      
-      if (msg.toLowerCase().includes('failed to fetch')) {
-        console.warn('Backend server offline. Continuing in local demo mode.');
-        const usernameClean = credentials.username.trim().toLowerCase();
-        if (usernameClean === 'admin') {
-          navigate('/admin');
-        } else if (usernameClean.includes('retail')) {
-          navigate('/retail-staff');
-        } else if (usernameClean.includes('production')) {
-          navigate('/production-staff');
-        } else {
-          navigate('/dashboard');
-        }
-      }
     } finally {
       setInternalLoading(false);
     }

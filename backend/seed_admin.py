@@ -5,10 +5,11 @@ import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from sqlalchemy.orm import Session
-from app.database import SessionLocal
+from app.database import SessionLocal, engine, Base
 from app import models, auth
 
 def seed_admin_user():
+    Base.metadata.create_all(bind=engine)
     db: Session = SessionLocal()
     try:
         # 1. Ensure 'Admin' role exists in tbl_role
@@ -65,6 +66,36 @@ def seed_admin_user():
             db.refresh(new_admin)
             print(f"[SEED SUCCESS] Created new Admin user ID {new_admin.user_id} (Username: 'admin', Password: 'admin@123')")
 
+        # 4. Ensure demo customer accounts exist
+        customer_role = db.query(models.Role).filter(models.Role.role_name == "Customer").first()
+        demo_customers = [
+            ("Kalyany Nikunjam", "kalyany.nikunjam@gmail.com", "+919778237180"),
+            ("Kalyany S Nair", "kalyanys2004@gmail.com", "+919778237181"),
+        ]
+        for c_name, c_email, c_phone in demo_customers:
+            cust_u = db.query(models.User).filter(models.User.email == c_email).first()
+            if not cust_u:
+                cust_u = models.User(
+                    role_id=customer_role.role_id if customer_role else 2,
+                    full_name=c_name,
+                    email=c_email,
+                    phone=c_phone,
+                    password=auth.get_password_hash("password123"),
+                    status=True
+                )
+                db.add(cust_u)
+                db.commit()
+                db.refresh(cust_u)
+                c_prof = models.Customer(
+                    user_id=cust_u.user_id,
+                    address="Ettumanoor",
+                    city="Kottayam",
+                    state="Kerala",
+                    pincode="686631"
+                )
+                db.add(c_prof)
+                db.commit()
+                print(f"[SEED SUCCESS] Created demo customer account: {c_email}")
 
     except Exception as e:
         print(f"[SEED ERROR] Failed to seed admin user: {e}")

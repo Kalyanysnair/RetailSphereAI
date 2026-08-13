@@ -128,26 +128,22 @@ export const saveStoredCustomOrders = (orders: CustomOrderData[]) => {
   }
 };
 
-let mockCustomOrders: CustomOrderData[] = [];
-let mockWorkers: WorkerData[] = [];
-let mockTimelines: Record<number, ProgressTimelineItem[]> = {};
+// Clean DB API methods
+
 
 // API Methods with Fallback to Persisted Data
 export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false): Promise<CustomOrderData[]> {
   try {
     const url = statusFilter ? `${BASE_URL}/custom-orders?status_filter=${encodeURIComponent(statusFilter)}` : `${BASE_URL}/custom-orders`;
-    const res = await fetch(url);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeoutId);
     if (!res.ok) throw new Error('API request failed');
     const dbOrders: CustomOrderData[] = await res.json();
 
     if (Array.isArray(dbOrders)) {
-      if (dbOrders.length === 0) {
-        saveStoredCustomOrders([]);
-        mockCustomOrders = [];
-      } else {
-        saveStoredCustomOrders(dbOrders);
-        mockCustomOrders = dbOrders;
-      }
+      saveStoredCustomOrders(dbOrders);
 
       if (isStaff) {
         return (!statusFilter || statusFilter === 'All') ? dbOrders : dbOrders.filter(o => o.order_status === statusFilter);
@@ -208,9 +204,9 @@ export async function updateOrderStatus(orderId: number, status: string, estimat
       saveStoredCustomOrders(stored);
     }
     return result;
-  } catch {
+  } catch (err: any) {
     const stored = getStoredCustomOrders();
-    const ord = stored.find(o => o.custom_order_id === orderId) || mockCustomOrders.find(o => o.custom_order_id === orderId);
+    const ord = stored.find(o => o.custom_order_id === orderId);
     if (ord) {
       ord.order_status = status;
       if (estimatedPrice !== undefined && estimatedPrice > 0) {
@@ -227,9 +223,7 @@ export async function updateOrderStatus(orderId: number, status: string, estimat
         ord.progress_percentage = 0;
         ord.latest_remarks = remarks || 'Specs cannot be fulfilled.';
       }
-
       saveStoredCustomOrders(stored);
-      mockCustomOrders = stored;
     }
     return { message: `Order #${orderId} status updated to ${status}` };
   }
@@ -248,14 +242,13 @@ export async function toggleLockOrderSpecifications(orderId: number): Promise<bo
   }
 
   const stored = getStoredCustomOrders();
-  const ord = stored.find(o => o.custom_order_id === orderId) || mockCustomOrders.find(o => o.custom_order_id === orderId);
+  const ord = stored.find(o => o.custom_order_id === orderId);
   if (ord) {
     ord.is_locked = true;
     if (ord.order_status === 'Pending' || ord.order_status === 'Pending Approval') {
       ord.order_status = 'Approved';
     }
     saveStoredCustomOrders(stored);
-    mockCustomOrders = stored;
   }
   return true;
 }
@@ -279,11 +272,6 @@ export async function cancelCustomOrder(orderId: number): Promise<boolean> {
     saveStoredCustomOrders(userStored);
   }
 
-  const mockTarget = mockCustomOrders.find(o => o.custom_order_id === orderId);
-  if (mockTarget) {
-    mockTarget.order_status = 'Cancelled';
-  }
-
   window.dispatchEvent(new Event('custom-orders-updated'));
   return true;
 }
@@ -301,13 +289,12 @@ export async function payCustomOrder(orderId: number): Promise<boolean> {
   }
 
   const stored = getStoredCustomOrders();
-  const ord = stored.find(o => o.custom_order_id === orderId) || mockCustomOrders.find(o => o.custom_order_id === orderId);
+  const ord = stored.find(o => o.custom_order_id === orderId);
   if (ord) {
     ord.payment_status = 'Paid';
     ord.order_status = 'Paid';
     ord.is_locked = true;
     saveStoredCustomOrders(stored);
-    mockCustomOrders = stored;
   }
   return true;
 }
@@ -318,116 +305,44 @@ export async function fetchWorkers(): Promise<WorkerData[]> {
     if (!res.ok) throw new Error('Failed to fetch workers');
     return await res.json();
   } catch {
-    return [...mockWorkers];
+    return [];
   }
 }
 
 export async function addWorker(fullName: string, email: string, phone?: string, specialization?: string): Promise<WorkerData> {
-  try {
-    const res = await fetch(`${BASE_URL}/workers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_name: fullName, email, phone, specialization })
-    });
-    if (!res.ok) throw new Error('Failed to add worker');
-    return await res.json();
-  } catch {
-    const newW: WorkerData = {
-      worker_id: Date.now(),
-      full_name: fullName,
-      email,
-      phone: phone || '+1 555-0000',
-      specialization: specialization || 'General Artisan',
-      status: true
-    };
-    mockWorkers.push(newW);
-    return newW;
-  }
+  const res = await fetch(`${BASE_URL}/workers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ full_name: fullName, email, phone, specialization })
+  });
+  if (!res.ok) throw new Error('Failed to add worker to database');
+  return await res.json();
 }
 
 export async function assignWorkerTask(orderId: number, workerId: number): Promise<any> {
-  try {
-    const res = await fetch(`${BASE_URL}/assign-worker`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ custom_order_id: orderId, worker_id: workerId })
-    });
-    if (!res.ok) throw new Error('Failed to assign worker');
-    return await res.json();
-  } catch {
-    const ord = mockCustomOrders.find(o => o.custom_order_id === orderId);
-    const worker = mockWorkers.find(w => w.worker_id === workerId);
-    if (ord && worker) {
-      if (!ord.assigned_workers.some(w => w.worker_id === workerId)) {
-        ord.assigned_workers.push({
-          assignment_id: Date.now(),
-          worker_id: worker.worker_id,
-          worker_name: worker.full_name,
-          task_status: 'Assigned'
-        });
-      }
-      if (ord.order_status === 'Approved') {
-        ord.order_status = 'In Production';
-      }
-    }
-    return { message: `Worker assigned successfully` };
-  }
+  const res = await fetch(`${BASE_URL}/assign-worker`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ custom_order_id: orderId, worker_id: workerId })
+  });
+  if (!res.ok) throw new Error('Failed to assign worker in database');
+  return await res.json();
 }
 
 export async function updateProductionProgress(orderId: number, stage: string, percentage: number, remarks?: string): Promise<any> {
-  try {
-    const res = await fetch(`${BASE_URL}/update-progress`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ custom_order_id: orderId, stage, progress_percentage: percentage, remarks })
-    });
-    if (!res.ok) throw new Error('Failed to update progress');
-    return await res.json();
-  } catch {
-    const ord = mockCustomOrders.find(o => o.custom_order_id === orderId);
-    if (ord) {
-      ord.current_stage = stage;
-      ord.progress_percentage = percentage;
-      if (remarks) ord.latest_remarks = remarks;
-      if (percentage >= 100 || stage === 'Ready for Dispatch') {
-        ord.order_status = 'Completed';
-      } else if (ord.order_status !== 'Rejected') {
-        ord.order_status = 'In Production';
-      }
-
-      if (!mockTimelines[orderId]) mockTimelines[orderId] = [];
-      mockTimelines[orderId].push({
-        progress_id: Date.now(),
-        stage,
-        progress_percentage: percentage,
-        remarks,
-        updated_at: new Date().toISOString()
-      });
-    }
-    return { message: `Progress updated` };
-  }
+  const res = await fetch(`${BASE_URL}/update-progress`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ custom_order_id: orderId, stage, progress_percentage: percentage, remarks })
+  });
+  if (!res.ok) throw new Error('Failed to update progress in database');
+  return await res.json();
 }
 
 export async function fetchOrderTrackingTimeline(orderId: number): Promise<OrderTrackingInfo> {
-  try {
-    const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/tracking`);
-    if (!res.ok) throw new Error('Failed to fetch tracking');
-    return await res.json();
-  } catch {
-    const ord = mockCustomOrders.find(o => o.custom_order_id === orderId);
-    const timeline = mockTimelines[orderId] || [];
-    return {
-      custom_order_id: orderId,
-      furniture_type: ord?.furniture_type || 'Custom Furniture',
-      material: ord?.material || 'Standard',
-      dimensions: ord?.dimensions || 'N/A',
-      color: ord?.color || 'N/A',
-      order_status: ord?.order_status || 'Pending',
-      estimated_price: ord?.estimated_price,
-      assigned_workers: ord?.assigned_workers ? ord.assigned_workers.map(w => ({ worker_name: w.worker_name, task_status: w.task_status })) : [],
-      timeline
-    };
-  }
+  const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/tracking`);
+  if (!res.ok) throw new Error('Failed to fetch tracking from database');
+  return await res.json();
 }
 
 export function isDefaultUnsplashUrl(url?: string): boolean {

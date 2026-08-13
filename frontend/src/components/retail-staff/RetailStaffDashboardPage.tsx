@@ -1310,7 +1310,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <div className="space-y-5">
                   {/* Summary Cards */}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Directives</span>
                         <Mail className="w-4 h-4 text-[#48A63E]" />
@@ -1319,7 +1319,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-[#48A63E] font-bold mt-1">Messages from System Admin</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Unread Directives</span>
                         <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
@@ -1328,7 +1328,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="text-[10px] text-amber-700 font-bold mt-1">Pending Review</div>
                     </div>
 
-                    <div className="bg-white/80 rounded-2xl p-4 border border-[#EFE7DE] shadow-xs">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Read & Acknowledged</span>
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
@@ -1437,9 +1437,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   {/* TOP KPI SUMMARY COUNT BOXES */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
                     {/* Box 1: Total Catalog Products */}
+                    {/* Box 1: Total Products */}
                     <div 
                       onClick={() => setActiveTab('products')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-[#48A63E] hover:shadow-xl group"
+                      className="cursor-pointer ultra-glass-card bg-white/60 backdrop-blur-xl rounded-3xl p-5 border border-white/80 shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-[#48A63E] hover:bg-white/75 hover:shadow-xl group"
                       title="Click to view & manage catalog products"
                     >
                       <div className="space-y-1">
@@ -1463,7 +1464,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     {/* Box 2: Customer Orders Count */}
                     <div 
                       onClick={() => setActiveTab('orders')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-blue-500 hover:shadow-xl group"
+                      className="cursor-pointer ultra-glass-card bg-white/60 backdrop-blur-xl rounded-3xl p-5 border border-white/80 shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-blue-500 hover:bg-white/75 hover:shadow-xl group"
                       title="Click to view & manage customer orders"
                     >
                       <div className="space-y-1">
@@ -1487,7 +1488,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     {/* Box 3: Low & Out of Stock */}
                     <div 
                       onClick={() => setActiveTab('inventory')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-amber-500 hover:shadow-xl group"
+                      className="cursor-pointer ultra-glass-card bg-white/60 backdrop-blur-xl rounded-3xl p-5 border border-white/80 shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-amber-500 hover:bg-white/75 hover:shadow-xl group"
                       title="Click to inspect warehouse stock & low inventory"
                     >
                       <div className="space-y-1">
@@ -1511,7 +1512,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     {/* Box 4: Active Categories */}
                     <div 
                       onClick={() => setActiveTab('products')}
-                      className="cursor-pointer ultra-glass-card bg-gradient-to-br from-white/95 via-white/90 to-[#FAF7F2]/95 rounded-3xl p-5 border border-[#E2D7CB] shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-purple-500 hover:shadow-xl group"
+                      className="cursor-pointer ultra-glass-card bg-white/60 backdrop-blur-xl rounded-3xl p-5 border border-white/80 shadow-lg flex items-center justify-between transition-all hover:scale-[1.02] hover:border-purple-500 hover:bg-white/75 hover:shadow-xl group"
                       title="Click to view categories & catalog"
                     >
                       <div className="space-y-1">

@@ -21,7 +21,7 @@ export const RevenueChart: React.FC<RevenueChartProps> = ({ data }) => {
   const areaD = `M ${points[0]} L ${points.join(' L ')} L ${width - padding},${height} L ${padding},${height} Z`;
 
   return (
-    <div className="bg-white border border-[#E6E1DA] rounded-2xl p-5 sm:p-6 shadow-sm">
+    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-2xl p-5 sm:p-6 shadow-md">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
         <div>
           <h3 className="text-base font-bold text-slate-900">Catalog Pricing & Popularity Trends</h3>
