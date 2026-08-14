@@ -3,8 +3,8 @@ import { Award, ShieldCheck, HeartHandshake, Trees } from 'lucide-react';
 
 export const AboutSection: React.FC = () => {
   const stats = [
-    { value: '10,000+', label: 'Sanctuaries Designed', description: 'Across North America & Europe' },
-    { value: '150+', label: 'Master Artisans', description: 'Traditional joinery expertise' },
+    { value: '10,000+', label: 'Sanctuaries Designed', description: 'Across Kerala' },
+    { value: '100%', label: 'Custom Made', description: 'Tailored to your space' },
     { value: '100%', label: 'Sustainable Timber', description: 'FSC-certified hardwoods' },
     { value: '4.9 / 5', label: 'Client Satisfaction', description: 'From 2,400+ verified homes' },
   ];

@@ -1,4 +1,26 @@
-const BASE_URL = 'http://localhost:8000/api';
+const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
+const BASE_URL = `http://${API_HOST}:8000/api`;
+
+async function safeFetch(urlPath: string, options?: RequestInit): Promise<Response> {
+  const primaryHost = API_HOST;
+  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+  const cleanPath = urlPath.startsWith('/') ? urlPath : `/${urlPath}`;
+
+  const urls = [
+    `http://${primaryHost}:8000/api${cleanPath}`,
+    `http://${secondaryHost}:8000/api${cleanPath}`
+  ];
+
+  let lastErr: any = null;
+  for (const u of urls) {
+    try {
+      return await fetch(u, options);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new TypeError('Failed to fetch from backend server');
+}
 
 export interface UserSignupPayload {
   full_name: string;
@@ -40,7 +62,7 @@ export interface AuthResponse {
 }
 
 export async function signupUser(payload: UserSignupPayload): Promise<AuthResponse> {
-  const response = await fetch(`${BASE_URL}/auth/signup`, {
+  const response = await safeFetch('/auth/signup', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -69,7 +91,7 @@ export async function signupUser(payload: UserSignupPayload): Promise<AuthRespon
 }
 
 export async function loginUser(payload: UserLoginPayload): Promise<AuthResponse> {
-  const response = await fetch(`${BASE_URL}/auth/login`, {
+  const response = await safeFetch('/auth/login', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -98,7 +120,7 @@ export async function loginUser(payload: UserLoginPayload): Promise<AuthResponse
 }
 
 export async function requestForgotPassword(email: string): Promise<{ message: string; reset_code?: string }> {
-  const response = await fetch(`${BASE_URL}/auth/forgot-password`, {
+  const response = await safeFetch('/auth/forgot-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -113,7 +135,7 @@ export async function requestForgotPassword(email: string): Promise<{ message: s
 }
 
 export async function resetUserPassword(email: string, reset_code: string, new_password: string): Promise<{ message: string }> {
-  const response = await fetch(`${BASE_URL}/auth/reset-password`, {
+  const response = await safeFetch('/auth/reset-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, reset_code, new_password }),
@@ -132,7 +154,7 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
   if (!token) return null;
 
   try {
-    const response = await fetch(`${BASE_URL}/auth/me`, {
+    const response = await safeFetch('/auth/me', {
       method: 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,

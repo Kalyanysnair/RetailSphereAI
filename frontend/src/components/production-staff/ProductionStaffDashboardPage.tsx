@@ -48,6 +48,9 @@ import {
   toggleLockOrderSpecifications,
   fetchWorkers,
   addWorker,
+  updateWorker,
+  toggleWorkerStatus,
+  deleteWorker,
   assignWorkerTask,
   updateProductionProgress,
   CustomOrderData,
@@ -112,7 +115,18 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [newWorkerName, setNewWorkerName] = useState('');
   const [newWorkerEmail, setNewWorkerEmail] = useState('');
   const [newWorkerPhone, setNewWorkerPhone] = useState('');
-  const [newWorkerSpec, setNewWorkerSpec] = useState('Timber Joinery & Hardwood');
+  const [newWorkerSpec, setNewWorkerSpec] = useState('Woodwork & Carpentry');
+  const [addWorkerError, setAddWorkerError] = useState<string | null>(null);
+  const [isAddWorkerSubmitting, setIsAddWorkerSubmitting] = useState(false);
+
+  // Edit Worker Modal State
+  const [editingWorker, setEditingWorker] = useState<WorkerData | null>(null);
+  const [editWorkerName, setEditWorkerName] = useState('');
+  const [editWorkerEmail, setEditWorkerEmail] = useState('');
+  const [editWorkerPhone, setEditWorkerPhone] = useState('');
+  const [editWorkerSpec, setEditWorkerSpec] = useState('Woodwork & Carpentry');
+  const [editWorkerError, setEditWorkerError] = useState<string | null>(null);
+  const [isEditWorkerSubmitting, setIsEditWorkerSubmitting] = useState(false);
 
   // Staff Profile Modal & Password Update State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -556,15 +570,73 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleAddWorkerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkerName || !newWorkerEmail) return;
-    await addWorker(newWorkerName, newWorkerEmail, newWorkerPhone, newWorkerSpec);
-    setNewWorkerName('');
-    setNewWorkerEmail('');
-    setNewWorkerPhone('');
-    setIsAddWorkerModalOpen(false);
-    setSuccessNotice(`Artisan worker ${newWorkerName} added to the workshop roster.`);
-    setTimeout(() => setSuccessNotice(null), 6000);
-    loadData();
+    if (!newWorkerName.trim() || !newWorkerEmail.trim()) {
+      setAddWorkerError('Please provide both worker name and email address.');
+      return;
+    }
+    setAddWorkerError(null);
+    setIsAddWorkerSubmitting(true);
+    try {
+      const resWorker = await addWorker(newWorkerName.trim(), newWorkerEmail.trim(), newWorkerPhone ? newWorkerPhone.trim() : '', newWorkerSpec);
+      
+      if (resWorker && resWorker.email_sent === false) {
+        setSuccessNotice(`Worker ${newWorkerName} registered in database, but the credential email could not be sent to ${newWorkerEmail}. ${resWorker.email_error ? 'SMTP Error: ' + resWorker.email_error : 'Please check SMTP configuration.'}`);
+      } else {
+        setSuccessNotice(`Worker ${newWorkerName} registered successfully! Account login credentials emailed to ${newWorkerEmail}.`);
+      }
+
+      setNewWorkerName('');
+      setNewWorkerEmail('');
+      setNewWorkerPhone('');
+      setIsAddWorkerModalOpen(false);
+      setTimeout(() => setSuccessNotice(null), 10000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Error registering worker:', err);
+      setAddWorkerError(err?.message || 'Failed to register worker. Please try again.');
+    } finally {
+      setIsAddWorkerSubmitting(false);
+    }
+  };
+
+  const handleOpenEditWorker = (worker: WorkerData) => {
+    setEditingWorker(worker);
+    setEditWorkerName(worker.full_name || '');
+    setEditWorkerEmail(worker.email || '');
+    setEditWorkerPhone(worker.phone || '');
+    setEditWorkerSpec(worker.specialization || 'Woodwork & Carpentry');
+    setEditWorkerError(null);
+  };
+
+  const handleEditWorkerSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWorker || !editWorkerName.trim() || !editWorkerEmail.trim()) return;
+    setEditWorkerError(null);
+    setIsEditWorkerSubmitting(true);
+    try {
+      await updateWorker(editingWorker.worker_id, editWorkerName.trim(), editWorkerEmail.trim(), editWorkerPhone, editWorkerSpec);
+      setSuccessNotice(`Worker details updated for ${editWorkerName}.`);
+      setEditingWorker(null);
+      setTimeout(() => setSuccessNotice(null), 5000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Error updating worker:', err);
+      setEditWorkerError(err?.message || 'Failed to update worker details.');
+    } finally {
+      setIsEditWorkerSubmitting(false);
+    }
+  };
+
+  const handleToggleWorkerStatus = async (worker: WorkerData) => {
+    const nextStatus = !worker.status;
+    try {
+      await toggleWorkerStatus(worker.worker_id, nextStatus);
+      setSuccessNotice(`Worker ${worker.full_name} status set to ${nextStatus ? 'Active' : 'Inactive'}.`);
+      setTimeout(() => setSuccessNotice(null), 4000);
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to update worker status.');
+    }
   };
 
   const isPaidCustomOrder = (o: CustomOrderData) => {
@@ -626,8 +698,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('orders')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'orders'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -639,8 +711,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('approvals')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'approvals'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -652,8 +724,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('assignments')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'assignments'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -665,8 +737,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('workers')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'workers'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -678,8 +750,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('queries')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'queries'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -691,8 +763,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('coupons')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'coupons'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -704,8 +776,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <button
             onClick={() => setActiveTab('admin_messages')}
             className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'admin_messages'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
@@ -838,6 +910,18 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
               {/* Top Right Controls */}
               <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddWorkerError(null);
+                    setIsAddWorkerModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer whitespace-nowrap"
+                  title="Register new artisan worker to directory"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>Register Worker</span>
+                </button>
                 {/* Notification Bell */}
                 <div className="relative">
                   <button
@@ -1055,13 +1139,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 <span>Paid & Verified</span>
                               </span>
                             ) : (
-                              <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                                ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
-                                ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
-                                ord.order_status === 'In Production' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
-                                ord.order_status === 'Completed' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
-                                'bg-rose-50 text-rose-800 border border-rose-200'
-                              }`}>
+                              <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                  ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+                                    ord.order_status === 'In Production' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
+                                      ord.order_status === 'Completed' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                                        'bg-rose-50 text-rose-800 border border-rose-200'
+                                }`}>
                                 {ord.order_status}
                               </span>
                             )}
@@ -1236,8 +1319,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         key={st}
                         onClick={() => setApprovalFilter(st as any)}
                         className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all ${approvalFilter === st
-                            ? 'bg-[#48A63E] text-white shadow-xs'
-                            : 'bg-white border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F5ECE1]'
+                          ? 'bg-[#48A63E] text-white shadow-xs'
+                          : 'bg-white border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F5ECE1]'
                           }`}
                       >
                         {st === 'Pending' ? `Pending Review (${pendingCount})` : st === 'Approved' ? `Approved (${approvedCount})` : st}
@@ -1302,8 +1385,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             </div>
 
                             <span className={`px-3 py-1 rounded-full text-xs font-extrabold self-start sm:self-auto ${ord.order_status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-                                ord.order_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
-                                  'bg-rose-100 text-rose-800'
+                              ord.order_status === 'Pending' ? 'bg-amber-100 text-amber-800' :
+                                'bg-rose-100 text-rose-800'
                               }`}>
                               {ord.order_status}
                             </span>
@@ -1558,26 +1641,72 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         );
                       })
                       .map((worker) => (
-                        <div key={worker.worker_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold flex items-center justify-center text-sm shadow-md">
+                        <div key={worker.worker_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3 relative group">
+                          {/* Card Action Buttons: Edit, Toggle Status & Delete */}
+                          <div className="absolute top-4 right-4 flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleWorkerStatus(worker)}
+                              className={`p-1.5 rounded-xl border transition-colors cursor-pointer text-xs font-extrabold flex items-center gap-1 ${worker.status
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                                }`}
+                              title={worker.status ? "Click to set Inactive" : "Click to set Active"}
+                            >
+                              <UserCheck className="w-3.5 h-3.5" />
+                              <span className="text-[10px] hidden sm:inline">{worker.status ? 'Active' : 'Inactive'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditWorker(worker)}
+                              className="text-[#7A6C5E] hover:text-[#48A63E] p-1.5 rounded-xl hover:bg-[#F3EDE5] transition-colors cursor-pointer"
+                              title="Edit Worker Details"
+                            >
+                              <Sliders className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (window.confirm(`Are you sure you want to remove worker "${worker.full_name}"?`)) {
+                                  try {
+                                    await deleteWorker(worker.worker_id);
+                                    setSuccessNotice(`Worker ${worker.full_name} removed.`);
+                                    setTimeout(() => setSuccessNotice(null), 5000);
+                                    await loadData();
+                                  } catch (err: any) {
+                                    alert(err.message || 'Failed to remove worker');
+                                  }
+                                }
+                              }}
+                              className="text-[#9E9082] hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors cursor-pointer"
+                              title="Remove Worker"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-3 pr-28">
+                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold flex items-center justify-center text-sm shadow-md flex-shrink-0">
                               {(worker.full_name || 'Worker').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                             </div>
-                            <div>
-                              <h4 className="font-extrabold text-sm text-[#2C241D]">{worker.full_name}</h4>
-                              <p className="text-[11px] text-[#48A63E] font-bold">{worker.specialization || 'Craft Specialist'}</p>
+                            <div className="min-w-0">
+                              <h4 className="font-extrabold text-sm text-[#2C241D] truncate">{worker.full_name}</h4>
+                              <p className="text-[11px] text-[#48A63E] font-bold truncate">{worker.specialization || 'Craft Specialist'}</p>
                             </div>
                           </div>
 
-                          <div className="space-y-1.5 text-xs text-[#6B5C4D]">
-                            <p><span className="font-bold">Email:</span> {worker.email}</p>
-                            <p><span className="font-bold">Phone:</span> {worker.phone || 'N/A'}</p>
-                            <p>
-                              <span className="font-bold">Status:</span>{' '}
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${worker.status ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
-                                {worker.status ? 'Active Technician' : 'Inactive'}
+                          <div className="space-y-1.5 text-xs text-[#6B5C4D] pt-1 border-t border-[#EFE7DE]">
+                            <p><span className="font-bold text-[#7A6C5E]">Email:</span> <span className="font-semibold text-[#2C241D] break-all">{worker.email}</span></p>
+                            <p><span className="font-bold text-[#7A6C5E]">Phone:</span> <span className="font-semibold text-[#2C241D]">{worker.phone || 'N/A'}</span></p>
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="font-bold text-[#7A6C5E]">Account Status:</span>
+                              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${worker.status
+                                  ? 'bg-emerald-100/80 text-emerald-800 border-emerald-300'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300'
+                                }`}>
+                                {worker.status ? 'Active' : 'Inactive'}
                               </span>
-                            </p>
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1692,9 +1821,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   <p className="text-[11px] text-[#7A6C5E] font-medium">{query.createdAt}</p>
                                 </div>
                                 <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${query.status === 'Pending' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
-                                    query.status === 'In Review' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
-                                      query.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                                        'bg-slate-100 text-slate-800 border border-slate-200'
+                                  query.status === 'In Review' ? 'bg-blue-100 text-blue-800 border border-blue-200' :
+                                    query.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                      'bg-slate-100 text-slate-800 border border-slate-200'
                                   }`}>
                                   {query.status}
                                 </span>
@@ -1872,17 +2001,17 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 </td>
 
                                 <td className="py-3 px-4 text-[#6B5C4D]">
-                                   {coupon.targetUserEmail ? `🎯 ${coupon.targetUserEmail}` : '🌐 All Customers'}
-                                 </td>
+                                  {coupon.targetUserEmail ? `🎯 ${coupon.targetUserEmail}` : '🌐 All Customers'}
+                                </td>
 
                                 <td className="py-4 px-4">
-                                   <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${coupon.status === 'Active' && (!limitN || redeemed < limitN)
-                                       ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                       : 'bg-rose-100 text-rose-700'
-                                     }`}>
-                                     {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
-                                   </span>
-                                 </td>
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${coupon.status === 'Active' && (!limitN || redeemed < limitN)
+                                    ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                    : 'bg-rose-100 text-rose-700'
+                                    }`}>
+                                    {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
+                                  </span>
+                                </td>
 
                                 <td className="py-4 px-4 text-right space-x-2">
                                   <button
@@ -2053,8 +2182,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           <div
                             key={msg.id}
                             className={`p-5 rounded-2xl border transition-all space-y-3 ${isRead
-                                ? 'bg-[#FAF7F2]/80 border-[#E2D7CB] text-[#5C4E42]'
-                                : 'bg-gradient-to-r from-amber-50/90 via-white to-amber-50/40 border-2 border-amber-300 shadow-md'
+                              ? 'bg-[#FAF7F2]/80 border-[#E2D7CB] text-[#5C4E42]'
+                              : 'bg-gradient-to-r from-amber-50/90 via-white to-amber-50/40 border-2 border-amber-300 shadow-md'
                               }`}
                           >
                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2.5">
@@ -2132,6 +2261,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleAddWorkerSubmit} className="space-y-4 text-xs">
+              {addWorkerError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn">
+                  {addWorkerError}
+                </div>
+              )}
+
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Worker Full Name</label>
                 <input
@@ -2174,11 +2309,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   onChange={(e) => setNewWorkerSpec(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
                 >
-                  <option value="Timber Joinery & Hardwood">Timber Joinery & Hardwood</option>
-                  <option value="Bouclé & Leather Upholstery">Bouclé & Leather Upholstery</option>
-                  <option value="Hand Lacquer & Metal Inlays">Hand Lacquer & Metal Inlays</option>
-                  <option value="Ergonomic Structural Framing">Ergonomic Structural Framing</option>
-                  <option value="Quality Inspection & QC">Quality Inspection & QC</option>
+                  <option value="Woodwork & Carpentry">Woodwork & Carpentry</option>
+                  <option value="Upholstery">Upholstery</option>
+                  <option value="Finishing & Assembly">Finishing & Assembly</option>
                 </select>
               </div>
 
@@ -2192,10 +2325,114 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2"
+                  disabled={isAddWorkerSubmitting}
+                  className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Confirm & Save Worker</span>
+                  {isAddWorkerSubmitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Plus className="w-4 h-4" />
+                  )}
+                  <span>{isAddWorkerSubmitting ? 'Registering Worker...' : 'Register Worker'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1b: Edit Worker Details */}
+      {editingWorker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-8 shadow-2xl border-2 border-[#E2D7CB] w-full max-w-lg space-y-5 relative max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setEditingWorker(null)}
+              className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1.5 rounded-full bg-[#EAE0D4] hover:bg-[#DED2C2] transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-4">
+              <div className="w-11 h-11 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/30 flex items-center justify-center text-[#48A63E] font-extrabold shadow-sm">
+                <Sliders className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="text-xl font-extrabold text-[#2C241D] tracking-tight">Edit Worker Profile</h3>
+                <p className="text-xs font-bold text-[#6B5C4D]">Update details for {editingWorker.full_name}</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleEditWorkerSubmit} className="space-y-4 text-xs">
+              {editWorkerError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn">
+                  {editWorkerError}
+                </div>
+              )}
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Worker Full Name</label>
+                <input
+                  type="text"
+                  value={editWorkerName}
+                  onChange={(e) => setEditWorkerName(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={editWorkerEmail}
+                  onChange={(e) => setEditWorkerEmail(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={editWorkerPhone}
+                  onChange={(e) => setEditWorkerPhone(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Craft Specialization</label>
+                <select
+                  value={editWorkerSpec}
+                  onChange={(e) => setEditWorkerSpec(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Woodwork & Carpentry">Woodwork & Carpentry</option>
+                  <option value="Upholstery">Upholstery</option>
+                  <option value="Finishing & Assembly">Finishing & Assembly</option>
+                </select>
+              </div>
+
+              <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingWorker(null)}
+                  className="px-5 py-2.5 rounded-xl border border-[#E2D7CB] text-[#5C4A3A] font-extrabold hover:bg-[#EAE0D4] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditWorkerSubmitting}
+                  className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  {isEditWorkerSubmitting ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  <span>{isEditWorkerSubmitting ? 'Saving...' : 'Save Changes'}</span>
                 </button>
               </div>
             </form>

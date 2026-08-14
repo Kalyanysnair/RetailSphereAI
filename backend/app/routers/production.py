@@ -1,11 +1,28 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date
+import string
+import secrets
 
 from app.database import get_db
-from app import models
+from app import models, auth
+from app.email_utils import send_staff_credentials_email, mask_email
+
+def generate_strong_password(length: int = 12) -> str:
+    specials = "@#$%&*"
+    chars = [
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.digits),
+        secrets.choice(specials),
+    ]
+    all_allowed = string.ascii_letters + string.digits + specials
+    for _ in range(length - len(chars)):
+        chars.append(secrets.choice(all_allowed))
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 router = APIRouter(prefix="/api/production", tags=["Production Management"])
 
@@ -30,7 +47,16 @@ class WorkerCreatePayload(BaseModel):
     full_name: str
     email: str
     phone: Optional[str] = None
-    specialization: Optional[str] = "Artisan / Craftsman"
+    specialization: Optional[str] = "Woodwork & Carpentry"
+
+class WorkerUpdatePayload(BaseModel):
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+    specialization: Optional[str] = "Woodwork & Carpentry"
+
+class WorkerStatusPayload(BaseModel):
+    status: bool
 
 class TaskAssignPayload(BaseModel):
     custom_order_id: int
@@ -248,7 +274,7 @@ def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
 
 # 3. Add Worker
 @router.post("/workers", status_code=status.HTTP_201_CREATED)
-def create_worker(payload: WorkerCreatePayload, db: Session = Depends(get_db)):
+def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     role = db.query(models.Role).filter(models.Role.role_name == "Worker").first()
     if not role:
         role = models.Role(role_name="Worker")
@@ -256,30 +282,72 @@ def create_worker(payload: WorkerCreatePayload, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(role)
 
-    # Check existing email
-    existing = db.query(models.User).filter(models.User.email == payload.email.strip()).first()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Worker email already registered.")
+    email_clean = payload.email.strip()
+    full_name_clean = payload.full_name.strip()
+    phone_clean = payload.phone.strip() if (payload.phone and payload.phone.strip()) else f"+91{datetime.now().strftime('%M%S%f')[:10]}"
 
-    phone = payload.phone.strip() if (payload.phone and payload.phone.strip()) else f"+91{datetime.now().strftime('%M%S%f')[:10]}"
-    
-    worker_user = models.User(
-        role_id=role.role_id,
-        full_name=payload.full_name.strip(),
-        email=payload.email.strip(),
-        phone=phone,
-        password="worker_temp_pass",
-        status=True
-    )
-    db.add(worker_user)
-    db.commit()
-    db.refresh(worker_user)
+    generated_password = generate_strong_password(12)
+    hashed_pwd = auth.get_password_hash(generated_password)
+
+    # Check if email already exists in DB
+    existing = db.query(models.User).filter(models.User.email == email_clean).first()
+    if existing:
+        existing.role_id = role.role_id
+        existing.full_name = full_name_clean
+        existing.password = hashed_pwd
+        existing.status = True
+        if payload.phone and payload.phone.strip():
+            existing.phone = phone_clean
+        db.commit()
+        db.refresh(existing)
+        worker_user = existing
+    else:
+        worker_user = models.User(
+            role_id=role.role_id,
+            full_name=full_name_clean,
+            email=email_clean,
+            phone=phone_clean,
+            password=hashed_pwd,
+            status=True
+        )
+        db.add(worker_user)
+        db.commit()
+        db.refresh(worker_user)
+
+    # Send login credentials email to worker via SMTP immediately
+    email_sent = False
+    email_error = None
+
+    masked_to = mask_email(worker_user.email)
+    print(f"[WORKER EMAIL TRACE]")
+    print(f"Worker Name: {worker_user.full_name}")
+    print(f"Recipient from request: {masked_to}")
+    print(f"Recipient passed to email function: {masked_to}")
+
+    try:
+        email_sent = send_staff_credentials_email(
+            to_email=worker_user.email,
+            staff_name=worker_user.full_name,
+            role_name=f"Workshop Worker ({payload.specialization or 'Woodwork & Carpentry'})",
+            username=worker_user.email,
+            password=generated_password
+        )
+        if email_sent:
+            print(f"[WORKER EMAIL TRACE] SMTP RCPT TO: {masked_to}")
+            print(f"[WORKER CREATION SUCCESS] Dispatched password email via SMTP to {masked_to}")
+    except Exception as email_err:
+        email_sent = False
+        email_error = str(email_err)
+        print(f"[WORKER CREATION EMAIL ERROR] SMTP exception sending credentials email to {masked_to}: {email_err}")
 
     return {
         "worker_id": worker_user.user_id,
         "full_name": worker_user.full_name,
         "email": worker_user.email,
-        "specialization": payload.specialization
+        "specialization": payload.specialization,
+        "status": worker_user.status,
+        "email_sent": email_sent,
+        "email_error": email_error
     }
 
 # 4. List Workers
@@ -297,6 +365,62 @@ def list_workers(db: Session = Depends(get_db)):
         "phone": w.phone,
         "status": w.status
     } for w in workers]
+
+# 4b. Delete Worker
+@router.delete("/workers/{worker_id}")
+def delete_worker(worker_id: int, db: Session = Depends(get_db)):
+    db.query(models.WorkerAssignment).filter(models.WorkerAssignment.worker_id == worker_id).delete(synchronize_session=False)
+    db.query(models.Customer).filter(models.Customer.user_id == worker_id).delete(synchronize_session=False)
+    worker = db.query(models.User).filter(models.User.user_id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
+    db.delete(worker)
+    db.commit()
+    return {"message": f"Worker #{worker_id} removed successfully"}
+
+# 4c. Update Worker Details
+@router.put("/workers/{worker_id}")
+def update_worker(worker_id: int, payload: WorkerUpdatePayload, db: Session = Depends(get_db)):
+    worker = db.query(models.User).filter(models.User.user_id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
+    
+    if payload.email.strip().lower() != worker.email.lower():
+        existing = db.query(models.User).filter(models.User.email == payload.email.strip()).first()
+        if existing:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email address is already registered.")
+    
+    worker.full_name = payload.full_name.strip()
+    worker.email = payload.email.strip()
+    if payload.phone:
+        worker.phone = payload.phone.strip()
+    
+    db.commit()
+    db.refresh(worker)
+    return {
+        "worker_id": worker.user_id,
+        "full_name": worker.full_name,
+        "email": worker.email,
+        "phone": worker.phone,
+        "specialization": payload.specialization,
+        "status": worker.status
+    }
+
+# 4d. Toggle Worker Status (Active / Inactive)
+@router.put("/workers/{worker_id}/status")
+def toggle_worker_status(worker_id: int, payload: WorkerStatusPayload, db: Session = Depends(get_db)):
+    worker = db.query(models.User).filter(models.User.user_id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
+    
+    worker.status = payload.status
+    db.commit()
+    db.refresh(worker)
+    return {
+        "worker_id": worker.user_id,
+        "full_name": worker.full_name,
+        "status": worker.status
+    }
 
 # 5. Assign Task to Worker
 @router.post("/assign-worker")

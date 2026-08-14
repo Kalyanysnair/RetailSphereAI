@@ -26,7 +26,30 @@ export interface RetailOrder {
   items: RetailOrderItem[];
 }
 
-const BASE_URL = 'http://localhost:8000/api';
+const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
+const BASE_URL = `http://${API_HOST}:8000/api`;
+
+async function safeFetchOrders(path: string, options?: RequestInit): Promise<Response> {
+  const primaryHost = API_HOST;
+  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  const urls = [
+    `http://${primaryHost}:8000/api${cleanPath}`,
+    `http://${secondaryHost}:8000/api${cleanPath}`
+  ];
+
+  let lastErr: any = null;
+  for (const u of urls) {
+    try {
+      return await fetch(u, options);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new TypeError('Failed to fetch order service');
+}
+
 const STORAGE_KEY = 'retail_orders_list';
 
 export function getStoredRetailOrders(): RetailOrder[] {
@@ -44,7 +67,7 @@ export function getStoredRetailOrders(): RetailOrder[] {
 
 export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
   try {
-    const res = await fetch(`${BASE_URL}/admin/orders`);
+    const res = await safeFetchOrders('/admin/orders');
     if (res.ok) {
       const dbOrders: RetailOrder[] = await res.json();
       if (Array.isArray(dbOrders)) {
@@ -66,7 +89,7 @@ export async function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderI
 
   let dbOrderId: string | null = null;
   try {
-    const res = await fetch(`${BASE_URL}/admin/orders`, {
+    const res = await safeFetchOrders('/admin/orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(safePayload)
@@ -110,7 +133,7 @@ export function cancelStoredRetailOrder(orderId: string): boolean {
       window.dispatchEvent(new Event('retail-orders-updated'));
     }
 
-    fetch(`${BASE_URL}/admin/orders/${orderId}/cancel`, { method: 'PUT' })
+    safeFetchOrders(`/admin/orders/${orderId}/cancel`, { method: 'PUT' })
       .catch((err) => console.warn('Cancel DB order sync error:', err));
 
     return true;
@@ -126,7 +149,7 @@ export function deleteStoredRetailOrder(orderId: string): boolean {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     window.dispatchEvent(new Event('retail-orders-updated'));
 
-    fetch(`${BASE_URL}/admin/orders/${orderId}`, { method: 'DELETE' })
+    safeFetchOrders(`/admin/orders/${orderId}`, { method: 'DELETE' })
       .catch((err) => console.warn('Delete DB order error:', err));
 
     return true;

@@ -2,6 +2,7 @@ import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formatdate, make_msgid
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -98,16 +99,48 @@ This code will expire in 15 minutes. If you did not request a password reset, pl
         return True
 
 
+def mask_email(email_str: str) -> str:
+    if not email_str or '@' not in email_str:
+        return '***@***.com'
+    parts = email_str.split('@')
+    name = parts[0]
+    domain = parts[1]
+    masked_name = name[:2] + '***' if len(name) > 2 else name[0] + '***'
+    return f"{masked_name}@{domain}"
+
 def send_staff_credentials_email(to_email: str, staff_name: str, role_name: str, username: str, password: str) -> bool:
     """
-    Sends account credentials to a newly created Retail Staff or Production Staff member.
-    Uses exact same SMTP dispatch methodology as send_password_reset_email.
+    Sends account credentials to a newly created staff member.
+    The recipient email (to_email) is dynamically set to the worker's entered email address.
     """
-    subject = f"Staff Account Credentials - RetailSphere ({role_name})"
-    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
-    from_name = settings.EMAILS_FROM_NAME or "RetailSphere Support"
+    to_email_clean = to_email.strip()
+    masked = mask_email(to_email_clean)
+    subject = f"Staff Account Credentials for {staff_name} - RetailSphere ({role_name})"
 
-    clean_username = staff_name.strip() if staff_name else to_email.split('@')[0]
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        logger.error("SMTP Configuration missing (SMTP_USER or SMTP_PASSWORD not set). Cannot send email.")
+        print(f"[WORKER EMAIL TRACE] [CONFIG ERROR] Cannot send credentials email to {masked}: SMTP credentials missing in .env")
+        return False
+
+    from_name = settings.EMAILS_FROM_NAME or "RetailSphere Support"
+    smtp_user = settings.SMTP_USER.strip()
+    smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
+
+    clean_username = staff_name.strip() if staff_name else to_email_clean.split('@')[0]
+    msg_id = make_msgid()
+
+    plain_text = f"""Hello {clean_username},
+
+Your staff account has been created for RetailSphere as {role_name}.
+
+Worker Account Credentials:
+- Assigned Role: {role_name}
+- Username / Email: {to_email_clean}
+- Password: {password}
+
+Best regards,
+RetailSphere Team
+"""
 
     html_content = f"""
     <!DOCTYPE html>
@@ -136,11 +169,9 @@ def send_staff_credentials_email(to_email: str, staff_name: str, role_name: str,
         
         <div class="info-box">
           <div class="line"><strong>Assigned Role:</strong> {role_name}</div>
-          <div class="line"><strong>Username / Email:</strong> <span class="val">{username}</span></div>
+          <div class="line"><strong>Username / Email:</strong> <span class="val">{to_email_clean}</span></div>
           <div class="line"><strong>Password:</strong> <span class="val">{password}</span></div>
         </div>
-
-        <p>You can log in at: <a href="http://localhost:3000/login">http://localhost:3000/login</a></p>
 
         <div class="footer">
           &copy; RetailSphere Inc. All rights reserved.
@@ -150,46 +181,42 @@ def send_staff_credentials_email(to_email: str, staff_name: str, role_name: str,
     </html>
     """
 
-    plain_text = f"""Hello {clean_username},
+    print(f"[WORKER EMAIL TRACE] 1. START - Recipient: {masked}")
+    print(f"[WORKER EMAIL TRACE] Message-ID generated: {msg_id}")
 
-Your staff account has been created for RetailSphere as {role_name}.
+    try:
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = subject
+        msg["From"] = f"{from_name} <{smtp_user}>"
+        msg["To"] = to_email_clean
+        msg["Reply-To"] = smtp_user
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = msg_id
 
-Login Portal: http://localhost:3000/login
-Username: {username}
-Password: {password}
+        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+        msg.attach(MIMEText(html_content, "html", "utf-8"))
 
-&copy; RetailSphere Inc.
-"""
+        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(smtp_user, smtp_pass)
+            print(f"[WORKER EMAIL TRACE] 2. SMTP CONNECTED & AUTHENTICATED AS {mask_email(smtp_user)}")
 
-    if settings.SMTP_USER and settings.SMTP_PASSWORD:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"{from_name} <{from_address}>"
-            msg["To"] = to_email
+            refused = server.sendmail(smtp_user, [to_email_clean], msg.as_string())
+            if refused and to_email_clean in refused:
+                logger.error(f"Recipient refused by SMTP server: {refused[to_email_clean]}")
+                print(f"[WORKER EMAIL TRACE] [FAIL] Recipient {masked} refused by SMTP server: {refused[to_email_clean]}")
+                return False
 
-            msg.attach(MIMEText(plain_text, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            smtp_user = settings.SMTP_USER.strip()
-            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
-
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(from_address, [to_email], msg.as_string())
-
-            logger.info(f"Successfully sent staff credentials email to {to_email}")
-            print(f"[EMAIL SERVICE SUCCESS] Staff credentials email sent via SMTP to {to_email}")
+            print(f"[WORKER EMAIL TRACE] 3. MAIL DISPATCH ACCEPTED BY GMAIL SMTP SERVER")
+            print(f"[WORKER EMAIL TRACE] 4. END - SUCCESS FOR {masked}")
             return True
-        except Exception as e:
-            logger.error(f"Failed to send staff credentials email to {to_email}: {e}")
-            print(f"[EMAIL SERVICE ERROR] SMTP error when sending credentials email to {to_email}: {e}")
-            return False
-    else:
-        logger.info(f"SMTP credentials notice for {to_email}: Username={username}, Password={password}")
-        print(f"[EMAIL SERVICE NOTICE] SMTP credentials not configured in .env. Dispatched credentials to '{to_email}' with Password: {password}")
-        return True
+
+    except Exception as e:
+        logger.error(f"Failed to send staff credentials email to {masked}: {e}")
+        print(f"[WORKER EMAIL TRACE] [EXCEPTION] SMTP error when sending credentials email to {masked}: {e}")
+        raise e
 
 
 def send_contact_inquiry_email(sender_name: str, sender_email: str, topic: str, message_body: str) -> bool:

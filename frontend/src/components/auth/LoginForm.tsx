@@ -57,12 +57,15 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
       const usernameClean = credentials.username.trim().toLowerCase();
       const isAdmin = roleName === 'Admin' || usernameClean === 'admin' || res?.user?.email?.toLowerCase().includes('admin');
       const isRetailStaff = roleName === 'Retail Staff' || usernameClean.includes('retail');
+      const isWorker = roleName === 'Worker' || usernameClean.includes('worker');
       const isProductionStaff = roleName === 'Production Staff' || usernameClean.includes('production');
 
       if (isAdmin) {
         navigate('/admin');
       } else if (isRetailStaff) {
         navigate('/retail-staff');
+      } else if (isWorker) {
+        navigate('/worker');
       } else if (isProductionStaff) {
         navigate('/production-staff');
       } else {

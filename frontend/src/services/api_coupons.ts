@@ -1,4 +1,26 @@
-export const API_BASE_URL = 'http://localhost:8000';
+const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
+export const API_BASE_URL = `http://${API_HOST}:8000`;
+
+async function safeFetchCoupons(path: string, options?: RequestInit): Promise<Response> {
+  const primaryHost = API_HOST;
+  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  const urls = [
+    `http://${primaryHost}:8000/api/coupons${cleanPath}`,
+    `http://${secondaryHost}:8000/api/coupons${cleanPath}`
+  ];
+
+  let lastErr: any = null;
+  for (const u of urls) {
+    try {
+      return await fetch(u, options);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new TypeError('Failed to fetch coupon service');
+}
 
 export interface Coupon {
   id: string;
@@ -52,7 +74,7 @@ export const createCouponApi = async (data: {
   customer_limit?: number;
   target_user_email?: string;
 }) => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons`, {
+  const response = await safeFetchCoupons('', {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify(data)
@@ -65,17 +87,21 @@ export const createCouponApi = async (data: {
 };
 
 export const getCouponsApi = async (): Promise<{ coupons: Coupon[]; allotments: CouponAllotment[] }> => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons`, {
-    headers: getAuthHeaders()
-  });
-  if (!response.ok) {
+  try {
+    const response = await safeFetchCoupons('', {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      return { coupons: [], allotments: [] };
+    }
+    return response.json();
+  } catch {
     return { coupons: [], allotments: [] };
   }
-  return response.json();
 };
 
 export const deleteCouponApi = async (couponId: string | number) => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons/${couponId}`, {
+  const response = await safeFetchCoupons(`/${couponId}`, {
     method: 'DELETE',
     headers: getAuthHeaders()
   });
@@ -87,7 +113,7 @@ export const deleteCouponApi = async (couponId: string | number) => {
 };
 
 export const regenerateCouponApi = async (couponId: string | number) => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons/${couponId}/regenerate`, {
+  const response = await safeFetchCoupons(`/${couponId}/regenerate`, {
     method: 'POST',
     headers: getAuthHeaders()
   });
@@ -99,30 +125,38 @@ export const regenerateCouponApi = async (couponId: string | number) => {
 };
 
 export const getCustomerNotificationsApi = async (): Promise<CustomerNotification[]> => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons/my-notifications`, {
-    headers: getAuthHeaders()
-  });
-  if (!response.ok) {
+  try {
+    const response = await safeFetchCoupons('/my-notifications', {
+      headers: getAuthHeaders()
+    });
+    if (!response.ok) {
+      return [];
+    }
+    return response.json();
+  } catch {
     return [];
   }
-  return response.json();
 };
 
 export const validateCouponApi = async (code: string) => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons/validate`, {
-    method: 'POST',
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ code })
-  });
-  if (!response.ok) {
-    const err = await response.json();
-    return { valid: false, message: err.detail || 'Invalid or expired promo code.' };
+  try {
+    const response = await safeFetchCoupons('/validate', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ code })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return { valid: false, message: err.detail || 'Invalid or expired promo code.' };
+    }
+    return response.json();
+  } catch {
+    return { valid: false, message: 'Could not connect to promo validation server.' };
   }
-  return response.json();
 };
 
 export const redeemCouponApi = async (code: string, orderId?: string) => {
-  const response = await fetch(`${API_BASE_URL}/api/coupons/redeem`, {
+  const response = await safeFetchCoupons('/redeem', {
     method: 'POST',
     headers: getAuthHeaders(),
     body: JSON.stringify({ code, order_id: orderId })

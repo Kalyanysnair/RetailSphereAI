@@ -11,6 +11,7 @@ import { MyOrdersPage } from './components/orders/MyOrdersPage';
 import { AdminDashboardPage } from './components/admin/AdminDashboardPage';
 import { RetailStaffDashboardPage } from './components/retail-staff/RetailStaffDashboardPage';
 import { ProductionStaffDashboardPage } from './components/production-staff/ProductionStaffDashboardPage';
+import { WorkerDashboardPage } from './components/worker/WorkerDashboardPage';
 import { ProductDetailPage } from './components/product/ProductDetailPage';
 export const App: React.FC = () => {
   return (
@@ -42,6 +43,10 @@ export const App: React.FC = () => {
 
         {/* Production Staff Portal Dashboard Route */}
         <Route path="/production-staff/*" element={<ProductionStaffDashboardPage />} />
+
+        {/* Workshop Artisan Worker Portal Dashboard Route */}
+        <Route path="/worker/*" element={<WorkerDashboardPage />} />
+        <Route path="/worker-dashboard/*" element={<WorkerDashboardPage />} />
 
         {/* Fallback redirect to Landing Page / */}
         <Route path="*" element={<Navigate to="/" replace />} />

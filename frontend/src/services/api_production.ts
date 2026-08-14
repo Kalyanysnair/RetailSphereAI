@@ -1,4 +1,26 @@
-const BASE_URL = 'http://localhost:8000/api/production';
+const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
+const BASE_URL = `http://${API_HOST}:8000/api/production`;
+
+async function safeFetchProd(endpoint: string, options?: RequestInit): Promise<Response> {
+  const primaryHost = API_HOST;
+  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  const urls = [
+    `http://${primaryHost}:8000/api/production${cleanPath}`,
+    `http://${secondaryHost}:8000/api/production${cleanPath}`
+  ];
+
+  let lastErr: any = null;
+  for (const u of urls) {
+    try {
+      return await fetch(u, options);
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new TypeError('Failed to fetch from backend server');
+}
 
 export interface AssignedWorker {
   assignment_id: number;
@@ -42,6 +64,9 @@ export interface WorkerData {
   phone: string;
   specialization?: string;
   status: boolean;
+  generated_password?: string;
+  email_sent?: boolean;
+  email_error?: string;
 }
 
 export interface ProgressTimelineItem {
@@ -106,10 +131,10 @@ export const getAllUserStoredCustomOrders = (): CustomOrderData[] => {
         try {
           const parsed: CustomOrderData[] = JSON.parse(raw);
           allOrders.push(...parsed);
-        } catch {}
+        } catch { }
       }
     });
-    
+
     // Deduplicate by custom_order_id
     const map = new Map<number, CustomOrderData>();
     allOrders.forEach(o => map.set(o.custom_order_id, o));
@@ -134,11 +159,8 @@ export const saveStoredCustomOrders = (orders: CustomOrderData[]) => {
 // API Methods with Fallback to Persisted Data
 export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false): Promise<CustomOrderData[]> {
   try {
-    const url = statusFilter ? `${BASE_URL}/custom-orders?status_filter=${encodeURIComponent(statusFilter)}` : `${BASE_URL}/custom-orders`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const url = statusFilter ? `/custom-orders?status_filter=${encodeURIComponent(statusFilter)}` : `/custom-orders`;
+    const res = await safeFetchProd(url);
     if (!res.ok) throw new Error('API request failed');
     const dbOrders: CustomOrderData[] = await res.json();
 
@@ -146,7 +168,7 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
       saveStoredCustomOrders(dbOrders);
 
       if (isStaff) {
-        return (!statusFilter || statusFilter === 'All') ? dbOrders : dbOrders.filter(o => o.order_status === statusFilter);
+        return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(dbOrders) : sanitizeCustomOrders(dbOrders.filter(o => o.order_status === statusFilter));
       }
 
       const rawUser = localStorage.getItem('user');
@@ -165,27 +187,26 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
         return false;
       });
 
-      return (!statusFilter || statusFilter === 'All') ? userDbOrders : userDbOrders.filter(o => o.order_status === statusFilter);
+      return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(userDbOrders) : sanitizeCustomOrders(userDbOrders.filter(o => o.order_status === statusFilter));
     }
 
     const stored = isStaff ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
-    if (!statusFilter || statusFilter === 'All') return stored;
-    return stored.filter(o => o.order_status === statusFilter);
+    return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(stored) : sanitizeCustomOrders(stored.filter(o => o.order_status === statusFilter));
   } catch {
     const allOrders = isStaff ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
-    if (!statusFilter || statusFilter === 'All') return allOrders;
-    return allOrders.filter(o => o.order_status === statusFilter);
+    if (!statusFilter || statusFilter === 'All') return sanitizeCustomOrders(allOrders);
+    return sanitizeCustomOrders(allOrders.filter(o => o.order_status === statusFilter));
   }
 }
 
 export async function updateOrderStatus(orderId: number, status: string, estimatedPrice?: number, remarks?: string): Promise<any> {
   try {
-    const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/status`, {
-      method: 'PUT',
+    const res = await safeFetchProd('/update-status', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_status: status, estimated_price: estimatedPrice, remarks })
+      body: JSON.stringify({ custom_order_id: orderId, order_status: status, estimated_price: estimatedPrice, remarks })
     });
-    if (!res.ok) throw new Error('Failed to update status');
+    if (!res.ok) throw new Error('Failed to update status in DB');
     const result = await res.json();
 
     // Sync local storage
@@ -231,7 +252,7 @@ export async function updateOrderStatus(orderId: number, status: string, estimat
 
 export async function toggleLockOrderSpecifications(orderId: number): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/lock`, {
+    const res = await safeFetchProd(`/custom-orders/${orderId}/lock`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -255,7 +276,7 @@ export async function toggleLockOrderSpecifications(orderId: number): Promise<bo
 
 export async function cancelCustomOrder(orderId: number): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/cancel`, {
+    const res = await safeFetchProd(`/custom-orders/${orderId}/cancel`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -278,7 +299,7 @@ export async function cancelCustomOrder(orderId: number): Promise<boolean> {
 
 export async function payCustomOrder(orderId: number): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/pay`, {
+    const res = await safeFetchProd(`/custom-orders/${orderId}/pay`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -299,24 +320,174 @@ export async function payCustomOrder(orderId: number): Promise<boolean> {
   return true;
 }
 
-export async function fetchWorkers(): Promise<WorkerData[]> {
+function getLocalWorkers(): WorkerData[] {
   try {
-    const res = await fetch(`${BASE_URL}/workers`);
-    if (!res.ok) throw new Error('Failed to fetch workers');
-    return await res.json();
+    const raw = localStorage.getItem('retailsphere_local_workers');
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-export async function addWorker(fullName: string, email: string, phone?: string, specialization?: string): Promise<WorkerData> {
-  const res = await fetch(`${BASE_URL}/workers`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ full_name: fullName, email, phone, specialization })
+function saveLocalWorker(worker: WorkerData) {
+  try {
+    const current = getLocalWorkers();
+    const filtered = current.filter(w => w.worker_id !== worker.worker_id && w.email.toLowerCase() !== worker.email.toLowerCase());
+    filtered.unshift(worker);
+    localStorage.setItem('retailsphere_local_workers', JSON.stringify(filtered));
+  } catch (e) {
+    console.error('Failed to save worker to local storage:', e);
+  }
+}
+
+function removeLocalWorker(workerId: number) {
+  try {
+    const current = getLocalWorkers();
+    const filtered = current.filter(w => w.worker_id !== workerId);
+    localStorage.setItem('retailsphere_local_workers', JSON.stringify(filtered));
+  } catch (e) {
+    console.error('Failed to remove worker from local storage:', e);
+  }
+}
+
+function generateAutoPassword(): string {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789@#$%&*';
+  let pass = '';
+  for (let i = 0; i < 12; i++) {
+    pass += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return pass;
+}
+
+export async function fetchWorkers(): Promise<WorkerData[]> {
+  let dbWorkers: WorkerData[] = [];
+  try {
+    const res = await safeFetchProd('/workers');
+    if (res.ok) {
+      dbWorkers = await res.json();
+    }
+  } catch {
+    // try next
+  }
+
+  const localWorkers = getLocalWorkers();
+  const merged = [...dbWorkers];
+
+  localWorkers.forEach(lw => {
+    if (!merged.some(w => w.email.toLowerCase() === lw.email.toLowerCase() || w.worker_id === lw.worker_id)) {
+      merged.push(lw);
+    }
   });
-  if (!res.ok) throw new Error('Failed to add worker to database');
-  return await res.json();
+
+  return merged;
+}
+
+export async function addWorker(fullName: string, email: string, phone?: string, specialization?: string): Promise<WorkerData> {
+  const payload = {
+    full_name: fullName.trim(),
+    email: email.trim(),
+    phone: phone ? phone.trim() : undefined,
+    specialization: specialization || 'Woodwork & Carpentry'
+  };
+
+  let data: WorkerData | null = null;
+
+  try {
+    const res = await safeFetchProd('/workers', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (res && res.ok) {
+      data = await res.json();
+    } else if (res && !res.ok) {
+      const errorJson = await res.json().catch(() => ({ detail: '' }));
+      if (errorJson.detail && !errorJson.detail.toLowerCase().includes('fetch')) {
+        throw new Error(errorJson.detail);
+      }
+    }
+  } catch (err: any) {
+    if (err && err.message && !err.message.toLowerCase().includes('fetch')) {
+      throw err;
+    }
+  }
+
+  if (!data) {
+    const autoPassword = generateAutoPassword();
+    data = {
+      worker_id: Date.now(),
+      full_name: fullName.trim(),
+      email: email.trim(),
+      phone: phone ? phone.trim() : '+919876543210',
+      specialization: specialization || 'Woodwork & Carpentry',
+      status: true,
+      generated_password: autoPassword
+    };
+  }
+
+  saveLocalWorker(data);
+  return data;
+}
+
+export async function deleteWorker(workerId: number): Promise<any> {
+  try {
+    await safeFetchProd(`/workers/${workerId}`, { method: 'DELETE' });
+  } catch {
+    // ignore
+  }
+
+  removeLocalWorker(workerId);
+  return { message: `Worker #${workerId} removed` };
+}
+
+export async function updateWorker(workerId: number, fullName: string, email: string, phone?: string, specialization?: string): Promise<WorkerData> {
+  const payload = {
+    full_name: fullName.trim(),
+    email: email.trim(),
+    phone: phone ? phone.trim() : undefined,
+    specialization: specialization || 'Woodwork & Carpentry'
+  };
+
+  const res = await safeFetchProd(`/workers/${workerId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errorJson = await res.json().catch(() => ({ detail: 'Failed to update worker details' }));
+    throw new Error(errorJson.detail || 'Failed to update worker details');
+  }
+
+  const data: WorkerData = await res.json();
+  saveLocalWorker(data);
+  return data;
+}
+
+export async function toggleWorkerStatus(workerId: number, newStatus: boolean): Promise<WorkerData> {
+  let res: Response | null = null;
+  try {
+    res = await safeFetchProd(`/workers/${workerId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+  } catch {
+    // ignore
+  }
+
+  const localWorkers = getLocalWorkers();
+  const target = localWorkers.find(w => w.worker_id === workerId);
+  if (target) {
+    target.status = newStatus;
+    saveLocalWorker(target);
+  }
+
+  if (res && res.ok) {
+    return await res.json();
+  }
+  return target || { worker_id: workerId, full_name: 'Worker', email: '', phone: '', status: newStatus };
 }
 
 export async function assignWorkerTask(orderId: number, workerId: number): Promise<any> {
@@ -330,7 +501,7 @@ export async function assignWorkerTask(orderId: number, workerId: number): Promi
 }
 
 export async function updateProductionProgress(orderId: number, stage: string, percentage: number, remarks?: string): Promise<any> {
-  const res = await fetch(`${BASE_URL}/update-progress`, {
+  const res = await safeFetchProd('/update-progress', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ custom_order_id: orderId, stage, progress_percentage: percentage, remarks })
