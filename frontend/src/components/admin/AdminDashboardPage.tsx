@@ -11,6 +11,7 @@ import {
   CheckCircle2, 
   X, 
   SlidersHorizontal,
+  Sparkles,
   Briefcase,
   Wrench,
   DollarSign,
@@ -193,8 +194,9 @@ export const INITIAL_INVENTORY: InventoryItem[] = [];
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Active View Tab: staff | products | inventory | suppliers | orders | custom_orders | queries | coupons | users | broadcast
-  const [activeTab, setActiveTab] = useState<'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'custom_orders' | 'queries' | 'coupons' | 'users' | 'broadcast'>('staff');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'custom_orders' | 'queries' | 'coupons' | 'users' | 'broadcast'>('staff');
+  const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
 
   // Custom Orders Admin Studio State
   const [allAdminCustomOrders, setAllAdminCustomOrders] = useState<CustomOrderData[]>([]);
@@ -701,6 +703,254 @@ export const AdminDashboardPage: React.FC = () => {
     setSuccessBanner(`Customization Order #${selectedCustomForAdminReview.custom_order_id} status updated to ${status}.`);
     setTimeout(() => setSuccessBanner(null), 5000);
     loadAllOrdersForAdmin();
+  };
+
+  const handleExportAnalyticsReport = () => {
+    const realStoreRevenue = (orderList || []).reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+    const realCustomRevenue = (allAdminCustomOrders || [])
+      .filter((co: any) => (co.payment_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'completed')
+      .reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+    const realGrossRevenue = realStoreRevenue + realCustomRevenue;
+
+    const totalOrdersCount = (orderList || []).length + (allAdminCustomOrders || []).length;
+    const completedOrdersCount = (orderList || []).filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
+      (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+    const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
+      (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
+    ).length;
+
+    const csvContent = `Metric,Value\nGross Revenue,₹${realGrossRevenue}\nTotal Store & Custom Orders,${totalOrdersCount}\nCompleted Orders,${completedOrdersCount}\nActive Bespoke Builds,${activeCustomBuildsCount}\nTotal Registered System Accounts,${(allUsersList || []).length}\nReport Export Date,${new Date().toLocaleString()}\n`;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `RetailSphere_Analytics_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportAnalyticsPDF = () => {
+    const realStoreRevenue = (orderList || []).reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+    const realCustomRevenue = (allAdminCustomOrders || [])
+      .filter((co: any) => (co.payment_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'completed')
+      .reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+    const realGrossRevenue = realStoreRevenue + realCustomRevenue;
+
+    const totalOrdersCount = (orderList || []).length + (allAdminCustomOrders || []).length;
+    const completedOrdersCount = (orderList || []).filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
+      (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+    const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
+      (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
+    ).length;
+    const totalUsersCount = (allUsersList || []).length;
+
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const formattedDate = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
+    const ordersRowsHTML = [
+      ...(orderList || []).map((o: any) => `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; font-weight: 700;">Catalog: ${(o.items && o.items[0]) ? o.items[0].name : 'Store Order'}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${o.orderId}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">Catalog Item</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; color: #2E7D32; font-weight: 800;">₹${(o.totalAmount || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${o.orderStatus || 'Completed'}</td>
+        </tr>
+      `),
+      ...(allAdminCustomOrders || []).map((co: any) => `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; font-weight: 700;">Custom ${co.furniture_type} (${co.material || 'Wood'})</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">CUSTOM-${co.custom_order_id}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">Bespoke Build</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; color: #2E7D32; font-weight: 800;">₹${(co.estimated_price || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${co.order_status || 'In Production'}</td>
+        </tr>
+      `)
+    ].join('');
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>RetailSphere AI - Executive Business Analytics Report</title>
+          <style>
+            @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
+            body {
+              font-family: 'Plus Jakarta Sans', sans-serif;
+              color: #2C241D;
+              background: #FFF;
+              margin: 0;
+              padding: 40px;
+            }
+            .header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              border-bottom: 3px solid #38A132;
+              padding-bottom: 20px;
+              margin-bottom: 30px;
+            }
+            .brand {
+              font-size: 24px;
+              font-weight: 800;
+              color: #2C241D;
+            }
+            .brand span {
+              color: #38A132;
+            }
+            .title {
+              font-size: 18px;
+              font-weight: 800;
+              color: #2C241D;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            }
+            .meta {
+              font-size: 12px;
+              color: #7A6C5E;
+              margin-top: 4px;
+            }
+            .kpi-grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 15px;
+              margin-bottom: 35px;
+            }
+            .kpi-card {
+              background: #FAF7F2;
+              border: 1px solid #E2D7CB;
+              border-radius: 16px;
+              padding: 18px;
+            }
+            .kpi-label {
+              font-size: 10px;
+              font-weight: 800;
+              color: #7A6C5E;
+              text-transform: uppercase;
+              letter-spacing: 0.5px;
+            }
+            .kpi-val {
+              font-size: 22px;
+              font-weight: 800;
+              color: #2C241D;
+              margin-top: 6px;
+            }
+            .kpi-sub {
+              font-size: 11px;
+              font-weight: 700;
+              color: #38A132;
+              margin-top: 4px;
+            }
+            .section-title {
+              font-size: 15px;
+              font-weight: 800;
+              color: #2C241D;
+              margin-bottom: 12px;
+              border-left: 4px solid #38A132;
+              padding-left: 10px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 30px;
+              font-size: 12px;
+            }
+            th {
+              background: #FAF7F2;
+              color: #7A6C5E;
+              text-transform: uppercase;
+              font-size: 10px;
+              font-weight: 800;
+              text-align: left;
+              padding: 10px;
+              border-bottom: 2px solid #E2D7CB;
+            }
+            .footer {
+              margin-top: 40px;
+              padding-top: 20px;
+              border-top: 1px solid #E2D7CB;
+              display: flex;
+              justify-content: space-between;
+              font-size: 11px;
+              color: #7A6C5E;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="brand">RetailSphere<span>AI</span></div>
+              <div class="meta">Executive Financial & Operational Analytics</div>
+            </div>
+            <div style="text-align: right;">
+              <div class="title">Official Executive Analytics PDF</div>
+              <div class="meta">Generated: ${formattedDate}</div>
+            </div>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi-card">
+              <div class="kpi-label">Gross Revenue</div>
+              <div class="kpi-val">₹${realGrossRevenue.toLocaleString('en-IN')}</div>
+              <div class="kpi-sub">PostgreSQL Synced</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Total Orders</div>
+              <div class="kpi-val">${totalOrdersCount}</div>
+              <div class="kpi-sub">${completedOrdersCount} Delivered</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Custom Builds</div>
+              <div class="kpi-val">${activeCustomBuildsCount} Active</div>
+              <div class="kpi-sub">In Production Roster</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Registered Users</div>
+              <div class="kpi-val">${totalUsersCount}</div>
+              <div class="kpi-sub">Verified Accounts</div>
+            </div>
+          </div>
+
+          <div class="section-title">Live Orders & Bespoke Custom Builds Breakdown</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Item / Custom Specification</th>
+                <th>Order Reference</th>
+                <th>Channel</th>
+                <th>Total Value</th>
+                <th>Order Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${ordersRowsHTML || '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #7A6C5E;">No orders recorded in database.</td></tr>'}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            <div>CONFIDENTIAL — FOR INTERNAL EXECUTIVE REVIEW ONLY</div>
+            <div>RetailSphere AI Business Analytics Engine</div>
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const renderColorSwatchBadge = (colorStr?: string) => {
@@ -1572,6 +1822,20 @@ export const AdminDashboardPage: React.FC = () => {
               <span className="text-sm">Broadcast & Direct Messages</span>
             </div>
           </button>
+
+          <button
+            onClick={() => setActiveTab('analytics')}
+            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+              activeTab === 'analytics'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <TrendingUp className="w-4.5 h-4.5" />
+              <span className="text-sm">Analytics & Reports</span>
+            </div>
+          </button>
         </nav>
       </aside>
 
@@ -1619,6 +1883,7 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                    {activeTab === 'analytics' && 'Executive Business Analytics & Performance Reports'}
                     {activeTab === 'users' && 'System User Management'}
                     {activeTab === 'staff' && 'Staff Accounts Management'}
                     {activeTab === 'products' && 'Retail Product Management'}
@@ -1631,6 +1896,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'broadcast' && 'Admin Broadcast & Direct Messages'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
+                    {activeTab === 'analytics' && 'Track overall store revenue, order volume, category sales share, and custom build performance across RetailSphere AI.'}
                     {activeTab === 'users' && 'View, search, edit, create, activate, or deactivate all user accounts (Customers, Staff, Administrators) across RetailSphere.'}
                     {activeTab === 'staff' && 'Create and manage Retail Staff and Production Staff user accounts with credentials dispatch.'}
                     {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
@@ -1741,6 +2007,351 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* TAB ANALYTICS: EXECUTIVE BUSINESS ANALYTICS */}
+              {activeTab === 'analytics' && (() => {
+                // Real DB Computations - Zero Hardcoded Demo Data
+                const realStoreRevenue = (orderList || []).reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+                const realCustomRevenue = (allAdminCustomOrders || [])
+                  .filter((co: any) => (co.payment_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'completed')
+                  .reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+                const realGrossRevenue = realStoreRevenue + realCustomRevenue;
+
+                const totalOrdersCount = (orderList || []).length + (allAdminCustomOrders || []).length;
+                const completedOrdersCount = (orderList || []).filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
+                  (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+
+                const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
+                  (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
+                ).length;
+
+                const totalUsersCount = (allUsersList || []).length;
+
+                // Dynamic Last 6 Months Revenue Grouping from Real DB Timestamps
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const now = new Date();
+                const last6Months = Array.from({ length: 6 }).map((_, i) => {
+                  const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
+                  return {
+                    monthLabel: monthNames[d.getMonth()],
+                    mIdx: d.getMonth(),
+                    yNum: d.getFullYear(),
+                    storeVal: 0,
+                    customVal: 0,
+                  };
+                });
+
+                (orderList || []).forEach((ord: any) => {
+                  const d = new Date(ord.createdAt || ord.orderDate || Date.now());
+                  const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
+                  if (found) {
+                    found.storeVal += (ord.totalAmount || 0);
+                  }
+                });
+
+                (allAdminCustomOrders || []).forEach((co: any) => {
+                  if (co.order_date) {
+                    const d = new Date(co.order_date);
+                    const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
+                    if (found) {
+                      found.customVal += (co.estimated_price || 0);
+                    }
+                  }
+                });
+
+                const maxMonthVal = Math.max(
+                  ...last6Months.map(m => Math.max(m.storeVal, m.customVal)),
+                  1
+                );
+
+                // Dynamic Category Distribution from Real DB
+                const catTotalsMap: Record<string, number> = {};
+                (orderList || []).forEach((ord: any) => {
+                  (ord.items || []).forEach((it: any) => {
+                    const catName = it.category || 'General Store Product';
+                    catTotalsMap[catName] = (catTotalsMap[catName] || 0) + ((it.price || 0) * (it.quantity || 1));
+                  });
+                });
+                (allAdminCustomOrders || []).forEach((co: any) => {
+                  const catName = `Bespoke ${co.furniture_type || 'Custom Build'}`;
+                  catTotalsMap[catName] = (catTotalsMap[catName] || 0) + (co.estimated_price || 0);
+                });
+
+                const catList = Object.entries(catTotalsMap).sort((a, b) => b[1] - a[1]);
+                const overallCatSum = catList.reduce((acc, curr) => acc + curr[1], 0) || 1;
+
+                // Merge Real Orders for Performance Table
+                const combinedRealOrders = [
+                  ...(orderList || []).map((o: any) => ({
+                    id: o.orderId,
+                    name: (o.items && o.items[0]) ? o.items[0].name : `Store Order #${o.orderId}`,
+                    type: 'Catalog Product',
+                    qty: o.itemsCount || 1,
+                    value: o.totalAmount || 0,
+                    status: o.orderStatus || 'Pending',
+                  })),
+                  ...(allAdminCustomOrders || []).map((co: any) => ({
+                    id: `CUSTOM-${co.custom_order_id}`,
+                    name: `Custom ${co.furniture_type} (${co.material || 'Wood'})`,
+                    type: 'Bespoke Build',
+                    qty: 1,
+                    value: co.estimated_price || 0,
+                    status: co.order_status || 'Pending',
+                  })),
+                ];
+
+                return (
+                  <div className="space-y-6 animate-fadeIn relative z-10">
+                    {/* Key Performance Metrics KPI Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                      {/* KPI 1: Real Gross Revenue */}
+                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">Gross Revenue</span>
+                          <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                            <DollarSign className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            ₹{realGrossRevenue.toLocaleString('en-IN')}
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-emerald-700">
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            <span>Calculated from live orders</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* KPI 2: Real Total Orders */}
+                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">Total Orders</span>
+                          <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                            <ShoppingBag className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            {totalOrdersCount} Orders
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-blue-700">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{completedOrdersCount} Completed</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* KPI 3: Active Custom Builds */}
+                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">Bespoke Builds</span>
+                          <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
+                            <Wrench className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            {activeCustomBuildsCount} Active
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-amber-800">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>In Production / Approved</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* KPI 4: Total System Accounts */}
+                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">System Users</span>
+                          <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
+                            <ShieldCheck className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            {totalUsersCount} Accounts
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-purple-700">
+                            <Users className="w-3.5 h-3.5" />
+                            <span>Live System Accounts</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Timeframe Filter & Export Controls Bar */}
+                    <div className="flex items-center justify-end gap-3 relative z-30 pt-1 pb-1">
+                      <div className="relative">
+                        <select
+                          value={analyticsTimeframe}
+                          onChange={(e) => setAnalyticsTimeframe(e.target.value)}
+                          className="pl-4 pr-9 py-2 text-xs bg-[#FAF7F2] border border-[#E2D7CB] hover:border-[#38A132] rounded-xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:ring-2 focus:ring-[#38A132]/30 focus:border-[#38A132] shadow-xs cursor-pointer transition-all"
+                        >
+                          <option value="30days" className="bg-white text-[#2C241D]">Last 30 Days</option>
+                          <option value="quarter" className="bg-white text-[#2C241D]">This Quarter</option>
+                          <option value="ytd" className="bg-white text-[#2C241D]">Year to Date (2026)</option>
+                          <option value="all" className="bg-white text-[#2C241D]">All Time</option>
+                        </select>
+                        <ChevronDown className="w-3.5 h-3.5 text-[#8C7C6D] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+
+                      {/* Single Export Dropdown Button */}
+                      <div className="relative z-50">
+                        <button
+                          onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
+                          className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F872A] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer whitespace-nowrap"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Export Report</span>
+                          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {isExportMenuOpen && (
+                          <div className="absolute right-0 top-full mt-2 w-52 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
+                            <button
+                              onClick={() => {
+                                setIsExportMenuOpen(false);
+                                handleExportAnalyticsPDF();
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left"
+                            >
+                              <FileText className="w-4 h-4 text-[#38A132]" />
+                              <div>
+                                <span className="block font-black">Download PDF</span>
+                                <span className="text-[10px] text-[#7A6C5E] font-medium block">Printable Audit Document</span>
+                              </div>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setIsExportMenuOpen(false);
+                                handleExportAnalyticsReport();
+                              }}
+                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left"
+                            >
+                              <Download className="w-4 h-4 text-[#38A132]" />
+                              <div>
+                                <span className="block font-black">Export CSV</span>
+                                <span className="text-[10px] text-[#7A6C5E] font-medium block">Spreadsheet Data File</span>
+                              </div>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Monthly Revenue Trend Visual Bar Chart */}
+                    <div className="w-full bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                        <div>
+                          <h4 className="font-extrabold text-base text-[#2C241D]">6-Month Revenue Trend</h4>
+                          <p className="text-xs text-[#6B5C4D]">Real comparison between Catalog Orders and Bespoke Custom Orders</p>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs font-bold">
+                          <span className="flex items-center gap-1.5 text-[#38A132]">
+                            <span className="w-3 h-3 rounded-full bg-[#38A132] inline-block" /> Catalog Orders
+                          </span>
+                          <span className="flex items-center gap-1.5 text-amber-700">
+                            <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Bespoke Custom
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Animated Bars */}
+                      <div className="pt-4 pb-2">
+                        <div className="h-48 flex items-end justify-between gap-2 sm:gap-4 px-2">
+                          {last6Months.map((m, idx) => {
+                            const storePct = maxMonthVal > 0 ? Math.min(100, Math.max(8, (m.storeVal / maxMonthVal) * 100)) : 8;
+                            const customPct = maxMonthVal > 0 ? Math.min(100, Math.max(8, (m.customVal / maxMonthVal) * 100)) : 8;
+
+                            return (
+                              <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group relative">
+                                {/* Hover Tooltip */}
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full mb-2 bg-[#2C241D] text-white text-[10px] p-2 rounded-xl shadow-xl z-20 pointer-events-none whitespace-nowrap text-center">
+                                  <p className="font-extrabold">{m.monthLabel} {m.yNum}</p>
+                                  <p className="text-emerald-400">Catalog: ₹{m.storeVal.toLocaleString('en-IN')}</p>
+                                  <p className="text-amber-300">Custom: ₹{m.customVal.toLocaleString('en-IN')}</p>
+                                </div>
+
+                                <div className="w-full flex items-end justify-center gap-1 h-36 bg-[#EFE7DE]/50 rounded-2xl p-1 relative">
+                                  <div
+                                    className="w-1/2 bg-[#38A132] rounded-xl transition-all duration-500 group-hover:bg-[#2F872A]"
+                                    style={{ height: `${storePct}%` }}
+                                  />
+                                  <div
+                                    className="w-1/2 bg-amber-500 rounded-xl transition-all duration-500 group-hover:bg-amber-600"
+                                    style={{ height: `${customPct}%` }}
+                                  />
+                                </div>
+                                <span className="text-[11px] font-extrabold text-[#524538]">{m.monthLabel}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Top Selling Products & Workshop Roster Feed */}
+                    <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                        <div>
+                          <h4 className="font-extrabold text-base text-[#2C241D]">Store & Custom Orders Feed</h4>
+                          <p className="text-xs text-[#6B5C4D]">Live order and custom build fulfillment status</p>
+                        </div>
+                        <span className="px-3 py-1 bg-[#38A132]/10 border border-[#38A132]/30 text-[#38A132] rounded-full text-[11px] font-extrabold">
+                          Live Synced
+                        </span>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        {combinedRealOrders.length === 0 ? (
+                          <div className="py-8 text-center text-[#8C7C6D]">
+                            <p className="text-xs font-bold">No orders recorded yet.</p>
+                          </div>
+                        ) : (
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] uppercase text-[10px] font-black tracking-wider">
+                                <th className="py-2.5 px-3">Order ID / Item Name</th>
+                                <th className="py-2.5 px-3">Order Type</th>
+                                <th className="py-2.5 px-3">Quantity</th>
+                                <th className="py-2.5 px-3">Valuation</th>
+                                <th className="py-2.5 px-3">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] text-[#2C241D] font-bold">
+                              {combinedRealOrders.slice(0, 10).map((row, idx) => (
+                                <tr key={idx} className="hover:bg-white/60 transition-colors">
+                                  <td className="py-3 px-3">
+                                    <span className="block font-extrabold text-[#2C241D]">{row.name}</span>
+                                    <span className="text-[10px] text-[#7A6C5E] font-mono">{row.id}</span>
+                                  </td>
+                                  <td className="py-3 px-3 text-[#7A6C5E]">{row.type}</td>
+                                  <td className="py-3 px-3">{row.qty} Unit{row.qty > 1 ? 's' : ''}</td>
+                                  <td className="py-3 px-3 text-[#38A132] font-extrabold">₹{(row.value || 0).toLocaleString('en-IN')}</td>
+                                  <td className="py-3 px-3">
+                                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                                      row.status === 'Completed' || row.status === 'Delivered'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : row.status === 'In Production' || row.status === 'Processing'
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : 'bg-blue-100 text-blue-800'
+                                    }`}>
+                                      {row.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* TAB 0: SYSTEM USER MANAGEMENT */}
               {activeTab === 'users' && (

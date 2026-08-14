@@ -886,7 +886,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             )}
 
             {/* Page Top Header */}
-            <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+            <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2">
               <div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
                   {activeTab === 'orders' && 'Custom Furniture Orders'}
@@ -910,18 +910,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
               {/* Top Right Controls */}
               <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAddWorkerError(null);
-                    setIsAddWorkerModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer whitespace-nowrap"
-                  title="Register new artisan worker to directory"
-                >
-                  <UserPlus className="w-3.5 h-3.5" />
-                  <span>Register Worker</span>
-                </button>
                 {/* Notification Bell */}
                 <div className="relative">
                   <button
@@ -1194,25 +1182,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               <span>View Specs</span>
                             </button>
 
-                            {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
-                              <button
-                                onClick={() => handleToggleLock(ord)}
-                                className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
-                                title="Specs Unlocked. Click to Lock Specs."
-                              >
-                                <Unlock className="w-4 h-4 text-amber-600" />
-                              </button>
-                            ) : (
-                              <button
-                                disabled
-                                className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs opacity-90 cursor-not-allowed"
-                                title="Specifications Locked."
-                              >
-                                <Lock className="w-4 h-4 text-emerald-600" />
-                              </button>
-                            )}
-
-                            {!(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') ? (
+                            {!(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') && (
                               <button
                                 onClick={() => handleOpenPriceModal(ord)}
                                 className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
@@ -1220,17 +1190,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 <DollarSign className="w-4 h-4 text-amber-600" />
                                 <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
                               </button>
-                            ) : (
-                              (ord.payment_status === 'Paid' || ord.order_status === 'Paid') && (
-                                <button
-                                  onClick={() => downloadPaymentReceipt(ord)}
-                                  className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-md"
-                                  title="Download official paid invoice receipt"
-                                >
-                                  <Download className="w-3.5 h-3.5 text-white" />
-                                  <span>Receipt</span>
-                                </button>
-                              )
                             )}
 
                             {(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') && (
@@ -1450,57 +1409,72 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       <h3 className="font-extrabold text-base text-[#2C241D]">Assign Artisan to Custom Order</h3>
                     </div>
 
-                    <form onSubmit={handleDirectAssignSubmit} className="space-y-3.5 text-xs">
+                    <form onSubmit={handleDirectAssignSubmit} className="space-y-4 text-xs">
                       <div>
-                        <label className="block font-bold text-[#6B5C4D] mb-1">Select Approved Furniture Order</label>
-                        <select
-                          value={assignFormOrderId}
-                          onChange={(e) => setAssignFormOrderId(Number(e.target.value))}
-                          required
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                        >
-                          <option value="">-- Choose Order to Assign --</option>
-                          {orders
-                            .filter(isPaidCustomOrder)
-                            .map((o) => (
-                              <option key={o.custom_order_id} value={o.custom_order_id}>
-                                #{o.custom_order_id} - {o.furniture_type} ({o.customer_name})
+                        <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
+                          <span>Select Approved Furniture Order</span>
+                          <span className="text-[10px] text-[#8C7C6D] font-semibold">Step 1</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={assignFormOrderId}
+                            onChange={(e) => setAssignFormOrderId(Number(e.target.value))}
+                            required
+                            className="w-full pl-4 pr-10 py-3 rounded-2xl border border-[#E2D7CB] bg-white text-[#2C241D] font-extrabold text-xs appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
+                          >
+                            <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Order to Assign --</option>
+                            {orders
+                              .filter(isPaidCustomOrder)
+                              .map((o) => (
+                                <option key={o.custom_order_id} value={o.custom_order_id} className="bg-white text-[#2C241D] font-semibold py-2">
+                                  #{o.custom_order_id} - {o.furniture_type} ({o.customer_name})
+                                </option>
+                              ))}
+                          </select>
+                          <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
+                          <span>Assign Skilled Craftsman / Technician</span>
+                          <span className="text-[10px] text-[#8C7C6D] font-semibold">Step 2</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={assignFormWorkerId}
+                            onChange={(e) => setAssignFormWorkerId(Number(e.target.value))}
+                            required
+                            className="w-full pl-4 pr-10 py-3 rounded-2xl border border-[#E2D7CB] bg-white text-[#2C241D] font-extrabold text-xs appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
+                          >
+                            <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Select Artisan Worker --</option>
+                            {workers.map((w) => (
+                              <option key={w.worker_id} value={w.worker_id} className="bg-white text-[#2C241D] font-semibold py-2">
+                                {w.full_name} ({w.specialization || 'Craft Specialist'})
                               </option>
                             ))}
-                        </select>
+                          </select>
+                          <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
                       </div>
 
                       <div>
-                        <label className="block font-bold text-[#6B5C4D] mb-1">Assign Skilled Craftsman / Technician</label>
-                        <select
-                          value={assignFormWorkerId}
-                          onChange={(e) => setAssignFormWorkerId(Number(e.target.value))}
-                          required
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                        >
-                          <option value="">-- Select Artisan Worker --</option>
-                          {workers.map((w) => (
-                            <option key={w.worker_id} value={w.worker_id}>
-                              {w.full_name} ({w.specialization || 'Craft Specialist'})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block font-bold text-[#6B5C4D] mb-1">Task Instructions & Craft Notes</label>
+                        <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
+                          <span>Task Instructions & Craft Notes</span>
+                          <span className="text-[10px] text-[#8C7C6D] font-semibold">Optional</span>
+                        </label>
                         <textarea
                           placeholder="Specific jointing, finish grade, or timber handling instructions..."
                           value={assignFormNotes}
                           onChange={(e) => setAssignFormNotes(e.target.value)}
                           rows={3}
-                          className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-semibold focus:outline-none focus:border-[#48A63E]"
+                          className="w-full p-3.5 rounded-2xl border border-[#E2D7CB] bg-white text-[#2C241D] font-semibold text-xs focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all placeholder:text-[#A09080] hover:border-[#48A63E]"
                         />
                       </div>
 
                       <button
                         type="submit"
-                        className="w-full py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                        className="w-full py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
                       >
                         <UserPlus className="w-4 h-4" />
                         <span>Confirm Artisan Task Assignment</span>
@@ -1510,12 +1484,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                   {/* Active Worker Assignments Roster Feed */}
                   <div className="lg:col-span-2 space-y-4">
-                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-                      <div>
-                        <h3 className="font-extrabold text-base text-[#2C241D]">Active Artisan Workshop Distribution</h3>
-                        <p className="text-xs text-[#7A6C5E]">Overview of active technician assignments across workshop custom builds</p>
-                      </div>
-                    </div>
 
                     <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
                       {orders.filter(isPaidCustomOrder).length === 0 ? (
@@ -1574,27 +1542,25 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* TAB 4: ARTISAN TECHNICIANS DIRECTORY */}
             {activeTab === 'workers' && (
               <div className="space-y-5">
-                <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
-                  <div className="flex items-center gap-3 w-full sm:w-auto">
-                    <div className="relative w-full sm:w-64">
-                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search worker, email, specialty..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
-                      />
-                    </div>
-
-                    <button
-                      onClick={() => setIsAddWorkerModalOpen(true)}
-                      className="px-4 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#48A63E]/20 transition-all whitespace-nowrap"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Worker</span>
-                    </button>
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-2">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search worker, email, specialty..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                    />
                   </div>
+
+                  <button
+                    onClick={() => setIsAddWorkerModalOpen(true)}
+                    className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#48A63E]/20 transition-all whitespace-nowrap self-end sm:self-auto"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Worker</span>
+                  </button>
                 </div>
 
                 {workers.filter((w) => {
@@ -2552,18 +2518,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
 
 
-            <div className="flex items-center justify-between gap-3 border-t border-[#E2D7CB] pt-4">
-              {(selectedOrderForDetails.payment_status === 'Paid' || selectedOrderForDetails.order_status === 'Paid') ? (
-                <button
-                  onClick={() => downloadPaymentReceipt(selectedOrderForDetails)}
-                  className="px-4 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
-                >
-                  <Download className="w-4 h-4 text-white" />
-                  <span>Download Payment Receipt</span>
-                </button>
-              ) : (
-                <div />
-              )}
+            <div className="flex items-center justify-end gap-3 border-t border-[#E2D7CB] pt-4">
               <button
                 onClick={() => setSelectedOrderForDetails(null)}
                 className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#42372D] text-white font-extrabold text-xs shadow-md cursor-pointer"
@@ -2704,19 +2659,22 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-xs font-extrabold text-[#2C241D] mb-2">Select Worker</label>
-              <select
-                value={selectedWorkerId || ''}
-                onChange={(e) => setSelectedWorkerId(Number(e.target.value))}
-                className="w-full py-2.5 px-3.5 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-              >
-                <option value="">-- Choose Artisan Worker --</option>
-                {workers.map((w) => (
-                  <option key={w.worker_id} value={w.worker_id}>
-                    {w.full_name} ({w.specialization || 'General Technician'})
-                  </option>
-                ))}
-              </select>
+              <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Select Worker</label>
+              <div className="relative">
+                <select
+                  value={selectedWorkerId || ''}
+                  onChange={(e) => setSelectedWorkerId(Number(e.target.value))}
+                  className="w-full pl-4 pr-10 py-3 text-xs bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
+                >
+                  <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Artisan Worker --</option>
+                  {workers.map((w) => (
+                    <option key={w.worker_id} value={w.worker_id} className="bg-white text-[#2C241D] font-semibold py-2">
+                      {w.full_name} ({w.specialization || 'General Technician'})
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
