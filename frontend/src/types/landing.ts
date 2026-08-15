@@ -19,6 +19,8 @@ export interface CatalogItem {
   reviewCount: number;
   isCustomizable: boolean;
   image: string;
+  color?: string;
+  available_colors?: string[];
   isPopular?: boolean;
 }
 

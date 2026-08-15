@@ -15,13 +15,16 @@ import {
   ChevronRight,
   Info,
   Clock,
-  Sparkles
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { RecommendationProduct } from '../../types/dashboard';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
 import { Header } from '../dashboard/Header';
+import { HeaderNav } from '../landing/HeaderNav';
 import { fetchInventoryFromDB } from '../../services/api';
+import { getColorHex, parseAvailableColors } from '../../utils/colorUtils';
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -31,6 +34,8 @@ export const ProductDetailPage: React.FC = () => {
   const [cartIds, setCartIds] = useState<string[]>(() => getCartItems().map(i => i.id));
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => getWishlistItems().map(i => i.id));
   const [dbReviews, setDbReviews] = useState<any[]>([]);
+  const [selectedColor, setSelectedColor] = useState<string>('');
+  const [availableColorsList, setAvailableColorsList] = useState<string[]>([]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -43,6 +48,13 @@ export const ProductDetailPage: React.FC = () => {
           const rawId = target.product_id || target.id;
           const code = target.productCode || target.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
           
+          const rawColors = target.available_colors || target.availableColors || target.color || 'Emerald Green, Warm Beige, Charcoal Black';
+          const parsedColors = parseAvailableColors(rawColors);
+          const finalColors = parsedColors.length > 0 ? parsedColors : [target.color || 'Natural Wood'];
+          
+          setAvailableColorsList(finalColors);
+          setSelectedColor(finalColors[0]);
+
           setProduct({
             id: target.id || `inv-${target.product_id}`,
             productCode: code,
@@ -108,10 +120,23 @@ export const ProductDetailPage: React.FC = () => {
   const isInCart = cartIds.includes(product.id);
   const isWishlisted = wishlistIds.includes(product.id);
 
+  const isLoggedIn = Boolean(
+    typeof localStorage !== 'undefined' &&
+    (localStorage.getItem('access_token') || localStorage.getItem('user'))
+  );
+
   const handleCartToggle = () => {
     if (isInCart) {
+      if (!isLoggedIn) {
+        navigate(`/login?redirect=/cart`);
+        return;
+      }
       navigate('/cart');
     } else {
+      if (!isLoggedIn) {
+        navigate(`/login?redirect=/product/${product.id}`);
+        return;
+      }
       addToCart({
         id: product.id,
         name: product.name,
@@ -156,9 +181,15 @@ export const ProductDetailPage: React.FC = () => {
       />
       <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/60 via-[#F3EDE5]/40 to-[#EAE1D5]/60 pointer-events-none" />
 
-      {/* Floating Header */}
+      {/* Floating Header (Public Navbar for Guests, Dashboard Header for Logged-In Users) */}
       <div className="relative z-20">
-        <Header cartCount={cartIds.length} wishlistCount={wishlistIds.length} />
+        {isLoggedIn ? (
+          <Header cartCount={cartIds.length} wishlistCount={wishlistIds.length} />
+        ) : (
+          <div className="pt-4 px-4 max-w-7xl mx-auto">
+            <HeaderNav />
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}
@@ -166,30 +197,30 @@ export const ProductDetailPage: React.FC = () => {
         {/* Breadcrumb & Navigation */}
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <Link
-            to="/dashboard"
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white/90 border border-[#E2D7CB] text-xs font-extrabold text-[#2C241D] hover:bg-[#F3EDE5] hover:border-[#48A63E] transition-all shadow-sm group"
+            to={isLoggedIn ? "/dashboard" : "/"}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl ultra-glass-pill text-xs font-black text-[#1A1410] hover:bg-white/90 transition-all shadow-md group cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4 text-[#48A63E] group-hover:-translate-x-1 transition-transform" />
+            <ArrowLeft className="w-4 h-4 text-[#38A132] group-hover:-translate-x-1 transition-transform" />
             <span>Back to Furniture Catalog</span>
           </Link>
 
-          <div className="flex items-center gap-2 text-xs font-bold text-[#7A6C5E] bg-white/70 px-3.5 py-1.5 rounded-xl border border-[#EFE7DE]">
+          <div className="flex items-center gap-2 text-xs font-black text-[#5C4E42] ultra-glass-pill px-4 py-2 rounded-2xl">
             <span>Catalog</span>
             <ChevronRight className="w-3.5 h-3.5" />
             <span className="capitalize">{product.category.replace('-', ' ')}</span>
             <ChevronRight className="w-3.5 h-3.5" />
-            <span className="text-[#38A132] font-extrabold">{product.name}</span>
+            <span className="text-[#38A132] font-black">{product.name}</span>
           </div>
         </div>
 
-        {/* Product Details Section Card */}
-        <div className="bg-[#FAF7F2] rounded-[2.5rem] p-6 sm:p-8 lg:p-10 border-2 border-[#E2D7CB] shadow-xl space-y-10">
+        {/* Product Details Master Glass Card */}
+        <div className="ultra-glass-panel rounded-[2.5rem] p-6 sm:p-8 lg:p-10 shadow-2xl space-y-10 relative">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
             
-            {/* LEFT COLUMN: Single High-Res Product Image (Lg: 7 cols) */}
-            <div className="lg:col-span-7 space-y-4">
+            {/* LEFT COLUMN: Product Image, Guarantees, Specs & Detailed Description (Lg: 6 cols) */}
+            <div className="lg:col-span-6 space-y-5">
               {/* Single Large Display Image */}
-              <div className="relative aspect-[4/3] w-full rounded-3xl overflow-hidden border-2 border-[#E2D7CB] bg-[#F4ECE1] shadow-lg group">
+              <div className="relative aspect-[4/3] w-full rounded-3xl overflow-hidden border-2 border-white/80 bg-[#EAE1D5] shadow-xl group">
                 <img
                   src={product.imageUrl}
                   alt={product.name}
@@ -198,125 +229,165 @@ export const ProductDetailPage: React.FC = () => {
                 
                 {/* Badge Overlay */}
                 {product.badge && !product.badge.toLowerCase().includes('custom') && (
-                  <span className="absolute top-4 left-4 bg-white/95 backdrop-blur-md text-[#38A132] text-xs font-extrabold px-3 py-1.5 rounded-xl shadow-md border border-[#38A132]/30 flex items-center gap-1.5">
+                  <span className="absolute top-4 left-4 ultra-glass-pill text-[#38A132] text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-[#38A132]" />
                     {product.badge}
                   </span>
                 )}
 
                 {/* Stock Status Badge */}
-                <span className="absolute top-4 right-4 bg-[#38A132] text-white text-xs font-extrabold px-3.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5">
+                <span className="absolute top-4 right-4 bg-[#38A132] text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   {product.status}
                 </span>
               </div>
 
               {/* Guarantees Strip */}
-              <div className="grid grid-cols-3 gap-3 pt-4 border-t border-[#EFE7DE]">
-                <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-center space-y-1">
+              <div className="grid grid-cols-3 gap-3 pt-2">
+                <div className="p-3.5 ultra-glass-card rounded-2xl text-center space-y-1 border border-white/80 shadow-sm">
                   <ShieldCheck className="w-5 h-5 text-[#38A132] mx-auto" />
-                  <span className="block text-[11px] font-extrabold text-[#2C241D]">100% Solid Wood</span>
-                  <span className="block text-[10px] font-medium text-[#7A6C5E]">Authentic Timber</span>
+                  <span className="block text-[11px] font-black text-[#1A1410]">100% Solid Wood</span>
+                  <span className="block text-[10px] font-extrabold text-[#5C4E42]">Authentic Timber</span>
                 </div>
 
-                <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-center space-y-1">
+                <div className="p-3.5 ultra-glass-card rounded-2xl text-center space-y-1 border border-white/80 shadow-sm">
                   <Truck className="w-5 h-5 text-[#38A132] mx-auto" />
-                  <span className="block text-[11px] font-extrabold text-[#2C241D]">Free Delivery</span>
-                  <span className="block text-[10px] font-medium text-[#7A6C5E]">Orders above ₹50,000</span>
+                  <span className="block text-[11px] font-black text-[#1A1410]">Free Delivery</span>
+                  <span className="block text-[10px] font-extrabold text-[#5C4E42]">Orders above ₹50,000</span>
                 </div>
 
-                <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-center space-y-1">
+                <div className="p-3.5 ultra-glass-card rounded-2xl text-center space-y-1 border border-white/80 shadow-sm">
                   <Award className="w-5 h-5 text-[#38A132] mx-auto" />
-                  <span className="block text-[11px] font-extrabold text-[#2C241D]">Certified Quality</span>
-                  <span className="block text-[10px] font-medium text-[#7A6C5E]">Artisan Inspected</span>
+                  <span className="block text-[11px] font-black text-[#1A1410]">Certified Quality</span>
+                  <span className="block text-[10px] font-extrabold text-[#5C4E42]">Artisan Inspected</span>
                 </div>
+              </div>
+
+              {/* Detailed Description (Moved to Left Column to eliminate empty space) */}
+              <div className="space-y-2 pt-2">
+                <h4 className="text-xs font-black text-[#1A1410] uppercase tracking-wider">
+                  Detailed Description
+                </h4>
+                <p className="text-xs font-extrabold text-[#4A3E31] leading-relaxed ultra-glass-card p-5 rounded-2xl border-2 border-white/80 shadow-sm">
+                  {product.detailedDescription || `${product.name} is meticulously handcrafted using premium grade timber and artisan techniques. Designed for modern luxury spaces, offering superior durability, structural stability, and timeless aesthetic appeal.`}
+                </p>
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Specs, Price, Description & Actions (Lg: 5 cols) */}
-            <div className="lg:col-span-5 space-y-6">
+            {/* RIGHT COLUMN: Info, Price, Color Selector, Specs & Actions (Lg: 6 cols) */}
+            <div className="lg:col-span-6 space-y-6">
               
-              {/* Category Tag & Rating */}
+              {/* Category Tag */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-mono font-extrabold text-[#38A132] bg-[#38A132]/10 border border-[#38A132]/30 px-3 py-1 rounded-full uppercase tracking-wider">
+                  <span className="text-xs font-mono font-black text-[#38A132] bg-[#38A132]/15 border border-[#38A132]/30 px-3 py-1 rounded-full uppercase tracking-wider">
                     {product.material}
                   </span>
-
-                  <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full text-xs font-extrabold text-[#2C241D]">
-                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                    <span>{product.rating}</span>
-                    <span className="text-[#7A6C5E] font-bold">({product.reviewCount} Reviews)</span>
-                  </div>
                 </div>
 
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight leading-tight">
+                <h1 className="text-2xl sm:text-3xl font-black text-[#1A1410] tracking-tight leading-tight">
                   {product.name}
                 </h1>
                 
-                <p className="text-xs font-bold text-[#6B5C4D]">
-                  Dimensions: <span className="text-[#2C241D] font-extrabold">{product.dimensions}</span>
+                <p className="text-xs font-black text-[#5C4E42]">
+                  Dimensions: <span className="text-[#1A1410] font-black">{product.dimensions}</span>
                 </p>
               </div>
 
               {/* Price Banner */}
-              <div className="p-5 rounded-3xl bg-gradient-to-r from-[#FAF7F2] to-[#F3EDE5] border-2 border-[#E2D7CB] flex items-center justify-between shadow-xs">
+              <div className="p-5 rounded-3xl ultra-glass-card border-2 border-white/80 flex items-center justify-between shadow-md">
                 <div>
-                  <span className="text-xs font-bold text-[#7A6C5E] block uppercase tracking-wider">Store Price</span>
-                  <div className="text-3xl font-extrabold text-[#38A132] tracking-tight">
+                  <span className="text-xs font-black text-[#5C4E42] block uppercase tracking-wider">Store Price</span>
+                  <div className="text-3xl font-black text-[#38A132] tracking-tight">
                     ₹{product.price.toLocaleString('en-IN')}
                   </div>
                   {product.originalPrice && (
-                    <div className="text-xs text-[#9E9082] line-through font-semibold">
+                    <div className="text-xs text-[#7A6C5E] line-through font-extrabold">
                       MSRP: ₹{product.originalPrice.toLocaleString('en-IN')}
                     </div>
                   )}
                 </div>
 
                 {product.originalPrice && (
-                  <span className="px-3.5 py-1.5 bg-[#38A132] text-white text-xs font-extrabold rounded-2xl shadow-sm">
+                  <span className="px-3.5 py-1.5 bg-[#38A132] text-white text-xs font-black rounded-2xl shadow-md">
                     Save ₹{(product.originalPrice - product.price).toLocaleString('en-IN')}
                   </span>
                 )}
               </div>
 
+              {/* Available Color Swatches Selector */}
+              {availableColorsList.length > 0 && (
+                <div className="ultra-glass-card p-5 rounded-3xl border-2 border-white/80 space-y-3 shadow-md">
+                  <div className="flex items-center justify-between border-b border-white/40 pb-2">
+                    <span className="text-xs font-black text-[#1A1410] uppercase tracking-wider">
+                      Available Finish & Color Options
+                    </span>
+                    <span className="text-xs font-black text-[#38A132] bg-[#38A132]/15 border border-[#38A132]/30 px-3 py-0.5 rounded-full">
+                      {selectedColor || product.color}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-1 flex-wrap">
+                    {availableColorsList.map((colName) => {
+                      const colorStyle = getColorHex(colName);
+                      const isSelected = (selectedColor || product.color) === colName;
+                      return (
+                        <button
+                          key={colName}
+                          type="button"
+                          onClick={() => setSelectedColor(colName)}
+                          className={`group/swatch relative flex items-center gap-2.5 px-4 py-2 rounded-2xl border-2 transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-white/90 border-[#38A132] ring-2 ring-[#38A132]/40 shadow-md scale-105'
+                              : 'bg-white/50 border-white/80 hover:border-[#38A132]/60 hover:bg-white/80'
+                          }`}
+                          title={colName}
+                        >
+                          <span
+                            className="w-5 h-5 rounded-full border-2 shadow-xs transition-transform group-hover/swatch:scale-110 flex items-center justify-center"
+                            style={{ backgroundColor: colorStyle.bg, borderColor: colorStyle.border }}
+                          >
+                            {isSelected && (
+                              <Check className={`w-3 h-3 ${colorStyle.isDark ? 'text-white' : 'text-[#1A1410]'}`} />
+                            )}
+                          </span>
+                          <span className={`text-xs font-black ${isSelected ? 'text-[#1A1410]' : 'text-[#5C4E42]'}`}>
+                            {colName}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Quick Specs Grid */}
-              <div className="bg-white p-5 rounded-3xl border border-[#E2D7CB] space-y-3 shadow-xs">
-                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider border-b border-[#EFE7DE] pb-2">
+              <div className="ultra-glass-card p-5 rounded-3xl border-2 border-white/80 space-y-3 shadow-md">
+                <h4 className="text-xs font-black text-[#1A1410] uppercase tracking-wider border-b border-white/40 pb-2">
                   Furniture Specs & Craft Details
                 </h4>
 
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Primary Material</span>
-                    <span className="font-extrabold text-[#2C241D]">{product.material}</span>
+                    <span className="text-[11px] font-black text-[#5C4E42] block">Primary Material</span>
+                    <span className="font-black text-[#1A1410]">{product.material}</span>
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Color / Finish</span>
-                    <span className="font-extrabold text-[#2C241D]">{product.color || 'Natural Finish'}</span>
+                    <span className="text-[11px] font-black text-[#5C4E42] block">Color / Finish</span>
+                    <span className="font-black text-[#38A132]">{selectedColor || product.color || 'Natural Finish'}</span>
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">Warranty Protection</span>
-                    <span className="font-extrabold text-[#38A132]">{product.warrantyInfo || '5 Years Warranty'}</span>
+                    <span className="text-[11px] font-black text-[#5C4E42] block">Warranty Protection</span>
+                    <span className="font-black text-[#38A132]">{product.warrantyInfo || '5 Years Warranty'}</span>
                   </div>
 
                   <div>
-                    <span className="text-[11px] font-bold text-[#7A6C5E] block">In-Stock Availability</span>
-                    <span className="font-extrabold text-[#2C241D]">{product.stock} Units Ready</span>
+                    <span className="text-[11px] font-black text-[#5C4E42] block">In-Stock Availability</span>
+                    <span className="font-black text-[#1A1410]">{product.stock} Units Ready</span>
                   </div>
                 </div>
-              </div>
-
-              {/* Detailed Description */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">
-                  Detailed Description
-                </h4>
-                <p className="text-xs font-medium text-[#5C4A3A] leading-relaxed bg-white/70 p-4 rounded-2xl border border-[#E2D7CB]">
-                  {product.detailedDescription || `${product.name} is meticulously handcrafted using premium grade timber and artisan techniques. Designed for modern luxury spaces, offering superior durability, structural stability, and timeless aesthetic appeal.`}
-                </p>
               </div>
 
               {/* Primary Action Buttons */}
@@ -324,7 +395,7 @@ export const ProductDetailPage: React.FC = () => {
                 <div className="flex items-center gap-3">
                   <button
                     onClick={handleCartToggle}
-                    className={`flex-1 py-3.5 px-6 rounded-2xl text-xs font-extrabold flex items-center justify-center gap-2.5 transition-all shadow-md cursor-pointer ${
+                    className={`flex-1 py-4 px-6 rounded-2xl text-xs font-black flex items-center justify-center gap-2.5 transition-all shadow-lg cursor-pointer ${
                       isInCart
                         ? 'bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30'
                         : 'bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30'
@@ -336,10 +407,10 @@ export const ProductDetailPage: React.FC = () => {
 
                   <button
                     onClick={handleWishlistToggle}
-                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer shadow-xs ${
+                    className={`p-4 rounded-2xl transition-all cursor-pointer shadow-md ${
                       isWishlisted
                         ? 'bg-rose-500 text-white border-rose-500 shadow-rose-500/30'
-                        : 'bg-white border-[#E2D7CB] text-[#2C241D] hover:bg-[#FAF7F2]'
+                        : 'ultra-glass-pill text-[#1A1410] hover:bg-white/90'
                     }`}
                     title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
                   >
@@ -349,37 +420,6 @@ export const ProductDetailPage: React.FC = () => {
               </div>
             </div>
           </div>
-
-          {/* Customer Reviews Section - SHOWN ONLY IF FETCHED FROM DB */}
-          {dbReviews.length > 0 && (
-            <div className="border-t border-[#E2D7CB] pt-8 space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-extrabold text-[#2C241D]">Verified Buyer Reviews & Feedback</h3>
-                  <p className="text-xs text-[#7A6C5E]">Authentic customer reviews for {product.name}</p>
-                </div>
-
-                <div className="flex items-center gap-2 bg-[#38A132]/10 border border-[#38A132]/30 px-3.5 py-1.5 rounded-2xl">
-                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                  <span className="text-xs font-extrabold text-[#2C241D]">{product.rating} / 5.0 Rating</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {dbReviews.map((rev: any, idx: number) => (
-                  <div key={idx} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <div className="flex text-amber-500">{"★".repeat(rev.rating || 5)}</div>
-                      <span className="text-[10px] font-bold text-[#7A6C5E]">{rev.date || 'Recent'}</span>
-                    </div>
-                    <h5 className="font-extrabold text-xs text-[#2C241D]">{rev.title || 'Customer Feedback'}</h5>
-                    <p className="text-xs text-[#5C4A3A]">"{rev.comment || rev.feedback}"</p>
-                    <span className="text-[11px] font-bold text-[#38A132] block">— {rev.customerName || 'Verified Buyer'}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       </main>
     </div>

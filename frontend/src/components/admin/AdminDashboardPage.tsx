@@ -1109,6 +1109,7 @@ export const AdminDashboardPage: React.FC = () => {
   }, [currentUser]);
 
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [newProdAvailableColors, setNewProdAvailableColors] = useState<string>('');
 
   // Handlers for Add Product
   const handleAddProductSubmit = async (e: React.FormEvent) => {
@@ -1140,6 +1141,7 @@ export const AdminDashboardPage: React.FC = () => {
         category: finalCategory,
         material: finalMaterial || 'Solid Wood',
         color: finalColor || 'Natural Wood',
+        available_colors: (newProdAvailableColors.trim() || finalColor || 'Natural Wood'),
         price: priceVal,
         stock_count: qty,
         image_url: imgUrl,
@@ -4600,6 +4602,22 @@ export const AdminDashboardPage: React.FC = () => {
                     required
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Available Color Options (Comma Separated)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Emerald Green, Warm Beige, Charcoal Black, Slate Grey"
+                  value={newProdAvailableColors}
+                  onChange={(e) => setNewProdAvailableColors(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold text-xs"
+                />
+                <span className="text-[10px] text-[#7A6C5E] block mt-0.5 font-medium">
+                  Enter multiple color choices (e.g., Emerald Green, Warm Beige, Charcoal Black). Leave single for 1 color.
+                </span>
               </div>
 
               <div>

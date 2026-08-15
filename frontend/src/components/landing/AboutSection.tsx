@@ -53,16 +53,16 @@ export const AboutSection: React.FC = () => {
           {stats.map((st, idx) => (
             <div
               key={idx}
-              className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 text-center relative overflow-hidden shadow-lg text-[#2C241D]"
+              className="ultra-glass-card rounded-3xl p-6 text-center relative overflow-hidden shadow-xl text-[#1A1410] border-2 border-white/80"
             >
               <div className="relative z-10">
-                <span className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight block">
+                <span className="text-3xl sm:text-4xl font-black text-[#1A1410] tracking-tight block">
                   {st.value}
                 </span>
-                <span className="text-xs font-extrabold text-[#38A132] block mt-1.5 uppercase tracking-wider">
+                <span className="text-xs font-black text-[#38A132] block mt-1.5 uppercase tracking-wider">
                   {st.label}
                 </span>
-                <span className="text-[11px] text-[#6B5C4D] font-bold block mt-1">
+                <span className="text-[11px] text-[#5C4E42] font-black block mt-1">
                   {st.description}
                 </span>
               </div>
@@ -77,7 +77,7 @@ export const AboutSection: React.FC = () => {
             return (
               <div
                 key={idx}
-                className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 relative overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 text-[#2C241D]"
+                className="ultra-glass-card rounded-3xl p-6 relative overflow-hidden shadow-xl hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 text-[#1A1410] border-2 border-white/80"
               >
                 <div className="relative z-10">
                   <div className="w-10 h-10 rounded-2xl bg-[#38A132]/15 border border-[#38A132]/30 text-[#38A132] flex items-center justify-center mb-4">

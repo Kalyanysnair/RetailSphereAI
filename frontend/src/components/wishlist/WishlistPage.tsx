@@ -221,19 +221,6 @@ export const WishlistPage: React.FC = () => {
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-
-                        {/* Rating Badge */}
-                        {product.rating && (
-                          <div className="absolute bottom-3 left-3 flex items-center gap-1 bg-white/95 backdrop-blur-md px-2 py-0.5 rounded-lg text-xs font-extrabold text-[#2C241D] shadow-sm border border-[#E2D7CB]">
-                            <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                            <span>{product.rating}</span>
-                            {product.reviewCount && (
-                              <span className="text-[10px] text-[#7A6C5E] font-medium">
-                                ({product.reviewCount})
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </div>
 
                       {/* Card Content Details */}

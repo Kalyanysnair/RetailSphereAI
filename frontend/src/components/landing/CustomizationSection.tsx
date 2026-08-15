@@ -49,7 +49,7 @@ export const CustomizationSection: React.FC = () => {
   return (
     <section id="customization" className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       {/* Floating Warm Luxury Glass Card Container */}
-      <div className="bg-[#FAF7F2]/90 backdrop-blur-2xl border-2 border-[#E2D7CB] rounded-[2.5rem] p-8 sm:p-12 lg:p-14 shadow-2xl relative overflow-hidden transition-all duration-500 text-[#2C241D]">
+      <div className="ultra-glass-card rounded-[2.5rem] p-8 sm:p-12 lg:p-14 shadow-2xl relative overflow-hidden transition-all duration-500 text-[#1A1410] border-2 border-white/80">
         {/* Ambient Accent Glow */}
         <div className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full bg-[#38A132]/10 blur-3xl pointer-events-none" />
 

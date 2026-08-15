@@ -64,14 +64,14 @@ export const HeaderNav: React.FC = () => {
         visible ? 'translate-y-0 opacity-100' : '-translate-y-full opacity-0 pointer-events-none'
       }`}
     >
-      <div className="max-w-7xl mx-auto h-16 rounded-full bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] shadow-lg px-6 sm:px-8 flex items-center justify-between transition-all">
+      <div className="max-w-7xl mx-auto h-16 rounded-full bg-white/95 backdrop-blur-2xl border-2 border-[#E2D7CB] shadow-xl px-6 sm:px-8 flex items-center justify-between transition-all">
         {/* Brand Logo */}
-        <Link to="/" className="text-lg sm:text-xl font-extrabold tracking-tight text-[#2C241D] hover:opacity-90 transition-opacity">
+        <Link to="/" className="text-lg sm:text-xl font-black tracking-tight text-[#1A1410] hover:opacity-90 transition-opacity">
           RetailSphere <span className="text-[#38A132]">AI</span>
         </Link>
 
         {/* Navigation Links (Center) */}
-        <nav className="hidden md:flex items-center gap-8 text-xs font-bold text-[#524538]">
+        <nav className="hidden md:flex items-center gap-8 text-xs font-black text-[#1A1410]">
           {navLinks.map((link) => (
             <a
               key={link.name}
@@ -89,8 +89,8 @@ export const HeaderNav: React.FC = () => {
         <div className="hidden sm:flex items-center gap-4">
           <Link
             to="/login"
-            className={`text-xs font-extrabold transition-colors ${
-              location.pathname === '/login' ? 'text-[#38A132]' : 'text-[#524538] hover:text-[#38A132]'
+            className={`text-xs font-black transition-colors ${
+              location.pathname === '/login' ? 'text-[#38A132]' : 'text-[#1A1410] hover:text-[#38A132]'
             }`}
           >
             Log in

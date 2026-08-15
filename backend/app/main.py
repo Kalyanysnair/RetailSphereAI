@@ -56,14 +56,16 @@ def startup_db():
             try:
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;"))
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS specialization VARCHAR(100);"))
+                conn.execute(text("ALTER TABLE tbl_product ADD COLUMN IF NOT EXISTS available_colors TEXT;"))
                 conn.commit()
-                print("[MIGRATION] Added must_change_password and specialization columns to tbl_users.")
+                print("[MIGRATION] Added must_change_password, specialization, and available_colors columns.")
             except Exception:
                 try:
                     conn.execute(text("ALTER TABLE tbl_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0;"))
                     conn.execute(text("ALTER TABLE tbl_users ADD COLUMN specialization VARCHAR(100);"))
+                    conn.execute(text("ALTER TABLE tbl_product ADD COLUMN available_colors TEXT;"))
                     conn.commit()
-                    print("[MIGRATION] Added must_change_password and specialization columns to tbl_users.")
+                    print("[MIGRATION] Added must_change_password, specialization, and available_colors columns.")
                 except Exception:
                     pass
         print("Database tables initialized successfully.")

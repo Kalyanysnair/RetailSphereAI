@@ -40,6 +40,7 @@ import {
 import { getCouponsApi, createCouponApi, deleteCouponApi, regenerateCouponApi, Coupon, CouponAllotment } from '../../services/api_coupons';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { getMessagesForUser, markAdminMessageRead, markAllAdminMessagesReadForUser, isMessageReadByUser, AdminMessage } from '../../utils/adminMessagesStorage';
+import { parseAvailableColors, getColorHex } from '../../utils/colorUtils';
 
 
 
@@ -725,6 +726,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
             category: p.category || 'Living Room',
             material: p.material || 'Standard',
             color: p.color || 'Natural Wood',
+            available_colors: parseAvailableColors(p.available_colors || p.availableColors || p.color),
             price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
             stockCount: stock,
             status: derivedStatus,

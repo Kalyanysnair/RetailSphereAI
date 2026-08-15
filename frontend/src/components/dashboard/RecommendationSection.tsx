@@ -163,13 +163,6 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   >
                     <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white' : ''}`} />
                   </button>
-
-                  {/* Rating Badge */}
-                  <div className="absolute bottom-3 left-3 flex items-center gap-1 bg-[#FAF7F2]/95 backdrop-blur-md px-2.5 py-0.5 rounded-xl text-xs font-extrabold text-[#2C241D] shadow-sm border border-[#E2D7CB]">
-                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                    <span>{product.rating}</span>
-                    <span className="text-[10px] text-[#7A6C5E] font-medium">({product.reviewCount})</span>
-                  </div>
                 </div>
 
                 {/* Content Info */}

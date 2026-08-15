@@ -429,6 +429,7 @@ class ProductCreatePayload(BaseModel):
     stock_count: int
     image_url: Optional[str] = None
     color: Optional[str] = "Natural"
+    available_colors: Optional[str] = None
 
 class StockUpdatePayload(BaseModel):
     stock_count: Optional[int] = None
@@ -436,6 +437,7 @@ class StockUpdatePayload(BaseModel):
     price: Optional[float] = None
     material: Optional[str] = None
     color: Optional[str] = None
+    available_colors: Optional[str] = None
 
 @router.get("/inventory")
 def list_inventory(db: Session = Depends(get_db)):
@@ -454,6 +456,13 @@ def list_inventory(db: Session = Depends(get_db)):
         if not first_img and p.images:
             first_img = p.images[0].image_url
 
+        # Parse available_colors string into list
+        colors_list = []
+        if getattr(p, "available_colors", None) and p.available_colors.strip():
+            colors_list = [c.strip() for c in p.available_colors.split(",") if c.strip()]
+        elif p.color and p.color.strip():
+            colors_list = [p.color.strip()]
+
         res.append({
             "id": f"inv-{p.product_id}",
             "product_id": p.product_id,
@@ -462,6 +471,7 @@ def list_inventory(db: Session = Depends(get_db)):
             "subcategory": p.subcategory.subcategory_name if p.subcategory else "",
             "material": p.material or "Standard",
             "color": p.color or "Natural",
+            "available_colors": colors_list,
             "price": float(p.price or 0),
             "stockCount": qty,
             "status": st,
@@ -499,6 +509,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
 
     img_val = payload.image_url.strip() if payload.image_url else None
     color_val = payload.color.strip() if payload.color else "Natural"
+    avail_colors = payload.available_colors.strip() if payload.available_colors else None
 
     new_prod = models.Product(
         category_id=category.category_id,
@@ -508,6 +519,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
         product_name=payload.name.strip(),
         material=payload.material.strip(),
         color=color_val,
+        available_colors=avail_colors,
         dimensions="Standard",
         price=payload.price,
         stock_quantity=payload.stock_count,
@@ -532,6 +544,8 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
     else:
         st = "In Stock"
 
+    colors_list = [c.strip() for c in avail_colors.split(",") if c.strip()] if avail_colors else [color_val]
+
     return {
         "id": f"inv-{new_prod.product_id}",
         "product_id": new_prod.product_id,
@@ -539,6 +553,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
         "category": cat_name,
         "material": new_prod.material,
         "color": new_prod.color,
+        "available_colors": colors_list,
         "price": float(new_prod.price),
         "stockCount": qty,
         "status": st,
@@ -560,6 +575,8 @@ def update_product_stock(product_id: int, payload: StockUpdatePayload, db: Sessi
         prod.material = payload.material.strip()
     if payload.color:
         prod.color = payload.color.strip()
+    if payload.available_colors is not None:
+        prod.available_colors = payload.available_colors.strip()
     db.commit()
     return {"message": "Product updated", "stock_count": prod.stock_quantity}
 

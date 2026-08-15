@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Star, Sliders, ArrowUpRight, Heart } from 'lucide-react';
 import { CatalogItem, CategoryTab } from '../../types/landing';
 import { SearchFilterBar } from './SearchFilterBar';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
 import { fetchInventoryFromDB } from '../../services/api';
+import { getColorHex, parseAvailableColors } from '../../utils/colorUtils';
+import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
 
 export const CategorySection: React.FC = () => {
+  const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState<string>('All');
   const [activeSubcategory, setActiveSubcategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -20,11 +24,38 @@ export const CategorySection: React.FC = () => {
       try {
         const dbItems = await fetchInventoryFromDB();
         if (dbItems && dbItems.length > 0) {
-          const mapped: CatalogItem[] = dbItems.map((p: any) => {
+          // Calculate top ordered product IDs from stored orders
+          const orderCounts: Record<string, number> = {};
+          try {
+            const orders = getStoredRetailOrders();
+            orders.forEach((ord) => {
+              if (ord.items && Array.isArray(ord.items)) {
+                ord.items.forEach((it) => {
+                  const key = it.id;
+                  orderCounts[key] = (orderCounts[key] || 0) + (it.quantity || 1);
+                });
+              }
+            });
+          } catch (e) {}
+
+          const orderEntries = Object.entries(orderCounts).sort((a, b) => b[1] - a[1]);
+          const topOrderedIds = new Set(
+            orderEntries.length > 0
+              ? orderEntries.slice(0, 2).map((e) => e[0])
+              : [dbItems[0]?.id || `inv-${dbItems[0]?.product_id}`, dbItems[1]?.id || `inv-${dbItems[1]?.product_id}`]
+          );
+
+          const mapped: CatalogItem[] = dbItems.map((p: any, idx: number) => {
             const rawId = p.product_id || p.id;
+            const itemKey = p.id || `inv-${p.product_id}`;
             const code = p.productCode || p.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
+            const colors = parseAvailableColors(p.available_colors || p.availableColors || p.color);
+            
+            // Only set Bestseller for top ordered products (or top 2 in catalog if no orders placed yet)
+            const isTopSeller = topOrderedIds.has(itemKey) || topOrderedIds.has(String(rawId)) || (orderEntries.length === 0 && idx < 2);
+
             return {
-              id: p.id || `inv-${p.product_id}`,
+              id: itemKey,
               productCode: code,
               name: p.name || p.product_name,
               category: p.category || 'Living Room',
@@ -34,7 +65,9 @@ export const CategorySection: React.FC = () => {
               reviewCount: 28,
               isCustomizable: true,
               image: p.image_url || p.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
-              isPopular: p.stockCount > 0
+              color: p.color || 'Natural',
+              available_colors: colors.length > 0 ? colors : [p.color || 'Natural'],
+              isPopular: isTopSeller
             };
           });
           setDbCatalogProducts(mapped);
@@ -202,9 +235,6 @@ export const CategorySection: React.FC = () => {
     <section id="categories" className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
       {/* Section Header */}
       <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#38A132]/15 border border-[#38A132]/30 text-[#38A132] text-[11px] font-extrabold uppercase tracking-wider">
-          CURATED CATALOG 2026
-        </span>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight">
           Explore Spatial Collections
         </h2>
@@ -230,10 +260,10 @@ export const CategorySection: React.FC = () => {
               setActiveCategory(cat.name);
               setActiveSubcategory('All');
             }}
-            className={`px-5 py-2.5 rounded-2xl text-xs font-extrabold transition-all duration-300 ${
+            className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all duration-300 cursor-pointer ${
               activeCategory === cat.name
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25'
-                : 'bg-[#FAF7F2] hover:bg-white text-[#524538] border border-[#E2D7CB] shadow-xs'
+                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/30 scale-105'
+                : 'bg-white/70 hover:bg-white text-[#1A1410] border border-white/80 backdrop-blur-md shadow-xs'
             }`}
           >
             {cat.name}
@@ -244,7 +274,7 @@ export const CategorySection: React.FC = () => {
       {/* Subcategory Pills */}
       {activeTabObj.subcategories.length > 1 && (
         <div className="flex items-center justify-center gap-2 flex-wrap mb-10">
-          <span className="text-xs font-extrabold text-[#524538] mr-2 flex items-center gap-1">
+          <span className="text-xs font-black text-[#1A1410] mr-2 flex items-center gap-1">
             <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
             Subcategories:
           </span>
@@ -252,10 +282,10 @@ export const CategorySection: React.FC = () => {
             <button
               key={sub}
               onClick={() => setActiveSubcategory(sub)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-colors ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 activeSubcategory === sub
-                  ? 'bg-[#38A132] text-white shadow-xs'
-                  : 'bg-[#FAF7F2] hover:bg-white text-[#524538] border border-[#E2D7CB]'
+                  ? 'bg-[#38A132] text-white shadow-md'
+                  : 'bg-white/70 hover:bg-white text-[#1A1410] border border-white/80 backdrop-blur-md'
               }`}
             >
               {sub}
@@ -270,7 +300,8 @@ export const CategorySection: React.FC = () => {
           {filteredProducts.map((product) => (
             <div
               key={product.id}
-              className="group bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl overflow-hidden shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between relative text-[#2C241D]"
+              onClick={() => navigate(`/product/${product.id}`)}
+              className="group ultra-glass-card rounded-3xl overflow-hidden hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between relative text-[#1A1410] border-2 border-white/80 cursor-pointer"
             >
               <div className="relative z-10">
                 {/* Product Image */}
@@ -282,17 +313,20 @@ export const CategorySection: React.FC = () => {
                     loading="lazy"
                   />
                   {product.isPopular && (
-                    <span className="absolute top-3 left-3 text-[10px] font-extrabold tracking-wider uppercase px-3 py-1 rounded-full bg-[#38A132] text-white shadow-md">
+                    <span className="absolute top-3 left-3 text-[10px] font-black tracking-wider uppercase px-3 py-1 rounded-full bg-[#38A132] text-white shadow-md">
                       Bestseller
                     </span>
                   )}
                   <button
                     type="button"
-                    onClick={() => handleWishlistToggle(product)}
-                    className={`absolute top-3 right-3 w-8 h-8 rounded-full backdrop-blur-md border border-[#E2D7CB] flex items-center justify-center transition-all shadow-sm ${
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleWishlistToggle(product);
+                    }}
+                    className={`absolute top-3 right-3 w-8 h-8 rounded-full backdrop-blur-md border border-white/80 flex items-center justify-center transition-all shadow-sm cursor-pointer ${
                       wishlistIds.includes(product.id)
                         ? 'bg-rose-600 text-white'
-                        : 'bg-[#FAF7F2]/80 text-[#524538] hover:text-rose-600'
+                        : 'bg-white/80 text-[#524538] hover:text-rose-600'
                     }`}
                     title={wishlistIds.includes(product.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}
                   >
@@ -302,35 +336,50 @@ export const CategorySection: React.FC = () => {
 
                 {/* Info */}
                 <div className="p-5 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-extrabold text-[#38A132]">
-                    <span className="font-mono text-[10px] font-extrabold bg-[#38A132]/10 border border-[#38A132]/25 text-[#38A132] px-2 py-0.5 rounded">
+                  <div className="flex items-center justify-between text-xs font-black text-[#38A132]">
+                    <span className="font-mono text-[10px] font-black bg-[#38A132]/10 border border-[#38A132]/25 text-[#38A132] px-2 py-0.5 rounded">
                       {product.productCode || `SKU-RS-${product.id}`}
                     </span>
-                    <span className="text-[#6B5C4D] font-bold text-[11px]">{product.category}</span>
+                    <span className="text-[#4A3E31] font-black text-[11px]">{product.category}</span>
                   </div>
 
-                  <h3 className="font-extrabold text-base text-[#2C241D] leading-snug group-hover:text-[#38A132] transition-colors">
+                  <h3 className="font-black text-base text-[#1A1410] leading-snug group-hover:text-[#38A132] transition-colors">
                     {product.name}
                   </h3>
 
-                  <div className="flex items-center gap-1.5 pt-1">
-                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                    <span className="text-xs font-extrabold text-[#2C241D]">{product.rating}</span>
-                    <span className="text-xs text-[#6B5C4D] font-bold">({product.reviewCount} reviews)</span>
-                  </div>
+                  {/* Available Color Swatch Circles (Matching Reference Image) */}
+                  {product.available_colors && product.available_colors.length > 0 && (
+                    <div className="flex items-center gap-1.5 py-1">
+                      {product.available_colors.map((colorName, idx) => {
+                        const cStyle = getColorHex(colorName);
+                        return (
+                          <span
+                            key={idx}
+                            className="w-3.5 h-3.5 rounded-full border shadow-2xs transition-transform hover:scale-125 cursor-pointer"
+                            style={{ backgroundColor: cStyle.bg, borderColor: cStyle.border }}
+                            title={colorName}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Action Bar */}
-              <div className="p-5 pt-0 flex items-center justify-between border-t border-[#EFE7DE] mt-2 relative z-10">
+              <div className="p-5 pt-0 flex items-center justify-between border-t border-white/40 mt-2 relative z-10">
                 <div>
-                  <span className="text-[10px] font-extrabold text-[#6B5C4D] block uppercase tracking-wider">Price</span>
-                  <span className="text-lg font-extrabold text-[#38A132]">₹{product.price.toLocaleString('en-IN')}</span>
+                  <span className="text-[10px] font-black text-[#5C4E42] block uppercase tracking-wider">Price</span>
+                  <span className="text-lg font-black text-[#38A132]">₹{product.price.toLocaleString('en-IN')}</span>
                 </div>
 
                 <button
                   type="button"
-                  className="w-9 h-9 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white flex items-center justify-center transition-all duration-300 shadow-md shadow-[#38A132]/25"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/product/${product.id}`);
+                  }}
+                  className="w-9 h-9 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white flex items-center justify-center transition-all duration-300 shadow-md shadow-[#38A132]/25 cursor-pointer"
                   title="View Item"
                 >
                   <ArrowUpRight className="w-4 h-4" />
@@ -340,8 +389,8 @@ export const CategorySection: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div className="text-center py-16 bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl">
-          <p className="text-base font-extrabold text-[#2C241D]">No furniture items match your query</p>
+        <div className="text-center py-16 ultra-glass-card rounded-3xl border-2 border-white/80">
+          <p className="text-base font-black text-[#1A1410]">No furniture items match your query</p>
           <button
             onClick={() => {
               setActiveCategory('All');

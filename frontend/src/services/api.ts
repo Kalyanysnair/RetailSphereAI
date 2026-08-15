@@ -395,6 +395,7 @@ export async function createProductInDB(payload: {
   stock_count: number;
   image_url?: string;
   color?: string;
+  available_colors?: string;
 }): Promise<any> {
   const response = await fetch(`${BASE_URL}/admin/inventory`, {
     method: 'POST',
@@ -408,11 +409,25 @@ export async function createProductInDB(payload: {
 }
 
 
-export async function updateStockInDB(productId: number, stockCount: number): Promise<void> {
+export async function updateStockInDB(
+  productId: number,
+  stockCount?: number,
+  additionalData?: { name?: string; price?: number; material?: string; color?: string; available_colors?: string }
+): Promise<void> {
+  const body: any = {};
+  if (stockCount !== undefined) body.stock_count = stockCount;
+  if (additionalData) {
+    if (additionalData.name !== undefined) body.name = additionalData.name;
+    if (additionalData.price !== undefined) body.price = additionalData.price;
+    if (additionalData.material !== undefined) body.material = additionalData.material;
+    if (additionalData.color !== undefined) body.color = additionalData.color;
+    if (additionalData.available_colors !== undefined) body.available_colors = additionalData.available_colors;
+  }
+
   await fetch(`${BASE_URL}/admin/inventory/${productId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ stock_count: stockCount }),
+    body: JSON.stringify(body),
   });
 }
 

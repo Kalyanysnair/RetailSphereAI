@@ -112,6 +112,7 @@ class Product(Base):
     status = Column(String(50), default="Pending")
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     availability_status = Column(String(50), default="Available")
+    available_colors = Column(Text, nullable=True)
 
     category = relationship("Category", back_populates="products")
     subcategory = relationship("Subcategory", back_populates="products")
