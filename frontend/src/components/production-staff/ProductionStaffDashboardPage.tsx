@@ -36,6 +36,7 @@ import {
   Copy,
   Trash2,
   UserCheck,
+  UserX,
   Mail,
   Check,
   AlertCircle,
@@ -51,6 +52,7 @@ import {
   updateWorker,
   toggleWorkerStatus,
   deleteWorker,
+  resendWorkerCredentials,
   assignWorkerTask,
   updateProductionProgress,
   CustomOrderData,
@@ -127,6 +129,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [editWorkerSpec, setEditWorkerSpec] = useState('Woodwork & Carpentry');
   const [editWorkerError, setEditWorkerError] = useState<string | null>(null);
   const [isEditWorkerSubmitting, setIsEditWorkerSubmitting] = useState(false);
+  const [resendingCredentialsId, setResendingCredentialsId] = useState<number | null>(null);
 
   // Staff Profile Modal & Password Update State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -574,15 +577,19 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setAddWorkerError('Please provide both worker name and email address.');
       return;
     }
+    if (newWorkerPhone.trim() && newWorkerPhone.trim().replace(/\D/g, '').length < 10) {
+      setAddWorkerError('Please enter a valid 10-digit phone number.');
+      return;
+    }
     setAddWorkerError(null);
     setIsAddWorkerSubmitting(true);
     try {
       const resWorker = await addWorker(newWorkerName.trim(), newWorkerEmail.trim(), newWorkerPhone ? newWorkerPhone.trim() : '', newWorkerSpec);
       
       if (resWorker && resWorker.email_sent === false) {
-        setSuccessNotice(`Worker ${newWorkerName} registered in database, but the credential email could not be sent to ${newWorkerEmail}. ${resWorker.email_error ? 'SMTP Error: ' + resWorker.email_error : 'Please check SMTP configuration.'}`);
+        setSuccessNotice('Worker account was created, but the login credentials could not be emailed. Please use Resend Credentials.');
       } else {
-        setSuccessNotice(`Worker ${newWorkerName} registered successfully! Account login credentials emailed to ${newWorkerEmail}.`);
+        setSuccessNotice(`Worker account created successfully. Login credentials have been sent to: ${newWorkerEmail}`);
       }
 
       setNewWorkerName('');
@@ -593,7 +600,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       await loadData();
     } catch (err: any) {
       console.error('Error registering worker:', err);
-      setAddWorkerError(err?.message || 'Failed to register worker. Please try again.');
+      const errMsg = err?.message || 'Unable to create the worker account. Please try again.';
+      setAddWorkerError(errMsg);
     } finally {
       setIsAddWorkerSubmitting(false);
     }
@@ -636,6 +644,19 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       await loadData();
     } catch (err: any) {
       alert(err.message || 'Failed to update worker status.');
+    }
+  };
+
+  const handleResendCredentials = async (worker: WorkerData) => {
+    setResendingCredentialsId(worker.worker_id);
+    try {
+      const res = await resendWorkerCredentials(worker.worker_id);
+      setSuccessNotice(`New login credentials successfully emailed to ${worker.email}.`);
+      setTimeout(() => setSuccessNotice(null), 8000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to resend login credentials.');
+    } finally {
+      setResendingCredentialsId(null);
     }
   };
 
@@ -1632,22 +1653,18 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             </button>
                             <button
                               type="button"
-                              onClick={async () => {
-                                if (window.confirm(`Are you sure you want to remove worker "${worker.full_name}"?`)) {
-                                  try {
-                                    await deleteWorker(worker.worker_id);
-                                    setSuccessNotice(`Worker ${worker.full_name} removed.`);
-                                    setTimeout(() => setSuccessNotice(null), 5000);
-                                    await loadData();
-                                  } catch (err: any) {
-                                    alert(err.message || 'Failed to remove worker');
-                                  }
-                                }
-                              }}
-                              className="text-[#9E9082] hover:text-red-600 p-1.5 rounded-xl hover:bg-red-50 transition-colors cursor-pointer"
-                              title="Remove Worker"
+                              onClick={() => handleToggleWorkerStatus(worker)}
+                              className={`p-1.5 rounded-xl transition-colors cursor-pointer ${worker.status
+                                  ? 'text-amber-700 hover:bg-amber-100/60 hover:text-amber-800'
+                                  : 'text-emerald-700 hover:bg-emerald-100/60 hover:text-emerald-800'
+                                }`}
+                              title={worker.status ? "Set Worker Inactive" : "Set Worker Active"}
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              {worker.status ? (
+                                <UserX className="w-4 h-4" />
+                              ) : (
+                                <UserCheck className="w-4 h-4" />
+                              )}
                             </button>
                           </div>
 
@@ -1657,7 +1674,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             </div>
                             <div className="min-w-0">
                               <h4 className="font-extrabold text-sm text-[#2C241D] truncate">{worker.full_name}</h4>
-                              <p className="text-[11px] text-[#48A63E] font-bold truncate">{worker.specialization || 'Craft Specialist'}</p>
+                              <p className="text-[11px] text-[#48A63E] font-bold truncate">{worker.specialization || 'Woodwork & Carpentry'}</p>
                             </div>
                           </div>
 
@@ -1673,6 +1690,17 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 {worker.status ? 'Active' : 'Inactive'}
                               </span>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleResendCredentials(worker)}
+                              disabled={resendingCredentialsId === worker.worker_id}
+                              className="w-full mt-2 py-2 px-3 bg-[#FAF7F2] hover:bg-[#F3EDE5] border border-[#E2D7CB] hover:border-[#48A63E] text-[#48A63E] font-extrabold text-[11px] rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                              title="Resend login credentials to worker's registered email"
+                            >
+                              <Mail className="w-3.5 h-3.5" />
+                              <span>{resendingCredentialsId === worker.worker_id ? 'Sending Credentials...' : 'Resend Login Credentials'}</span>
+                            </button>
                           </div>
                         </div>
                       ))}

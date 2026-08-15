@@ -1,25 +1,30 @@
-const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-const BASE_URL = `http://${API_HOST}:8000/api/production`;
+const API_HOST = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+const BASE_URL = `/api/production`;
 
 async function safeFetchProd(endpoint: string, options?: RequestInit): Promise<Response> {
-  const primaryHost = API_HOST;
-  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
   const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-  const urls = [
-    `http://${primaryHost}:8000/api/production${cleanPath}`,
-    `http://${secondaryHost}:8000/api/production${cleanPath}`
-  ];
-
-  let lastErr: any = null;
-  for (const u of urls) {
+  // 1. First try relative URL `/api/production${cleanPath}` (uses Vite dev proxy seamlessly)
+  const relativeUrl = `/api/production${cleanPath}`;
+  try {
+    const res = await fetch(relativeUrl, options);
+    return res;
+  } catch (relativeErr) {
+    // 2. Fallback to direct IPv4 backend URL if proxy is bypassed
+    const directUrl127 = `http://127.0.0.1:8000/api/production${cleanPath}`;
     try {
-      return await fetch(u, options);
-    } catch (err) {
-      lastErr = err;
+      const newOptions = options ? { ...options } : undefined;
+      return await fetch(directUrl127, newOptions);
+    } catch (directErr) {
+      const directUrlLocal = `http://localhost:8000/api/production${cleanPath}`;
+      try {
+        const newOptions2 = options ? { ...options } : undefined;
+        return await fetch(directUrlLocal, newOptions2);
+      } catch (lastErr) {
+        throw lastErr || directErr || relativeErr;
+      }
     }
   }
-  throw lastErr || new TypeError('Failed to fetch from backend server');
 }
 
 export interface AssignedWorker {
@@ -55,6 +60,10 @@ export interface CustomOrderData {
   discountType?: string;
   discountDeducted?: number;
   shippingFee?: number;
+  created_at?: string;
+  production_stage?: string;
+  progress_percent?: number;
+  progress_remarks?: string;
 }
 
 export interface WorkerData {
@@ -157,9 +166,13 @@ export const saveStoredCustomOrders = (orders: CustomOrderData[]) => {
 
 
 // API Methods with Fallback to Persisted Data
-export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false): Promise<CustomOrderData[]> {
+export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false, workerId?: number): Promise<CustomOrderData[]> {
   try {
-    const url = statusFilter ? `/custom-orders?status_filter=${encodeURIComponent(statusFilter)}` : `/custom-orders`;
+    const queryParams = new URLSearchParams();
+    if (statusFilter && statusFilter !== 'All') queryParams.append('status_filter', statusFilter);
+    if (workerId) queryParams.append('worker_id', String(workerId));
+
+    const url = queryParams.toString() ? `/custom-orders?${queryParams.toString()}` : `/custom-orders`;
     const res = await safeFetchProd(url);
     if (!res.ok) throw new Error('API request failed');
     const dbOrders: CustomOrderData[] = await res.json();
@@ -167,7 +180,7 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
     if (Array.isArray(dbOrders)) {
       saveStoredCustomOrders(dbOrders);
 
-      if (isStaff) {
+      if (isStaff || workerId) {
         return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(dbOrders) : sanitizeCustomOrders(dbOrders.filter(o => o.order_status === statusFilter));
       }
 
@@ -190,10 +203,10 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
       return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(userDbOrders) : sanitizeCustomOrders(userDbOrders.filter(o => o.order_status === statusFilter));
     }
 
-    const stored = isStaff ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
+    const stored = (isStaff || workerId) ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
     return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(stored) : sanitizeCustomOrders(stored.filter(o => o.order_status === statusFilter));
   } catch {
-    const allOrders = isStaff ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
+    const allOrders = (isStaff || workerId) ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
     if (!statusFilter || statusFilter === 'All') return sanitizeCustomOrders(allOrders);
     return sanitizeCustomOrders(allOrders.filter(o => o.order_status === statusFilter));
   }
@@ -360,26 +373,19 @@ function generateAutoPassword(): string {
 }
 
 export async function fetchWorkers(): Promise<WorkerData[]> {
-  let dbWorkers: WorkerData[] = [];
+  try {
+    localStorage.removeItem('retailsphere_local_workers');
+  } catch {}
+
   try {
     const res = await safeFetchProd('/workers');
     if (res.ok) {
-      dbWorkers = await res.json();
+      return await res.json();
     }
+    return [];
   } catch {
-    // try next
+    return [];
   }
-
-  const localWorkers = getLocalWorkers();
-  const merged = [...dbWorkers];
-
-  localWorkers.forEach(lw => {
-    if (!merged.some(w => w.email.toLowerCase() === lw.email.toLowerCase() || w.worker_id === lw.worker_id)) {
-      merged.push(lw);
-    }
-  });
-
-  return merged;
 }
 
 export async function addWorker(fullName: string, email: string, phone?: string, specialization?: string): Promise<WorkerData> {
@@ -390,44 +396,69 @@ export async function addWorker(fullName: string, email: string, phone?: string,
     specialization: specialization || 'Woodwork & Carpentry'
   };
 
-  let data: WorkerData | null = null;
-
+  let res: Response;
   try {
-    const res = await safeFetchProd('/workers', {
+    res = await safeFetchProd('/workers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
+  } catch (netErr: any) {
+    const orig = netErr?.message || '';
+    if (netErr?.name === 'TypeError' || orig.toLowerCase().includes('failed to fetch') || orig.toLowerCase().includes('networkerror')) {
+      throw new Error('Unable to connect to the server. Please make sure the backend is running.');
+    }
+    throw new Error(orig || 'Unable to connect to the server. Please make sure the backend is running.');
+  }
 
-    if (res && res.ok) {
-      data = await res.json();
-    } else if (res && !res.ok) {
-      const errorJson = await res.json().catch(() => ({ detail: '' }));
-      if (errorJson.detail && !errorJson.detail.toLowerCase().includes('fetch')) {
-        throw new Error(errorJson.detail);
+  if (!res.ok) {
+    let errorDetail = '';
+    try {
+      const errorJson = await res.json();
+      if (typeof errorJson.detail === 'string') {
+        errorDetail = errorJson.detail;
+      } else if (Array.isArray(errorJson.detail)) {
+        errorDetail = errorJson.detail.map((e: any) => e.msg || e.detail || JSON.stringify(e)).join(', ');
+      } else if (errorJson.message) {
+        errorDetail = errorJson.message;
       }
+    } catch {}
+
+    if (errorDetail) {
+      throw new Error(errorDetail);
     }
-  } catch (err: any) {
-    if (err && err.message && !err.message.toLowerCase().includes('fetch')) {
-      throw err;
+
+    if (res.status === 400) {
+      throw new Error('Invalid worker information. Please check the details provided.');
+    } else if (res.status === 401) {
+      throw new Error('Authentication required. Please log in as production staff.');
+    } else if (res.status === 403) {
+      throw new Error('You do not have permission to create workers.');
+    } else if (res.status === 409) {
+      throw new Error('A worker with this email or phone number already exists.');
+    } else if (res.status === 404) {
+      throw new Error('Worker API endpoint not found.');
     }
+
+    throw new Error(`Unable to create the worker account (HTTP ${res.status}). Please try again.`);
   }
 
-  if (!data) {
-    const autoPassword = generateAutoPassword();
-    data = {
-      worker_id: Date.now(),
-      full_name: fullName.trim(),
-      email: email.trim(),
-      phone: phone ? phone.trim() : '+919876543210',
-      specialization: specialization || 'Woodwork & Carpentry',
-      status: true,
-      generated_password: autoPassword
-    };
-  }
-
-  saveLocalWorker(data);
+  const data: WorkerData = await res.json();
   return data;
+}
+
+export async function resendWorkerCredentials(workerId: number): Promise<{ success: boolean; message: string; email: string }> {
+  const res = await safeFetchProd(`/workers/${workerId}/resend-credentials`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+
+  if (!res.ok) {
+    const errorJson = await res.json().catch(() => ({ detail: 'Failed to resend credentials.' }));
+    throw new Error(errorJson.detail || 'Failed to resend credentials.');
+  }
+
+  return await res.json();
 }
 
 export async function deleteWorker(workerId: number): Promise<any> {

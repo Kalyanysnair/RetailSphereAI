@@ -36,9 +36,21 @@ def build_user_response(user: models.User) -> schemas.UserResponse:
         phone=user.phone,
         role_name=user.role.role_name if user.role else "Customer",
         status=user.status,
+        must_change_password=getattr(user, "must_change_password", False) or False,
         created_at=user.created_at,
         customer=customer_info
     )
+
+import re
+
+def normalize_phone(phone_str: str) -> str:
+    """Extracts last 10 digits from any phone string (+91 9446758046, 09446758046, 9446758046)."""
+    if not phone_str:
+        return ""
+    digits = re.sub(r'\D', '', str(phone_str))
+    if len(digits) >= 10:
+        return digits[-10:]
+    return digits
 
 @router.post("/signup", response_model=schemas.Token, status_code=status.HTTP_201_CREATED)
 def signup(payload: schemas.UserSignup, db: Session = Depends(get_db)):
@@ -50,12 +62,24 @@ def signup(payload: schemas.UserSignup, db: Session = Depends(get_db)):
             detail="An account with this email address already exists."
         )
 
-    existing_phone = db.query(models.User).filter(models.User.phone == payload.phone).first()
-    if existing_phone:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="An account with this phone number already exists."
-        )
+    phone_clean = payload.phone
+    if payload.phone and payload.phone.strip():
+        raw_phone = payload.phone.strip()
+        last_10 = normalize_phone(raw_phone)
+        if len(last_10) == 10:
+            phone_clean = f"+91{last_10}"
+        else:
+            phone_clean = raw_phone
+
+        all_users = db.query(models.User).all()
+        for u in all_users:
+            if u.phone:
+                u_10 = normalize_phone(u.phone)
+                if u_10 and u_10 == last_10:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="An account with this phone number already exists."
+                    )
 
     # Ensure Customer role exists
     customer_role = get_or_create_customer_role(db)
@@ -66,9 +90,10 @@ def signup(payload: schemas.UserSignup, db: Session = Depends(get_db)):
         role_id=customer_role.role_id,
         full_name=payload.full_name,
         email=payload.email,
-        phone=payload.phone,
+        phone=phone_clean,
         password=hashed_pwd,
-        status=True
+        status=True,
+        must_change_password=False
     )
     db.add(new_user)
     db.commit()
@@ -117,7 +142,8 @@ def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
                 email=login_identifier.lower(),
                 phone=None,
                 password=hashed_pwd,
-                status=True
+                status=True,
+                must_change_password=False
             )
             db.add(user)
             db.commit()
@@ -139,11 +165,10 @@ def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
                 detail="Invalid username/email or password"
             )
     elif user.password and not auth.verify_password(payload.password, user.password):
-        # If user exists but password mismatch, update password for seamless demo access
-        hashed_pwd = auth.get_password_hash(payload.password)
-        user.password = hashed_pwd
-        db.commit()
-        db.refresh(user)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username/email or password"
+        )
 
     if not user.status:
         raise HTTPException(
@@ -159,6 +184,30 @@ def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
         token_type="bearer",
         user=user_resp
     )
+
+@router.post("/change-first-password", response_model=schemas.UserResponse)
+def change_first_password(
+    payload: schemas.FirstPasswordChangeRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    if not current_user.password or not auth.verify_password(payload.current_password, current_user.password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current temporary password is incorrect."
+        )
+
+    if len(payload.new_password.strip()) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters long."
+        )
+
+    current_user.password = auth.get_password_hash(payload.new_password.strip())
+    current_user.must_change_password = False
+    db.commit()
+    db.refresh(current_user)
+    return build_user_response(current_user)
 
 @router.post("/google-login", response_model=schemas.Token)
 def google_login(payload: schemas.GoogleLoginRequest, db: Session = Depends(get_db)):

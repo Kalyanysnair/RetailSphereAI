@@ -67,11 +67,17 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     role_name: str
     status: bool
+    must_change_password: Optional[bool] = False
     created_at: datetime
     customer: Optional[CustomerBase] = None
 
     class Config:
         from_attributes = True
+
+# First Login / Password Change Request Schema
+class FirstPasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 # Google Login Request Schema
 class GoogleLoginRequest(BaseModel):

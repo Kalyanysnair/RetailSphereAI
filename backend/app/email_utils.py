@@ -110,12 +110,14 @@ def mask_email(email_str: str) -> str:
 
 def send_staff_credentials_email(to_email: str, staff_name: str, role_name: str, username: str, password: str) -> bool:
     """
-    Sends account credentials to a newly created staff member.
+    Sends account credentials to a newly created staff member or worker.
     The recipient email (to_email) is dynamically set to the worker's entered email address.
+    Never hardcode the recipient email address.
     """
     to_email_clean = to_email.strip()
     masked = mask_email(to_email_clean)
-    subject = f"Staff Account Credentials for {staff_name} - RetailSphere ({role_name})"
+    subject = "Your RetailSphere AI Worker Account"
+    worker_login_url = "http://localhost:3000/login"
 
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         logger.error("SMTP Configuration missing (SMTP_USER or SMTP_PASSWORD not set). Cannot send email.")
@@ -129,17 +131,26 @@ def send_staff_credentials_email(to_email: str, staff_name: str, role_name: str,
     clean_username = staff_name.strip() if staff_name else to_email_clean.split('@')[0]
     msg_id = make_msgid()
 
-    plain_text = f"""Hello {clean_username},
+    plain_text = f"""Subject: Your RetailSphere AI Worker Account
 
-Your staff account has been created for RetailSphere as {role_name}.
+Hello {clean_username},
 
-Worker Account Credentials:
-- Assigned Role: {role_name}
-- Username / Email: {to_email_clean}
-- Password: {password}
+Your worker account has been created for the RetailSphere AI Production Staff Portal.
 
-Best regards,
-RetailSphere Team
+Login Details:
+- Name: {clean_username}
+- Username: {to_email_clean}
+- Temporary Password: {password}
+
+Login here:
+{worker_login_url}
+
+Please change your temporary password after your first login.
+
+For security, do not share your login credentials with anyone.
+
+Regards,
+RetailSphere AI
 """
 
     html_content = f"""
@@ -147,34 +158,51 @@ RetailSphere Team
     <html>
     <head>
       <meta charset="utf-8">
-      <title>Staff Account Credentials</title>
+      <title>Your RetailSphere AI Worker Account</title>
       <style>
         body {{ font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; }}
-        .container {{ max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }}
-        .header {{ text-align: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; margin-bottom: 24px; }}
+        .container {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }}
+        .header {{ text-align: center; border-bottom: 2px solid #48A63E; padding-bottom: 20px; margin-bottom: 24px; }}
         .header h1 {{ color: #0f172a; margin: 0; font-size: 24px; font-weight: 800; }}
+        .brand-green {{ color: #48A63E; }}
         .info-box {{ background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; margin: 24px 0; }}
-        .line {{ margin-bottom: 10px; font-size: 14px; color: #0f172a; }}
-        .val {{ font-family: monospace; font-weight: 800; font-size: 16px; background: #ffffff; padding: 4px 8px; border-radius: 6px; border: 1px solid #cbd5e1; }}
-        .footer {{ font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; }}
+        .line {{ margin-bottom: 12px; font-size: 14px; color: #0f172a; }}
+        .val {{ font-family: monospace; font-weight: 800; font-size: 15px; background: #ffffff; padding: 4px 8px; border-radius: 6px; border: 1px solid #cbd5e1; color: #1e293b; }}
+        .btn {{ display: inline-block; background-color: #48A63E; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 12px; font-size: 14px; font-weight: 700; text-align: center; margin: 16px 0; shadow: 0 4px 12px rgba(72,166,62,0.25); }}
+        .warning-box {{ background: #fffbebf8; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 10px; padding: 14px; font-size: 13px; color: #92400e; margin-top: 20px; }}
+        .footer {{ font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 16px; }}
       </style>
     </head>
     <body>
       <div class="container">
         <div class="header">
-          <h1>RetailSphere</h1>
+          <h1>RetailSphere <span class="brand-green">AI</span></h1>
         </div>
+        
         <p>Hello <strong>{clean_username}</strong>,</p>
-        <p>Your staff account has been created for RetailSphere as <strong>{role_name}</strong>. Here are your account login credentials:</p>
+        <p>Your worker account has been created for the <strong>RetailSphere AI Production Staff Portal</strong>.</p>
         
         <div class="info-box">
-          <div class="line"><strong>Assigned Role:</strong> {role_name}</div>
+          <div style="font-weight: 800; font-size: 14px; color: #48A63E; margin-bottom: 12px; text-transform: uppercase; tracking-wider;">LOGIN DETAILS</div>
+          <div class="line"><strong>Worker Name:</strong> {clean_username}</div>
           <div class="line"><strong>Username / Email:</strong> <span class="val">{to_email_clean}</span></div>
-          <div class="line"><strong>Password:</strong> <span class="val">{password}</span></div>
+          <div class="line"><strong>Temporary Password:</strong> <span class="val">{password}</span></div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="{worker_login_url}" class="btn" style="color: #ffffff;">Log In to Worker Portal</a>
+        </div>
+
+        <p style="font-size: 13px; color: #475569; margin-top: 16px;">
+          Please log in using your credentials and <strong>change your temporary password</strong> after your first login.
+        </p>
+
+        <div class="warning-box">
+          <strong>🔒 Security Warning:</strong> For security, do not share your login credentials with anyone.
         </div>
 
         <div class="footer">
-          &copy; RetailSphere Inc. All rights reserved.
+          &copy; RetailSphere AI Production Staff Portal. All rights reserved.
         </div>
       </div>
     </body>
@@ -216,7 +244,7 @@ RetailSphere Team
     except Exception as e:
         logger.error(f"Failed to send staff credentials email to {masked}: {e}")
         print(f"[WORKER EMAIL TRACE] [EXCEPTION] SMTP error when sending credentials email to {masked}: {e}")
-        raise e
+        return False
 
 
 def send_contact_inquiry_email(sender_name: str, sender_email: str, topic: str, message_body: str) -> bool:

@@ -22,6 +22,8 @@ class User(Base):
     phone = Column(String(15), unique=True, index=True, nullable=True)
     password = Column(String(255), nullable=True)
     status = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False, nullable=True)
+    specialization = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     role = relationship("Role", back_populates="users")

@@ -1,25 +1,30 @@
-const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
-const BASE_URL = `http://${API_HOST}:8000/api`;
+const API_HOST = typeof window !== 'undefined' && window.location.hostname ? window.location.hostname : 'localhost';
+const BASE_URL = `/api`;
 
 async function safeFetch(urlPath: string, options?: RequestInit): Promise<Response> {
-  const primaryHost = API_HOST;
-  const secondaryHost = primaryHost === '127.0.0.1' ? 'localhost' : '127.0.0.1';
   const cleanPath = urlPath.startsWith('/') ? urlPath : `/${urlPath}`;
 
-  const urls = [
-    `http://${primaryHost}:8000/api${cleanPath}`,
-    `http://${secondaryHost}:8000/api${cleanPath}`
-  ];
-
-  let lastErr: any = null;
-  for (const u of urls) {
+  // 1. First try relative URL `/api${cleanPath}` (uses Vite dev proxy seamlessly)
+  const relativeUrl = `/api${cleanPath}`;
+  try {
+    const res = await fetch(relativeUrl, options);
+    return res;
+  } catch (relativeErr) {
+    // 2. Fallback to direct IPv4 backend URL if proxy is bypassed
+    const directUrl127 = `http://127.0.0.1:8000/api${cleanPath}`;
     try {
-      return await fetch(u, options);
-    } catch (err) {
-      lastErr = err;
+      const newOptions = options ? { ...options } : undefined;
+      return await fetch(directUrl127, newOptions);
+    } catch (directErr) {
+      const directUrlLocal = `http://localhost:8000/api${cleanPath}`;
+      try {
+        const newOptions2 = options ? { ...options } : undefined;
+        return await fetch(directUrlLocal, newOptions2);
+      } catch (lastErr) {
+        throw lastErr || directErr || relativeErr;
+      }
     }
   }
-  throw lastErr || new TypeError('Failed to fetch from backend server');
 }
 
 export interface UserSignupPayload {
@@ -45,6 +50,7 @@ export interface UserProfile {
   phone: string;
   role_name: string;
   status: boolean;
+  must_change_password?: boolean;
   created_at: string;
   customer?: {
     customer_id: number;
@@ -489,6 +495,28 @@ export async function createSupplierInDB(payload: {
     throw new Error('Failed to create supplier in database');
   }
   return await response.json();
+}
+
+export async function changeFirstPassword(currentPassword: string, newPassword: string): Promise<UserProfile> {
+  const token = localStorage.getItem('access_token');
+  const response = await safeFetch('/auth/change-first-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token || ''}`
+    },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword })
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Failed to update password' }));
+    throw new Error(errorData.detail || 'Failed to update password');
+  }
+
+  const updatedUser: UserProfile = await response.json();
+  localStorage.setItem('user', JSON.stringify(updatedUser));
+  window.dispatchEvent(new Event('storage'));
+  return updatedUser;
 }
 
 

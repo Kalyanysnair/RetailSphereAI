@@ -69,12 +69,20 @@ class ProgressUpdatePayload(BaseModel):
     progress_percentage: int
     remarks: Optional[str] = None
 
-# 1. Fetch All Custom Orders for Production Staff
+# 1. Fetch Custom Orders for Production Staff / Worker Portal
 @router.get("/custom-orders")
-def get_custom_orders(status_filter: Optional[str] = None, db: Session = Depends(get_db)):
+def get_custom_orders(status_filter: Optional[str] = None, worker_id: Optional[int] = None, db: Session = Depends(get_db)):
     query = db.query(models.CustomOrder)
     if status_filter and status_filter.strip() and status_filter != "All":
         query = query.filter(models.CustomOrder.order_status == status_filter.strip())
+
+    if worker_id:
+        assigned_order_ids = [
+            a.custom_order_id for a in db.query(models.WorkerAssignment.custom_order_id)
+            .filter(models.WorkerAssignment.worker_id == worker_id).all()
+        ]
+        query = query.filter(models.CustomOrder.custom_order_id.in_(assigned_order_ids))
+
     orders = query.order_by(models.CustomOrder.order_date.desc()).all()
 
     result = []
@@ -272,6 +280,17 @@ def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
     db.refresh(order)
     return {"message": f"Payment completed for Custom Order #{order_id}", "order_id": order_id, "payment_status": "Paid"}
 
+import re
+
+def normalize_phone(phone_str: str) -> str:
+    """Extracts last 10 digits from any phone string (+91 9446758046, 09446758046, 9446758046)."""
+    if not phone_str:
+        return ""
+    digits = re.sub(r'\D', '', str(phone_str))
+    if len(digits) >= 10:
+        return digits[-10:]
+    return digits
+
 # 3. Add Worker
 @router.post("/workers", status_code=status.HTTP_201_CREATED)
 def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
@@ -282,39 +301,67 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
         db.commit()
         db.refresh(role)
 
-    email_clean = payload.email.strip()
+    email_clean = payload.email.strip().lower()
     full_name_clean = payload.full_name.strip()
-    phone_clean = payload.phone.strip() if (payload.phone and payload.phone.strip()) else f"+91{datetime.now().strftime('%M%S%f')[:10]}"
+
+    if not email_clean or "@" not in email_clean or "." not in email_clean.split("@")[-1]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please enter a valid email address.")
+
+    # Check if email already exists in DB (reject duplicates)
+    existing_email = db.query(models.User).filter(models.User.email == email_clean).first()
+    if existing_email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A worker/account with this email already exists.")
+
+    # Process and check phone number with country code normalization
+    if payload.phone and payload.phone.strip():
+        raw_phone = payload.phone.strip()
+        last_10 = normalize_phone(raw_phone)
+        if len(last_10) == 10:
+            phone_clean = f"+91{last_10}"
+        else:
+            phone_clean = raw_phone
+
+        # Check duplicate phone by comparing normalized 10 digits against all users
+        all_users = db.query(models.User).all()
+        for u in all_users:
+            if u.phone:
+                u_10 = normalize_phone(u.phone)
+                if u_10 and u_10 == last_10:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="A worker/account with this phone number already exists."
+                    )
+    else:
+        # Auto-generate unique timestamp-based phone number if omitted
+        import time
+        phone_clean = f"+919{int(time.time() * 1000) % 1000000009:09d}"
 
     generated_password = generate_strong_password(12)
     hashed_pwd = auth.get_password_hash(generated_password)
 
-    # Check if email already exists in DB
-    existing = db.query(models.User).filter(models.User.email == email_clean).first()
-    if existing:
-        existing.role_id = role.role_id
-        existing.full_name = full_name_clean
-        existing.password = hashed_pwd
-        existing.status = True
-        if payload.phone and payload.phone.strip():
-            existing.phone = phone_clean
-        db.commit()
-        db.refresh(existing)
-        worker_user = existing
-    else:
-        worker_user = models.User(
-            role_id=role.role_id,
-            full_name=full_name_clean,
-            email=email_clean,
-            phone=phone_clean,
-            password=hashed_pwd,
-            status=True
-        )
+    worker_user = models.User(
+        role_id=role.role_id,
+        full_name=full_name_clean,
+        email=email_clean,
+        phone=phone_clean,
+        password=hashed_pwd,
+        status=True,
+        must_change_password=True,
+        specialization=payload.specialization or "Woodwork & Carpentry"
+    )
+    
+    try:
         db.add(worker_user)
         db.commit()
         db.refresh(worker_user)
+    except Exception as db_err:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Database constraint error: A worker with this email or phone already exists."
+        )
 
-    # Send login credentials email to worker via SMTP immediately
+    # Send login credentials email to worker via SMTP immediately (recipient is dynamic)
     email_sent = False
     email_error = None
 
@@ -322,7 +369,6 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
     print(f"[WORKER EMAIL TRACE]")
     print(f"Worker Name: {worker_user.full_name}")
     print(f"Recipient from request: {masked_to}")
-    print(f"Recipient passed to email function: {masked_to}")
 
     try:
         email_sent = send_staff_credentials_email(
@@ -341,6 +387,8 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
         print(f"[WORKER CREATION EMAIL ERROR] SMTP exception sending credentials email to {masked_to}: {email_err}")
 
     return {
+        "success": True,
+        "message": f"Worker account created and login credentials sent to {worker_user.email}.",
         "worker_id": worker_user.user_id,
         "full_name": worker_user.full_name,
         "email": worker_user.email,
@@ -348,6 +396,51 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
         "status": worker_user.status,
         "email_sent": email_sent,
         "email_error": email_error
+    }
+
+# 3b. Resend Worker Credentials
+@router.post("/workers/{worker_id}/resend-credentials")
+def resend_worker_credentials(worker_id: int, db: Session = Depends(get_db)):
+    worker_user = db.query(models.User).filter(models.User.user_id == worker_id).first()
+    if not worker_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
+
+    generated_password = generate_strong_password(12)
+    worker_user.password = auth.get_password_hash(generated_password)
+    worker_user.must_change_password = True
+    db.commit()
+    db.refresh(worker_user)
+
+    email_sent = False
+    email_error = None
+    masked_to = mask_email(worker_user.email)
+
+    try:
+        email_sent = send_staff_credentials_email(
+            to_email=worker_user.email,
+            staff_name=worker_user.full_name,
+            role_name="Workshop Worker",
+            username=worker_user.email,
+            password=generated_password
+        )
+    except Exception as email_err:
+        email_sent = False
+        email_error = str(email_err)
+
+    if not email_sent:
+        return {
+            "success": True,
+            "message": f"Worker credentials updated, but email could not be delivered to {worker_user.email}.",
+            "email": worker_user.email,
+            "email_sent": False,
+            "email_error": email_error
+        }
+
+    return {
+        "success": True,
+        "message": f"New temporary login credentials sent to worker email {worker_user.email}.",
+        "email": worker_user.email,
+        "email_sent": True
     }
 
 # 4. List Workers
@@ -363,6 +456,7 @@ def list_workers(db: Session = Depends(get_db)):
         "full_name": w.full_name,
         "email": w.email,
         "phone": w.phone,
+        "specialization": w.specialization or "Woodwork & Carpentry",
         "status": w.status
     } for w in workers]
 
@@ -392,8 +486,26 @@ def update_worker(worker_id: int, payload: WorkerUpdatePayload, db: Session = De
     
     worker.full_name = payload.full_name.strip()
     worker.email = payload.email.strip()
-    if payload.phone:
-        worker.phone = payload.phone.strip()
+    if payload.phone and payload.phone.strip():
+        raw_phone = payload.phone.strip()
+        last_10 = normalize_phone(raw_phone)
+        if len(last_10) == 10:
+            phone_clean = f"+91{last_10}"
+        else:
+            phone_clean = raw_phone
+
+        all_users = db.query(models.User).filter(models.User.user_id != worker_id).all()
+        for u in all_users:
+            if u.phone:
+                u_10 = normalize_phone(u.phone)
+                if u_10 and u_10 == last_10:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="A worker/account with this phone number already exists."
+                    )
+        worker.phone = phone_clean
+    if payload.specialization:
+        worker.specialization = payload.specialization.strip()
     
     db.commit()
     db.refresh(worker)
@@ -402,7 +514,7 @@ def update_worker(worker_id: int, payload: WorkerUpdatePayload, db: Session = De
         "full_name": worker.full_name,
         "email": worker.email,
         "phone": worker.phone,
-        "specialization": payload.specialization,
+        "specialization": worker.specialization or "Woodwork & Carpentry",
         "status": worker.status
     }
 
