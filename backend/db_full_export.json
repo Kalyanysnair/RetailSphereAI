@@ -1,1119 +1,284 @@
 {
-  "tbl_role": {
-    "count": 4,
-    "rows": [
-      {
-        "role_id": 1,
-        "role_name": "Admin"
-      },
-      {
-        "role_id": 2,
-        "role_name": "Customer"
-      },
-      {
-        "role_id": 3,
-        "role_name": "Retail Staff"
-      },
-      {
-        "role_id": 4,
-        "role_name": "Production Staff"
-      }
-    ]
-  },
-  "tbl_category": {
-    "count": 5,
-    "rows": [
-      {
-        "category_id": 1,
-        "category_name": "Living Room",
-        "description": "Luxury lounge sofas, coffee tables, and contemporary living space furniture.",
-        "image": "https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80",
-        "status": 1
-      },
-      {
-        "category_id": 2,
-        "category_name": "Dining Room",
-        "description": "Solid timber dining tables, hand-carved chairs, and dining room storage.",
-        "image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-        "status": 1
-      },
-      {
-        "category_id": 3,
-        "category_name": "Bedroom",
-        "description": "Upholstered king beds, solid teak platform beds, and contemporary dressers.",
-        "image": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
-        "status": 1
-      },
-      {
-        "category_id": 4,
-        "category_name": "Home Office",
-        "description": "Ergonomic leather chairs, executive writing desks, and shelving.",
-        "image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-        "status": 1
-      },
-      {
-        "category_id": 5,
-        "category_name": "Custom Studio",
-        "description": "Bespoke custom furniture concepts made to client specifications.",
-        "image": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80",
-        "status": 1
-      }
-    ]
-  },
-  "tbl_supplier": {
-    "count": 2,
-    "rows": [
-      {
-        "supplier_id": 1,
-        "supplier_name": "ARUN RAJ",
-        "contact_person": "ARUN RAJ",
-        "phone": "9778237180",
-        "email": null,
-        "address": "Furniture Logistics Hub, Sector 4",
-        "gst_number": "29ARUN97782Z1",
-        "status": 1
-      },
-      {
-        "supplier_id": 2,
-        "supplier_name": "Rahul Dev",
-        "contact_person": "Rahul Dev",
-        "phone": "7736783189",
-        "email": null,
-        "address": "Timber & Crafts Hub, Sector 9",
-        "gst_number": "29RAHUL7736Z2",
-        "status": 1
-      }
-    ]
-  },
-  "tbl_payment": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_coupon": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_users": {
-    "count": 7,
-    "rows": [
-      {
-        "user_id": 1,
-        "role_id": 1,
-        "full_name": "admin",
-        "email": "admin@retailsphere.com",
-        "phone": "+919999999999",
-        "password": "$2b$12$oyfwbYPBK/oZuJ1nfD7glOc/3SCMMid7cuXkymsLpU7zyyS2h4nYy",
-        "status": 1,
-        "created_at": "2026-08-10 08:07:31.719920"
-      },
-      {
-        "user_id": 2,
-        "role_id": 2,
-        "full_name": "Kalyany Nikunjam",
-        "email": "kalyany.nikunjam@gmail.com",
-        "phone": "+919778237180",
-        "password": "$2b$12$/78p966YU4467uKnFV6Tn.FkagRyHnP7q3YomKwBMvQRKnUrCjY0e",
-        "status": 1,
-        "created_at": "2026-08-10 08:10:25.784103"
-      },
-      {
-        "user_id": 3,
-        "role_id": 2,
-        "full_name": "Kalyany S Nair",
-        "email": "kalyanys2004@gmail.com",
-        "phone": "+919778237181",
-        "password": "$2b$12$bTYMRrVxwhu/OsqAiYsTGOXI.Hj9cWNl5FUI2Un7kJgkunKCd.iEu",
-        "status": 1,
-        "created_at": "2026-08-10 08:10:26.735734"
-      },
-      {
-        "user_id": 4,
-        "role_id": 2,
-        "full_name": "KALYANY S NAIR",
-        "email": "kalyanysnair2027@mca.ajce.in",
-        "phone": null,
-        "password": null,
-        "status": 1,
-        "created_at": "2026-08-10 08:10:33.852682"
-      },
-      {
-        "user_id": 5,
-        "role_id": 3,
-        "full_name": "Anand Varma",
-        "email": "retail@retailsphere.com",
-        "phone": "+919876543211",
-        "password": "$2b$12$ibA14E4v9PnLVYwxUVXjIO31Bv4lq3oP1M3Lfq8u4/67Cr0YSndpO",
-        "status": 1,
-        "created_at": "2026-08-10 08:16:37.695641"
-      },
-      {
-        "user_id": 6,
-        "role_id": 4,
-        "full_name": "Vikramaditya Rao",
-        "email": "production@retailsphere.com",
-        "phone": "+919876543212",
-        "password": "$2b$12$w2ewusNhMOH/1BZJsPQURulGMKqWhNKFOr3rddmNHVsA98MUi2svu",
-        "status": 1,
-        "created_at": "2026-08-10 08:16:38.237503"
-      },
-      {
-        "user_id": 7,
-        "role_id": 2,
-        "full_name": "Kalyany S Nair",
-        "email": "kangarobykalyany@gmail.com",
-        "phone": null,
-        "password": null,
-        "status": 1,
-        "created_at": "2026-08-10 14:53:01.266036"
-      }
-    ]
-  },
-  "tbl_subcategory": {
-    "count": 9,
-    "rows": [
-      {
-        "subcategory_id": 1,
-        "category_id": 1,
-        "subcategory_name": "Sofas & Couches",
-        "description": "Curved boucl\u00e9 sofas, modular sectionals, and luxury lounge seating.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 2,
-        "category_id": 1,
-        "subcategory_name": "Coffee & Accent Tables",
-        "description": "Italian marble tables, solid teak accent pieces, and brass inlays.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 3,
-        "category_id": 2,
-        "subcategory_name": "Dining Tables",
-        "description": "6-seater solid teak and smoked walnut dining tables.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 4,
-        "category_id": 2,
-        "subcategory_name": "Dining Chairs",
-        "description": "Ergonomic dining chairs with natural linen and leather upholstery.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 5,
-        "category_id": 3,
-        "subcategory_name": "Beds & Headboards",
-        "description": "Upholstered headboards and platform bedframes.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 6,
-        "category_id": 3,
-        "subcategory_name": "Nightstands & Dressers",
-        "description": "Bedside tables, chest of drawers, and vanity storage.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 7,
-        "category_id": 4,
-        "subcategory_name": "Desks & Workstations",
-        "description": "Executive writing desks and modern work tables.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 8,
-        "category_id": 4,
-        "subcategory_name": "Ergonomic Seating",
-        "description": "High-back leather executive chairs and desk seating.",
-        "status": 1
-      },
-      {
-        "subcategory_id": 9,
-        "category_id": 5,
-        "subcategory_name": "Custom Furniture Concepts",
-        "description": "Made-to-order custom studio armchairs and sectionals.",
-        "status": 1
-      }
-    ]
-  },
-  "tbl_customer": {
-    "count": 4,
-    "rows": [
-      {
-        "customer_id": 1,
-        "user_id": 2,
-        "address": "Ettumanoor",
-        "city": "Kottayam",
-        "state": "Kerala",
-        "pincode": "686631"
-      },
-      {
-        "customer_id": 2,
-        "user_id": 3,
-        "address": "Ettumanoor",
-        "city": "Kottayam",
-        "state": "Kerala",
-        "pincode": "686631"
-      },
-      {
-        "customer_id": 3,
-        "user_id": 4,
-        "address": "",
-        "city": "",
-        "state": "",
-        "pincode": ""
-      },
-      {
-        "customer_id": 4,
-        "user_id": 7,
-        "address": "",
-        "city": "",
-        "state": "",
-        "pincode": ""
-      }
-    ]
-  },
-  "tbl_product": {
-    "count": 13,
-    "rows": [
-      {
-        "product_id": 1,
-        "category_id": 1,
-        "subcategory_id": 1,
-        "supplier_id": 1,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Nordic Boucl\u00e9 Curved Lounge Sofa",
-        "description": "Hand-upholstered organic curved lounge sofa in premium stain-resistant textured boucl\u00e9 fabric.",
-        "material": "Boucl\u00e9 Fabric & Teak",
-        "color": "Cream White / Warm Walnut",
-        "dimensions": "260cm x 110cm x 75cm",
-        "weight": null,
-        "price": 145000,
-        "stock_quantity": 12,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.766361",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 2,
-        "category_id": 1,
-        "subcategory_id": 1,
-        "supplier_id": 1,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Italian Velvet Modular Sectional Sofa",
-        "description": "Luxe modular deep-seated sectional sofa with high-density foam cushions and solid walnut feet.",
-        "material": "Italian Velvet & American Walnut",
-        "color": "Deep Emerald Green",
-        "dimensions": "320cm x 180cm x 80cm",
-        "weight": null,
-        "price": 220000,
-        "stock_quantity": 5,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.774925",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 3,
-        "category_id": 1,
-        "subcategory_id": 2,
-        "supplier_id": 1,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Calacatta Italian Marble Coffee Table",
-        "description": "Polished natural Calacatta marble top with solid brushed brass geometric metal frame.",
-        "material": "Italian Marble & Brushed Brass",
-        "color": "White Calacatta / Antique Brass",
-        "dimensions": "120cm x 70cm x 40cm",
-        "weight": null,
-        "price": 42500,
-        "stock_quantity": 18,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.788811",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 4,
-        "category_id": 1,
-        "subcategory_id": 2,
-        "supplier_id": 1,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Minimalist Teak Wood Side Table",
-        "description": "Artisanal hand-turned solid teak accent table finished in protective matte organic oil.",
-        "material": "Solid Teak Wood",
-        "color": "Natural Smoked Oak",
-        "dimensions": "50cm x 50cm x 55cm",
-        "weight": null,
-        "price": 18500,
-        "stock_quantity": 15,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1532372576444-dda954194ad0?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.796908",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 5,
-        "category_id": 2,
-        "subcategory_id": 3,
-        "supplier_id": 1,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Minimalist Teak Wood 6-Seater Dining Set",
-        "description": "Sustainably sourced solid teak dining table crafted with chamfered joinery legs.",
-        "material": "Solid Teak Wood",
-        "color": "Warm Honey Teak",
-        "dimensions": "210cm x 95cm x 76cm",
-        "weight": null,
-        "price": 98000,
-        "stock_quantity": 8,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.822814",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 6,
-        "category_id": 2,
-        "subcategory_id": 3,
-        "supplier_id": 1,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Smoked Walnut Solid Wood Dining Table",
-        "description": "Premium smoked dark walnut dining table featuring hand-inlaid matte brass corners.",
-        "material": "American Walnut & Brass",
-        "color": "Smoked Dark Walnut",
-        "dimensions": "240cm x 100cm x 76cm",
-        "weight": null,
-        "price": 112000,
-        "stock_quantity": 4,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.830626",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 7,
-        "category_id": 2,
-        "subcategory_id": 4,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Artisan Upholstered Oak Dining Chair (Set of 2)",
-        "description": "Handcrafted FSC-certified solid oak dining chairs upholstered in stain-resistant woven linen.",
-        "material": "FSC Oak & Natural Linen",
-        "color": "Natural Oak / Oatmeal",
-        "dimensions": "52cm x 55cm x 82cm",
-        "weight": null,
-        "price": 34000,
-        "stock_quantity": 14,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.845874",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 8,
-        "category_id": 3,
-        "subcategory_id": 5,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Empress Velvet Upholstered King Bed",
-        "description": "Tall channel-tufted king headboard wrapped in plush velvet with reinforced hardwood frame.",
-        "material": "Italian Velvet & Hardwood",
-        "color": "Royal Navy Blue",
-        "dimensions": "200cm x 215cm x 135cm",
-        "weight": null,
-        "price": 125000,
-        "stock_quantity": 6,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.868468",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 9,
-        "category_id": 3,
-        "subcategory_id": 5,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Scandi Solid Teak Platform Bed",
-        "description": "Minimalist Scandinavian platform bed frame with hand-woven organic cane headboard.",
-        "material": "Solid Teak Wood & Natural Rattan",
-        "color": "Natural Blonde Teak",
-        "dimensions": "195cm x 210cm x 110cm",
-        "weight": null,
-        "price": 85000,
-        "stock_quantity": 10,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.880025",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 10,
-        "category_id": 3,
-        "subcategory_id": 6,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Contemporary Walnut 3-Drawer Dresser",
-        "description": "Soft-closing 3-drawer storage chest featuring soft walnut grain and brushed brass bar pulls.",
-        "material": "Walnut Veneer & Brushed Brass",
-        "color": "Smoked Walnut / Gold",
-        "dimensions": "110cm x 50cm x 85cm",
-        "weight": null,
-        "price": 48000,
-        "stock_quantity": 9,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.896120",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 11,
-        "category_id": 4,
-        "subcategory_id": 7,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Executive Smoked Walnut Writing Desk",
-        "description": "Sleek executive writing desk with dual wire management ports and integrated drawer storage.",
-        "material": "Smoked Walnut & Black Steel",
-        "color": "Dark Walnut / Matte Black",
-        "dimensions": "160cm x 75cm x 76cm",
-        "weight": null,
-        "price": 56000,
-        "stock_quantity": 7,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.917661",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 12,
-        "category_id": 4,
-        "subcategory_id": 8,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Ergonomic Executive Genuine Leather Chair",
-        "description": "Ergonomic high-back desk chair in full top-grain cognac leather with pneumatic height adjust.",
-        "material": "Top-Grain Leather & Aluminium",
-        "color": "Cognac Brown / Chrome",
-        "dimensions": "65cm x 65cm x 120cm",
-        "weight": null,
-        "price": 36500,
-        "stock_quantity": 12,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1505797149-43b0069ec26b?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.932841",
-        "availability_status": "Available"
-      },
-      {
-        "product_id": 13,
-        "category_id": 5,
-        "subcategory_id": 9,
-        "supplier_id": 2,
-        "added_by": 1,
-        "approved_by": null,
-        "product_name": "Bespoke Curved Architectural Lounge Chair",
-        "description": "Custom architectural accent chair featuring 360-degree smooth brass swivel and high-density foam.",
-        "material": "Textured Boucl\u00e9 & Brass Swivel",
-        "color": "Terracotta Rust / Brushed Gold",
-        "dimensions": "90cm x 88cm x 82cm",
-        "weight": null,
-        "price": 78000,
-        "stock_quantity": 3,
-        "warranty": null,
-        "image": "https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80",
-        "status": "Approved",
-        "created_at": "2026-08-10 08:16:15.953972",
-        "availability_status": "Available"
-      }
-    ]
-  },
-  "tbl_notification": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_staff_query": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_coupon_redemption": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_product_image": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_cart": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_wishlist": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_readymade_order": {
-    "count": 4,
-    "rows": [
-      {
-        "order_id": 1,
-        "customer_id": 1,
-        "customer_name": "Kalyany Nikunjam",
-        "customer_email": "kalyany.nikunjam@gmail.com",
-        "retail_staff_id": 1,
-        "total_amount": 187500,
-        "payment_status": "Paid",
-        "payment_id": "pay_DEMO_1_1786358297",
-        "order_status": "Order Placed",
-        "delivery_address": "Ettumanoor, Kottayam, Kerala 686631",
-        "order_date": "2026-08-09 16:08:17.086770"
-      },
-      {
-        "order_id": 2,
-        "customer_id": 2,
-        "customer_name": "Kalyany S Nair",
-        "customer_email": "kalyanys2004@gmail.com",
-        "retail_staff_id": null,
-        "total_amount": 187500,
-        "payment_status": "Paid",
-        "payment_id": "pay_DEMO_2",
-        "order_status": "Order Placed",
-        "delivery_address": "Ettumanoor, Kottayam, Kerala 686631",
-        "order_date": "2026-08-09 16:08:59.302906"
-      },
-      {
-        "order_id": 3,
-        "customer_id": 3,
-        "customer_name": "KALYANY S NAIR",
-        "customer_email": "kalyanysnair2027@mca.ajce.in",
-        "retail_staff_id": null,
-        "total_amount": 187500,
-        "payment_status": "Paid",
-        "payment_id": "pay_DEMO_3",
-        "order_status": "Order Placed",
-        "delivery_address": "Ettumanoor, Kottayam, Kerala 686631",
-        "order_date": "2026-08-09 16:08:59.303646"
-      },
-      {
-        "order_id": 4,
-        "customer_id": 4,
-        "customer_name": "Kalyany S Nair",
-        "customer_email": "kangarobykalyany@gmail.com",
-        "retail_staff_id": null,
-        "total_amount": 187500,
-        "payment_status": "Paid",
-        "payment_id": "pay_DEMO_4",
-        "order_status": "Order Placed",
-        "delivery_address": "Ettumanoor, Kottayam, Kerala 686631",
-        "order_date": "2026-08-09 16:08:59.304168"
-      }
-    ]
-  },
-  "tbl_custom_order": {
-    "count": 12,
-    "rows": [
-      {
-        "custom_order_id": 1,
-        "customer_id": 1,
-        "production_staff_id": 6,
-        "furniture_type": "Nordic Curved Boucl\u00e9 Lounge Sofa",
-        "material": "Textured Boucl\u00e9 Fabric & Solid Teak",
-        "dimensions": "260cm x 110cm x 75cm",
-        "color": "Cream White / Warm Walnut",
-        "design_description": "Hand-crafted organic curved lounge sofa with reinforced hardwood internal frame and high-resilience foam padding.",
-        "reference_image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 185000,
-        "order_status": "In Production",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-08 16:08:16.918734"
-      },
-      {
-        "custom_order_id": 2,
-        "customer_id": 1,
-        "production_staff_id": 6,
-        "furniture_type": "Bespoke Smoked Walnut Executive Desk",
-        "material": "American Smoked Walnut & Brass",
-        "dimensions": "180cm x 85cm x 76cm",
-        "color": "Smoked Dark Walnut / Brushed Gold",
-        "design_description": "Custom executive writing desk with dual cable ports, soft-close brass drawers, and chamfered edges.",
-        "reference_image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 110000,
-        "order_status": "Approved",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-06 16:08:16.941304"
-      },
-      {
-        "custom_order_id": 3,
-        "customer_id": 1,
-        "production_staff_id": 6,
-        "furniture_type": "Minimalist Teak Wood 6-Seater Dining Table",
-        "material": "Solid Teak Wood & Cane",
-        "dimensions": "210cm x 95cm x 76cm",
-        "color": "Natural Honey Teak",
-        "design_description": "Custom handcrafted dining table set with chamfered joinery legs and matte organic oil seal.",
-        "reference_image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 145000,
-        "order_status": "Completed",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-04 16:08:16.954149"
-      },
-      {
-        "custom_order_id": 4,
-        "customer_id": 2,
-        "production_staff_id": 6,
-        "furniture_type": "Nordic Curved Boucl\u00e9 Lounge Sofa",
-        "material": "Textured Boucl\u00e9 Fabric & Solid Teak",
-        "dimensions": "260cm x 110cm x 75cm",
-        "color": "Cream White / Warm Walnut",
-        "design_description": "Hand-crafted organic curved lounge sofa with reinforced hardwood internal frame and high-resilience foam padding.",
-        "reference_image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 185000,
-        "order_status": "In Production",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-08 16:08:16.968450"
-      },
-      {
-        "custom_order_id": 5,
-        "customer_id": 2,
-        "production_staff_id": 6,
-        "furniture_type": "Bespoke Smoked Walnut Executive Desk",
-        "material": "American Smoked Walnut & Brass",
-        "dimensions": "180cm x 85cm x 76cm",
-        "color": "Smoked Dark Walnut / Brushed Gold",
-        "design_description": "Custom executive writing desk with dual cable ports, soft-close brass drawers, and chamfered edges.",
-        "reference_image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 110000,
-        "order_status": "Approved",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-06 16:08:16.982142"
-      },
-      {
-        "custom_order_id": 6,
-        "customer_id": 2,
-        "production_staff_id": 6,
-        "furniture_type": "Minimalist Teak Wood 6-Seater Dining Table",
-        "material": "Solid Teak Wood & Cane",
-        "dimensions": "210cm x 95cm x 76cm",
-        "color": "Natural Honey Teak",
-        "design_description": "Custom handcrafted dining table set with chamfered joinery legs and matte organic oil seal.",
-        "reference_image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 145000,
-        "order_status": "Completed",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-04 16:08:16.994136"
-      },
-      {
-        "custom_order_id": 7,
-        "customer_id": 3,
-        "production_staff_id": 6,
-        "furniture_type": "Nordic Curved Boucl\u00e9 Lounge Sofa",
-        "material": "Textured Boucl\u00e9 Fabric & Solid Teak",
-        "dimensions": "260cm x 110cm x 75cm",
-        "color": "Cream White / Warm Walnut",
-        "design_description": "Hand-crafted organic curved lounge sofa with reinforced hardwood internal frame and high-resilience foam padding.",
-        "reference_image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 185000,
-        "order_status": "In Production",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-08 16:08:17.007176"
-      },
-      {
-        "custom_order_id": 8,
-        "customer_id": 3,
-        "production_staff_id": 6,
-        "furniture_type": "Bespoke Smoked Walnut Executive Desk",
-        "material": "American Smoked Walnut & Brass",
-        "dimensions": "180cm x 85cm x 76cm",
-        "color": "Smoked Dark Walnut / Brushed Gold",
-        "design_description": "Custom executive writing desk with dual cable ports, soft-close brass drawers, and chamfered edges.",
-        "reference_image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 110000,
-        "order_status": "Approved",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-06 16:08:17.022145"
-      },
-      {
-        "custom_order_id": 9,
-        "customer_id": 3,
-        "production_staff_id": 6,
-        "furniture_type": "Minimalist Teak Wood 6-Seater Dining Table",
-        "material": "Solid Teak Wood & Cane",
-        "dimensions": "210cm x 95cm x 76cm",
-        "color": "Natural Honey Teak",
-        "design_description": "Custom handcrafted dining table set with chamfered joinery legs and matte organic oil seal.",
-        "reference_image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 145000,
-        "order_status": "Completed",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-04 16:08:17.036138"
-      },
-      {
-        "custom_order_id": 10,
-        "customer_id": 4,
-        "production_staff_id": 6,
-        "furniture_type": "Nordic Curved Boucl\u00e9 Lounge Sofa",
-        "material": "Textured Boucl\u00e9 Fabric & Solid Teak",
-        "dimensions": "260cm x 110cm x 75cm",
-        "color": "Cream White / Warm Walnut",
-        "design_description": "Hand-crafted organic curved lounge sofa with reinforced hardwood internal frame and high-resilience foam padding.",
-        "reference_image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 185000,
-        "order_status": "In Production",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-08 16:08:17.048185"
-      },
-      {
-        "custom_order_id": 11,
-        "customer_id": 4,
-        "production_staff_id": 6,
-        "furniture_type": "Bespoke Smoked Walnut Executive Desk",
-        "material": "American Smoked Walnut & Brass",
-        "dimensions": "180cm x 85cm x 76cm",
-        "color": "Smoked Dark Walnut / Brushed Gold",
-        "design_description": "Custom executive writing desk with dual cable ports, soft-close brass drawers, and chamfered edges.",
-        "reference_image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 110000,
-        "order_status": "Approved",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-06 16:08:17.058197"
-      },
-      {
-        "custom_order_id": 12,
-        "customer_id": 4,
-        "production_staff_id": 6,
-        "furniture_type": "Minimalist Teak Wood 6-Seater Dining Table",
-        "material": "Solid Teak Wood & Cane",
-        "dimensions": "210cm x 95cm x 76cm",
-        "color": "Natural Honey Teak",
-        "design_description": "Custom handcrafted dining table set with chamfered joinery legs and matte organic oil seal.",
-        "reference_image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
-        "estimated_price": 145000,
-        "order_status": "Completed",
-        "payment_status": "Paid",
-        "is_locked": 1,
-        "order_date": "2026-08-04 16:08:17.070773"
-      }
-    ]
-  },
-  "tbl_review": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_cart_item": {
-    "count": 0,
-    "rows": []
-  },
-  "tbl_readymade_order_item": {
-    "count": 8,
-    "rows": [
-      {
-        "item_id": 1,
-        "order_id": 1,
-        "product_id": 1,
-        "product_name": "Nordic Boucl\u00e9 Curved Lounge Sofa",
-        "image_url": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 145000
-      },
-      {
-        "item_id": 2,
-        "order_id": 1,
-        "product_id": 3,
-        "product_name": "Calacatta Italian Marble Coffee Table",
-        "image_url": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 42500
-      },
-      {
-        "item_id": 3,
-        "order_id": 2,
-        "product_id": 1,
-        "product_name": "Nordic Boucl\u00e9 Curved Lounge Sofa",
-        "image_url": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 145000
-      },
-      {
-        "item_id": 4,
-        "order_id": 2,
-        "product_id": 3,
-        "product_name": "Calacatta Italian Marble Coffee Table",
-        "image_url": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 42500
-      },
-      {
-        "item_id": 5,
-        "order_id": 3,
-        "product_id": 1,
-        "product_name": "Nordic Boucl\u00e9 Curved Lounge Sofa",
-        "image_url": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 145000
-      },
-      {
-        "item_id": 6,
-        "order_id": 3,
-        "product_id": 3,
-        "product_name": "Calacatta Italian Marble Coffee Table",
-        "image_url": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 42500
-      },
-      {
-        "item_id": 7,
-        "order_id": 4,
-        "product_id": 1,
-        "product_name": "Nordic Boucl\u00e9 Curved Lounge Sofa",
-        "image_url": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 145000
-      },
-      {
-        "item_id": 8,
-        "order_id": 4,
-        "product_id": 3,
-        "product_name": "Calacatta Italian Marble Coffee Table",
-        "image_url": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80",
-        "quantity": 1,
-        "unit_price": 42500
-      }
-    ]
-  },
-  "tbl_worker_assignment": {
-    "count": 12,
-    "rows": [
-      {
-        "assignment_id": 1,
-        "custom_order_id": 1,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 2,
-        "custom_order_id": 2,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 3,
-        "custom_order_id": 3,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 4,
-        "custom_order_id": 4,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 5,
-        "custom_order_id": 5,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 6,
-        "custom_order_id": 6,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 7,
-        "custom_order_id": 7,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 8,
-        "custom_order_id": 8,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 9,
-        "custom_order_id": 9,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 10,
-        "custom_order_id": 10,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 11,
-        "custom_order_id": 11,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      },
-      {
-        "assignment_id": 12,
-        "custom_order_id": 12,
-        "worker_id": 6,
-        "assigned_date": "2026-08-10",
-        "task_status": "Assigned"
-      }
-    ]
-  },
-  "tbl_production_progress": {
-    "count": 12,
-    "rows": [
-      {
-        "progress_id": 1,
-        "custom_order_id": 1,
-        "updated_by": 6,
-        "stage": "Assembly & Upholstery",
-        "remarks": "Frame assembly completed. Currently hand-stitching boucl\u00e9 fabric padding.",
-        "progress_percentage": 65,
-        "updated_at": "2026-08-10 16:08:16.929151"
-      },
-      {
-        "progress_id": 2,
-        "custom_order_id": 2,
-        "updated_by": 6,
-        "stage": "Material Sourcing",
-        "remarks": "FSC-certified timber delivered to workshop. Precision cutting scheduled.",
-        "progress_percentage": 25,
-        "updated_at": "2026-08-10 16:08:16.947955"
-      },
-      {
-        "progress_id": 3,
-        "custom_order_id": 3,
-        "updated_by": 6,
-        "stage": "Ready for Dispatch",
-        "remarks": "Quality control inspected and sealed. Package ready for doorstep delivery.",
-        "progress_percentage": 100,
-        "updated_at": "2026-08-10 16:08:16.960159"
-      },
-      {
-        "progress_id": 4,
-        "custom_order_id": 4,
-        "updated_by": 6,
-        "stage": "Assembly & Upholstery",
-        "remarks": "Frame assembly completed. Currently hand-stitching boucl\u00e9 fabric padding.",
-        "progress_percentage": 65,
-        "updated_at": "2026-08-10 16:08:16.974237"
-      },
-      {
-        "progress_id": 5,
-        "custom_order_id": 5,
-        "updated_by": 6,
-        "stage": "Material Sourcing",
-        "remarks": "FSC-certified timber delivered to workshop. Precision cutting scheduled.",
-        "progress_percentage": 25,
-        "updated_at": "2026-08-10 16:08:16.988198"
-      },
-      {
-        "progress_id": 6,
-        "custom_order_id": 6,
-        "updated_by": 6,
-        "stage": "Ready for Dispatch",
-        "remarks": "Quality control inspected and sealed. Package ready for doorstep delivery.",
-        "progress_percentage": 100,
-        "updated_at": "2026-08-10 16:08:17.000136"
-      },
-      {
-        "progress_id": 7,
-        "custom_order_id": 7,
-        "updated_by": 6,
-        "stage": "Assembly & Upholstery",
-        "remarks": "Frame assembly completed. Currently hand-stitching boucl\u00e9 fabric padding.",
-        "progress_percentage": 65,
-        "updated_at": "2026-08-10 16:08:17.012177"
-      },
-      {
-        "progress_id": 8,
-        "custom_order_id": 8,
-        "updated_by": 6,
-        "stage": "Material Sourcing",
-        "remarks": "FSC-certified timber delivered to workshop. Precision cutting scheduled.",
-        "progress_percentage": 25,
-        "updated_at": "2026-08-10 16:08:17.029134"
-      },
-      {
-        "progress_id": 9,
-        "custom_order_id": 9,
-        "updated_by": 6,
-        "stage": "Ready for Dispatch",
-        "remarks": "Quality control inspected and sealed. Package ready for doorstep delivery.",
-        "progress_percentage": 100,
-        "updated_at": "2026-08-10 16:08:17.041137"
-      },
-      {
-        "progress_id": 10,
-        "custom_order_id": 10,
-        "updated_by": 6,
-        "stage": "Assembly & Upholstery",
-        "remarks": "Frame assembly completed. Currently hand-stitching boucl\u00e9 fabric padding.",
-        "progress_percentage": 65,
-        "updated_at": "2026-08-10 16:08:17.053198"
-      },
-      {
-        "progress_id": 11,
-        "custom_order_id": 11,
-        "updated_by": 6,
-        "stage": "Material Sourcing",
-        "remarks": "FSC-certified timber delivered to workshop. Precision cutting scheduled.",
-        "progress_percentage": 25,
-        "updated_at": "2026-08-10 16:08:17.064203"
-      },
-      {
-        "progress_id": 12,
-        "custom_order_id": 12,
-        "updated_by": 6,
-        "stage": "Ready for Dispatch",
-        "remarks": "Quality control inspected and sealed. Package ready for doorstep delivery.",
-        "progress_percentage": 100,
-        "updated_at": "2026-08-10 16:08:17.075735"
-      }
-    ]
-  }
+  "products": [
+    {
+      "product_id": 6,
+      "product_name": "Smoked Walnut Solid Wood Dining Table",
+      "category_name": "Dining Room",
+      "subcategory_name": "Dining Tables",
+      "price": 112000.0,
+      "stock_quantity": 4,
+      "material": "American Walnut & Brass",
+      "color": "Smoked Dark Walnut",
+      "dimensions": "240cm x 100cm x 76cm",
+      "image": "https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=800&q=80",
+      "description": "Premium smoked dark walnut dining table featuring hand-inlaid matte brass corners.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 7,
+      "product_name": "Artisan Upholstered Oak Dining Chair (Set of 2)",
+      "category_name": "Dining Room",
+      "subcategory_name": "Dining Chairs",
+      "price": 34000.0,
+      "stock_quantity": 14,
+      "material": "FSC Oak & Natural Linen",
+      "color": "Natural Oak / Oatmeal",
+      "dimensions": "52cm x 55cm x 82cm",
+      "image": "https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=800&q=80",
+      "description": "Handcrafted FSC-certified solid oak dining chairs upholstered in stain-resistant woven linen.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 3,
+      "product_name": "Calacatta Italian Marble Coffee Table",
+      "category_name": "Living Room",
+      "subcategory_name": "Coffee & Accent Tables",
+      "price": 42500.0,
+      "stock_quantity": 18,
+      "material": "Italian Marble & Brushed Brass",
+      "color": "White Calacatta / Antique Brass",
+      "dimensions": "120cm x 70cm x 40cm",
+      "image": "https://images.unsplash.com/photo-1533090161767-e6ffed986c88?auto=format&fit=crop&w=800&q=80",
+      "description": "Polished natural Calacatta marble top with solid brushed brass geometric metal frame.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 4,
+      "product_name": "Minimalist Teak Wood Side Table",
+      "category_name": "Living Room",
+      "subcategory_name": "Coffee & Accent Tables",
+      "price": 18500.0,
+      "stock_quantity": 15,
+      "material": "Solid Teak Wood",
+      "color": "Natural Smoked Oak",
+      "dimensions": "50cm x 50cm x 55cm",
+      "image": "https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80",
+      "description": "Artisanal hand-turned solid teak accent table finished in protective matte organic oil.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 1,
+      "product_name": "Emerald Green Velvet Lounge Sofa",
+      "category_name": "Living Room",
+      "subcategory_name": "Sofas & Couches",
+      "price": 145000.0,
+      "stock_quantity": 12,
+      "material": "Italian Velvet & Solid Wood",
+      "color": "Emerald Green",
+      "dimensions": "260cm x 110cm x 75cm",
+      "image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
+      "description": "Hand-upholstered luxury lounge sofa in premium deep emerald green velvet with solid wood legs.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 2,
+      "product_name": "Nordic Minimalist Modular Sofa",
+      "category_name": "Living Room",
+      "subcategory_name": "Sofas & Couches",
+      "price": 220000.0,
+      "stock_quantity": 5,
+      "material": "Woven Linen & Oak Wood",
+      "color": "Warm Beige",
+      "dimensions": "320cm x 180cm x 80cm",
+      "image": "https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80",
+      "description": "Luxe modular deep-seated sectional sofa in warm beige woven linen with high-density foam cushions.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 5,
+      "product_name": "Minimalist Teak Wood 6-Seater Dining Set",
+      "category_name": "Dining Room",
+      "subcategory_name": "Dining Tables",
+      "price": 98000.0,
+      "stock_quantity": 8,
+      "material": "Solid Teak Wood",
+      "color": "Warm Honey Teak",
+      "dimensions": "210cm x 95cm x 76cm",
+      "image": "https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=800&q=80",
+      "description": "Sustainably sourced solid teak dining table crafted with chamfered joinery legs.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 8,
+      "product_name": "Japanese Oak Minimalist Bed Frame",
+      "category_name": "Bedroom",
+      "subcategory_name": "Beds & Headboards",
+      "price": 125000.0,
+      "stock_quantity": 6,
+      "material": "FSC-Certified Solid Oak",
+      "color": "Natural Japanese Oak",
+      "dimensions": "200cm x 215cm x 115cm",
+      "image": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80",
+      "description": "Minimalist Japanese solid oak platform bed frame with organic clean joinery.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 9,
+      "product_name": "Scandi Solid Teak Platform Bed",
+      "category_name": "Bedroom",
+      "subcategory_name": "Beds & Headboards",
+      "price": 85000.0,
+      "stock_quantity": 10,
+      "material": "Solid Teak Wood & Natural Rattan",
+      "color": "Natural Blonde Teak",
+      "dimensions": "195cm x 210cm x 110cm",
+      "image": "https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=800&q=80",
+      "description": "Minimalist Scandinavian platform bed frame with hand-woven organic cane headboard.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 12,
+      "product_name": "Ergonomic Executive Genuine Leather Chair",
+      "category_name": "Home Office",
+      "subcategory_name": "Ergonomic Seating",
+      "price": 36500.0,
+      "stock_quantity": 12,
+      "material": "Top-Grain Leather & Aluminium",
+      "color": "Cognac Brown / Chrome",
+      "dimensions": "65cm x 65cm x 120cm",
+      "image": "https://images.unsplash.com/photo-1505797149-43b0069ec26b?auto=format&fit=crop&w=800&q=80",
+      "description": "Ergonomic high-back desk chair in full top-grain cognac leather with pneumatic height adjust.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 13,
+      "product_name": "Bespoke Curved Architectural Lounge Chair",
+      "category_name": "Custom Studio",
+      "subcategory_name": "Custom Furniture Concepts",
+      "price": 78000.0,
+      "stock_quantity": 3,
+      "material": "Black Ash & Steel",
+      "color": "Charcoal Black",
+      "dimensions": "90cm x 88cm x 82cm",
+      "image": "https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80",
+      "description": "Custom architectural accent chair featuring high-density foam and matte black steel frame.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 10,
+      "product_name": "Contemporary Walnut 3-Drawer Dresser",
+      "category_name": "Bedroom",
+      "subcategory_name": "Wardrobes & Storage",
+      "price": 48000.0,
+      "stock_quantity": 9,
+      "material": "Walnut Veneer & Brushed Brass",
+      "color": "Smoked Walnut / Gold",
+      "dimensions": "110cm x 50cm x 85cm",
+      "image": "https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=800&q=80",
+      "description": "Soft-closing 3-drawer storage chest featuring soft walnut grain and brushed brass bar pulls.",
+      "status": "Approved"
+    },
+    {
+      "product_id": 17,
+      "product_name": "Royal Velvet Wingback Accent Armchair",
+      "category_name": "Living Room",
+      "subcategory_name": "Accent Chairs",
+      "price": 68500.0,
+      "stock_quantity": 10,
+      "material": "Royal Navy Velvet & Brushed Gold Legs",
+      "color": "Royal Navy Blue",
+      "dimensions": "Standard",
+      "image": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=800&q=80",
+      "description": null,
+      "status": "Approved"
+    },
+    {
+      "product_id": 11,
+      "product_name": "Executive Smoked Walnut Writing Desk",
+      "category_name": "Home Office",
+      "subcategory_name": "Desks & Workstations",
+      "price": 56000.0,
+      "stock_quantity": 7,
+      "material": "Smoked Walnut & Black Steel",
+      "color": "Dark Walnut / Matte Black",
+      "dimensions": "160cm x 75cm x 76cm",
+      "image": "https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=800&q=80",
+      "description": "Sleek executive writing desk with dual wire management ports and integrated drawer storage.",
+      "status": "Approved"
+    }
+  ],
+  "categories": [
+    {
+      "category_id": 1,
+      "category_name": "Living Room",
+      "description": "Luxury lounge sofas, coffee tables, and contemporary living space furniture."
+    },
+    {
+      "category_id": 2,
+      "category_name": "Dining Room",
+      "description": "Solid timber dining tables, hand-carved chairs, and dining room storage."
+    },
+    {
+      "category_id": 3,
+      "category_name": "Bedroom",
+      "description": "Upholstered king beds, solid teak platform beds, and contemporary dressers."
+    },
+    {
+      "category_id": 4,
+      "category_name": "Home Office",
+      "description": "Ergonomic leather chairs, executive writing desks, and shelving."
+    },
+    {
+      "category_id": 5,
+      "category_name": "Custom Studio",
+      "description": "Bespoke custom furniture concepts made to client specifications."
+    }
+  ],
+  "subcategories": [
+    {
+      "subcategory_id": 1,
+      "category_id": 1,
+      "subcategory_name": "Sofas & Couches"
+    },
+    {
+      "subcategory_id": 2,
+      "category_id": 1,
+      "subcategory_name": "Coffee & Accent Tables"
+    },
+    {
+      "subcategory_id": 3,
+      "category_id": 2,
+      "subcategory_name": "Dining Tables"
+    },
+    {
+      "subcategory_id": 4,
+      "category_id": 2,
+      "subcategory_name": "Dining Chairs"
+    },
+    {
+      "subcategory_id": 5,
+      "category_id": 3,
+      "subcategory_name": "Beds & Headboards"
+    },
+    {
+      "subcategory_id": 6,
+      "category_id": 3,
+      "subcategory_name": "Nightstands & Dressers"
+    },
+    {
+      "subcategory_id": 7,
+      "category_id": 4,
+      "subcategory_name": "Desks & Workstations"
+    },
+    {
+      "subcategory_id": 8,
+      "category_id": 4,
+      "subcategory_name": "Ergonomic Seating"
+    },
+    {
+      "subcategory_id": 9,
+      "category_id": 5,
+      "subcategory_name": "Custom Furniture Concepts"
+    },
+    {
+      "subcategory_id": 10,
+      "category_id": 3,
+      "subcategory_name": "Wardrobes & Storage"
+    },
+    {
+      "subcategory_id": 11,
+      "category_id": 1,
+      "subcategory_name": "Accent Chairs"
+    }
+  ]
 }

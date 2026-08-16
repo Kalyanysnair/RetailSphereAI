@@ -19,6 +19,11 @@ export const CategorySection: React.FC = () => {
   );
   const [dbCatalogProducts, setDbCatalogProducts] = useState<CatalogItem[]>([]);
 
+  const isLoggedIn = Boolean(
+    typeof localStorage !== 'undefined' &&
+    (localStorage.getItem('access_token') || localStorage.getItem('user'))
+  );
+
   useEffect(() => {
     const loadProductsFromDB = async () => {
       try {
@@ -109,7 +114,7 @@ export const CategorySection: React.FC = () => {
 
   const categories: CategoryTab[] = [
     { id: 'all', name: 'All', subcategories: ['All'] },
-    { id: 'living', name: 'Living Room', subcategories: ['All', 'Sofas', 'Armchairs', 'Coffee Tables', 'TV Units'] },
+    { id: 'living', name: 'Living Room', subcategories: ['All', 'Sofas', 'Armchairs', 'Tables', 'TV Units'] },
     { id: 'dining', name: 'Dining Room', subcategories: ['All', 'Dining Tables', 'Dining Chairs', 'Sideboards'] },
     { id: 'bedroom', name: 'Bedroom', subcategories: ['All', 'Bed Frames', 'Nightstands', 'Wardrobes'] },
     { id: 'lighting', name: 'Lighting & Accents', subcategories: ['All', 'Floor Lamps', 'Pendant Lights', 'Table Lamps'] },
@@ -171,7 +176,7 @@ export const CategorySection: React.FC = () => {
       rating: 4.9,
       reviewCount: 41,
       isCustomizable: true,
-      image: 'https://images.unsplash.com/photo-1532372576444-dda954194ad0?auto=format&fit=crop&w=800&q=80',
+      image: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80',
     },
     {
       id: 'c6',
@@ -213,9 +218,38 @@ export const CategorySection: React.FC = () => {
 
   const sourceProducts = dbCatalogProducts.length > 0 ? dbCatalogProducts : demoProducts;
 
+  const isSubcategoryMatch = (itemSubcategory: string = '', itemName: string = '', targetSubcategory: string = '') => {
+    if (!targetSubcategory || targetSubcategory === 'All' || targetSubcategory === 'all' || targetSubcategory === 'all-sub') {
+      return true;
+    }
+
+    const sub = itemSubcategory.toLowerCase().trim();
+    const name = itemName.toLowerCase().trim();
+    const target = targetSubcategory.toLowerCase().trim();
+
+    // Direct exact or inclusion match
+    if (sub === target || sub.includes(target) || target.includes(sub)) {
+      return true;
+    }
+
+    // Tokenize & stem keywords (handle plurals like sofas -> sofa, tables -> table, chairs -> chair)
+    const getKeywords = (str: string) =>
+      str
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .map((w) => (w.endsWith('s') && w.length > 3 ? w.slice(0, -1) : w))
+        .filter((w) => w.length >= 3);
+
+    const targetKeywords = getKeywords(target);
+
+    if (targetKeywords.length === 0) return true;
+
+    return targetKeywords.some((kw) => sub.includes(kw) || name.includes(kw));
+  };
+
   const filteredProducts = sourceProducts.filter((item) => {
     const matchesCategory = activeCategory === 'All' || item.category === activeCategory;
-    const matchesSubcategory = activeSubcategory === 'All' || item.subcategory === activeSubcategory;
+    const matchesSubcategory = isSubcategoryMatch(item.subcategory, item.name, activeSubcategory);
     const matchesSearch =
       searchQuery === '' ||
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -317,21 +351,23 @@ export const CategorySection: React.FC = () => {
                       Bestseller
                     </span>
                   )}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleWishlistToggle(product);
-                    }}
-                    className={`absolute top-3 right-3 w-8 h-8 rounded-full backdrop-blur-md border border-white/80 flex items-center justify-center transition-all shadow-sm cursor-pointer ${
-                      wishlistIds.includes(product.id)
-                        ? 'bg-rose-600 text-white'
-                        : 'bg-white/80 text-[#524538] hover:text-rose-600'
-                    }`}
-                    title={wishlistIds.includes(product.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}
-                  >
-                    <Heart className={`w-4 h-4 ${wishlistIds.includes(product.id) ? 'fill-white' : ''}`} />
-                  </button>
+                  {isLoggedIn && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleWishlistToggle(product);
+                      }}
+                      className={`absolute top-3 right-3 w-8 h-8 rounded-full backdrop-blur-md border border-white/80 flex items-center justify-center transition-all shadow-sm cursor-pointer ${
+                        wishlistIds.includes(product.id)
+                          ? 'bg-rose-600 text-white'
+                          : 'bg-white/80 text-[#524538] hover:text-rose-600'
+                      }`}
+                      title={wishlistIds.includes(product.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}
+                    >
+                      <Heart className={`w-4 h-4 ${wishlistIds.includes(product.id) ? 'fill-white' : ''}`} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Info */}

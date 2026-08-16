@@ -9,34 +9,6 @@ export interface CartItem {
 
 const BASE_CART_KEY = 'retailsphere_cart';
 
-const PRODUCT_NAME_TO_ID_MAP: Record<string, string> = {
-  'Nordic Bouclé Curved Lounge Sofa': 'rec-1',
-  'Minimalist Teak Wood 6-Seater Dining Set': 'rec-2',
-  'Calacatta Italian Marble Coffee Table': 'rec-3',
-  'Royal Velvet Wingback Accent Armchair': 'rec-4',
-  'Executive Teak Desk with Cable Management': 'rec-5',
-  'Bespoke Modular Sectional Sofa': 'rec-6',
-  'Empress Velvet Upholstered King Bed': 'rec-7',
-  'Art Deco Brass & Brushed Steel Console': 'rec-8',
-  'Executive Ergonomic Leather Office Chair': 'rec-9',
-  'Artisan Rattan & Teak Sun Lounger Daybed': 'rec-10',
-  'Architectural Marble Coffee Table': 'rec-11',
-  'Scandinavian Floating Media Console': 'rec-12',
-};
-
-function repairCartItemIds(items: CartItem[]): { items: CartItem[]; modified: boolean } {
-  let modified = false;
-  const repaired = items.map(item => {
-    const correctId = PRODUCT_NAME_TO_ID_MAP[item.name];
-    if (correctId && item.id !== correctId) {
-      modified = true;
-      return { ...item, id: correctId };
-    }
-    return item;
-  });
-  return { items: repaired, modified };
-}
-
 function getCartKey(): string {
   try {
     const rawUser = localStorage.getItem('user');
@@ -58,13 +30,7 @@ export function getCartItems(): CartItem[] {
     const key = getCartKey();
     const raw = localStorage.getItem(key);
     const items: CartItem[] = raw ? JSON.parse(raw) : [];
-    const { items: repaired, modified } = repairCartItemIds(items);
-    if (modified) {
-      try {
-        localStorage.setItem(key, JSON.stringify(repaired));
-      } catch {}
-    }
-    return repaired;
+    return items;
   } catch {
     return [];
   }
@@ -82,10 +48,15 @@ export function saveCartItems(items: CartItem[]): void {
 
 export function addToCart(product: { id: string; name: string; material?: string; price: number; imageUrl?: string }): void {
   const current = getCartItems();
-  const existingIndex = current.findIndex((item) => item.id === product.id);
+  const existingIndex = current.findIndex(
+    (item) => item.id === product.id || (product.name && item.name === product.name)
+  );
 
   if (existingIndex > -1) {
     current[existingIndex].quantity += 1;
+    if (product.id && current[existingIndex].id !== product.id) {
+      current[existingIndex].id = product.id;
+    }
   } else {
     current.push({
       id: product.id,
@@ -104,7 +75,7 @@ export function updateCartQuantity(id: string, delta: number): CartItem[] {
   const current = getCartItems();
   const updated = current
     .map((item) => {
-      if (item.id === id) {
+      if (item.id === id || item.name === id) {
         const newQty = item.quantity + delta;
         return newQty > 0 ? { ...item, quantity: newQty } : null;
       }
@@ -118,7 +89,7 @@ export function updateCartQuantity(id: string, delta: number): CartItem[] {
 
 export function removeFromCart(id: string): CartItem[] {
   const current = getCartItems();
-  const updated = current.filter((item) => item.id !== id);
+  const updated = current.filter((item) => item.id !== id && item.name !== id);
   saveCartItems(updated);
   return updated;
 }

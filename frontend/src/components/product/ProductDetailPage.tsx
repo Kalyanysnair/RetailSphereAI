@@ -103,8 +103,15 @@ export const ProductDetailPage: React.FC = () => {
 
   if (!product) {
     return (
-      <div className="min-h-screen bg-[#FAF7F2] flex items-center justify-center p-6">
-        <div className="text-center space-y-4">
+      <div className="relative min-h-screen text-[#2C241D] flex items-center justify-center p-6 overflow-x-hidden">
+        <div 
+          className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
+          style={{
+            backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
+          }}
+        />
+        <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+        <div className="relative z-10 text-center space-y-4 ultra-glass-panel p-8 rounded-3xl">
           <Package className="w-12 h-12 text-[#48A63E] mx-auto animate-bounce" />
           <h2 className="text-xl font-extrabold text-[#2C241D]">Loading Product Details...</h2>
         </div>
@@ -117,7 +124,8 @@ export const ProductDetailPage: React.FC = () => {
     ...(product.additionalImages || [])
   ].filter(Boolean);
 
-  const isInCart = cartIds.includes(product.id);
+  const currentCartItems = getCartItems();
+  const isInCart = cartIds.includes(product.id) || currentCartItems.some(i => i.id === product.id || i.name === product.name);
   const isWishlisted = wishlistIds.includes(product.id);
 
   const isLoggedIn = Boolean(
@@ -171,15 +179,15 @@ export const ProductDetailPage: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex flex-col selection:bg-[#48A63E] selection:text-white bg-[#FAF7F2]">
+    <div className="relative min-h-screen text-[#2C241D] flex flex-col selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
       {/* Background Image Overlay */}
       <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105 opacity-15"
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
         style={{
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
         }}
       />
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/60 via-[#F3EDE5]/40 to-[#EAE1D5]/60 pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
 
       {/* Floating Header (Public Navbar for Guests, Dashboard Header for Logged-In Users) */}
       <div className="relative z-20">
@@ -193,34 +201,37 @@ export const ProductDetailPage: React.FC = () => {
       </div>
 
       {/* Main Content Area */}
-      <main className="relative z-10 flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-8 pt-4">
+      <main className="relative z-10 flex-1 max-w-6xl w-full mx-auto p-2 sm:p-4 space-y-3 pt-1">
         {/* Breadcrumb & Navigation */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
           <Link
             to={isLoggedIn ? "/dashboard" : "/"}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl ultra-glass-pill text-xs font-black text-[#1A1410] hover:bg-white/90 transition-all shadow-md group cursor-pointer"
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl ultra-glass-pill text-[11px] font-black text-[#1A1410] hover:bg-white/90 transition-all shadow-sm group cursor-pointer"
           >
-            <ArrowLeft className="w-4 h-4 text-[#38A132] group-hover:-translate-x-1 transition-transform" />
+            <ArrowLeft className="w-3.5 h-3.5 text-[#38A132] group-hover:-translate-x-1 transition-transform" />
             <span>Back to Furniture Catalog</span>
           </Link>
 
-          <div className="flex items-center gap-2 text-xs font-black text-[#5C4E42] ultra-glass-pill px-4 py-2 rounded-2xl">
+          <div className="flex items-center gap-1.5 text-[11px] font-black text-[#5C4E42] ultra-glass-pill px-3 py-1.5 rounded-xl">
             <span>Catalog</span>
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3 h-3" />
             <span className="capitalize">{product.category.replace('-', ' ')}</span>
-            <ChevronRight className="w-3.5 h-3.5" />
+            <ChevronRight className="w-3 h-3" />
             <span className="text-[#38A132] font-black">{product.name}</span>
           </div>
         </div>
 
         {/* Product Details Master Glass Card */}
-        <div className="ultra-glass-panel rounded-[2.5rem] p-6 sm:p-8 lg:p-10 shadow-2xl space-y-10 relative">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+        <div className="ultra-glass-panel rounded-3xl p-5 sm:p-6 shadow-xl space-y-4 relative overflow-hidden">
+          {/* Glossy Top Reflection Sheen */}
+          <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-3xl" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start relative z-10">
             
-            {/* LEFT COLUMN: Product Image, Guarantees, Specs & Detailed Description (Lg: 6 cols) */}
-            <div className="lg:col-span-6 space-y-5">
-              {/* Single Large Display Image */}
-              <div className="relative aspect-[4/3] w-full rounded-3xl overflow-hidden border-2 border-white/80 bg-[#EAE1D5] shadow-xl group">
+            {/* LEFT COLUMN: Product Image, Inline Guarantees & Description (Lg: 6 cols) */}
+            <div className="lg:col-span-6 space-y-3">
+              {/* Single Display Image */}
+              <div className="relative aspect-[16/10] max-h-[240px] w-full rounded-2xl overflow-hidden border border-white/60 bg-[#EAE1D5] shadow-md group flex items-center justify-center">
                 <img
                   src={product.imageUrl}
                   alt={product.name}
@@ -229,87 +240,78 @@ export const ProductDetailPage: React.FC = () => {
                 
                 {/* Badge Overlay */}
                 {product.badge && !product.badge.toLowerCase().includes('custom') && (
-                  <span className="absolute top-4 left-4 ultra-glass-pill text-[#38A132] text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-[#38A132]" />
+                  <span className="absolute top-3 left-3 ultra-glass-pill text-[#38A132] text-[10px] font-black px-2.5 py-1 rounded-lg shadow-sm flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-[#38A132]" />
                     {product.badge}
                   </span>
                 )}
-
-                {/* Stock Status Badge */}
-                <span className="absolute top-4 right-4 bg-[#38A132] text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-md flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  {product.status}
-                </span>
               </div>
 
-              {/* Guarantees Strip */}
-              <div className="grid grid-cols-3 gap-3 pt-2">
-                <div className="p-3.5 ultra-glass-card rounded-2xl text-center space-y-1 border border-white/80 shadow-sm">
-                  <ShieldCheck className="w-5 h-5 text-[#38A132] mx-auto" />
-                  <span className="block text-[11px] font-black text-[#1A1410]">100% Solid Wood</span>
-                  <span className="block text-[10px] font-extrabold text-[#5C4E42]">Authentic Timber</span>
+              {/* Guarantees Inline Strip (Clean single bar without 3 heavy box cards) */}
+              <div className="flex items-center justify-between gap-2 py-2 px-3 bg-white/35 backdrop-blur-md rounded-xl border border-white/50 text-[11px] font-black text-[#2C241D]">
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-[#38A132]" />
+                  <span>100% Solid Wood</span>
                 </div>
-
-                <div className="p-3.5 ultra-glass-card rounded-2xl text-center space-y-1 border border-white/80 shadow-sm">
-                  <Truck className="w-5 h-5 text-[#38A132] mx-auto" />
-                  <span className="block text-[11px] font-black text-[#1A1410]">Free Delivery</span>
-                  <span className="block text-[10px] font-extrabold text-[#5C4E42]">Orders above ₹50,000</span>
+                <span className="text-[#A5998D]">•</span>
+                <div className="flex items-center gap-1.5">
+                  <Truck className="w-4 h-4 text-[#38A132]" />
+                  <span>Free Delivery</span>
                 </div>
-
-                <div className="p-3.5 ultra-glass-card rounded-2xl text-center space-y-1 border border-white/80 shadow-sm">
-                  <Award className="w-5 h-5 text-[#38A132] mx-auto" />
-                  <span className="block text-[11px] font-black text-[#1A1410]">Certified Quality</span>
-                  <span className="block text-[10px] font-extrabold text-[#5C4E42]">Artisan Inspected</span>
+                <span className="text-[#A5998D]">•</span>
+                <div className="flex items-center gap-1.5">
+                  <Award className="w-4 h-4 text-[#38A132]" />
+                  <span>5 Yr Warranty</span>
                 </div>
               </div>
 
-              {/* Detailed Description (Moved to Left Column to eliminate empty space) */}
-              <div className="space-y-2 pt-2">
-                <h4 className="text-xs font-black text-[#1A1410] uppercase tracking-wider">
+              {/* Detailed Description */}
+              <div className="space-y-1">
+                <h4 className="text-[11px] font-black text-[#1A1410] uppercase tracking-wider">
                   Detailed Description
                 </h4>
-                <p className="text-xs font-extrabold text-[#4A3E31] leading-relaxed ultra-glass-card p-5 rounded-2xl border-2 border-white/80 shadow-sm">
+                <p className="text-[11px] font-extrabold text-[#4A3E31] leading-relaxed bg-white/30 backdrop-blur-xs p-3 rounded-xl border border-white/40">
                   {product.detailedDescription || `${product.name} is meticulously handcrafted using premium grade timber and artisan techniques. Designed for modern luxury spaces, offering superior durability, structural stability, and timeless aesthetic appeal.`}
                 </p>
               </div>
             </div>
 
-            {/* RIGHT COLUMN: Info, Price, Color Selector, Specs & Actions (Lg: 6 cols) */}
-            <div className="lg:col-span-6 space-y-6">
+            {/* RIGHT COLUMN: Header, Price, Color Options, Specs & Actions (Lg: 6 cols) */}
+            <div className="lg:col-span-6 space-y-4">
               
-              {/* Category Tag */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs font-mono font-black text-[#38A132] bg-[#38A132]/15 border border-[#38A132]/30 px-3 py-1 rounded-full uppercase tracking-wider">
-                    {product.material}
-                  </span>
-                </div>
+              {/* Category Tag & Product Title */}
+              <div className="space-y-1">
+                <span className="text-[10px] font-mono font-black text-[#38A132] bg-[#38A132]/15 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full uppercase tracking-wider inline-block">
+                  {product.material}
+                </span>
 
-                <h1 className="text-2xl sm:text-3xl font-black text-[#1A1410] tracking-tight leading-tight">
+                <h1 className="text-xl sm:text-2xl font-black text-[#1A1410] tracking-tight leading-tight pt-0.5">
                   {product.name}
                 </h1>
                 
-                <p className="text-xs font-black text-[#5C4E42]">
+                <p className="text-[11px] font-black text-[#5C4E42]">
                   Dimensions: <span className="text-[#1A1410] font-black">{product.dimensions}</span>
                 </p>
               </div>
 
-              {/* Price Banner */}
-              <div className="p-5 rounded-3xl ultra-glass-card border-2 border-white/80 flex items-center justify-between shadow-md">
+              {/* Price Row (Clean borderless layout) */}
+              <div className="flex items-center justify-between py-2 border-y border-white/50">
                 <div>
-                  <span className="text-xs font-black text-[#5C4E42] block uppercase tracking-wider">Store Price</span>
-                  <div className="text-3xl font-black text-[#38A132] tracking-tight">
-                    ₹{product.price.toLocaleString('en-IN')}
+                  <span className="text-[10px] font-black text-[#5C4E42] block uppercase tracking-wider">Store Price</span>
+                  <div className="flex items-baseline gap-2.5">
+                    <span className="text-2xl font-black text-[#38A132] tracking-tight">
+                      ₹{product.price.toLocaleString('en-IN')}
+                    </span>
+                    {product.originalPrice && (
+                      <span className="text-xs text-[#7A6C5E] line-through font-extrabold">
+                        MSRP ₹{product.originalPrice.toLocaleString('en-IN')}
+                      </span>
+                    )}
                   </div>
-                  {product.originalPrice && (
-                    <div className="text-xs text-[#7A6C5E] line-through font-extrabold">
-                      MSRP: ₹{product.originalPrice.toLocaleString('en-IN')}
-                    </div>
-                  )}
                 </div>
 
                 {product.originalPrice && (
-                  <span className="px-3.5 py-1.5 bg-[#38A132] text-white text-xs font-black rounded-2xl shadow-md">
+                  <span className="px-3 py-1 bg-[#38A132] text-white text-[11px] font-black rounded-lg shadow-xs">
                     Save ₹{(product.originalPrice - product.price).toLocaleString('en-IN')}
                   </span>
                 )}
@@ -317,17 +319,14 @@ export const ProductDetailPage: React.FC = () => {
 
               {/* Available Color Swatches Selector */}
               {availableColorsList.length > 0 && (
-                <div className="ultra-glass-card p-5 rounded-3xl border-2 border-white/80 space-y-3 shadow-md">
-                  <div className="flex items-center justify-between border-b border-white/40 pb-2">
-                    <span className="text-xs font-black text-[#1A1410] uppercase tracking-wider">
-                      Available Finish & Color Options
-                    </span>
-                    <span className="text-xs font-black text-[#38A132] bg-[#38A132]/15 border border-[#38A132]/30 px-3 py-0.5 rounded-full">
-                      {selectedColor || product.color}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-black text-[#1A1410] uppercase tracking-wider">
+                      Finish & Color Options
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-3 pt-1 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {availableColorsList.map((colName) => {
                       const colorStyle = getColorHex(colName);
                       const isSelected = (selectedColor || product.color) === colName;
@@ -336,22 +335,22 @@ export const ProductDetailPage: React.FC = () => {
                           key={colName}
                           type="button"
                           onClick={() => setSelectedColor(colName)}
-                          className={`group/swatch relative flex items-center gap-2.5 px-4 py-2 rounded-2xl border-2 transition-all cursor-pointer ${
+                          className={`group/swatch relative flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-white/90 border-[#38A132] ring-2 ring-[#38A132]/40 shadow-md scale-105'
-                              : 'bg-white/50 border-white/80 hover:border-[#38A132]/60 hover:bg-white/80'
+                              ? 'bg-white/90 border-[#38A132] ring-2 ring-[#38A132]/30 shadow-xs'
+                              : 'bg-white/40 border-white/60 hover:border-[#38A132]/50 hover:bg-white/70'
                           }`}
                           title={colName}
                         >
                           <span
-                            className="w-5 h-5 rounded-full border-2 shadow-xs transition-transform group-hover/swatch:scale-110 flex items-center justify-center"
+                            className="w-4 h-4 rounded-full border shadow-xs transition-transform group-hover/swatch:scale-110 flex items-center justify-center"
                             style={{ backgroundColor: colorStyle.bg, borderColor: colorStyle.border }}
                           >
                             {isSelected && (
-                              <Check className={`w-3 h-3 ${colorStyle.isDark ? 'text-white' : 'text-[#1A1410]'}`} />
+                              <Check className={`w-2.5 h-2.5 ${colorStyle.isDark ? 'text-white' : 'text-[#1A1410]'}`} />
                             )}
                           </span>
-                          <span className={`text-xs font-black ${isSelected ? 'text-[#1A1410]' : 'text-[#5C4E42]'}`}>
+                          <span className={`text-[11px] font-black ${isSelected ? 'text-[#1A1410]' : 'text-[#5C4E42]'}`}>
                             {colName}
                           </span>
                         </button>
@@ -361,41 +360,25 @@ export const ProductDetailPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Quick Specs Grid */}
-              <div className="ultra-glass-card p-5 rounded-3xl border-2 border-white/80 space-y-3 shadow-md">
-                <h4 className="text-xs font-black text-[#1A1410] uppercase tracking-wider border-b border-white/40 pb-2">
-                  Furniture Specs & Craft Details
-                </h4>
+              {/* Craft Specs Grid (Clean 2-column layout) */}
+              <div className="grid grid-cols-2 gap-3 py-2.5 border-y border-white/50 text-xs">
+                <div>
+                  <span className="text-[10px] font-black text-[#5C4E42] block uppercase tracking-wider">Primary Material</span>
+                  <span className="font-black text-[#1A1410] text-[11px]">{product.material}</span>
+                </div>
 
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <span className="text-[11px] font-black text-[#5C4E42] block">Primary Material</span>
-                    <span className="font-black text-[#1A1410]">{product.material}</span>
-                  </div>
-
-                  <div>
-                    <span className="text-[11px] font-black text-[#5C4E42] block">Color / Finish</span>
-                    <span className="font-black text-[#38A132]">{selectedColor || product.color || 'Natural Finish'}</span>
-                  </div>
-
-                  <div>
-                    <span className="text-[11px] font-black text-[#5C4E42] block">Warranty Protection</span>
-                    <span className="font-black text-[#38A132]">{product.warrantyInfo || '5 Years Warranty'}</span>
-                  </div>
-
-                  <div>
-                    <span className="text-[11px] font-black text-[#5C4E42] block">In-Stock Availability</span>
-                    <span className="font-black text-[#1A1410]">{product.stock} Units Ready</span>
-                  </div>
+                <div>
+                  <span className="text-[10px] font-black text-[#5C4E42] block uppercase tracking-wider">Warranty Protection</span>
+                  <span className="font-black text-[#38A132] text-[11px]">{product.warrantyInfo || '5 Years Warranty'}</span>
                 </div>
               </div>
 
               {/* Primary Action Buttons */}
-              <div className="space-y-3 pt-2">
-                <div className="flex items-center gap-3">
+              <div className="pt-1">
+                <div className="flex items-center gap-2.5">
                   <button
                     onClick={handleCartToggle}
-                    className={`flex-1 py-4 px-6 rounded-2xl text-xs font-black flex items-center justify-center gap-2.5 transition-all shadow-lg cursor-pointer ${
+                    className={`flex-1 py-3 px-5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
                       isInCart
                         ? 'bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30'
                         : 'bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30'
@@ -405,17 +388,19 @@ export const ProductDetailPage: React.FC = () => {
                     <span>{isInCart ? 'Go to Shopping Cart' : 'Add to Cart'}</span>
                   </button>
 
-                  <button
-                    onClick={handleWishlistToggle}
-                    className={`p-4 rounded-2xl transition-all cursor-pointer shadow-md ${
-                      isWishlisted
-                        ? 'bg-rose-500 text-white border-rose-500 shadow-rose-500/30'
-                        : 'ultra-glass-pill text-[#1A1410] hover:bg-white/90'
-                    }`}
-                    title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
-                  >
-                    <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white' : ''}`} />
-                  </button>
+                  {isLoggedIn && (
+                    <button
+                      onClick={handleWishlistToggle}
+                      className={`p-3 rounded-xl transition-all cursor-pointer shadow-xs ${
+                        isWishlisted
+                          ? 'bg-rose-500 text-white border-rose-500 shadow-rose-500/30'
+                          : 'ultra-glass-pill text-[#1A1410] hover:bg-white/90'
+                      }`}
+                      title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+                    >
+                      <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white' : ''}`} />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

@@ -390,6 +390,7 @@ export async function fetchInventoryFromDB(): Promise<any[]> {
 export async function createProductInDB(payload: {
   name: string;
   category: string;
+  subcategory?: string;
   material: string;
   price: number;
   stock_count: number;

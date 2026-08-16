@@ -16,7 +16,7 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
   {
     id: 'inv-1',
     productCode: 'SKU-RS-001',
-    name: 'Nordic Bouclé Curved Lounge Sofa',
+    name: 'Emerald Green Velvet Lounge Sofa',
     category: 'living-room',
     subcategory: 'sofas',
     price: 145000,
@@ -27,8 +27,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     imageUrl: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
     rating: 4.9,
     reviewCount: 38,
-    material: 'Bouclé Fabric & Teak',
-    color: 'Cream White / Warm Walnut',
+    material: 'Italian Velvet & Solid Wood',
+    color: 'Emerald Green',
     dimensions: '220cm x 95cm x 85cm',
     isCustomizable: true,
     isTopPick: true,
@@ -37,7 +37,7 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
   {
     id: 'inv-2',
     productCode: 'SKU-RS-002',
-    name: 'Italian Velvet Modular Sectional Sofa',
+    name: 'Nordic Minimalist Modular Sofa',
     category: 'living-room',
     subcategory: 'sofas',
     price: 220000,
@@ -48,8 +48,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     imageUrl: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80',
     rating: 4.9,
     reviewCount: 24,
-    material: 'Italian Velvet & American Walnut',
-    color: 'Deep Emerald Green',
+    material: 'Woven Linen & Oak Wood',
+    color: 'Warm Beige',
     dimensions: '280cm x 160cm x 82cm',
     isCustomizable: true,
     isTopPick: true,
@@ -81,13 +81,13 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     productCode: 'SKU-RS-004',
     name: 'Minimalist Teak Wood Side Table',
     category: 'living-room',
-    subcategory: 'accent-chairs',
+    subcategory: 'coffee-tables',
     price: 18500,
     originalPrice: 21275,
     stock: 15,
     salesCount: 50,
     status: 'In Stock',
-    imageUrl: 'https://images.unsplash.com/photo-1532372576444-dda954194ad0?auto=format&fit=crop&w=800&q=80',
+    imageUrl: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80',
     rating: 4.7,
     reviewCount: 19,
     material: 'Solid Teak Wood',
@@ -163,7 +163,7 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
   {
     id: 'inv-8',
     productCode: 'SKU-RS-008',
-    name: 'Empress Velvet Upholstered King Bed',
+    name: 'Japanese Oak Minimalist Bed Frame',
     category: 'bedroom',
     subcategory: 'king-beds',
     price: 125000,
@@ -174,9 +174,9 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=800&q=80',
     rating: 4.9,
     reviewCount: 48,
-    material: 'Italian Velvet & Hardwood',
-    color: 'Royal Navy Blue',
-    dimensions: '210cm x 195cm x 135cm',
+    material: 'FSC-Certified Solid Oak',
+    color: 'Natural Japanese Oak',
+    dimensions: '210cm x 195cm x 115cm',
     isCustomizable: true,
     isTopPick: true,
     badge: 'SKU-RS-008',
@@ -207,7 +207,7 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     productCode: 'SKU-RS-010',
     name: 'Contemporary Walnut 3-Drawer Dresser',
     category: 'bedroom',
-    subcategory: 'nightstands',
+    subcategory: 'wardrobes',
     price: 48000,
     originalPrice: 55200,
     stock: 9,
@@ -279,13 +279,13 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     imageUrl: 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=800&q=80',
     rating: 4.9,
     reviewCount: 17,
-    material: 'Textured Bouclé & Brass Swivel',
-    color: 'Terracotta Rust / Brushed Gold',
+    material: 'Black Ash & Steel',
+    color: 'Charcoal Black',
     dimensions: '90cm x 85cm x 80cm',
     isCustomizable: true,
     isTopPick: true,
     badge: 'SKU-RS-013',
-  }
+  },
 ];
 
 export const DashboardPage: React.FC = () => {
@@ -415,9 +415,18 @@ export const DashboardPage: React.FC = () => {
         const prodName = (product.name || '').toLowerCase();
         const filterSub = filterState.subcategoryId.toLowerCase().replace(/-/g, ' ');
 
-        const matchesSub = subName.includes(filterSub) || 
-                           prodName.includes(filterSub) || 
-                           filterSub.split(' ').some(w => w.length > 3 && (prodName.includes(w) || subName.includes(w)));
+        // Tokenize target keywords and stem plurals
+        const targetKeywords = filterSub
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .split(/\s+/)
+          .map((w) => (w.endsWith('s') && w.length > 3 ? w.slice(0, -1) : w))
+          .filter((w) => w.length >= 3);
+
+        const matchesSub =
+          subName.includes(filterSub) ||
+          prodName.includes(filterSub) ||
+          (targetKeywords.length > 0 && targetKeywords.some((kw) => prodName.includes(kw) || subName.includes(kw)));
+
         if (!matchesSub) {
           return false;
         }

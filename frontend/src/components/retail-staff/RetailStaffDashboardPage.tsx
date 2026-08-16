@@ -500,6 +500,27 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
   const [customCategoryInput, setCustomCategoryInput] = useState('');
 
+  const [newProdSubcategory, setNewProdSubcategory] = useState('Sofas & Couches');
+  const [isCustomSubcategoryMode, setIsCustomSubcategoryMode] = useState(false);
+  const [customSubcategoryInput, setCustomSubcategoryInput] = useState('');
+
+  const getSubcategoryOptions = (cat: string) => {
+    switch (cat) {
+      case 'Living Room':
+        return ['Sofas & Couches', 'Coffee & Accent Tables', 'Accent Chairs', 'TV Units & Consoles'];
+      case 'Dining Room':
+        return ['Dining Tables', 'Dining Chairs', 'Sideboards & Storage'];
+      case 'Bedroom':
+        return ['Beds & Headboards', 'Nightstands & Dressers', 'Wardrobes & Storage'];
+      case 'Home Office':
+        return ['Desks & Workstations', 'Ergonomic Seating', 'Office Storage'];
+      case 'Custom Studio':
+        return ['Custom Furniture Concepts', 'Specialty Pieces'];
+      default:
+        return ['General Furniture', 'Storage & Accents'];
+    }
+  };
+
   const [newProdMaterial, setNewProdMaterial] = useState('Solid Teak Wood');
   const [isCustomMaterialMode, setIsCustomMaterialMode] = useState(false);
   const [customMaterialInput, setCustomMaterialInput] = useState('');
@@ -762,6 +783,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
     const finalCategory = isCustomCategoryMode
       ? customCategoryInput.trim()
       : newProdCategory;
+    const finalSubcategory = isCustomSubcategoryMode
+      ? customSubcategoryInput.trim()
+      : newProdSubcategory;
     const finalMaterial = isCustomMaterialMode
       ? customMaterialInput.trim()
       : newProdMaterial;
@@ -778,6 +802,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
       const created = await createProductInDB({
         name: newProdName.trim(),
         category: finalCategory,
+        subcategory: finalSubcategory || 'General',
         material: finalMaterial || 'Solid Wood',
         color: finalColor || 'Natural Wood',
         price: priceVal,
@@ -2455,51 +2480,103 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 />
               </div>
 
-              {/* Category Field with Provision to Add New Category */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block font-extrabold text-[#2C241D]">Category</label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsCustomCategoryMode(!isCustomCategoryMode);
-                      if (!isCustomCategoryMode) setCustomCategoryInput('');
-                    }}
-                    className="text-[11px] font-extrabold text-[#48A63E] hover:underline"
-                  >
-                    {isCustomCategoryMode ? '← Select Existing' : '+ Add New Category'}
-                  </button>
+              {/* Category & Subcategory Grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {/* Category Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-extrabold text-[#2C241D]">Category</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomCategoryMode(!isCustomCategoryMode);
+                        if (!isCustomCategoryMode) setCustomCategoryInput('');
+                      }}
+                      className="text-[10px] font-extrabold text-[#48A63E] hover:underline"
+                    >
+                      {isCustomCategoryMode ? 'Select' : '+ New'}
+                    </button>
+                  </div>
+
+                  {isCustomCategoryMode ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Balcony & Garden"
+                      value={customCategoryInput}
+                      onChange={(e) => setCustomCategoryInput(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#F3EDE5] border-2 border-[#48A63E]/60 rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={newProdCategory}
+                      onChange={(e) => {
+                        if (e.target.value === '__ADD_NEW__') {
+                          setIsCustomCategoryMode(true);
+                        } else {
+                          setNewProdCategory(e.target.value);
+                          const defaultSub = getSubcategoryOptions(e.target.value)[0] || 'General';
+                          setNewProdSubcategory(defaultSub);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                    >
+                      {['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio', ...productList.map(p => p.category).filter(c => c && !['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio'].includes(c))].filter((v, i, a) => a.indexOf(v) === i).map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                      <option value="__ADD_NEW__">+ Add New Category...</option>
+                    </select>
+                  )}
                 </div>
 
-                {isCustomCategoryMode ? (
-                  <input
-                    type="text"
-                    placeholder="Enter new category name (e.g. Balcony & Garden)"
-                    value={customCategoryInput}
-                    onChange={(e) => setCustomCategoryInput(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border-2 border-[#48A63E]/60 rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
-                    required
-                  />
-                ) : (
-                  <select
-                    value={newProdCategory}
-                    onChange={(e) => {
-                      if (e.target.value === '__ADD_NEW__') {
-                        setIsCustomCategoryMode(true);
-                      } else {
-                        setNewProdCategory(e.target.value);
-                      }
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
-                  >
-                    {['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio', ...productList.map(p => p.category).filter(c => c && !['Living Room', 'Dining Room', 'Bedroom', 'Home Office', 'Custom Studio'].includes(c))].filter((v, i, a) => a.indexOf(v) === i).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                    <option value="__ADD_NEW__">+ Add New Category...</option>
-                  </select>
-                )}
+                {/* Subcategory Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-extrabold text-[#2C241D]">Subcategory</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsCustomSubcategoryMode(!isCustomSubcategoryMode);
+                        if (!isCustomSubcategoryMode) setCustomSubcategoryInput('');
+                      }}
+                      className="text-[10px] font-extrabold text-[#48A63E] hover:underline"
+                    >
+                      {isCustomSubcategoryMode ? 'Select' : '+ New'}
+                    </button>
+                  </div>
+
+                  {isCustomSubcategoryMode ? (
+                    <input
+                      type="text"
+                      placeholder="e.g. Wardrobes & Storage"
+                      value={customSubcategoryInput}
+                      onChange={(e) => setCustomSubcategoryInput(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#F3EDE5] border-2 border-[#48A63E]/60 rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                      required
+                    />
+                  ) : (
+                    <select
+                      value={newProdSubcategory}
+                      onChange={(e) => {
+                        if (e.target.value === '__ADD_NEW_SUB__') {
+                          setIsCustomSubcategoryMode(true);
+                        } else {
+                          setNewProdSubcategory(e.target.value);
+                        }
+                      }}
+                      className="w-full px-2.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs"
+                    >
+                      {getSubcategoryOptions(newProdCategory).map((sub) => (
+                        <option key={sub} value={sub}>
+                          {sub}
+                        </option>
+                      ))}
+                      <option value="__ADD_NEW_SUB__">+ Add Custom Subcategory...</option>
+                    </select>
+                  )}
+                </div>
               </div>
 
               {/* Material & Color Grid */}

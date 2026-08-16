@@ -424,6 +424,7 @@ def delete_user_by_email(email: str, db: Session = Depends(get_db)):
 class ProductCreatePayload(BaseModel):
     name: str
     category: str
+    subcategory: Optional[str] = None
     material: str
     price: float
     stock_count: int
@@ -438,6 +439,7 @@ class StockUpdatePayload(BaseModel):
     material: Optional[str] = None
     color: Optional[str] = None
     available_colors: Optional[str] = None
+    subcategory: Optional[str] = None
 
 @router.get("/inventory")
 def list_inventory(db: Session = Depends(get_db)):
@@ -490,9 +492,13 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
         db.commit()
         db.refresh(category)
 
-    subcat = db.query(models.Subcategory).filter(models.Subcategory.category_id == category.category_id).first()
+    subcat_name = payload.subcategory.strip() if payload.subcategory and payload.subcategory.strip() else f"{cat_name} General"
+    subcat = db.query(models.Subcategory).filter(
+        models.Subcategory.category_id == category.category_id,
+        models.Subcategory.subcategory_name == subcat_name
+    ).first()
     if not subcat:
-        subcat = models.Subcategory(category_id=category.category_id, subcategory_name=f"{cat_name} General")
+        subcat = models.Subcategory(category_id=category.category_id, subcategory_name=subcat_name)
         db.add(subcat)
         db.commit()
         db.refresh(subcat)

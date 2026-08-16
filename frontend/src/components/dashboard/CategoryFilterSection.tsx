@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Grid, 
   Sofa, 
@@ -10,7 +10,9 @@ import {
   ArrowUpDown,
   X,
   Search,
-  Plus
+  Plus,
+  ChevronDown,
+  Check
 } from 'lucide-react';
 import { CategoryItem, DashboardFilterState } from '../../types/dashboard';
 
@@ -20,6 +22,13 @@ interface CategoryFilterSectionProps {
   onResetFilters: () => void;
   onOpenCustomOrder?: () => void;
 }
+
+const DASHBOARD_SORT_OPTIONS = [
+  { value: 'recommended', label: 'Featured & Recommended' },
+  { value: 'price-low', label: 'Price: Low to High' },
+  { value: 'price-high', label: 'Price: High to Low' },
+  { value: 'rating', label: 'Highest Customer Rating' },
+];
 
 export const CATEGORIES_DATA: CategoryItem[] = [
   {
@@ -93,6 +102,19 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
   onResetFilters,
   onOpenCustomOrder,
 }) => {
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
+        setSortOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const activeCategory = CATEGORIES_DATA.find((c) => c.id === filterState.categoryId) || CATEGORIES_DATA[0];
 
   const getCategoryIcon = (iconName: string) => {
@@ -267,21 +289,46 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
           </div>
 
           {/* Sorting */}
-          <div>
+          {/* Sort By Dropdown */}
+          <div className="relative" ref={sortDropdownRef}>
             <label className="block text-[11px] font-bold text-[#5C4E42] mb-1 flex items-center gap-1">
               <ArrowUpDown className="w-3 h-3 text-[#48A63E]" />
               Sort Furniture By
             </label>
-            <select
-              value={filterState.sortBy}
-              onChange={(e) => onFilterChange({ sortBy: e.target.value as any })}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] focus:outline-none focus:border-[#48A63E] font-semibold"
+            <button
+              type="button"
+              onClick={() => setSortOpen(!sortOpen)}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] font-bold flex items-center justify-between shadow-xs hover:border-[#48A63E] hover:bg-white transition-all cursor-pointer"
             >
-              <option value="recommended" className="bg-white text-[#2C241D]">Featured & Recommended</option>
-              <option value="price-low" className="bg-white text-[#2C241D]">Price: Low to High</option>
-              <option value="price-high" className="bg-white text-[#2C241D]">Price: High to Low</option>
-              <option value="rating" className="bg-white text-[#2C241D]">Highest Customer Rating</option>
-            </select>
+              <span>{DASHBOARD_SORT_OPTIONS.find(o => o.value === filterState.sortBy)?.label || 'Featured & Recommended'}</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-[#48A63E] transition-transform duration-200 ${sortOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {sortOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-full min-w-[200px] rounded-2xl bg-white/95 backdrop-blur-xl border border-[#E2D7CB] p-1.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-0.5">
+                {DASHBOARD_SORT_OPTIONS.map((opt) => {
+                  const isSelected = opt.value === filterState.sortBy;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        onFilterChange({ sortBy: opt.value as any });
+                        setSortOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 text-xs font-black rounded-xl transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#48A63E] text-white shadow-xs'
+                          : 'text-[#2C241D] hover:bg-[#48A63E]/10 hover:text-[#48A63E]'
+                      }`}
+                    >
+                      <span>{opt.label}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -29,6 +29,11 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     getCartItems().map((item) => item.id)
   );
 
+  const isLoggedIn = Boolean(
+    typeof localStorage !== 'undefined' &&
+    (localStorage.getItem('access_token') || localStorage.getItem('user'))
+  );
+
   useEffect(() => {
     const syncWishlist = () => {
       setWishlistIds(getWishlistItems().map((item) => item.id));
@@ -149,20 +154,22 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   )}
 
                   {/* Wishlist Button */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleWishlistClick(product);
-                    }}
-                    className={`absolute top-3 right-3 p-2 rounded-xl backdrop-blur-md transition-all shadow-sm ${
-                      isWishlisted
-                        ? 'bg-rose-600 text-white shadow-rose-600/30'
-                        : 'bg-[#FAF7F2]/90 text-[#2C241D] hover:text-[#48A63E] hover:bg-white border border-[#E2D7CB]'
-                    }`}
-                    title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
-                  >
-                    <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white' : ''}`} />
-                  </button>
+                  {isLoggedIn && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleWishlistClick(product);
+                      }}
+                      className={`absolute top-3 right-3 p-2 rounded-xl backdrop-blur-md transition-all shadow-sm ${
+                        isWishlisted
+                          ? 'bg-rose-600 text-white shadow-rose-600/30'
+                          : 'bg-[#FAF7F2]/90 text-[#2C241D] hover:text-[#48A63E] hover:bg-white border border-[#E2D7CB]'
+                      }`}
+                      title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+                    >
+                      <Heart className={`w-4 h-4 ${isWishlisted ? 'fill-white' : ''}`} />
+                    </button>
+                  )}
                 </div>
 
                 {/* Content Info */}

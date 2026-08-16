@@ -107,12 +107,25 @@ export const MyDiscountsPage: React.FC = () => {
   });
 
   return (
-    <div className="min-h-screen bg-[#FAF7F2] text-[#2C241D] font-sans antialiased flex flex-col selection:bg-[#48A63E]/20">
-      {/* Top Header */}
-      <Header />
+    <div className="relative min-h-screen text-[#2C241D] font-sans antialiased flex flex-col selection:bg-[#48A63E]/20 overflow-x-hidden">
+      {/* Ambient Warm Luxury Living Room Background Image Layer */}
+      <div 
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
+        style={{
+          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
+        }}
+      />
 
-      {/* Sidebar Navigation Drawer */}
-      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      {/* Lighter Translucent Warm Cream Overlay Layer */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+
+      {/* Foreground Content */}
+      <div className="relative z-10 flex flex-col min-h-screen">
+        {/* Top Header */}
+        <Header />
+
+        {/* Sidebar Navigation Drawer */}
+        <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 mt-16">
@@ -477,6 +490,7 @@ export const MyDiscountsPage: React.FC = () => {
         )}
 
       </main>
+      </div>
     </div>
   );
 };

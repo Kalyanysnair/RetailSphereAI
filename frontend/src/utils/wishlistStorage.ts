@@ -32,19 +32,6 @@ const PRODUCT_NAME_TO_ID_MAP: Record<string, string> = {
   'Scandinavian Floating Media Console': 'rec-12',
 };
 
-function repairWishlistItemIds(items: WishlistItem[]): { items: WishlistItem[]; modified: boolean } {
-  let modified = false;
-  const repaired = items.map(item => {
-    const correctId = PRODUCT_NAME_TO_ID_MAP[item.name];
-    if (correctId && item.id !== correctId) {
-      modified = true;
-      return { ...item, id: correctId };
-    }
-    return item;
-  });
-  return { items: repaired, modified };
-}
-
 function getWishlistKey(): string {
   try {
     const rawUser = localStorage.getItem('user');
@@ -66,13 +53,7 @@ export function getWishlistItems(): WishlistItem[] {
     const key = getWishlistKey();
     const raw = localStorage.getItem(key);
     const items: WishlistItem[] = raw ? JSON.parse(raw) : [];
-    const { items: repaired, modified } = repairWishlistItemIds(items);
-    if (modified) {
-      try {
-        localStorage.setItem(key, JSON.stringify(repaired));
-      } catch {}
-    }
-    return repaired;
+    return items;
   } catch {
     return [];
   }

@@ -55,24 +55,24 @@ def seed_database():
                         "desc": "Curved bouclé sofas, modular sectionals, and luxury lounge seating.",
                         "products": [
                             {
-                                "name": "Nordic Bouclé Curved Lounge Sofa",
-                                "material": "Bouclé Fabric & Teak",
-                                "color": "Cream White / Warm Walnut",
+                                "name": "Emerald Green Velvet Lounge Sofa",
+                                "material": "Italian Velvet & Solid Wood",
+                                "color": "Emerald Green",
                                 "dimensions": "260cm x 110cm x 75cm",
                                 "price": 145000.0,
                                 "stock": 12,
                                 "image": "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80",
-                                "desc": "Hand-upholstered organic curved lounge sofa in premium stain-resistant textured bouclé fabric."
+                                "desc": "Hand-upholstered luxury lounge sofa in premium deep emerald green velvet with solid wood legs."
                             },
                             {
-                                "name": "Italian Velvet Modular Sectional Sofa",
-                                "material": "Italian Velvet & American Walnut",
-                                "color": "Deep Emerald Green",
+                                "name": "Nordic Minimalist Modular Sofa",
+                                "material": "Woven Linen & Oak Wood",
+                                "color": "Warm Beige",
                                 "dimensions": "320cm x 180cm x 80cm",
                                 "price": 220000.0,
                                 "stock": 5,
                                 "image": "https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=800&q=80",
-                                "desc": "Luxe modular deep-seated sectional sofa with high-density foam cushions and solid walnut feet."
+                                "desc": "Luxe modular deep-seated sectional sofa in warm beige woven linen with high-density foam cushions."
                             }
                         ]
                     },
@@ -97,7 +97,7 @@ def seed_database():
                                 "dimensions": "50cm x 50cm x 55cm",
                                 "price": 18500.0,
                                 "stock": 15,
-                                "image": "https://images.unsplash.com/photo-1532372576444-dda954194ad0?auto=format&fit=crop&w=800&q=80",
+                                "image": "https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=800&q=80",
                                 "desc": "Artisanal hand-turned solid teak accent table finished in protective matte organic oil."
                             }
                         ]
