@@ -39,8 +39,6 @@ export const CATEGORIES_DATA: CategoryItem[] = [
     subcategories: [
       { id: 'all-sub', name: 'All', count: 24 },
       { id: 'bestsellers', name: 'Bestsellers', count: 8 },
-      { id: 'custom-ready', name: 'Custom Made', count: 6 },
-      { id: 'in-stock', name: 'Ready to Ship', count: 12 },
     ]
   },
   {

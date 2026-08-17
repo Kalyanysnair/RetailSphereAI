@@ -16,7 +16,9 @@ import {
   Info,
   Clock,
   Sparkles,
-  Check
+  Check,
+  Zap,
+  CreditCard
 } from 'lucide-react';
 import { RecommendationProduct } from '../../types/dashboard';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
@@ -25,6 +27,7 @@ import { Header } from '../dashboard/Header';
 import { HeaderNav } from '../landing/HeaderNav';
 import { fetchInventoryFromDB } from '../../services/api';
 import { getColorHex, parseAvailableColors } from '../../utils/colorUtils';
+import { openImageInNewTab } from '../../utils/imageUtils';
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -155,6 +158,24 @@ export const ProductDetailPage: React.FC = () => {
     }
   };
 
+  const handleDirectCheckout = () => {
+    if (!product) return;
+    if (!isLoggedIn) {
+      navigate(`/login?redirect=/product/${product.id}`);
+      return;
+    }
+    if (!isInCart) {
+      addToCart({
+        id: product.id,
+        name: product.name,
+        material: product.material,
+        price: product.price,
+        imageUrl: product.imageUrl,
+      });
+    }
+    navigate('/cart');
+  };
+
   const handleWishlistToggle = () => {
     toggleWishlist({
       id: product.id,
@@ -231,11 +252,13 @@ export const ProductDetailPage: React.FC = () => {
             {/* LEFT COLUMN: Product Image, Inline Guarantees & Description (Lg: 6 cols) */}
             <div className="lg:col-span-6 space-y-3">
               {/* Single Display Image */}
-              <div className="relative aspect-[16/10] max-h-[240px] w-full rounded-2xl overflow-hidden border border-white/60 bg-[#EAE1D5] shadow-md group flex items-center justify-center">
+              <div className="relative h-[320px] sm:h-[360px] w-full rounded-2xl overflow-hidden border border-white/70 bg-gradient-to-b from-[#FAF7F2] via-[#F4ECE1] to-[#EAE1D5] shadow-md group flex items-center justify-center p-3">
                 <img
                   src={product.imageUrl}
                   alt={product.name}
-                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                  className="w-full h-full object-contain drop-shadow-md transition-transform duration-500 group-hover:scale-[1.02] cursor-pointer"
+                  onClick={() => product.imageUrl && openImageInNewTab(product.imageUrl)}
+                  title="Click to view high-resolution image"
                 />
                 
                 {/* Badge Overlay */}
@@ -378,14 +401,19 @@ export const ProductDetailPage: React.FC = () => {
                 <div className="flex items-center gap-2.5">
                   <button
                     onClick={handleCartToggle}
-                    className={`flex-1 py-3 px-5 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer ${
-                      isInCart
-                        ? 'bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30'
-                        : 'bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30'
-                    }`}
+                    className="flex-1 py-3 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer bg-[#38A132] hover:bg-[#32922D] text-white shadow-[#38A132]/30"
                   >
                     <ShoppingBag className="w-4 h-4" />
-                    <span>{isInCart ? 'Go to Shopping Cart' : 'Add to Cart'}</span>
+                    <span>{isInCart ? 'View Shopping Cart' : 'Add to Cart'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleDirectCheckout}
+                    className="flex-1 py-3 px-4 rounded-xl text-xs font-black flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white shadow-amber-600/30 border border-amber-500/40"
+                    title="Buy now and proceed directly to instant payment checkout"
+                  >
+                    <Zap className="w-4 h-4 text-amber-200 fill-amber-200" />
+                    <span>Direct Checkout</span>
                   </button>
 
                   {isLoggedIn && (

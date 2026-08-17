@@ -85,8 +85,14 @@ class GoogleLoginRequest(BaseModel):
     full_name: Optional[str] = None
     google_token: Optional[str] = None
 
+# Password Change Request Schema
+class PasswordChangeRequest(BaseModel):
+    current_password: Optional[str] = None
+    new_password: str
+
 # JWT Token Schema
 class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+

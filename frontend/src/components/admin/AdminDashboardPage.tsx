@@ -82,6 +82,7 @@ import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder
 import { fetchCustomOrders, updateOrderStatus, toggleLockOrderSpecifications, downloadPaymentReceipt, CustomOrderData } from '../../services/api_production';
 import { getStoredAdminMessages, sendAdminMessage, deleteAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
 import { getStoredUserAuthorities, saveUserAuthority, UserAuthorityRecord, CAPABILITY_DEFINITIONS, CapabilityKey } from '../../utils/userAuthoritiesStorage';
+import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 
 export interface SystemUserItem {
   id: string;
@@ -153,6 +154,7 @@ export interface RetailOrder {
   paymentStatus?: 'Paid' | 'Pending' | 'Cancelled';
   paymentId?: string;
   orderDate: string;
+  assignedWorkers?: any[];
   items?: Array<{
     id: string;
     productCode?: string;
@@ -584,8 +586,11 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Suppliers Directory State
   const [supplierList, setSupplierList] = useState<RetailSupplier[]>([]);
-  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
+  const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<RetailSupplier | null>(null);
+  const [newSupStatus, setNewSupStatus] = useState<'Active' | 'Inactive'>('Active');
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
   const [newSupName, setNewSupName] = useState('');
   const [newSupContact, setNewSupContact] = useState('');
   const [newSupPhone, setNewSupPhone] = useState('');
@@ -638,12 +643,13 @@ export const AdminDashboardPage: React.FC = () => {
         paymentStatus: 'Paid',
         orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
         createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
+        assignedWorkers: c.assigned_workers || [],
         items: [{
           id: `item-custom-${c.custom_order_id}`,
           name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
           price: c.estimated_price || 0,
           quantity: 1,
-          imageUrl: c.reference_image ? c.reference_image.split(',')[0].trim() : ''
+          imageUrl: c.reference_image ? parseReferenceImages(c.reference_image)[0] || '' : ''
         }]
       }));
 
@@ -1114,10 +1120,25 @@ export const AdminDashboardPage: React.FC = () => {
   // Handlers for Add Product
   const handleAddProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newProdName.trim() || !newProdPrice) return;
 
-    const qty = parseInt(newProdStock) || 1;
-    const priceVal = parseFloat(newProdPrice) || 0;
+    const nameTrim = newProdName.trim();
+    if (!nameTrim || nameTrim.length < 2) {
+      alert('Please enter a valid product title (at least 2 characters).');
+      return;
+    }
+
+    const priceVal = parseFloat(newProdPrice);
+    if (isNaN(priceVal) || priceVal <= 0) {
+      alert('Please enter a valid positive price amount (greater than ₹0).');
+      return;
+    }
+
+    const qty = parseInt(newProdStock);
+    if (isNaN(qty) || qty < 0) {
+      alert('Please enter a valid stock quantity (0 or greater).');
+      return;
+    }
+
     const imgUrl = newProdImage.trim() || undefined;
 
     const finalCategory = isCustomCategoryMode
@@ -1339,46 +1360,86 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  // Handlers for Add Supplier
+  // Handlers for Add/Edit Supplier
   const handleCreateSupplierSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSupName.trim() || !newSupContact.trim() || !newSupPhone.trim()) return;
 
-    try {
-      const created = await createSupplierInDB({
-        supplier_name: newSupName.trim(),
-        contact_person: newSupContact.trim(),
-        phone: newSupPhone.trim(),
-        email: newSupEmail.trim() || undefined,
-        address: newSupAddress.trim() || 'Industrial Estate, India',
-        gst_number: newSupGst.trim() || undefined,
-      });
+    if (editingSupplier) {
+      setSupplierList((prev) =>
+        prev.map((sup) =>
+          sup.id === editingSupplier.id || (sup.supplier_id && sup.supplier_id === editingSupplier.supplier_id)
+            ? {
+                ...sup,
+                supplier_name: newSupName.trim(),
+                contact_person: newSupContact.trim(),
+                phone: newSupPhone.trim(),
+                address: newSupAddress.trim() || sup.address,
+                status: newSupStatus,
+              }
+            : sup
+        )
+      );
+      setSuccessBanner(`Supplier "${newSupName.trim()}" details updated successfully!`);
+    } else {
+      try {
+        const created = await createSupplierInDB({
+          supplier_name: newSupName.trim(),
+          contact_person: newSupContact.trim(),
+          phone: newSupPhone.trim(),
+          email: newSupEmail.trim() || undefined,
+          address: newSupAddress.trim() || 'Industrial Estate, India',
+          gst_number: newSupGst.trim() || undefined,
+        });
 
-      setSupplierList((prev) => [created, ...prev]);
-      setSuccessBanner(`Supplier "${created.supplier_name}" added successfully!`);
-    } catch (err) {
-      console.warn('Could not save supplier, fallback locally:', err);
-      const fallback: RetailSupplier = {
-        id: `sup-${Date.now()}`,
-        supplier_name: newSupName.trim(),
-        contact_person: newSupContact.trim(),
-        phone: newSupPhone.trim(),
-        address: newSupAddress.trim() || 'Furniture Supply Zone, India',
-        assigned_products_count: 0,
-        status: 'Active',
-      };
-      setSupplierList((prev) => [fallback, ...prev]);
-      setSuccessBanner(`Supplier "${fallback.supplier_name}" added successfully!`);
+        setSupplierList((prev) => [{ ...created, status: newSupStatus }, ...prev]);
+        setSuccessBanner(`Supplier "${created.supplier_name}" added successfully!`);
+      } catch (err) {
+        console.warn('Could not save supplier, fallback locally:', err);
+        const fallback: RetailSupplier = {
+          id: `sup-${Date.now()}`,
+          supplier_name: newSupName.trim(),
+          contact_person: newSupContact.trim(),
+          phone: newSupPhone.trim(),
+          address: newSupAddress.trim() || 'Furniture Supply Zone, India',
+          assigned_products_count: 0,
+          status: newSupStatus,
+        };
+        setSupplierList((prev) => [fallback, ...prev]);
+        setSuccessBanner(`Supplier "${fallback.supplier_name}" added successfully!`);
+      }
     }
 
+    setEditingSupplier(null);
     setNewSupName('');
     setNewSupContact('');
     setNewSupPhone('');
     setNewSupEmail('');
     setNewSupAddress('');
     setNewSupGst('');
+    setNewSupStatus('Active');
     setIsAddSupplierModalOpen(false);
     setTimeout(() => setSuccessBanner(null), 6000);
+  };
+
+  const handleOpenEditSupplierModal = (sup: RetailSupplier) => {
+    setEditingSupplier(sup);
+    setNewSupName(sup.supplier_name || '');
+    setNewSupContact(sup.contact_person || '');
+    setNewSupPhone(sup.phone || '');
+    setNewSupAddress(sup.address || '');
+    setNewSupStatus(sup.status || 'Active');
+    setIsAddSupplierModalOpen(true);
+  };
+
+  const handleOpenAddSupplierModal = () => {
+    setEditingSupplier(null);
+    setNewSupName('');
+    setNewSupContact('');
+    setNewSupPhone('');
+    setNewSupAddress('');
+    setNewSupStatus('Active');
+    setIsAddSupplierModalOpen(true);
   };
 
   // Handlers for Admin Query Response
@@ -1684,158 +1745,158 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="space-y-2.5">
+        <nav className="space-y-2 text-xs font-extrabold">
           <button
             onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'users'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <UserCheck className="w-4.5 h-4.5" />
-              <span className="text-sm">User Management</span>
+              <UserCheck className="w-4 h-4" />
+              <span className="text-xs">User Management</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('staff')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'staff'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Users className="w-4.5 h-4.5" />
-              <span className="text-sm">Staff Accounts</span>
+              <Users className="w-4 h-4" />
+              <span className="text-xs">Staff Accounts</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('products')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'products'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Package className="w-4.5 h-4.5" />
-              <span className="text-sm">Product Catalog</span>
+              <Package className="w-4 h-4" />
+              <span className="text-xs">Product Catalog</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('inventory')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'inventory'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <SlidersHorizontal className="w-4.5 h-4.5" />
-              <span className="text-sm">Stock & Inventory</span>
+              <SlidersHorizontal className="w-4 h-4" />
+              <span className="text-xs">Stock & Inventory</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('suppliers')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'suppliers'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Briefcase className="w-4.5 h-4.5" />
-              <span className="text-sm">Supplier Directory</span>
+              <Briefcase className="w-4 h-4" />
+              <span className="text-xs">Supplier Directory</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('orders')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'orders'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <ShoppingBag className="w-4.5 h-4.5" />
-              <span className="text-sm">Customer Orders</span>
+              <ShoppingBag className="w-4 h-4" />
+              <span className="text-xs">Customer Orders</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('custom_orders')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'custom_orders'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Sliders className="w-4.5 h-4.5" />
-              <span className="text-sm">Customization Orders</span>
+              <Sliders className="w-4 h-4" />
+              <span className="text-xs">Customization Orders</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('queries')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'queries'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <MessageSquare className="w-4.5 h-4.5" />
-              <span className="text-sm">Queries & Requests</span>
+              <MessageSquare className="w-4 h-4" />
+              <span className="text-xs">Queries & Requests</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('coupons')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'coupons'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Tag className="w-4.5 h-4.5" />
-              <span className="text-sm">Coupons & Discounts</span>
+              <Tag className="w-4 h-4" />
+              <span className="text-xs">Coupons & Discounts</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('broadcast')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'broadcast'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Send className="w-4.5 h-4.5" />
-              <span className="text-sm">Broadcast & Direct Messages</span>
+              <Send className="w-4 h-4" />
+              <span className="text-xs">Broadcast & Direct Messages</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('analytics')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'analytics'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <TrendingUp className="w-4.5 h-4.5" />
-              <span className="text-sm">Analytics & Reports</span>
+              <TrendingUp className="w-4 h-4" />
+              <span className="text-xs">Analytics & Reports</span>
             </div>
           </button>
         </nav>
@@ -1999,7 +2060,7 @@ export const AdminDashboardPage: React.FC = () => {
                             setIsUserMenuOpen(false);
                             handleSignOut();
                           }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left cursor-pointer"
                         >
                           <LogOut className="w-4 h-4 text-rose-600" />
                           <span>Sign Out</span>
@@ -3068,7 +3129,7 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
 
                       <button
-                        onClick={() => setIsAddSupplierModalOpen(true)}
+                        onClick={handleOpenAddSupplierModal}
                         className="px-4 py-2 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                       >
                         <Plus className="w-4 h-4" />
@@ -3101,9 +3162,19 @@ export const AdminDashboardPage: React.FC = () => {
                               </div>
                             </div>
 
-                            <span className="px-3 py-1 rounded-full bg-[#48A63E]/15 text-[#48A63E] text-xs font-extrabold">
-                              {prodsForSup.length} Products Supplied
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <span className="px-3 py-1 rounded-full bg-[#48A63E]/15 text-[#48A63E] text-xs font-extrabold">
+                                {prodsForSup.length} Products Supplied
+                              </span>
+                              <button
+                                onClick={() => handleOpenEditSupplierModal(sup)}
+                                className="px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Edit supplier details"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                                <span>Edit</span>
+                              </button>
+                            </div>
                           </div>
 
                           {/* Supplied Products Preview Table */}
@@ -3218,7 +3289,6 @@ export const AdminDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Items & Product Code</th>
                           <th className="py-3 px-4">Total Amount</th>
                           <th className="py-3 px-4">Payment Time</th>
-                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -3263,8 +3333,13 @@ export const AdminDashboardPage: React.FC = () => {
                                   )}
                                 </td>
                                 <td className="py-4 px-4">
-                                  <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName}</div>
-                                  <div className="text-[11px] text-[#6B5C4D] font-semibold">{ord.email}</div>
+                                   <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName}</div>
+                                   <div className="text-[11px] text-[#6B5C4D] font-semibold">{ord.email}</div>
+                                   {ord.assignedWorkers && ord.assignedWorkers.length > 0 && (
+                                     <div className="mt-1 font-extrabold text-[10px] text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded-md border border-[#38A132]/20 inline-flex items-center gap-1">
+                                       <span>👷 {ord.assignedWorkers.map((w: any) => w.worker_name).join(', ')}</span>
+                                     </div>
+                                   )}
                                 </td>
                                 <td className="py-4 px-4">
                                   {ord.items && ord.items.length > 0 ? (
@@ -3313,16 +3388,6 @@ export const AdminDashboardPage: React.FC = () => {
                                       </span>
                                     )}
                                   </div>
-                                </td>
-                                <td className="py-4 px-4 text-right">
-                                  <button
-                                    onClick={() => handleOpenEditOrder(ord)}
-                                    className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                    title="Edit Order Status & Details"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5" />
-                                    <span>Edit</span>
-                                  </button>
                                 </td>
                               </tr>
                             )))}
@@ -3515,19 +3580,41 @@ export const AdminDashboardPage: React.FC = () => {
                                 <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
                               </div>
                             </div>
+
+                            {/* Assigned Worker Banner */}
+                            <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
+                                <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
+                                {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    {ord.assigned_workers.map((w, idx) => (
+                                      <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
+                                        <span>👷 {w.worker_name}</span>
+                                        {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                                        {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
+                                    No Artisan Worker Assigned Yet
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
 
                           {/* Reference Images Thumbnails */}
-                          {ord.reference_image && ord.reference_image.split(',').map(s => s.trim()).filter(Boolean).length > 0 && (
+                          {ord.reference_image && parseReferenceImages(ord.reference_image).length > 0 && (
                             <div className="flex items-center gap-2 pt-2 border-t border-[#EFE7DE]">
                               <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mr-2">Reference Images:</span>
-                              {ord.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, i) => (
-                                <a
+                              {parseReferenceImages(ord.reference_image).map((imgUrl, i) => (
+                                <button
                                   key={i}
-                                  href={imgUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="w-10 h-10 rounded-lg overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0"
+                                  type="button"
+                                  onClick={() => openImageInNewTab(imgUrl)}
+                                  className="w-10 h-10 rounded-lg overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0 cursor-pointer"
                                 >
                                   <img
                                     src={imgUrl}
@@ -3535,7 +3622,7 @@ export const AdminDashboardPage: React.FC = () => {
                                     className="w-full h-full object-cover"
                                     onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                                   />
-                                </a>
+                                </button>
                               ))}
                             </div>
                           )}
@@ -4849,8 +4936,12 @@ export const AdminDashboardPage: React.FC = () => {
           <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
               <div>
-                <h3 className="text-base font-extrabold text-[#2C241D]">Add Product Supplier</h3>
-                <p className="text-[11px] font-medium text-[#7A6C5E]">Register wholesale vendors and ready-made product manufacturers.</p>
+                <h3 className="text-base font-extrabold text-[#2C241D]">
+                  {editingSupplier ? `Edit Supplier: ${editingSupplier.supplier_name}` : 'Add Product Supplier'}
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">
+                  {editingSupplier ? 'Update vendor contact details, phone, address & status.' : 'Register wholesale vendors and ready-made product manufacturers.'}
+                </p>
               </div>
               <button onClick={() => setIsAddSupplierModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
@@ -4894,6 +4985,18 @@ export const AdminDashboardPage: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block font-bold text-[#2C241D] mb-1">Vendor Status</label>
+                <select
+                  value={newSupStatus}
+                  onChange={(e) => setNewSupStatus(e.target.value as 'Active' | 'Inactive')}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-xs cursor-pointer"
+                >
+                  <option value="Active">Active (Fulfilling Orders)</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
@@ -4906,7 +5009,7 @@ export const AdminDashboardPage: React.FC = () => {
                   type="submit"
                   className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
                 >
-                  Save Supplier
+                  {editingSupplier ? 'Save Changes' : 'Save Supplier'}
                 </button>
               </div>
             </form>
@@ -4980,11 +5083,17 @@ export const AdminDashboardPage: React.FC = () => {
 
       {/* MODAL 9: ADMIN PROFILE & SECURITY MODAL */}
       {isAdminProfileModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
-          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
-            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-lg font-extrabold text-[#2C241D]">Admin Security & Profile Settings</h3>
-              <button onClick={() => setIsAdminProfileModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#E2D7CB] space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">Admin Security & Profile Settings</h3>
+                <p className="text-[11px] font-bold text-[#6B5C4D]">Update credentials & system access settings</p>
+              </div>
+              <button
+                onClick={() => setIsAdminProfileModalOpen(false)}
+                className="p-1.5 text-[#6B5C4D] hover:text-[#2C241D] rounded-full bg-[#EAE0D4] transition-colors cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -5002,7 +5111,7 @@ export const AdminDashboardPage: React.FC = () => {
                   type="text"
                   value={profileForm.full_name}
                   onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs"
                   required
                 />
               </div>
@@ -5013,33 +5122,28 @@ export const AdminDashboardPage: React.FC = () => {
                   type="email"
                   value={profileForm.email}
                   onChange={(e) => setProfileForm({ ...profileForm, email: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold"
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs"
                   required
                 />
               </div>
 
-              <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
+              <div className="pt-2 border-t border-[#E2D7CB] space-y-2">
                 <span className="font-extrabold text-[#2C241D] block">Update Password Credentials</span>
                 <input
                   type="password"
-                  placeholder="Current Password"
-                  value={profileForm.currentPassword}
-                  onChange={(e) => setProfileForm({ ...profileForm, currentPassword: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs"
-                />
-                <input
-                  type="password"
+                  autoComplete="new-password"
                   placeholder="New Password (min 6 chars)"
                   value={profileForm.newPassword}
                   onChange={(e) => setProfileForm({ ...profileForm, newPassword: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs"
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs placeholder-[#8C7C6D]"
                 />
                 <input
                   type="password"
+                  autoComplete="new-password"
                   placeholder="Confirm New Password"
                   value={profileForm.confirmPassword}
                   onChange={(e) => setProfileForm({ ...profileForm, confirmPassword: e.target.value })}
-                  className="w-full px-3.5 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs"
+                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs placeholder-[#8C7C6D]"
                 />
               </div>
 
@@ -5047,13 +5151,13 @@ export const AdminDashboardPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsAdminProfileModalOpen(false)}
-                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold"
+                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#5C4A3A] font-extrabold bg-[#EAE0D4] hover:bg-[#DED2C2] transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] text-white font-bold shadow-md"
+                  className="w-1/2 py-3 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer"
                 >
                   Save Profile
                 </button>
@@ -5179,6 +5283,11 @@ export const AdminDashboardPage: React.FC = () => {
                 <div className="text-[#1A140E] font-black text-sm">{selectedOrderForEdit.customerName}</div>
                 <div className="text-[#6B5C4D] font-mono text-xs">{selectedOrderForEdit.email}</div>
                 <div className="text-[#48A63E] font-black text-sm pt-1">Total Amount: ₹{selectedOrderForEdit.totalAmount.toLocaleString('en-IN')}</div>
+                {selectedOrderForEdit.assignedWorkers && selectedOrderForEdit.assignedWorkers.length > 0 && (
+                  <div className="mt-2 p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-extrabold text-emerald-900 flex items-center gap-1.5">
+                    <span>👷 Assigned Worker(s): {selectedOrderForEdit.assignedWorkers.map((w: any) => `${w.worker_name}${w.specialization ? ` (${w.specialization})` : ''}`).join(', ')}</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -5577,6 +5686,34 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* 1.5 ASSIGNED WORKERS CARD IN SPECS MODAL */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+              <h4 className="text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-[#38A132]" />
+                <span>Assigned Workshop Artisan(s) & Production Team</span>
+              </h4>
+              {selectedCustomForAdminDetails.assigned_workers && selectedCustomForAdminDetails.assigned_workers.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {selectedCustomForAdminDetails.assigned_workers.map((w, i) => (
+                    <div key={i} className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-between">
+                      <div>
+                        <span className="font-extrabold text-[#2C241D] block text-xs">👷 {w.worker_name}</span>
+                        {w.specialization && <span className="text-[10px] text-[#7A6C5E] block font-semibold">{w.specialization}</span>}
+                        {w.worker_phone && <span className="text-[10px] text-[#38A132] block font-mono">📞 {w.worker_phone}</span>}
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#38A132]/15 text-[#38A132] border border-[#38A132]/30">
+                        {w.task_status || 'Assigned'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 font-bold">
+                  ⚠️ No artisan worker assigned yet to this custom build. Production Staff can assign workshop artisans.
+                </p>
+              )}
+            </div>
+
             {/* 2. SEPARATED PRODUCT FIELDS GRID */}
             <div className="space-y-3">
               <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Product Specifications & Parameters</h4>
@@ -5599,16 +5736,15 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="space-y-3">
                 <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
                   <Eye className="w-4 h-4 text-[#38A132]" />
-                  Customer Provided Reference Images ({selectedCustomForAdminDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).length})
+                  Customer Provided Reference Images ({parseReferenceImages(selectedCustomForAdminDetails.reference_image).length})
                 </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {selectedCustomForAdminDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, i) => (
-                    <a
+                  {parseReferenceImages(selectedCustomForAdminDetails.reference_image).map((imgUrl, i) => (
+                    <button
                       key={i}
-                      href={imgUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all block h-32"
+                      type="button"
+                      onClick={() => openImageInNewTab(imgUrl)}
+                      className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all block h-32 text-left cursor-pointer w-full"
                     >
                       <img
                         src={imgUrl}
@@ -5616,7 +5752,7 @@ export const AdminDashboardPage: React.FC = () => {
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                         onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                       />
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>

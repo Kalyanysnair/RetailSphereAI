@@ -37,14 +37,12 @@ import {
 import {
   fetchCustomOrders,
   updateProductionProgress,
+  downloadPaymentReceipt,
   CustomOrderData,
   WorkerData,
   fetchWorkers
 } from '../../services/api_production';
-import {
-  updateUserProfile,
-  changeFirstPassword
-} from '../../services/api';
+import { getCurrentUser, updateUserProfile, changeFirstPassword } from '../../services/api';
 
 export const WorkerDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -282,18 +280,18 @@ export const WorkerDashboardPage: React.FC = () => {
         </div>
 
         {/* Vertical Navigation Menu - Clean 3 Core Tabs */}
-        <nav className="space-y-2.5 text-xs font-extrabold">
+        <nav className="space-y-2 text-xs font-extrabold">
           <button
             onClick={() => setActiveTab('builds')}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
               activeTab === 'builds'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/30 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/30 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Wrench className="w-4.5 h-4.5" />
-              <span className="text-sm">Assigned Builds</span>
+              <Wrench className="w-4 h-4" />
+              <span className="text-xs">Assigned Builds</span>
             </div>
             {totalAssignedCount > 0 && (
               <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'builds' ? 'bg-white/20 text-white' : 'bg-[#DCD0C2] text-[#2C241D]'}`}>
@@ -304,15 +302,15 @@ export const WorkerDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('in_production')}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
               activeTab === 'in_production'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/30 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/30 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Clock className="w-4.5 h-4.5" />
-              <span className="text-sm">In-Production</span>
+              <Clock className="w-4 h-4" />
+              <span className="text-xs">In-Production</span>
             </div>
             {inProductionCount > 0 && (
               <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'in_production' ? 'bg-white/20 text-white' : 'bg-[#DCD0C2] text-[#2C241D]'}`}>
@@ -323,15 +321,15 @@ export const WorkerDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('completed')}
-            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-2xl transition-all cursor-pointer ${
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all cursor-pointer ${
               activeTab === 'completed'
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/30 font-extrabold'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/30 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <PackageCheck className="w-4.5 h-4.5" />
-              <span className="text-sm">Completed Builds</span>
+              <PackageCheck className="w-4 h-4" />
+              <span className="text-xs">Completed Builds</span>
             </div>
             {completedCount > 0 && (
               <span className={`px-2 py-0.5 rounded-full text-[10px] ${activeTab === 'completed' ? 'bg-white/20 text-white' : 'bg-[#DCD0C2] text-[#2C241D]'}`}>
@@ -844,16 +842,6 @@ export const WorkerDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Current Password</label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required
-                  className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                />
-              </div>
 
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">New Password</label>

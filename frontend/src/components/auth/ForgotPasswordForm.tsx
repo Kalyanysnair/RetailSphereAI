@@ -29,14 +29,19 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
     setError(null);
     setInfoMessage(null);
 
-    if (!email.trim()) {
-      setError('Please enter a valid username or email address');
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError('Please enter your username or registered email address.');
+      return;
+    }
+    if (trimmed.includes('@') && !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+      setError('Please enter a valid email address (e.g. user@example.com).');
       return;
     }
 
     setLoading(true);
     try {
-      const res = await requestForgotPassword(email);
+      const res = await requestForgotPassword(trimmed);
       setInfoMessage(res.message || 'Verification code sent to your email.');
       setStep('reset');
     } catch (err: any) {
@@ -51,8 +56,13 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
     e.preventDefault();
     setError(null);
 
-    if (!resetCode.trim()) {
+    const cleanCode = resetCode.trim();
+    if (!cleanCode) {
       setError('Please enter the 6-digit verification code sent to your email');
+      return;
+    }
+    if (!/^\d{6}$/.test(cleanCode)) {
+      setError('Verification code must be exactly 6 digits (e.g. 123456)');
       return;
     }
 

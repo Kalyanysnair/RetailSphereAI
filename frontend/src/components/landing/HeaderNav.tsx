@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Menu, X, ArrowUpRight } from 'lucide-react';
+import { Logo } from '../common/Logo';
 
 export const HeaderNav: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -66,9 +67,7 @@ export const HeaderNav: React.FC = () => {
     >
       <div className="max-w-7xl mx-auto h-16 rounded-full bg-white/95 backdrop-blur-2xl border-2 border-[#E2D7CB] shadow-xl px-6 sm:px-8 flex items-center justify-between transition-all">
         {/* Brand Logo */}
-        <Link to="/" className="text-lg sm:text-xl font-black tracking-tight text-[#1A1410] hover:opacity-90 transition-opacity">
-          RetailSphere <span className="text-[#38A132]">AI</span>
-        </Link>
+        <Logo to="/" size="md" />
 
         {/* Navigation Links (Center) */}
         <nav className="hidden md:flex items-center gap-8 text-xs font-black text-[#1A1410]">

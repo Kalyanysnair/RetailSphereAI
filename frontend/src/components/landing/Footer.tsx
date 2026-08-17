@@ -1,6 +1,7 @@
 import React from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { Logo } from '../common/Logo';
 
 export const Footer: React.FC = () => {
   return (
@@ -9,9 +10,7 @@ export const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 pb-12 border-b border-[#E2D7CB]">
           {/* Clean Brand Info */}
           <div className="lg:col-span-2 space-y-3">
-            <Link to="/" className="text-xl font-extrabold tracking-tight text-[#2C241D] hover:opacity-90 transition-opacity block">
-              RetailSphere <span className="text-[#38A132]">AI</span>
-            </Link>
+            <Logo to="/" size="lg" />
             <p className="text-xs text-[#524538] font-bold leading-relaxed max-w-sm">
               Handcrafting sustainable contemporary furniture engineered for timeless architectural spaces.
             </p>

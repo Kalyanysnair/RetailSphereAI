@@ -21,10 +21,11 @@ import {
   Download
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
-import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData } from '../../services/api_production';
+import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData, isCustomerOrderMatch } from '../../services/api_production';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getStoredRetailOrders, cancelStoredRetailOrder, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
+import { parseReferenceImages } from '../../utils/imageUtils';
 
 interface OrderItem {
   id: string;
@@ -120,28 +121,16 @@ export const MyOrdersPage: React.FC = () => {
     setLoading(true);
     try {
       const allCustomOrders = await fetchCustomOrders();
-
-      const sessionEmail = (
-        userObj?.email || 
-        userObj?.customer_email || 
-        localStorage.getItem('user_email') || 
-        ''
-      ).toLowerCase().trim();
-      const sessionUserId = userObj?.id || userObj?.customer_id || userObj?.user_id;
+      console.log('[MY ORDERS DEBUG] API RESULT COUNT:', allCustomOrders.length, allCustomOrders);
 
       const userCustomOrders = allCustomOrders.filter((o) => {
-        if (!userObj) return false;
-        
-        const oEmail = (o.customer_email || '').toLowerCase().trim();
-        const oId = o.customer_id;
-
-        if (sessionUserId && oId && Number(oId) === Number(sessionUserId)) return true;
-        if (sessionEmail && oEmail && oEmail === sessionEmail) return true;
-        
-        return false;
+        if (!userObj) return true;
+        return isCustomerOrderMatch(o, userObj);
       });
 
-      const formatted: OrderData[] = userCustomOrders.map((o) => {
+      const finalCustomOrders = userCustomOrders;
+
+      const formatted: OrderData[] = finalCustomOrders.map((o) => {
         const stages = [
           'Material Sourcing',
           'Cutting & Joinery',
@@ -169,10 +158,10 @@ export const MyOrdersPage: React.FC = () => {
               id: `item-${o.custom_order_id}`,
               name: o.furniture_type,
               category: 'Custom Studio',
-              image: o.reference_image ? o.reference_image.split(',')[0].trim() : '',
+              image: o.reference_image ? parseReferenceImages(o.reference_image)[0] || '' : '',
               price: o.estimated_price || 0,
               quantity: 1,
-              specifications: `Material: ${o.material} • Upholstery: ${o.color} • Specs: ${o.dimensions}`
+              specifications: `Material: ${o.material} • Upholstery: ${o.color} • Specs: ${o.dimensions}${o.design_description ? ` • Notes: ${o.design_description}` : ''}`
             }
           ],
           trackingTimeline: stages.map((stg, idx) => ({
@@ -184,59 +173,67 @@ export const MyOrdersPage: React.FC = () => {
         };
       });
 
-      const storedRetailOrders = await fetchRetailOrdersFromDB();
+      let formattedRetailOrders: OrderData[] = [];
+      try {
+        const sessionEmail = (userObj?.email || userObj?.customer_email || localStorage.getItem('user_email') || '').toLowerCase().trim();
+        const sessionUserId = userObj?.id || userObj?.customer_id || userObj?.user_id;
 
-      const userRetailOrders = storedRetailOrders.filter((r) => {
-        const oEmail = (r.email || '').toLowerCase().trim();
-        const oCustomerId = r.customerId || (r as any).customer_id;
+        const storedRetailOrders = await fetchRetailOrdersFromDB();
 
-        if (sessionUserId && oCustomerId && Number(oCustomerId) === Number(sessionUserId)) return true;
-        if (sessionEmail && oEmail && oEmail === sessionEmail) return true;
+        const userRetailOrders = storedRetailOrders.filter((r) => {
+          if (!userObj || (!sessionEmail && !sessionUserId)) return false;
+          const oEmail = (r.email || '').toLowerCase().trim();
+          const oCustomerId = r.customerId || (r as any).customer_id;
 
-        // Fallback: If session user email/ID is missing, display all DB orders
-        if (!sessionEmail && !sessionUserId) return true;
+          if (sessionUserId && oCustomerId && Number(oCustomerId) === Number(sessionUserId)) return true;
+          if (sessionEmail && oEmail && oEmail === sessionEmail) return true;
 
-        return false;
-      });
+          return false;
+        });
 
-      const formattedRetailOrders: OrderData[] = userRetailOrders.map((r, index) => ({
-        orderId: r.orderId,
-        numericId: 9000 + index,
-        type: 'standard',
-        date: r.orderDate,
-        status: r.orderStatus === 'Cancelled' ? 'Cancelled' : (r.paymentStatus === 'Paid' ? 'Order Placed' : r.orderStatus),
-        totalPrice: r.totalAmount,
-        originalSubtotal: r.originalSubtotal,
-        couponCode: r.couponCode,
-        discountType: r.discountType,
-        discountDeducted: r.discountDeducted,
-        shippingFee: r.shippingFee,
-        isCustomBuild: false,
-        is_locked: true,
-        sortTimestamp: r.createdAt || (r.orderDate ? new Date(r.orderDate).getTime() : Date.now() - index * 1000),
-        items: r.items.map((i) => ({
-          id: i.id,
-          name: i.name,
-          category: 'Ready-Made Store Furniture',
-          image: i.imageUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80',
-          price: i.price,
-          quantity: i.quantity,
-          specifications: `${i.quantity} Unit(s) • Ready-Made Store Purchase${r.paymentId ? ` • Payment ID: ${r.paymentId}` : ''}`,
-        })),
-        trackingTimeline: [
-          { stage: 'Order Placed & Paid (Razorpay)', completed: true, current: false },
-          { stage: 'Warehouse Processing', completed: true, current: true },
-          { stage: 'Dispatched for Delivery', completed: false, current: false },
-          { stage: 'Delivered to Customer', completed: false, current: false },
-        ],
-      }));
+        const finalRetailOrders = userRetailOrders;
+
+        formattedRetailOrders = finalRetailOrders.map((r, index) => ({
+          orderId: r.orderId,
+          numericId: 9000 + index,
+          type: 'standard',
+          date: r.orderDate,
+          status: r.orderStatus === 'Cancelled' ? 'Cancelled' : (r.paymentStatus === 'Paid' ? 'Order Placed' : r.orderStatus),
+          totalPrice: r.totalAmount,
+          originalSubtotal: r.originalSubtotal,
+          couponCode: r.couponCode,
+          discountType: r.discountType,
+          discountDeducted: r.discountDeducted,
+          shippingFee: r.shippingFee,
+          isCustomBuild: false,
+          is_locked: true,
+          sortTimestamp: r.createdAt || (r.orderDate ? new Date(r.orderDate).getTime() : Date.now() - index * 1000),
+          items: r.items.map((i) => ({
+            id: i.id,
+            name: i.name,
+            category: 'Ready-Made Store Furniture',
+            image: i.imageUrl || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80',
+            price: i.price,
+            quantity: i.quantity,
+            specifications: `${i.quantity} Unit(s) • Ready-Made Store Purchase${r.paymentId ? ` • Payment ID: ${r.paymentId}` : ''}`,
+          })),
+          trackingTimeline: [
+            { stage: 'Order Placed & Paid (Razorpay)', completed: true, current: false },
+            { stage: 'Warehouse Processing', completed: true, current: true },
+            { stage: 'Dispatched for Delivery', completed: false, current: false },
+            { stage: 'Delivered to Customer', completed: false, current: false },
+          ],
+        }));
+      } catch (retailErr) {
+        console.warn('Retail orders load error:', retailErr);
+      }
 
       const mergedOrders = [...formatted, ...formattedRetailOrders];
       mergedOrders.sort((a, b) => (b.sortTimestamp || 0) - (a.sortTimestamp || 0));
+      console.log('[MY ORDERS DEBUG] SETTING ORDERS STATE COUNT:', mergedOrders.length, mergedOrders);
       setOrders(mergedOrders);
     } catch (err) {
       console.error('Error fetching DB orders:', err);
-      setOrders([]);
     } finally {
       setLoading(false);
     }
@@ -287,7 +284,7 @@ export const MyOrdersPage: React.FC = () => {
   };
 
   const filteredOrders = orders.filter(o => {
-    if (activeTab === 'current') return o.status === 'Order Placed' || o.status === 'In Production' || o.status === 'Approved' || o.status === 'Processing' || o.status === 'Shipped' || o.status === 'Warehouse Processing' || !o.isCustomBuild;
+    if (activeTab === 'current') return o.status === 'Pending' || o.status === 'Pending Approval' || o.status === 'Quote Provided' || o.status === 'Order Placed' || o.status === 'In Production' || o.status === 'Approved' || o.status === 'Processing' || o.status === 'Shipped' || o.status === 'Warehouse Processing' || o.status === 'Paid';
     if (activeTab === 'in-progress') return o.status === 'In Production' || o.status === 'Approved' || o.status === 'Out for Delivery';
     if (activeTab === 'delivered') return o.status === 'Completed' || o.status === 'Delivered';
     if (activeTab === 'custom') return o.isCustomBuild;
@@ -296,37 +293,88 @@ export const MyOrdersPage: React.FC = () => {
 
   const renderSpecBadges = (specs: string) => {
     if (!specs) return null;
-    const parts = specs.split('•').map(s => s.trim()).filter(Boolean);
+    const parts = specs.split('•').map((s) => s.trim()).filter(Boolean);
+
+    const badges: { icon: string; text: string }[] = [];
+
+    parts.forEach((part) => {
+      let lower = part.toLowerCase();
+
+      if (lower.startsWith('material:')) {
+        const clean = part.replace(/material:/i, '').trim();
+        badges.push({ icon: '🪵', text: clean });
+      } else if (lower.startsWith('upholstery:')) {
+        const clean = part.replace(/upholstery:/i, '').trim();
+        badges.push({ icon: '🧵', text: clean });
+      } else if (lower.startsWith('specs:')) {
+        const clean = part.replace(/specs:/i, '').trim();
+        badges.push({ icon: '📐', text: clean });
+      } else if (lower.startsWith('notes:')) {
+        const notesRaw = part.replace(/notes:/i, '').trim();
+
+        // Check if notes contains Aspects: [...]
+        const aspectsMatch = notesRaw.match(/Aspects:\s*\[(.*?)\]/i);
+        if (aspectsMatch && aspectsMatch[1]) {
+          const aspectItems = aspectsMatch[1]
+            .split(';')
+            .map((a) => a.trim())
+            .filter(Boolean);
+          aspectItems.forEach((asp) => {
+            const val = asp.includes(':') ? asp.split(':')[1].trim() : asp;
+            if (val) {
+              let icon = '✨';
+              const aspLower = asp.toLowerCase();
+              if (aspLower.includes('size') || aspLower.includes('king') || aspLower.includes('queen') || aspLower.includes('capacity') || aspLower.includes('seater')) {
+                icon = '🛏️';
+              } else if (aspLower.includes('storage') || aspLower.includes('drawer') || aspLower.includes('lift')) {
+                icon = '📦';
+              } else if (aspLower.includes('comfort') || aspLower.includes('cushion') || aspLower.includes('firmness')) {
+                icon = '🛋️';
+              } else if (aspLower.includes('leg') || aspLower.includes('armrest') || aspLower.includes('style')) {
+                icon = '🪵';
+              }
+              badges.push({ icon, text: val });
+            }
+          });
+        }
+
+        // Check if notes contains Special Requirements: ...
+        const specialMatch = notesRaw.match(/Special Requirements:\s*(.*)/i);
+        if (specialMatch && specialMatch[1]) {
+          const reqText = specialMatch[1].trim();
+          if (reqText && !['nil', 'none', 'n/a', 'no', 'nil.'].includes(reqText.toLowerCase())) {
+            badges.push({ icon: '📌', text: `Special: ${reqText}` });
+          }
+        } else if (!aspectsMatch) {
+          if (notesRaw && !['nil', 'none', 'n/a'].includes(notesRaw.toLowerCase())) {
+            badges.push({ icon: '📝', text: notesRaw });
+          }
+        }
+      } else if (lower.includes('unit')) {
+        badges.push({ icon: '📦', text: part });
+      } else if (lower.includes('ready-made') || lower.includes('store')) {
+        badges.push({ icon: '🛒', text: part });
+      } else if (lower.includes('payment id:')) {
+        const clean = part.replace(/payment id:/i, 'Pay ID:').trim();
+        badges.push({ icon: '💳', text: clean });
+      } else {
+        badges.push({ icon: '⚡', text: part });
+      }
+    });
+
+    if (badges.length === 0) return null;
+
     return (
       <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
-        {parts.map((part, idx) => {
-          let cleanText = part;
-          let icon = null;
-          if (part.toLowerCase().startsWith('material:')) {
-            cleanText = part.replace(/material:/i, '').trim();
-            icon = '🪵';
-          } else if (part.toLowerCase().startsWith('upholstery:')) {
-            cleanText = part.replace(/upholstery:/i, '').trim();
-            icon = '🧵';
-          } else if (part.toLowerCase().startsWith('specs:')) {
-            cleanText = part.replace(/specs:/i, '').trim();
-            icon = '📏';
-          } else if (part.toLowerCase().includes('unit')) {
-            icon = '📦';
-          } else if (part.toLowerCase().includes('ready-made') || part.toLowerCase().includes('store')) {
-            icon = '🛒';
-          }
-
-          return (
-            <span
-              key={idx}
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-[11px] font-extrabold text-[#4A3E32]"
-            >
-              {icon && <span>{icon}</span>}
-              <span>{cleanText}</span>
-            </span>
-          );
-        })}
+        {badges.map((b, idx) => (
+          <span
+            key={idx}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32] shadow-2xs"
+          >
+            <span className="text-[11px]">{b.icon}</span>
+            <span className="truncate max-w-[220px]">{b.text}</span>
+          </span>
+        ))}
       </div>
     );
   };
@@ -387,7 +435,7 @@ export const MyOrdersPage: React.FC = () => {
           <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-[#EFE7DE] scrollbar-none">
             {[
               { id: 'all', label: 'All Orders', count: orders.length },
-              { id: 'current', label: 'Current Orders', count: orders.filter(o => o.status === 'Order Placed' || o.status === 'In Production' || o.status === 'Approved' || o.status === 'Processing' || o.status === 'Shipped' || o.status === 'Warehouse Processing' || !o.isCustomBuild).length },
+              { id: 'current', label: 'Current Orders', count: orders.filter(o => o.status === 'Pending' || o.status === 'Pending Approval' || o.status === 'Quote Provided' || o.status === 'Order Placed' || o.status === 'In Production' || o.status === 'Approved' || o.status === 'Processing' || o.status === 'Shipped' || o.status === 'Warehouse Processing' || o.status === 'Paid').length },
               { id: 'in-progress', label: 'In Progress / Approved', count: orders.filter(o => o.status === 'In Production' || o.status === 'Approved' || o.status === 'Out for Delivery').length },
               { id: 'delivered', label: 'Completed', count: orders.filter(o => o.status === 'Completed' || o.status === 'Delivered').length },
               { id: 'custom', label: 'Custom Builds', count: orders.filter(o => o.isCustomBuild).length }
@@ -573,11 +621,10 @@ export const MyOrdersPage: React.FC = () => {
                       {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'In Production' && (
                         <button
                           onClick={() => setCancelModalOrder({ id: order.isCustomBuild ? order.numericId : order.orderId, isCustom: !!order.isCustomBuild })}
-                          className="px-3.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                          title="Cancel this order request"
+                          className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
+                          title="Cancel Order"
                         >
                           <X className="w-3.5 h-3.5 text-rose-600" />
-                          <span>Cancel Request</span>
                         </button>
                       )}
 
@@ -591,7 +638,7 @@ export const MyOrdersPage: React.FC = () => {
                           <Pencil className="w-3.5 h-3.5 text-[#38A132]" />
                           <span>Edit Specs</span>
                         </Link>
-                      ) : (order.status === 'Approved' || order.status === 'Quote Updated') && (
+                      ) : (order.status === 'Approved' || order.status === 'Quote Updated' || (order.totalPrice > 0 && order.status !== 'Paid' && order.status !== 'Order Placed' && order.status !== 'In Production' && order.status !== 'Completed')) && (
                         <button
                           onClick={() => {
                             addToCart({
@@ -603,9 +650,9 @@ export const MyOrdersPage: React.FC = () => {
                             });
                             navigate('/cart');
                           }}
-                          className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center gap-2 transition-all shadow-md shadow-[#38A132]/25 cursor-pointer"
+                          className="px-3 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
                         >
-                          <ShoppingBag className="w-4 h-4 text-white" />
+                          <ShoppingBag className="w-3.5 h-3.5 text-white" />
                           <span>Add to Cart</span>
                         </button>
                       )}

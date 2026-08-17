@@ -7,6 +7,77 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+def _send_smtp_email(
+    to_email: str,
+    subject: str,
+    plain_text: str,
+    html_content: str,
+    from_name: str = "RetailSphere Support",
+    reply_to: str = None
+) -> bool:
+    """
+    Centralized, robust SMTP email dispatch helper.
+    Handles port 587 (STARTTLS) and port 465 (SSL), EHLO handshakes, UTF-8 MIME formatting,
+    and envelope sender matching.
+    """
+    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
+        logger.warning(f"[EMAIL] SMTP_USER or SMTP_PASSWORD not set in .env. Skipping real delivery to {to_email}")
+        return False
+
+    to_email_clean = to_email.strip()
+    smtp_user = settings.SMTP_USER.strip()
+    smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
+    msg_id = make_msgid()
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{from_name} <{smtp_user}>"
+    msg["To"] = to_email_clean
+    msg["Reply-To"] = reply_to or smtp_user
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = msg_id
+
+    msg.attach(MIMEText(plain_text, "plain", "utf-8"))
+    msg.attach(MIMEText(html_content, "html", "utf-8"))
+
+    try:
+        if settings.SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as server:
+                server.login(smtp_user, smtp_pass)
+                refused = server.sendmail(smtp_user, [to_email_clean], msg.as_string())
+        else:
+            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as server:
+                server.ehlo()
+                server.starttls()
+                server.ehlo()
+                server.login(smtp_user, smtp_pass)
+                refused = server.sendmail(smtp_user, [to_email_clean], msg.as_string())
+
+        if refused and to_email_clean in refused:
+            logger.error(f"[EMAIL ERROR] Recipient {to_email_clean} refused by SMTP server: {refused[to_email_clean]}")
+            print(f"[EMAIL SERVICE ERROR] Recipient {to_email_clean} refused: {refused[to_email_clean]}")
+            return False
+
+        logger.info(f"[EMAIL SUCCESS] Sent '{subject}' to {to_email_clean}")
+        print(f"[EMAIL SERVICE SUCCESS] Sent '{subject}' via SMTP to {to_email_clean}")
+        return True
+
+    except Exception as e:
+        logger.error(f"[EMAIL EXCEPTION] SMTP error sending '{subject}' to {to_email_clean}: {e}")
+        print(f"[EMAIL SERVICE EXCEPTION] SMTP error when sending to {to_email_clean}: {e}")
+        return False
+
+
+def mask_email(email_str: str) -> str:
+    if not email_str or '@' not in email_str:
+        return '***@***.com'
+    parts = email_str.split('@')
+    name = parts[0]
+    domain = parts[1]
+    masked_name = name[:2] + '***' if len(name) > 2 else name[0] + '***'
+    return f"{masked_name}@{domain}"
+
+
 def send_password_reset_email(to_email: str, user_name: str, reset_code: str) -> bool:
     """
     Sends a Password Reset verification email to the user with a 6-digit verification code.
@@ -14,10 +85,8 @@ def send_password_reset_email(to_email: str, user_name: str, reset_code: str) ->
     Otherwise logs the email dispatch securely in the backend server logs.
     """
     subject = "Password Reset Verification Code - RetailSphere"
-    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
     from_name = settings.EMAILS_FROM_NAME or "RetailSphere Support"
 
-    # Ensure greeting uses clean username instead of raw email ID
     clean_username = user_name
     if not clean_username or '@' in clean_username:
         clean_username = to_email.split('@')[0] if (to_email and '@' in to_email) else "User"
@@ -68,68 +137,34 @@ This code will expire in 15 minutes. If you did not request a password reset, pl
 """
 
     if settings.SMTP_USER and settings.SMTP_PASSWORD:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"{from_name} <{from_address}>"
-            msg["To"] = to_email
-
-            msg.attach(MIMEText(plain_text, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            smtp_user = settings.SMTP_USER.strip()
-            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(from_address, [to_email], msg.as_string())
-
-            logger.info(f"Successfully sent password reset email to {to_email}")
-            print(f"[EMAIL SERVICE SUCCESS] Password reset email sent via SMTP to {to_email}")
+        sent = _send_smtp_email(
+            to_email=to_email,
+            subject=subject,
+            plain_text=plain_text,
+            html_content=html_content,
+            from_name=from_name
+        )
+        if sent:
             return True
-        except Exception as e:
-            logger.error(f"Failed to send email to {to_email} via SMTP: {e}")
-            print(f"[EMAIL SERVICE ERROR] SMTP error when sending email to {to_email}: {e}")
-            print(f"[EMAIL SERVICE FALLBACK] Reset code for {to_email}: {reset_code}")
-            return False
+        print(f"[EMAIL SERVICE FALLBACK] Reset code for {to_email}: {reset_code}")
+        return False
     else:
         logger.info(f"SMTP credentials not configured in .env. Reset code for {to_email}: {reset_code}")
-        print(f"[EMAIL SERVICE NOTICE] SMTP credentials not configured in .env. (Set SMTP_USER & SMTP_PASSWORD in .env for real email delivery)")
-        print(f"[EMAIL SERVICE] Email dispatched to '{to_email}' with 6-digit verification code: {reset_code}")
+        print(f"[EMAIL SERVICE NOTICE] SMTP credentials not configured in .env. Reset code for '{to_email}': {reset_code}")
         return True
 
-
-def mask_email(email_str: str) -> str:
-    if not email_str or '@' not in email_str:
-        return '***@***.com'
-    parts = email_str.split('@')
-    name = parts[0]
-    domain = parts[1]
-    masked_name = name[:2] + '***' if len(name) > 2 else name[0] + '***'
-    return f"{masked_name}@{domain}"
 
 def send_staff_credentials_email(to_email: str, staff_name: str, role_name: str, username: str, password: str) -> bool:
     """
     Sends account credentials to a newly created staff member or worker.
-    The recipient email (to_email) is dynamically set to the worker's entered email address.
-    Never hardcode the recipient email address.
     """
     to_email_clean = to_email.strip()
     masked = mask_email(to_email_clean)
     subject = "Your RetailSphere AI Worker Account"
     worker_login_url = "http://localhost:3000/login"
-
-    if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
-        logger.error("SMTP Configuration missing (SMTP_USER or SMTP_PASSWORD not set). Cannot send email.")
-        print(f"[WORKER EMAIL TRACE] [CONFIG ERROR] Cannot send credentials email to {masked}: SMTP credentials missing in .env")
-        return False
-
     from_name = settings.EMAILS_FROM_NAME or "RetailSphere Support"
-    smtp_user = settings.SMTP_USER.strip()
-    smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
 
     clean_username = staff_name.strip() if staff_name else to_email_clean.split('@')[0]
-    msg_id = make_msgid()
 
     plain_text = f"""Subject: Your RetailSphere AI Worker Account
 
@@ -210,40 +245,18 @@ RetailSphere AI
     """
 
     print(f"[WORKER EMAIL TRACE] 1. START - Recipient: {masked}")
-    print(f"[WORKER EMAIL TRACE] Message-ID generated: {msg_id}")
-
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = f"{from_name} <{smtp_user}>"
-        msg["To"] = to_email_clean
-        msg["Reply-To"] = smtp_user
-        msg["Date"] = formatdate(localtime=True)
-        msg["Message-ID"] = msg_id
-
-        msg.attach(MIMEText(plain_text, "plain", "utf-8"))
-        msg.attach(MIMEText(html_content, "html", "utf-8"))
-
-        with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=20) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(smtp_user, smtp_pass)
-            print(f"[WORKER EMAIL TRACE] 2. SMTP CONNECTED & AUTHENTICATED AS {mask_email(smtp_user)}")
-
-            refused = server.sendmail(smtp_user, [to_email_clean], msg.as_string())
-            if refused and to_email_clean in refused:
-                logger.error(f"Recipient refused by SMTP server: {refused[to_email_clean]}")
-                print(f"[WORKER EMAIL TRACE] [FAIL] Recipient {masked} refused by SMTP server: {refused[to_email_clean]}")
-                return False
-
-            print(f"[WORKER EMAIL TRACE] 3. MAIL DISPATCH ACCEPTED BY GMAIL SMTP SERVER")
-            print(f"[WORKER EMAIL TRACE] 4. END - SUCCESS FOR {masked}")
-            return True
-
-    except Exception as e:
-        logger.error(f"Failed to send staff credentials email to {masked}: {e}")
-        print(f"[WORKER EMAIL TRACE] [EXCEPTION] SMTP error when sending credentials email to {masked}: {e}")
+    sent = _send_smtp_email(
+        to_email=to_email_clean,
+        subject=subject,
+        plain_text=plain_text,
+        html_content=html_content,
+        from_name=from_name
+    )
+    if sent:
+        print(f"[WORKER EMAIL TRACE] 2. END - SUCCESS FOR {masked}")
+        return True
+    else:
+        print(f"[WORKER EMAIL TRACE] [FAIL] Could not send credentials email to {masked}")
         return False
 
 
@@ -253,7 +266,6 @@ def send_contact_inquiry_email(sender_name: str, sender_email: str, topic: str, 
     """
     to_email = "kalyanys2004@gmail.com"
     email_subject = f"RetailSphere AI Inquiry: {topic} from {sender_name}"
-    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
     from_name = settings.EMAILS_FROM_NAME or "RetailSphere Concierge"
 
     html_content = f"""
@@ -315,32 +327,14 @@ Message:
 """
 
     if settings.SMTP_USER and settings.SMTP_PASSWORD:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = email_subject
-            msg["From"] = f"{from_name} <{from_address}>"
-            msg["To"] = to_email
-            msg["Reply-To"] = sender_email
-
-            msg.attach(MIMEText(plain_text, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-
-            smtp_user = settings.SMTP_USER.strip()
-            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
-
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(from_address, [to_email], msg.as_string())
-
-            logger.info(f"Successfully sent contact inquiry email to {to_email}")
-            print(f"[EMAIL SERVICE SUCCESS] Contact inquiry email sent via SMTP to {to_email}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send contact inquiry email to {to_email}: {e}")
-            print(f"[EMAIL SERVICE ERROR] SMTP error when sending contact email to {to_email}: {e}")
-            return False
+        return _send_smtp_email(
+            to_email=to_email,
+            subject=email_subject,
+            plain_text=plain_text,
+            html_content=html_content,
+            from_name=from_name,
+            reply_to=sender_email
+        )
     else:
         logger.info(f"SMTP notice: Contact email from {sender_name} ({sender_email}) dispatched to {to_email}")
         print(f"[EMAIL SERVICE NOTICE] Dispatched contact inquiry email to '{to_email}' from '{sender_name}' ({sender_email})")
@@ -352,7 +346,6 @@ def send_coupon_discount_email(to_email: str, coupon_code: str, discount_percent
     Sends an exclusive coupon discount email directly to the customer's email address.
     """
     subject = f"🎉 Exclusive {discount_percent}% OFF Discount Coupon - RetailSphere"
-    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
     from_name = settings.EMAILS_FROM_NAME or "RetailSphere Rewards"
 
     clean_username = to_email.split('@')[0].capitalize() if (to_email and '@' in to_email) else "Valued Customer"
@@ -412,30 +405,13 @@ Use code {coupon_code.upper()} at checkout at http://localhost:3000.
 """
 
     if settings.SMTP_USER and settings.SMTP_PASSWORD:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"{from_name} <{from_address}>"
-            msg["To"] = to_email
-
-            msg.attach(MIMEText(plain_text, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            smtp_user = settings.SMTP_USER.strip()
-            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
-
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(from_address, [to_email], msg.as_string())
-
-            logger.info(f"Successfully sent coupon email to {to_email}")
-            print(f"[EMAIL SERVICE SUCCESS] Coupon email sent via SMTP to {to_email}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send coupon email to {to_email}: {e}")
-            print(f"[EMAIL SERVICE ERROR] SMTP error when sending coupon email to {to_email}: {e}")
-            return False
+        return _send_smtp_email(
+            to_email=to_email,
+            subject=subject,
+            plain_text=plain_text,
+            html_content=html_content,
+            from_name=from_name
+        )
     else:
         logger.info(f"SMTP credentials notice for {to_email}: Coupon={coupon_code}, Discount={discount_percent}%")
         print(f"[EMAIL SERVICE NOTICE] SMTP credentials not configured in .env. Dispatched coupon '{coupon_code}' ({discount_percent}% OFF) to customer email '{to_email}'.")
@@ -457,7 +433,6 @@ def send_order_receipt_email(
     Sends an official order payment confirmation email with full itemized breakdown and discount receipt.
     """
     subject = f"🛍️ Order Confirmation & Payment Receipt #{order_id} - RetailSphere"
-    from_address = settings.EMAILS_FROM_EMAIL or settings.SMTP_USER or "kalyanys2004@gmail.com"
     from_name = settings.EMAILS_FROM_NAME or "RetailSphere Orders"
 
     clean_username = to_email.split('@')[0].capitalize() if (to_email and '@' in to_email) else "Valued Customer"
@@ -531,34 +506,14 @@ Thank you for choosing RetailSphere!
 """
 
     if settings.SMTP_USER and settings.SMTP_PASSWORD:
-        try:
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"] = f"{from_name} <{from_address}>"
-            msg["To"] = to_email
-
-            msg.attach(MIMEText(plain_text, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
-
-            smtp_user = settings.SMTP_USER.strip()
-            smtp_pass = settings.SMTP_PASSWORD.strip().replace(" ", "")
-
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT, timeout=15) as server:
-                server.starttls()
-                server.login(smtp_user, smtp_pass)
-                server.sendmail(from_address, [to_email], msg.as_string())
-
-            logger.info(f"Successfully sent receipt email to {to_email}")
-            print(f"[EMAIL SERVICE SUCCESS] Order receipt email sent via SMTP to {to_email}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to send receipt email to {to_email}: {e}")
-            print(f"[EMAIL SERVICE ERROR] SMTP error when sending receipt email to {to_email}: {e}")
-            return False
+        return _send_smtp_email(
+            to_email=to_email,
+            subject=subject,
+            plain_text=plain_text,
+            html_content=html_content,
+            from_name=from_name
+        )
     else:
         logger.info(f"SMTP notice: Order receipt email for {to_email} with order #{order_id}")
         print(f"[EMAIL SERVICE NOTICE] Dispatched order receipt email for #{order_id} to '{to_email}' (Subtotal: ₹{subtotal:,.2f}, Discount: -₹{discount_amount:,.2f}, Final Total: ₹{grand_total:,.2f})")
         return True
-
-
-

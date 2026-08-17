@@ -535,6 +535,32 @@ export async function changeFirstPassword(currentPassword: string, newPassword: 
   return updatedUser;
 }
 
+export async function changePasswordUser(newPassword: string, currentPassword?: string): Promise<UserProfile> {
+  const token = localStorage.getItem('access_token');
+  const payload: any = { new_password: newPassword };
+  if (currentPassword) payload.current_password = currentPassword;
+
+  const response = await safeFetch('/auth/change-password', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token || ''}`
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Failed to change password' }));
+    throw new Error(errorData.detail || 'Failed to change password');
+  }
+
+  const updatedUser: UserProfile = await response.json();
+  localStorage.setItem('user', JSON.stringify(updatedUser));
+  window.dispatchEvent(new Event('storage'));
+  return updatedUser;
+}
+
+
 
 
 

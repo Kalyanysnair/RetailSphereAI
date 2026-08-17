@@ -31,6 +31,9 @@ export interface AssignedWorker {
   assignment_id: number;
   worker_id: number;
   worker_name: string;
+  worker_email?: string;
+  worker_phone?: string;
+  specialization?: string;
   task_status: string;
 }
 
@@ -55,6 +58,8 @@ export interface CustomOrderData {
   latest_remarks?: string;
   is_locked?: boolean;
   payment_status?: 'Pending' | 'Paid' | string;
+  approved_by?: string;
+  staff_name?: string;
   originalSubtotal?: number;
   couponCode?: string;
   discountType?: string;
@@ -144,9 +149,9 @@ export const getAllUserStoredCustomOrders = (): CustomOrderData[] => {
       }
     });
 
-    // Deduplicate by custom_order_id
+    // Deduplicate by custom_order_id and filter out removed orders (102, 13)
     const map = new Map<number, CustomOrderData>();
-    allOrders.forEach(o => map.set(o.custom_order_id, o));
+    allOrders.filter(o => o.custom_order_id !== 102 && o.custom_order_id !== 13).forEach(o => map.set(o.custom_order_id, o));
     return Array.from(map.values());
   } catch {
     return [];
@@ -156,111 +161,218 @@ export const getAllUserStoredCustomOrders = (): CustomOrderData[] => {
 export const saveStoredCustomOrders = (orders: CustomOrderData[]) => {
   try {
     const key = getUserCustomKey();
-    localStorage.setItem(key, JSON.stringify(orders));
+    const filtered = orders.filter(o => o.custom_order_id !== 13 && o.custom_order_id !== 102);
+    localStorage.setItem(key, JSON.stringify(filtered));
   } catch (e) {
     console.warn('Failed to persist custom orders to localStorage:', e);
   }
 };
 
+export function removeSpecificStoredCustomOrder(orderId: number = 13): void {
+  try {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(BASE_CUSTOM_KEY));
+    keys.forEach(k => {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        try {
+          const parsed: CustomOrderData[] = JSON.parse(raw);
+          const filtered = parsed.filter(o => o.custom_order_id !== orderId);
+          localStorage.setItem(k, JSON.stringify(filtered));
+        } catch {}
+      }
+    });
+    window.dispatchEvent(new Event('custom-orders-updated'));
+  } catch (e) {
+    console.warn('Error removing stored custom order:', e);
+  }
+}
+
+export function clearAllStoredCustomOrders(notify: boolean = false): void {
+  try {
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(BASE_CUSTOM_KEY));
+    keys.forEach(k => localStorage.removeItem(k));
+    if (notify) {
+      window.dispatchEvent(new Event('custom-orders-updated'));
+    }
+  } catch (e) {
+    console.warn('Error clearing custom orders:', e);
+  }
+}
+
 // Clean DB API methods
 
+
+export const INITIAL_DEMO_CUSTOM_ORDERS: CustomOrderData[] = [];
+
+export function isCustomerOrderMatch(o: CustomOrderData, userObj: any): boolean {
+  if (!userObj) return false;
+
+  const sEmail = (userObj?.email || userObj?.customer_email || localStorage.getItem('user_email') || '').toLowerCase().trim();
+  const sUserId = userObj?.id || userObj?.user_id || userObj?.customer_id;
+  const sName = (userObj?.full_name || userObj?.username || userObj?.name || '').toLowerCase().trim();
+
+  const oEmail = (o.customer_email || '').toLowerCase().trim();
+  const oCustId = o.customer_id;
+  const oName = (o.customer_name || '').toLowerCase().trim();
+
+  // 1. Exact Match by Customer ID / User ID
+  if (sUserId && oCustId && Number(oCustId) === Number(sUserId)) return true;
+
+  // 2. Exact Match by Email (if email is non-empty)
+  if (sEmail && oEmail && sEmail === oEmail && !sEmail.includes('example.com')) return true;
+
+  // 3. Exact Match by Full Name (excluding generic fallback strings)
+  const genericNames = ['customer', 'valued customer', 'user', 'guest', 'bespoke customer'];
+  if (sName && oName && sName === oName && !genericNames.includes(sName)) return true;
+
+  return false;
+}
 
 // API Methods with Fallback to Persisted Data
 export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false, workerId?: number): Promise<CustomOrderData[]> {
   try {
+    const rawUser = localStorage.getItem('user') || localStorage.getItem('user_profile');
+    const userObj = rawUser ? JSON.parse(rawUser) : null;
+
     const queryParams = new URLSearchParams();
     if (statusFilter && statusFilter !== 'All') queryParams.append('status_filter', statusFilter);
     if (workerId) queryParams.append('worker_id', String(workerId));
 
-    const url = queryParams.toString() ? `/custom-orders?${queryParams.toString()}` : `/custom-orders`;
-    const res = await safeFetchProd(url);
-    if (!res.ok) throw new Error('API request failed');
-    const dbOrders: CustomOrderData[] = await res.json();
-
-    if (Array.isArray(dbOrders)) {
-      saveStoredCustomOrders(dbOrders);
-
-      if (isStaff || workerId) {
-        return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(dbOrders) : sanitizeCustomOrders(dbOrders.filter(o => o.order_status === statusFilter));
-      }
-
-      const rawUser = localStorage.getItem('user');
-      const userObj = rawUser ? JSON.parse(rawUser) : null;
-      const userEmail = (userObj?.email || userObj?.customer_email || '').toLowerCase().trim();
-      const userId = userObj?.id || userObj?.user_id || userObj?.customer_id;
-
-      const userDbOrders = dbOrders.filter(o => {
-        if (!userObj) return false;
-        const oEmail = (o.customer_email || '').toLowerCase().trim();
-        const oCustId = o.customer_id;
-
-        if (userId && oCustId && Number(oCustId) === Number(userId)) return true;
-        if (userEmail && oEmail && oEmail === userEmail) return true;
-
-        return false;
-      });
-
-      return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(userDbOrders) : sanitizeCustomOrders(userDbOrders.filter(o => o.order_status === statusFilter));
+    if (!isStaff && !workerId && userObj) {
+      const uEmail = userObj.email || userObj.customer_email || localStorage.getItem('user_email');
+      const uId = userObj.customer_id || userObj.user_id || userObj.id;
+      if (uEmail) queryParams.append('customer_email', uEmail);
+      if (uId) queryParams.append('customer_id', String(uId));
     }
 
-    const stored = (isStaff || workerId) ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
-    return (!statusFilter || statusFilter === 'All') ? sanitizeCustomOrders(stored) : sanitizeCustomOrders(stored.filter(o => o.order_status === statusFilter));
+    const url = queryParams.toString() ? `/custom-orders?${queryParams.toString()}` : `/custom-orders`;
+    let dbOrders: CustomOrderData[] = [];
+    try {
+      const res = await safeFetchProd(url);
+      if (res.ok) {
+        const fetched = await res.json();
+        if (Array.isArray(fetched)) {
+          dbOrders = fetched;
+        }
+      }
+    } catch {
+      // Backend request fallback to local persistent store
+    }
+
+    const localOrders = getAllUserStoredCustomOrders();
+    const map = new Map<number, CustomOrderData>();
+    localOrders.forEach(o => map.set(o.custom_order_id, o));
+    dbOrders.forEach(o => map.set(o.custom_order_id, o));
+
+    const allCandidateOrders = Array.from(map.values()).filter(o => o.custom_order_id !== 102);
+
+    if (isStaff || workerId) {
+      return (!statusFilter || statusFilter === 'All')
+        ? sanitizeCustomOrders(allCandidateOrders)
+        : sanitizeCustomOrders(allCandidateOrders.filter(o => o.order_status === statusFilter));
+    }
+
+    // For customer session retrieval
+    if (!userObj) {
+      return [];
+    }
+
+    const userOrders = allCandidateOrders.filter(o => {
+      const isMatch = isCustomerOrderMatch(o, userObj);
+      if (isMatch) {
+        if (userObj.id || userObj.customer_id || userObj.user_id) {
+          o.customer_id = userObj.customer?.customer_id || userObj.customer_id || userObj.user_id || userObj.id;
+        }
+        if (userObj.email || userObj.customer_email) {
+          o.customer_email = userObj.email || userObj.customer_email;
+        }
+      }
+      return isMatch;
+    });
+
+    return (!statusFilter || statusFilter === 'All')
+      ? sanitizeCustomOrders(userOrders)
+      : sanitizeCustomOrders(userOrders.filter(o => o.order_status === statusFilter));
   } catch {
-    const allOrders = (isStaff || workerId) ? getAllUserStoredCustomOrders() : getStoredCustomOrders();
-    if (!statusFilter || statusFilter === 'All') return sanitizeCustomOrders(allOrders);
-    return sanitizeCustomOrders(allOrders.filter(o => o.order_status === statusFilter));
+    return [];
   }
 }
 
-export async function updateOrderStatus(orderId: number, status: string, estimatedPrice?: number, remarks?: string): Promise<any> {
-  try {
-    const res = await safeFetchProd('/update-status', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ custom_order_id: orderId, order_status: status, estimated_price: estimatedPrice, remarks })
-    });
-    if (!res.ok) throw new Error('Failed to update status in DB');
-    const result = await res.json();
+export async function updateOrderStatus(orderId: number, status: string, estimatedPrice?: number, remarks?: string, approvedBy?: string): Promise<any> {
+  const staffName = approvedBy || (() => {
+    try {
+      const u = localStorage.getItem('user');
+      if (u) {
+        const parsed = JSON.parse(u);
+        return parsed.full_name || parsed.name || parsed.username || 'Production Staff';
+      }
+    } catch {}
+    return 'Production Staff';
+  })();
 
-    // Sync local storage
-    const stored = getStoredCustomOrders();
-    const target = stored.find(o => o.custom_order_id === orderId);
-    if (target) {
-      target.order_status = status;
-      if (estimatedPrice !== undefined && estimatedPrice > 0) {
-        target.estimated_price = estimatedPrice;
-        target.is_locked = true;
-      }
-      if (status === 'Approved' || status === 'In Production' || status === 'Completed') {
-        target.is_locked = true;
-      }
-      if (remarks) target.latest_remarks = remarks;
-      saveStoredCustomOrders(stored);
+  const demoTarget = INITIAL_DEMO_CUSTOM_ORDERS.find(o => o.custom_order_id === orderId);
+  if (demoTarget) {
+    demoTarget.order_status = status;
+    if (status === 'Approved' || status === 'Quote Provided' || status === 'In Production') {
+      demoTarget.approved_by = staffName;
+      demoTarget.staff_name = staffName;
     }
-    return result;
-  } catch (err: any) {
-    const stored = getStoredCustomOrders();
-    const ord = stored.find(o => o.custom_order_id === orderId);
-    if (ord) {
-      ord.order_status = status;
-      if (estimatedPrice !== undefined && estimatedPrice > 0) {
-        ord.estimated_price = estimatedPrice;
-        ord.is_locked = true;
-      }
-      if (status === 'Approved' || status === 'In Production' || status === 'Completed') {
-        ord.is_locked = true;
-        ord.current_stage = 'Material Sourcing';
-        ord.progress_percentage = 15;
-        ord.latest_remarks = remarks || 'Order approved by production team.';
-      } else if (status === 'Rejected') {
-        ord.current_stage = 'Rejected';
-        ord.progress_percentage = 0;
-        ord.latest_remarks = remarks || 'Specs cannot be fulfilled.';
-      }
-      saveStoredCustomOrders(stored);
+    if (estimatedPrice !== undefined && estimatedPrice > 0) {
+      demoTarget.estimated_price = estimatedPrice;
+      demoTarget.is_locked = true;
     }
-    return { message: `Order #${orderId} status updated to ${status}` };
+    if (status === 'Approved' || status === 'In Production' || status === 'Completed') {
+      demoTarget.is_locked = true;
+      demoTarget.current_stage = 'Material Sourcing';
+      demoTarget.progress_percentage = 15;
+    }
+    if (remarks) demoTarget.latest_remarks = remarks;
   }
+
+  const allStored = getAllUserStoredCustomOrders();
+  const target = allStored.find(o => o.custom_order_id === orderId);
+  if (target) {
+    target.order_status = status;
+    if (status === 'Approved' || status === 'Quote Provided' || status === 'In Production') {
+      target.approved_by = staffName;
+      target.staff_name = staffName;
+    }
+    if (estimatedPrice !== undefined && estimatedPrice > 0) {
+      target.estimated_price = estimatedPrice;
+      target.is_locked = true;
+    }
+    if (status === 'Approved' || status === 'In Production' || status === 'Completed') {
+      target.is_locked = true;
+      target.current_stage = 'Material Sourcing';
+      target.progress_percentage = 15;
+    }
+    if (remarks) target.latest_remarks = remarks;
+    saveStoredCustomOrders(allStored);
+  }
+
+  window.dispatchEvent(new Event('custom-orders-updated'));
+
+  try {
+    let res = await safeFetchProd(`/custom-orders/${orderId}/status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_status: status, estimated_price: estimatedPrice, remarks, approved_by: staffName })
+    });
+    if (!res.ok) {
+      res = await safeFetchProd('/update-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ custom_order_id: orderId, order_status: status, estimated_price: estimatedPrice, remarks, approved_by: staffName })
+      });
+    }
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {
+    // Offline fallback
+  }
+
+  return target || demoTarget || { success: true };
 }
 
 export async function toggleLockOrderSpecifications(orderId: number): Promise<boolean> {
@@ -330,6 +442,7 @@ export async function payCustomOrder(orderId: number): Promise<boolean> {
     ord.is_locked = true;
     saveStoredCustomOrders(stored);
   }
+  window.dispatchEvent(new Event('custom-orders-updated'));
   return true;
 }
 
@@ -547,34 +660,20 @@ export async function fetchOrderTrackingTimeline(orderId: number): Promise<Order
   return await res.json();
 }
 
-export function isDefaultUnsplashUrl(url?: string): boolean {
-  if (!url) return false;
-  const defaults = [
-    'photo-1615066390971',
-    'photo-1533779283484',
-    'photo-1518455027359',
-    'photo-1540518614846',
-    'photo-1505693416388',
-    'photo-1567538096630',
-    'photo-1595428774223',
-    'photo-1555041469',
-    'photo-1538688525198'
-  ];
-  return defaults.some((d) => url.includes(d));
+export function isDefaultUnsplashUrl(_url?: string): boolean {
+  return false;
 }
 
 export function sanitizeCustomOrders(orders: CustomOrderData[]): CustomOrderData[] {
-  return orders.map((o) => {
-    if (o.reference_image && isDefaultUnsplashUrl(o.reference_image)) {
-      return { ...o, reference_image: undefined };
-    }
-    return o;
-  });
+  return orders;
 }
 
+import { parseReferenceImages } from '../utils/imageUtils';
+
 export function getFurnitureImageUrl(_furnitureType: string = '', referenceImage?: string): string | undefined {
-  if (referenceImage && referenceImage.trim() && !isDefaultUnsplashUrl(referenceImage)) {
-    return referenceImage.trim();
+  if (referenceImage && referenceImage.trim()) {
+    const parsed = parseReferenceImages(referenceImage);
+    return parsed.length > 0 ? parsed[0] : referenceImage.trim();
   }
   return undefined;
 }
@@ -587,16 +686,18 @@ export async function submitCustomOrderRequest(
   notes?: string,
   referenceImage?: string
 ): Promise<CustomOrderData> {
-  const storedUser = localStorage.getItem('user');
-  const userObj = storedUser ? JSON.parse(storedUser) : null;
-  const cleanRefImg = (referenceImage && referenceImage.trim() && !isDefaultUnsplashUrl(referenceImage))
-    ? referenceImage.trim()
-    : undefined;
+  const rawUser = localStorage.getItem('user') || localStorage.getItem('user_profile');
+  const userObj = rawUser ? JSON.parse(rawUser) : null;
+  const cleanRefImg = referenceImage && referenceImage.trim() ? referenceImage.trim() : undefined;
+
+  const uEmail = (userObj?.email || userObj?.customer_email || localStorage.getItem('user_email') || '').toLowerCase().trim();
+  const uId = userObj?.customer_id || userObj?.user_id || userObj?.id || (uEmail ? Math.abs(uEmail.split('').reduce((a: number, b: string) => ((a << 5) - a) + b.charCodeAt(0), 0)) : null);
+  const uName = userObj?.full_name || userObj?.username || userObj?.name || (uEmail ? uEmail.split('@')[0] : 'Customer');
 
   const payload = {
-    customer_id: userObj?.id || userObj?.customer_id || 1,
-    customer_name: userObj?.full_name || userObj?.username || 'Customer',
-    customer_email: userObj?.email || userObj?.customer_email || '',
+    customer_id: uId,
+    customer_name: uName,
+    customer_email: uEmail,
     customer_phone: userObj?.phone || '',
     furniture_type: furnitureType,
     material,
@@ -607,26 +708,26 @@ export async function submitCustomOrderRequest(
   };
 
   try {
-    const res = await fetch(`${BASE_URL}/custom-orders`, {
+    const res = await safeFetchProd('/custom-orders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
     if (!res.ok) throw new Error('API Request Failed');
     const created: CustomOrderData = await res.json();
-    const cleanCreated = isDefaultUnsplashUrl(created.reference_image) ? { ...created, reference_image: undefined } : created;
     const currentOrders = getStoredCustomOrders();
-    saveStoredCustomOrders([cleanCreated, ...currentOrders]);
-    return cleanCreated;
+    saveStoredCustomOrders([created, ...currentOrders]);
+    window.dispatchEvent(new Event('custom-orders-updated'));
+    return created;
   } catch {
     const currentOrders = getStoredCustomOrders();
     const newId = 101 + currentOrders.length;
     const newOrder: CustomOrderData = {
       custom_order_id: newId,
-      customer_id: payload.customer_id,
-      customer_name: payload.customer_name,
-      customer_email: payload.customer_email,
-      customer_phone: payload.customer_phone,
+      customer_id: payload.customer_id || 1,
+      customer_name: payload.customer_name || 'Customer',
+      customer_email: payload.customer_email || '',
+      customer_phone: payload.customer_phone || '',
       furniture_type: furnitureType,
       material,
       dimensions,
@@ -634,13 +735,14 @@ export async function submitCustomOrderRequest(
       design_description: notes,
       reference_image: cleanRefImg,
       order_status: 'Pending',
-      order_date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+      order_date: new Date().toISOString(),
       assigned_workers: [],
       current_stage: 'Pending Approval',
       progress_percentage: 0,
       latest_remarks: 'Custom request submitted for staff approval.'
     };
     saveStoredCustomOrders([newOrder, ...currentOrders]);
+    window.dispatchEvent(new Event('custom-orders-updated'));
     return newOrder;
   }
 }

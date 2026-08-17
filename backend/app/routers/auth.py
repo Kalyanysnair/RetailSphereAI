@@ -209,6 +209,31 @@ def change_first_password(
     db.refresh(current_user)
     return build_user_response(current_user)
 
+@router.post("/change-password", response_model=schemas.UserResponse)
+def change_password(
+    payload: schemas.PasswordChangeRequest,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    if payload.current_password and current_user.password and not auth.verify_password(payload.current_password, current_user.password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect."
+        )
+
+    if len(payload.new_password.strip()) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 6 characters long."
+        )
+
+    current_user.password = auth.get_password_hash(payload.new_password.strip())
+    current_user.must_change_password = False
+    db.commit()
+    db.refresh(current_user)
+    return build_user_response(current_user)
+
+
 @router.post("/google-login", response_model=schemas.Token)
 def google_login(payload: schemas.GoogleLoginRequest, db: Session = Depends(get_db)):
     email_extracted = None

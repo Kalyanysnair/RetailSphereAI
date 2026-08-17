@@ -17,13 +17,16 @@ import {
   Bell,
   Copy,
   Check,
-  Gift
+  Gift,
+  KeyRound
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import { getCurrentUser, updateUserProfile, UserProfile } from '../../services/api';
 import { getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
 import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
+import { ChangePasswordModal } from '../common/ChangePasswordModal';
+import { validatePhoneNumber } from '../auth/SignupForm';
 
 export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
@@ -35,8 +38,9 @@ export const ProfilePage: React.FC = () => {
   const [cartCount, setCartCount] = useState(0);
   const [wishlistCount, setWishlistCount] = useState(0);
 
-  // Edit Profile Modal State
+  // Edit Profile & Password Modal State
   const [isEditing, setIsEditing] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editForm, setEditForm] = useState({
     full_name: '',
@@ -111,17 +115,43 @@ export const ProfilePage: React.FC = () => {
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitting(true);
     setErrorMsg(null);
 
+    const nameTrim = editForm.full_name.trim();
+    if (!nameTrim) {
+      setErrorMsg('Full Name is required.');
+      return;
+    }
+    if (nameTrim.length < 2 || !/^[a-zA-Z\s.'-]+$/.test(nameTrim)) {
+      setErrorMsg('Full Name must be at least 2 characters long and contain letters only (e.g. Alex Smith).');
+      return;
+    }
+
+    if (editForm.phone && editForm.phone.trim()) {
+      const phoneErr = validatePhoneNumber(editForm.phone);
+      if (phoneErr) {
+        setErrorMsg(phoneErr);
+        return;
+      }
+    }
+
+    if (editForm.pincode && editForm.pincode.trim()) {
+      const pinClean = editForm.pincode.trim();
+      if (!/^\d{6}$/.test(pinClean)) {
+        setErrorMsg('Pincode must be a valid 6-digit postal code (e.g. 686001).');
+        return;
+      }
+    }
+
+    setSubmitting(true);
     try {
       const updated = await updateUserProfile({
-        full_name: editForm.full_name,
-        phone: editForm.phone || undefined,
-        address: editForm.address || undefined,
-        city: editForm.city || undefined,
-        state: editForm.state || undefined,
-        pincode: editForm.pincode || undefined,
+        full_name: nameTrim,
+        phone: editForm.phone ? editForm.phone.trim() : undefined,
+        address: editForm.address ? editForm.address.trim() : undefined,
+        city: editForm.city ? editForm.city.trim() : undefined,
+        state: editForm.state ? editForm.state.trim() : undefined,
+        pincode: editForm.pincode ? editForm.pincode.trim() : undefined,
       });
 
       setUserProfile(updated);
@@ -197,13 +227,21 @@ export const ProfilePage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Edit Profile Action */}
-                  <button
-                    onClick={handleOpenEdit}
-                    className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2"
-                  >
-                    <Edit3 className="w-4 h-4" /> Edit Profile
-                  </button>
+                  {/* Actions */}
+                  <div className="flex items-center gap-2.5 flex-wrap justify-center sm:justify-end">
+                    <button
+                      onClick={() => setIsChangePasswordOpen(true)}
+                      className="px-4 py-2 rounded-xl bg-white border border-[#E2D7CB] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold shadow-xs transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      <KeyRound className="w-4 h-4 text-[#48A63E]" /> Change Password
+                    </button>
+                    <button
+                      onClick={handleOpenEdit}
+                      className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer"
+                    >
+                      <Edit3 className="w-4 h-4" /> Edit Profile
+                    </button>
+                  </div>
                 </div>
 
                 {/* Notification Toast */}
@@ -430,33 +468,51 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-2 border-t border-[#EFE7DE]">
+              <div className="pt-3 flex items-center justify-between border-t border-[#EFE7DE]">
                 <button
                   type="button"
-                  onClick={() => setIsEditing(false)}
-                  className="px-4 py-2 rounded-xl bg-[#F5ECE1] text-[#5C4E42] hover:bg-[#EAE0D4] font-bold"
+                  onClick={() => {
+                    setIsEditing(false);
+                    setIsChangePasswordOpen(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-[#48A63E] bg-[#48A63E]/10 hover:bg-[#48A63E]/20 transition-all flex items-center gap-1.5 cursor-pointer"
                 >
-                  Cancel
+                  <KeyRound className="w-4 h-4" /> Change Password
                 </button>
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold shadow-md shadow-[#48A63E]/20 flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {submitting ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
-                    </>
-                  ) : (
-                    'Save Changes'
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(false)}
+                    className="px-4 py-2 rounded-xl bg-[#F5ECE1] text-[#5C4E42] hover:bg-[#EAE0D4] font-bold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold shadow-md shadow-[#48A63E]/20 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
+                  >
+                    {submitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      'Save Changes'
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
 
         </div>
       )}
+
+      {/* Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </div>
   );
 };

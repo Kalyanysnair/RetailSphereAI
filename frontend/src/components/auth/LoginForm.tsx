@@ -1,34 +1,54 @@
-import React, { useState } from 'react';
-import { User, Eye, EyeOff } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { User, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { LoginCredentials, ValidationErrors, LoginFormProps } from '../../types/auth';
+import { Logo } from '../common/Logo';
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = false }) => {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [viewMode, setViewMode] = useState<'login' | 'forgot'>('login');
 
   const [credentials, setCredentials] = useState<LoginCredentials>({
-    username: '',
+    username: location.state?.registeredEmail || '',
     password: '',
     rememberMe: true,
   });
 
+  const [successBanner, setSuccessBanner] = useState<string | null>(() => location.state?.message || null);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<ValidationErrors>({});
   const [internalLoading, setInternalLoading] = useState(false);
 
+  useEffect(() => {
+    if (location.state?.registeredEmail) {
+      setCredentials((prev) => ({
+        ...prev,
+        username: location.state.registeredEmail,
+      }));
+    }
+    if (location.state?.message) {
+      setSuccessBanner(location.state.message);
+    }
+  }, [location.state]);
+
   const validateForm = (): boolean => {
     const newErrors: ValidationErrors = {};
 
-    if (!credentials.username.trim()) {
+    const inputTrim = credentials.username.trim();
+    if (!inputTrim) {
       newErrors.username = 'User Name / Email is required';
+    } else if (inputTrim.length < 3) {
+      newErrors.username = 'Username or email must be at least 3 characters long';
     }
 
     if (!credentials.password) {
       newErrors.password = 'Password is required';
+    } else if (credentials.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters long';
     }
 
     setErrors(newErrors);
@@ -109,17 +129,21 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
   return (
     <div className="w-full animate-fadeIn space-y-4 text-[#2C241D]">
       {/* Brand Header Inside Card */}
-      <div className="text-left space-y-0.5">
-        <h1 className="text-2xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-1.5 drop-shadow-xs">
-          <span>RetailSphere</span>
-          <span className="text-[#38A132]">AI</span>
-        </h1>
-        <p className="text-xs text-[#6B5C4D] font-extrabold">
+      <div className="text-left space-y-1">
+        <Logo to="/" size="lg" />
+        <p className="text-xs text-[#6B5C4D] font-extrabold pt-1">
           Welcome back! Please login to access your portal.
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-3.5 w-full" noValidate>
+        {successBanner && (
+          <div className="p-3 text-xs text-emerald-800 bg-emerald-50 border border-emerald-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{successBanner}</span>
+          </div>
+        )}
+
         {errors.general && (
           <div className="p-2.5 text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-2xl font-bold">
             {errors.general}
@@ -135,7 +159,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
             <input
               type="text"
               name="username"
-              placeholder="e.g. Rahul Sharma or staff@retailsphere.ai"
+              placeholder="Enter username or email address"
               value={credentials.username}
               onChange={handleChange}
               autoComplete="username"

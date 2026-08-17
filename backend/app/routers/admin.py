@@ -875,20 +875,21 @@ def get_readymade_orders(db: Session = Depends(get_db)):
 @router.post("/orders", status_code=status.HTTP_201_CREATED)
 def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = Depends(get_db)):
     import time
-    cust_id = None
-    if payload.customerId is not None:
+    customer = None
+    if payload.email:
+        u = db.query(models.User).filter(models.User.email.ilike(payload.email.strip())).first()
+        if u:
+            customer = db.query(models.Customer).filter(models.Customer.user_id == u.user_id).first()
+
+    if not customer and payload.customerId:
         clean_c_id = str(payload.customerId).replace('cust-', '').replace('user-', '')
         if clean_c_id.isdigit():
-            cust_id = int(clean_c_id)
+            customer = db.query(models.Customer).filter(models.Customer.customer_id == int(clean_c_id)).first()
 
-    if not cust_id and payload.email:
-        u = db.query(models.User).filter(models.User.email == payload.email.strip()).first()
-        if u:
-            c = db.query(models.Customer).filter(models.Customer.user_id == u.user_id).first()
-            if c:
-                cust_id = c.customer_id
-            else:
-                cust_id = u.user_id
+    if not customer:
+        customer = db.query(models.Customer).first()
+
+    cust_id = customer.customer_id if customer else None
 
     created_orders = []
 

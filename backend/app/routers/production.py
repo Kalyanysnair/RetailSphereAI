@@ -71,7 +71,13 @@ class ProgressUpdatePayload(BaseModel):
 
 # 1. Fetch Custom Orders for Production Staff / Worker Portal
 @router.get("/custom-orders")
-def get_custom_orders(status_filter: Optional[str] = None, worker_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_custom_orders(
+    status_filter: Optional[str] = None,
+    worker_id: Optional[int] = None,
+    customer_id: Optional[int] = None,
+    customer_email: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     query = db.query(models.CustomOrder)
     if status_filter and status_filter.strip() and status_filter != "All":
         query = query.filter(models.CustomOrder.order_status == status_filter.strip())
@@ -82,6 +88,20 @@ def get_custom_orders(status_filter: Optional[str] = None, worker_id: Optional[i
             .filter(models.WorkerAssignment.worker_id == worker_id).all()
         ]
         query = query.filter(models.CustomOrder.custom_order_id.in_(assigned_order_ids))
+
+    if customer_id:
+        c_rows = db.query(models.Customer).filter(
+            (models.Customer.customer_id == customer_id) | (models.Customer.user_id == customer_id)
+        ).all()
+        c_ids = [c.customer_id for c in c_rows]
+        if c_ids:
+            query = query.filter(models.CustomOrder.customer_id.in_(c_ids))
+        else:
+            query = query.filter(models.CustomOrder.customer_id == customer_id)
+    elif customer_email and customer_email.strip():
+        user = db.query(models.User).filter(models.User.email.ilike(customer_email.strip())).first()
+        if user and user.customer_profile:
+            query = query.filter(models.CustomOrder.customer_id == user.customer_profile.customer_id)
 
     orders = query.order_by(models.CustomOrder.order_date.desc()).all()
 
@@ -100,6 +120,9 @@ def get_custom_orders(status_filter: Optional[str] = None, worker_id: Optional[i
                     "assignment_id": asgn.assignment_id,
                     "worker_id": w_user.user_id,
                     "worker_name": w_user.full_name,
+                    "worker_email": w_user.email,
+                    "worker_phone": getattr(w_user, "phone", "") or "",
+                    "specialization": getattr(w_user, "specialization", "Woodwork & Carpentry") or "Woodwork & Carpentry",
                     "task_status": asgn.task_status
                 })
 
@@ -135,15 +158,39 @@ def get_custom_orders(status_filter: Optional[str] = None, worker_id: Optional[i
 @router.post("/custom-orders")
 def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends(get_db)):
     customer = None
-    if payload.customer_email:
-        user = db.query(models.User).filter(models.User.email == payload.customer_email.strip()).first()
-        if user:
-            customer = db.query(models.Customer).filter(models.Customer.user_id == user.user_id).first()
-    
-    if not customer:
-        customer = db.query(models.Customer).first()
+    if payload.customer_email and payload.customer_email.strip():
+        clean_email = payload.customer_email.strip()
+        user = db.query(models.User).filter(models.User.email.ilike(clean_email)).first()
+        if not user:
+            user = models.User(
+                email=clean_email,
+                full_name=payload.customer_name.strip() if payload.customer_name else "Valued Customer",
+                role_id=1,
+                status=True
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
 
-    cust_id = customer.customer_id if customer else 1
+        customer = db.query(models.Customer).filter(models.Customer.user_id == user.user_id).first()
+        if not customer:
+            customer = models.Customer(
+                user_id=user.user_id,
+                address="Not Provided",
+                city="Kottayam",
+                state="Kerala",
+                pincode="686631"
+            )
+            db.add(customer)
+            db.commit()
+            db.refresh(customer)
+
+    if not customer and payload.customer_id:
+        customer = db.query(models.Customer).filter(
+            (models.Customer.customer_id == payload.customer_id) | (models.Customer.user_id == payload.customer_id)
+        ).first()
+
+    cust_id = customer.customer_id if customer else None
 
     new_order = models.CustomOrder(
         customer_id=cust_id,
@@ -160,9 +207,12 @@ def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends
     db.commit()
     db.refresh(new_order)
 
+    staff_user = db.query(models.User).first()
+    updater_id = user.user_id if user else (staff_user.user_id if staff_user else None)
+
     prog = models.ProductionProgress(
         custom_order_id=new_order.custom_order_id,
-        updated_by=1,
+        updated_by=updater_id,
         stage="Pending Approval",
         progress_percentage=0,
         remarks="Custom request received."
@@ -202,25 +252,33 @@ def update_custom_order_status(order_id: int, payload: OrderStatusUpdatePayload,
     if payload.estimated_price is not None:
         order.estimated_price = payload.estimated_price
 
+    staff_user = db.query(models.User).filter(models.User.user_id == order.production_staff_id).first() if order.production_staff_id else None
+    if not staff_user:
+        staff_user = db.query(models.User).first()
+    
+    staff_id = staff_user.user_id if staff_user else None
+
     # Add initial progress entry on approval
     if payload.order_status == "Approved":
-        init_progress = models.ProductionProgress(
-            custom_order_id=order.custom_order_id,
-            updated_by=order.production_staff_id or 1,
-            stage="Material Sourcing",
-            progress_percentage=10,
-            remarks=payload.remarks or "Order approved by production team. Commencing material allocation."
-        )
-        db.add(init_progress)
+        if staff_id:
+            init_progress = models.ProductionProgress(
+                custom_order_id=order.custom_order_id,
+                updated_by=staff_id,
+                stage="Material Sourcing",
+                progress_percentage=10,
+                remarks=payload.remarks or "Order approved by production team. Commencing material allocation."
+            )
+            db.add(init_progress)
     elif payload.order_status == "Rejected":
-        rej_progress = models.ProductionProgress(
-            custom_order_id=order.custom_order_id,
-            updated_by=order.production_staff_id or 1,
-            stage="Rejected",
-            progress_percentage=0,
-            remarks=payload.remarks or "Customization specs cannot be fulfilled at this time."
-        )
-        db.add(rej_progress)
+        if staff_id:
+            rej_progress = models.ProductionProgress(
+                custom_order_id=order.custom_order_id,
+                updated_by=staff_id,
+                stage="Rejected",
+                progress_percentage=0,
+                remarks=payload.remarks or "Customization specs cannot be fulfilled at this time."
+            )
+            db.add(rej_progress)
 
     db.commit()
     db.refresh(order)

@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageCheck, AlertCircle, Plus, X, Send, Palette, Ruler, ArrowRight, ArrowLeft, Layers, MessageSquareText, Edit3, Lock, Image, Trash2, FileText, Download } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageCheck, AlertCircle, Plus, X, Send, Palette, Ruler, ArrowRight, ArrowLeft, Layers, MessageSquareText, Edit3, Lock, Image, Trash2, FileText, Download, ShoppingCart, UploadCloud } from 'lucide-react';
 import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder, downloadPaymentReceipt } from '../../services/api_production';
+import { addToCart } from '../../utils/cartStorage';
+import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 
 // Category Definitions & Aspect Specs
 interface CategorySpec {
@@ -123,17 +126,49 @@ const CATEGORY_SPECS: CategorySpec[] = [
     ],
   },
 ];
+const DEFAULT_SAMPLE_ORDER: CustomOrderData = {
+  custom_order_id: 101,
+  customer_id: 1,
+  customer_name: 'Valued Customer',
+  customer_email: 'customer@example.com',
+  customer_phone: '+91 9778237180',
+  furniture_type: 'Custom 3–Seater Sofa',
+  material: 'Premium Teak Wood',
+  dimensions: '220cm L x 95cm W x 85cm H',
+  color: 'Terracotta Microfiber (Cream White)',
+  estimated_price: 45000,
+  payment_status: 'Paid',
+  order_status: 'Paid',
+  current_stage: 'Material Sourcing',
+  progress_percentage: 10,
+  latest_remarks: 'Raw teak wood planks selected & inspected for moisture content.',
+  order_date: '2026-08-15',
+  assigned_workers: []
+};
 
 interface CustomOrderTrackerProps {
   openModalTrigger?: number;
 }
 
 export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModalTrigger }) => {
+  const navigate = useNavigate();
   const [userOrders, setUserOrders] = useState<CustomOrderData[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<number | null>(null);
   const [trackingInfo, setTrackingInfo] = useState<OrderTrackingInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [cancelModalOrderId, setCancelModalOrderId] = useState<number | null>(null);
+
+  const handleAddToCartAndPay = (order: CustomOrderData) => {
+    if (!order.estimated_price) return;
+    addToCart({
+      id: `custom-order-${order.custom_order_id}`,
+      name: `Custom ${order.furniture_type} (Order #${order.custom_order_id})`,
+      material: `Material: ${order.material} | Shade: ${order.color}`,
+      price: order.estimated_price,
+      imageUrl: order.reference_image ? parseReferenceImages(order.reference_image)[0] || undefined : undefined
+    });
+    navigate('/cart');
+  };
 
   // New & Edit Customization Order Inline Form State
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -148,7 +183,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
       setIsFormOpen(true);
       setModalStep(1);
       setTimeout(() => {
-        const el = document.getElementById('custom-order-form') || document.getElementById('custom-order-section');
+        const el = document.getElementById('custom-order-form');
         if (el) {
           const yOffset = -90;
           const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
@@ -196,6 +231,51 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   const [customPickerHex, setCustomPickerHex] = useState('#38A132');
   const [aspectSelections, setAspectSelections] = useState<Record<string, string>>({});
   const [referenceImageUrls, setReferenceImageUrls] = useState<string[]>(['']);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const processFiles = (files: FileList | File[]) => {
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const result = e.target?.result as string;
+        if (result) {
+          setReferenceImageUrls((prev) => {
+            const filtered = prev.filter((url) => url.trim() !== '');
+            return [...filtered, result];
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      processFiles(e.target.files);
+    }
+  };
 
   // Dimensions & Specific Requirements State
   const [lengthCm, setLengthCm] = useState('220');
@@ -210,16 +290,19 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
       // Filter out cancelled requests so they are hidden from the Build Studio section (only displayed in My Orders)
       const activeBuildOrders = allOrders.filter(o => o.order_status !== 'Cancelled');
       activeBuildOrders.sort((a, b) => b.custom_order_id - a.custom_order_id);
-      setUserOrders(activeBuildOrders);
       if (activeBuildOrders.length > 0) {
+        setUserOrders(activeBuildOrders);
         if (!selectedOrderId || !activeBuildOrders.some(o => o.custom_order_id === selectedOrderId)) {
           setSelectedOrderId(activeBuildOrders[0].custom_order_id);
         }
       } else {
+        setUserOrders([]);
         setSelectedOrderId(null);
       }
     } catch (err) {
       console.error('Error loading custom order tracking:', err);
+      setUserOrders([]);
+      setSelectedOrderId(null);
     } finally {
       setLoading(false);
     }
@@ -300,7 +383,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
     setMaterial(order.material);
     setFabricOrFinish(order.color);
     if (order.reference_image) {
-      const images = order.reference_image.split(',').map((s) => s.trim()).filter(Boolean);
+      const images = parseReferenceImages(order.reference_image);
       setReferenceImageUrls(images.length > 0 ? images : ['']);
     } else {
       setReferenceImageUrls(['']);
@@ -825,12 +908,12 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                     </div>
                   </div>
 
-                  {/* REFERENCE DESIGN IMAGES PROVISION (OPTIONAL MULTI-IMAGE) */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
+                  {/* REFERENCE DESIGN IMAGES PROVISION (OPTIONAL MULTI-IMAGE & DRAG-AND-DROP) */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
                       <label className="font-extrabold text-[#5C4E42] flex items-center gap-1.5 text-xs">
                         <Image className="w-4 h-4 text-[#38A132]" />
-                        Reference Design Images (Optional - Add any number of reference photos)
+                        Reference Design Images (Optional - Drag & drop photos or paste URLs)
                       </label>
                       <button
                         type="button"
@@ -838,63 +921,120 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                         className="text-xs font-extrabold text-[#38A132] hover:text-[#32922D] flex items-center gap-1 cursor-pointer bg-[#38A132]/10 px-2.5 py-1 rounded-xl border border-[#38A132]/30"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>Add Another Image</span>
+                        <span>Add URL Link</span>
                       </button>
                     </div>
 
+                    {/* DRAG AND DROP ZONE */}
+                    <div
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                      onClick={() => document.getElementById('reference-file-input')?.click()}
+                      className={`border-2 border-dashed rounded-2xl p-5 sm:p-6 text-center cursor-pointer transition-all ${
+                        isDragging
+                          ? 'border-[#38A132] bg-[#38A132]/15 shadow-md shadow-[#38A132]/20 scale-[1.01]'
+                          : 'border-[#38A132]/40 hover:border-[#38A132] bg-[#38A132]/5 hover:bg-[#38A132]/10'
+                      }`}
+                    >
+                      <input
+                        id="reference-file-input"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFileInputChange}
+                        className="hidden"
+                      />
+                      <div className="flex flex-col items-center justify-center space-y-2">
+                        <div className="w-12 h-12 rounded-2xl bg-[#38A132]/10 border border-[#38A132]/30 text-[#38A132] flex items-center justify-center">
+                          <UploadCloud className="w-6 h-6 animate-pulse" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-extrabold text-[#2C241D]">
+                            Drag & drop reference design images here, or <span className="text-[#38A132] underline">browse device files</span>
+                          </p>
+                          <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
+                            Supports PNG, JPG, JPEG, WEBP, GIF, SVG (Select multiple files at once)
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* IMAGE URL INPUTS & PREVIEW CARDS */}
                     <div className="space-y-3">
-                      {referenceImageUrls.map((url, idx) => (
-                        <div key={idx} className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="url"
-                              value={url}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setReferenceImageUrls((prev) => {
-                                  const next = [...prev];
-                                  next[idx] = val;
-                                  return next;
-                                });
-                              }}
-                              placeholder={`Paste reference photo URL ${idx + 1} (Unsplash, Pinterest, Instagram, drive link)...`}
-                              className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                            />
-                            {referenceImageUrls.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setReferenceImageUrls((prev) => prev.filter((_, i) => i !== idx))
-                                }
-                                className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                                title="Remove image URL"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                      {referenceImageUrls.map((url, idx) => {
+                        const isBase64 = url.trim().startsWith('data:image/');
+                        return (
+                          <div key={idx} className="space-y-2">
+                            {/* Hide text input box for uploaded Base64 files */}
+                            {!isBase64 && (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="url"
+                                  value={url}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setReferenceImageUrls((prev) => {
+                                      const next = [...prev];
+                                      next[idx] = val;
+                                      return next;
+                                    });
+                                  }}
+                                  placeholder={`Paste reference photo URL ${idx + 1} (Unsplash, Pinterest, Instagram, drive link)...`}
+                                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                                />
+                                {referenceImageUrls.length > 1 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setReferenceImageUrls((prev) => prev.filter((_, i) => i !== idx))
+                                    }
+                                    className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
+                                    title="Remove image"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Live Image Preview Card */}
+                            {url.trim() !== '' && (
+                              <div className="p-3 bg-white border border-[#E2D7CB] rounded-2xl flex items-center justify-between gap-3 animate-fadeIn shadow-xs">
+                                <div className="flex items-center gap-3 overflow-hidden">
+                                  <img
+                                    src={url.trim()}
+                                    alt={`Reference Preview ${idx + 1}`}
+                                    className="w-14 h-14 rounded-xl object-cover border border-[#EFE7DE] flex-shrink-0"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
+                                  <div className="text-xs font-semibold space-y-0.5 min-w-0 flex-1 truncate">
+                                    <span className="text-[#38A132] font-extrabold flex items-center gap-1">
+                                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                      {isBase64 ? `Uploaded Reference Photo #${idx + 1}` : `Reference Link #${idx + 1}`}
+                                    </span>
+                                    {!isBase64 && (
+                                      <p className="text-[11px] text-[#7A6C5E] truncate">{url.trim()}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setReferenceImageUrls((prev) => prev.filter((_, i) => i !== idx))
+                                  }
+                                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer shrink-0"
+                                  title="Remove reference image"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             )}
                           </div>
-
-                          {/* Live Image Preview */}
-                          {url.trim() && (
-                            <div className="p-3 bg-white border border-[#E2D7CB] rounded-2xl flex items-center gap-3 animate-fadeIn">
-                              <img
-                                src={url.trim()}
-                                alt={`Reference Preview ${idx + 1}`}
-                                className="w-14 h-14 rounded-xl object-cover border border-[#EFE7DE] flex-shrink-0"
-                                onError={(e) => {
-                                  (e.target as HTMLElement).style.display = 'none';
-                                }}
-                              />
-                              <div className="text-xs font-semibold space-y-0.5 min-w-0 flex-1">
-                                <span className="text-[#38A132] font-extrabold flex items-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5" /> Reference Photo #{idx + 1} Loaded
-                                </span>
-                                <p className="text-[11px] text-[#7A6C5E] truncate">{url.trim()}</p>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -947,40 +1087,40 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
       {/* SINGLE UNIFIED GLASS CARD CONTAINER FOR TRACKER (Only rendered when user has active custom orders) */}
       {userOrders.length > 0 && activeOrder && (
         <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-[2rem] p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
-          <div className="glass-sheen" aria-hidden="true" />
+        <div className="glass-sheen" aria-hidden="true" />
 
-          {/* Card Header & Action Bar */}
-          <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#EFE7DE]">
-            <div>
-              <h2 className="text-2xl font-extrabold text-[#2C241D] tracking-tight mt-1">
-                Custom Orders & Build Studio
-              </h2>
-              <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                Configure bespoke furniture specs, customize dimensions & materials, and track artisan craftsmanship in real-time.
-              </p>
-            </div>
-
-            {/* Action Toolbar */}
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <button
-                onClick={() => {
-                  setEditingOrderId(null);
-                  setIsFormOpen(true);
-                  setModalStep(1);
-                  setTimeout(() => {
-                    const el = document.getElementById('custom-order-form');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-md shadow-[#38A132]/25 transition-all cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Request Custom Order</span>
-              </button>
-            </div>
+        {/* Card Header & Action Bar */}
+        <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-[#EFE7DE]">
+          <div>
+            <h2 className="text-2xl font-extrabold text-[#2C241D] tracking-tight mt-1">
+              Custom Orders & Build Studio
+            </h2>
+            <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
+              Configure bespoke furniture specs, customize dimensions & materials, and track artisan craftsmanship in real-time.
+            </p>
           </div>
 
-          <div className="relative z-10 space-y-6">
+          {/* Action Toolbar */}
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button
+              onClick={() => {
+                setEditingOrderId(null);
+                setIsFormOpen(true);
+                setModalStep(1);
+                setTimeout(() => {
+                  const el = document.getElementById('custom-order-form');
+                  if (el) el.scrollIntoView({ behavior: 'smooth' });
+                }, 100);
+              }}
+              className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-md shadow-[#38A132]/25 transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Request Custom Order</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="relative z-10 space-y-6">
             {/* Active Order Specs & Status Banner */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-6 border-b border-[#EFE7DE]">
               <div className="space-y-2 flex-1">
@@ -1032,21 +1172,24 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   {activeOrder.order_status !== 'Cancelled' && activeOrder.order_status !== 'Completed' && activeOrder.order_status !== 'In Production' && activeOrder.order_status !== 'Paid' && (
                     <button
                       onClick={() => setCancelModalOrderId(activeOrder.custom_order_id)}
-                      className="px-3 py-1 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                      title="Cancel this custom order request"
+                      className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
+                      title="Cancel Order"
                     >
                       <X className="w-3.5 h-3.5 text-rose-600" />
-                      <span>Cancel Request</span>
                     </button>
                   )}
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  {activeOrder.reference_image && activeOrder.reference_image.split(',').map(s => s.trim()).filter(Boolean).length > 0 && (
+                  {activeOrder.reference_image && parseReferenceImages(activeOrder.reference_image).length > 0 && (
                     <div className="flex items-center gap-2.5 flex-wrap shrink-0">
-                      {activeOrder.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, idx) => (
+                      {parseReferenceImages(activeOrder.reference_image).map((imgUrl, idx) => (
                         <div key={idx} className="relative group shrink-0">
-                          <a href={imgUrl} target="_blank" rel="noopener noreferrer">
+                          <button
+                            type="button"
+                            onClick={() => openImageInNewTab(imgUrl)}
+                            className="block cursor-pointer"
+                          >
                             <img
                               src={imgUrl}
                               alt={`Design Reference ${idx + 1}`}
@@ -1062,7 +1205,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                             <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-[#2C241D]/80 text-white font-extrabold text-[9px] backdrop-blur-xs">
                               Ref #{idx + 1}
                             </span>
-                          </a>
+                          </button>
                         </div>
                       ))}
                     </div>
@@ -1105,52 +1248,25 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                 </div>
               </div>
 
-              <div className="text-left md:text-right bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] shrink-0">
+              <div className="text-left md:text-right bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] shrink-0 space-y-2">
                 <span className="block text-[11px] font-bold text-[#7A6C5E] uppercase">Estimated Quotation</span>
-                <span className="text-xl font-extrabold text-[#38A132]">
+                <span className="text-xl font-extrabold text-[#38A132] block">
                   {activeOrder.estimated_price ? `₹${activeOrder.estimated_price.toLocaleString('en-IN')}` : 'Quote Under Review'}
                 </span>
+                {activeOrder.estimated_price && activeOrder.estimated_price > 0 && !(activeOrder.payment_status === 'Paid' || activeOrder.order_status === 'Paid') && (
+                  <button
+                    onClick={() => handleAddToCartAndPay(activeOrder)}
+                    className="mt-2 w-full px-3 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                    title="Add custom furniture quote to cart"
+                  >
+                    <ShoppingCart className="w-3.5 h-3.5" />
+                    <span>Add to Cart</span>
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Progress Bar & Stage Stepper */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs font-bold text-[#2C241D]">
-                <span className="flex items-center gap-1.5 text-[#38A132]">
-                  <PackageCheck className="w-4 h-4" /> Current Stage: {activeOrder.current_stage || 'Material Sourcing'}
-                </span>
-                <span className="text-[#7A6C5E]">{activeOrder.progress_percentage || 15}% Overall Progress</span>
-              </div>
 
-              <div className="w-full bg-[#EAE1D5] rounded-full h-3 overflow-hidden p-0.5 border border-[#E2D7CB]">
-                <div
-                  className="bg-gradient-to-r from-[#38A132] to-[#32922D] h-full rounded-full transition-all duration-700 shadow-sm"
-                  style={{ width: `${Math.max(activeOrder.progress_percentage || 15, 10)}%` }}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pt-2">
-                {stages.map((stage, idx) => {
-                  const isPassed = idx < currentStageIdx;
-                  const isCurrent = idx === currentStageIdx;
-                  return (
-                    <div
-                      key={stage}
-                      className={`p-3 rounded-2xl border text-center transition-all ${
-                        isCurrent
-                          ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs'
-                          : isPassed
-                          ? 'bg-[#38A132]/5 border-[#38A132]/30 text-[#38A132]'
-                          : 'bg-[#F9F6F0] border-[#E2D7CB] text-[#9E9082]'
-                      }`}
-                    >
-                      <div className="text-[10px] font-mono font-bold uppercase mb-1">Stage 0{idx + 1}</div>
-                      <div className="text-xs font-extrabold leading-tight">{stage}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
 
             {/* Assigned Craftsmen Info */}
             {trackingInfo && trackingInfo.assigned_workers.length > 0 && (

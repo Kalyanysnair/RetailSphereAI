@@ -64,6 +64,9 @@ export interface RetailProduct {
   detailed_description?: string;
   dimensions?: string;
   warranty_info?: string;
+  subcategory?: string;
+  warrantyInfo?: string;
+  detailedDescription?: string;
 }
 
 export interface RetailOrder {
@@ -85,6 +88,7 @@ export interface RetailOrder {
     imageUrl?: string;
   }>;
   orderDate: string;
+  assignedWorkers?: any[];
 }
 
 export interface SupplierProductItem {
@@ -331,33 +335,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const loadAllOrdersForStaff = async () => {
     try {
       const dbStoreOrders = await fetchRetailOrdersFromDB();
-      const allCustomOrders = await fetchCustomOrders('All', true);
-      const paidCustomOrders = allCustomOrders.filter(
-        (c) => (c.payment_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'in production' || (c.order_status || '').toLowerCase() === 'completed'
-      );
-      
-      const formattedCustom: RetailOrder[] = paidCustomOrders.map((c) => ({
-        orderId: `CUSTOM-${c.custom_order_id}`,
-        customerName: c.customer_name || 'Bespoke Customer',
-        email: c.customer_email || 'customer@retailsphere.com',
-        itemsCount: 1,
-        totalAmount: c.estimated_price || 0,
-        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : 'Processing'),
-        paymentStatus: 'Paid',
-        orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
-        createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
-        items: [{
-          id: `item-custom-${c.custom_order_id}`,
-          name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
-          price: c.estimated_price || 0,
-          quantity: 1,
-          imageUrl: c.reference_image ? c.reference_image.split(',')[0].trim() : ''
-        }]
-      }));
-
-      const merged = [...formattedCustom, ...dbStoreOrders];
-      merged.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
-      setOrderList(merged as any);
+      dbStoreOrders.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
+      setOrderList(dbStoreOrders as any);
     } catch (err) {
       console.warn('Error loading all orders for staff:', err);
     }
@@ -377,6 +356,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
   // Modals
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<RetailProduct | null>(null);
   const [showLowStockModal, setShowLowStockModal] = useState(false);
   const [restockProduct, setRestockProduct] = useState<RetailProduct | null>(null);
   const [restockAmount, setRestockAmount] = useState<string>('10');
@@ -541,6 +521,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [supplierList, setSupplierList] = useState<RetailSupplier[]>([]);
   const [isLoadingSuppliers, setIsLoadingSuppliers] = useState(false);
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<RetailSupplier | null>(null);
+  const [newSupStatus, setNewSupStatus] = useState<'Active' | 'Inactive'>('Active');
   const [selectedSupplierDetail, setSelectedSupplierDetail] = useState<RetailSupplier | null>(null);
   const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
   const [modalProductSearchQuery, setModalProductSearchQuery] = useState('');
@@ -652,44 +634,84 @@ export const RetailStaffDashboardPage: React.FC = () => {
     e.preventDefault();
     if (!newSupName.trim() || !newSupContact.trim() || !newSupPhone.trim()) return;
 
-    try {
-      const created = await createSupplierInDB({
-        supplier_name: newSupName.trim(),
-        contact_person: newSupContact.trim(),
-        phone: newSupPhone.trim(),
-        email: newSupEmail.trim() || undefined,
-        address: newSupAddress.trim() || 'Industrial Estate, India',
-        gst_number: newSupGst.trim() || undefined,
-      });
+    if (editingSupplier) {
+      setSupplierList((prev) =>
+        prev.map((sup) =>
+          sup.id === editingSupplier.id || (sup.supplier_id && sup.supplier_id === editingSupplier.supplier_id)
+            ? {
+                ...sup,
+                supplier_name: newSupName.trim(),
+                contact_person: newSupContact.trim(),
+                phone: newSupPhone.trim(),
+                address: newSupAddress.trim() || sup.address,
+                status: newSupStatus,
+              }
+            : sup
+        )
+      );
+      setSuccessNotice(`Supplier "${newSupName.trim()}" details updated successfully!`);
+    } else {
+      try {
+        const created = await createSupplierInDB({
+          supplier_name: newSupName.trim(),
+          contact_person: newSupContact.trim(),
+          phone: newSupPhone.trim(),
+          email: newSupEmail.trim() || undefined,
+          address: newSupAddress.trim() || 'Industrial Estate, India',
+          gst_number: newSupGst.trim() || undefined,
+        });
 
-      setSupplierList((prev) => [created, ...prev]);
-      setSuccessNotice(`Supplier "${created.supplier_name}" added successfully!`);
-    } catch (err) {
-      console.warn('Could not save supplier, fallback locally:', err);
-      const fallback: RetailSupplier = {
-        id: `sup-${Date.now()}`,
-        supplier_name: newSupName.trim(),
-        contact_person: newSupContact.trim(),
-        phone: newSupPhone.trim(),
-        address: newSupAddress.trim() || 'Furniture Supply Zone, India',
-        assigned_products_count: 0,
-        status: 'Active',
-      };
-      setSupplierList((prev) => [fallback, ...prev]);
-      setSuccessNotice(`Supplier "${fallback.supplier_name}" added successfully!`);
+        setSupplierList((prev) => [{ ...created, status: newSupStatus }, ...prev]);
+        setSuccessNotice(`Supplier "${created.supplier_name}" added successfully!`);
+      } catch (err) {
+        console.warn('Could not save supplier, fallback locally:', err);
+        const fallback: RetailSupplier = {
+          id: `sup-${Date.now()}`,
+          supplier_name: newSupName.trim(),
+          contact_person: newSupContact.trim(),
+          phone: newSupPhone.trim(),
+          address: newSupAddress.trim() || 'Furniture Supply Zone, India',
+          assigned_products_count: 0,
+          status: newSupStatus,
+        };
+        setSupplierList((prev) => [fallback, ...prev]);
+        setSuccessNotice(`Supplier "${fallback.supplier_name}" added successfully!`);
+      }
     }
 
+    setEditingSupplier(null);
     setNewSupName('');
     setNewSupContact('');
     setNewSupPhone('');
     setNewSupEmail('');
     setNewSupAddress('');
     setNewSupGst('');
+    setNewSupStatus('Active');
     setIsAddSupplierModalOpen(false);
 
     setTimeout(() => {
       setSuccessNotice(null);
     }, 6000);
+  };
+
+  const handleOpenEditSupplierModal = (sup: RetailSupplier) => {
+    setEditingSupplier(sup);
+    setNewSupName(sup.supplier_name || '');
+    setNewSupContact(sup.contact_person || '');
+    setNewSupPhone(sup.phone || '');
+    setNewSupAddress(sup.address || '');
+    setNewSupStatus(sup.status || 'Active');
+    setIsAddSupplierModalOpen(true);
+  };
+
+  const handleOpenAddSupplierModal = () => {
+    setEditingSupplier(null);
+    setNewSupName('');
+    setNewSupContact('');
+    setNewSupPhone('');
+    setNewSupAddress('');
+    setNewSupStatus('Active');
+    setIsAddSupplierModalOpen(true);
   };
 
   const filteredSuppliers = supplierList.filter((s) => {
@@ -798,7 +820,31 @@ export const RetailStaffDashboardPage: React.FC = () => {
       return;
     }
 
-    try {
+    if (editingProduct) {
+      setProductList((prev) =>
+        prev.map((item) =>
+          item.id === editingProduct.id
+            ? {
+                ...item,
+                name: newProdName.trim(),
+                category: finalCategory || item.category,
+                subcategory: finalSubcategory || item.subcategory,
+                material: finalMaterial || item.material,
+                color: finalColor || item.color,
+                price: priceVal,
+                stockCount: qty,
+                status: qty === 0 ? 'Out of Stock' : qty < 5 ? 'Low Stock' : 'In Stock',
+                image_url: imgUrl || item.image_url,
+                dimensions: newProdDimensions.trim() || item.dimensions,
+                warrantyInfo: newProdWarranty.trim() || item.warrantyInfo,
+                detailedDescription: newProdDescription.trim() || item.detailedDescription,
+              }
+            : item
+        )
+      );
+      setSuccessNotice(`Product "${newProdName.trim()}" specifications & inventory amount updated successfully!`);
+    } else {
+      try {
       const created = await createProductInDB({
         name: newProdName.trim(),
         category: finalCategory,
@@ -843,10 +889,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
         status: statusVal,
         image_url: imgUrl,
       };
-      setProductList((prev) => [newItem, ...prev]);
-      setSuccessNotice(`Product "${newItem.name}" added to catalog successfully!`);
+        setProductList((prev) => [newItem, ...prev]);
+        setSuccessNotice(`Product "${newItem.name}" added to catalog successfully!`);
+      }
     }
 
+    setEditingProduct(null);
     setNewProdName('');
     setNewProdPrice('');
     setNewProdStock('');
@@ -863,6 +911,42 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setTimeout(() => {
       setSuccessNotice(null);
     }, 6000);
+  };
+
+  const handleOpenEditProductModal = (product: RetailProduct) => {
+    setEditingProduct(product);
+    setNewProdName(product.name || '');
+    setNewProdPrice(String(product.price || ''));
+    setNewProdStock(String(product.stockCount || '0'));
+    setNewProdSku(product.sku || product.productCode || '');
+    setNewProdCategory(product.category || 'Living Room');
+    setNewProdSubcategory(product.subcategory || 'General');
+    setNewProdMaterial(product.material || 'Solid Wood');
+    setNewProdColor(product.color || 'Natural Wood');
+    setNewProdImage(product.image_url || '');
+    setNewProdDimensions(product.dimensions || '');
+    setNewProdWarranty(product.warrantyInfo || '');
+    setNewProdDescription(product.detailedDescription || '');
+    setIsCustomCategoryMode(false);
+    setIsCustomMaterialMode(false);
+    setIsCustomColorMode(false);
+    setIsAddProductModalOpen(true);
+  };
+
+  const handleOpenAddProductModal = () => {
+    setEditingProduct(null);
+    setNewProdName('');
+    setNewProdPrice('');
+    setNewProdStock('');
+    setNewProdSku('');
+    setNewProdImage('');
+    setNewProdDimensions('');
+    setNewProdWarranty('');
+    setNewProdDescription('');
+    setIsCustomCategoryMode(false);
+    setIsCustomMaterialMode(false);
+    setIsCustomColorMode(false);
+    setIsAddProductModalOpen(true);
   };
 
 
@@ -1305,6 +1389,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="absolute right-0 top-full mt-2 w-48 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
                         <button
                           onClick={() => {
+                            setProfileForm((prev) => ({ ...prev, newPassword: '', confirmPassword: '' }));
+                            setPasswordError(null);
                             setIsStaffProfileModalOpen(true);
                             setIsUserMenuOpen(false);
                           }}
@@ -1319,7 +1405,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             setIsUserMenuOpen(false);
                             handleSignOut();
                           }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left"
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left cursor-pointer"
                         >
                           <LogOut className="w-4 h-4 text-rose-600" />
                           <span>Sign Out</span>
@@ -1569,7 +1655,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <p className="text-xs text-[#7A6C5E] font-medium">Add, update, and organize store furniture products, categories, materials & colors.</p>
                     </div>
                     <button
-                      onClick={() => setIsAddProductModalOpen(true)}
+                      onClick={handleOpenAddProductModal}
                       className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
                     >
                       <Plus className="w-4 h-4" />
@@ -1708,20 +1794,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 </span>
                               </td>
                               <td className="py-4 px-4 text-right">
-                                <div className="inline-flex items-center gap-1 bg-[#F9F6F0] p-1 rounded-xl border border-[#E2D7CB]">
+                                <div className="flex items-center justify-end">
                                   <button
-                                    onClick={() => handleStockCountChange(item.id, -1)}
-                                    className="w-6 h-6 rounded-lg bg-white hover:bg-[#F2ECE1] text-[#2C241D] font-extrabold flex items-center justify-center shadow-xs"
-                                    title="Decrease stock"
+                                    onClick={() => handleOpenEditProductModal(item)}
+                                    className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                                    title="Edit product specifications, material, price, or stock amount"
                                   >
-                                    -
-                                  </button>
-                                  <button
-                                    onClick={() => handleStockCountChange(item.id, 1)}
-                                    className="w-6 h-6 rounded-lg bg-white hover:bg-[#F2ECE1] text-[#2C241D] font-extrabold flex items-center justify-center shadow-xs"
-                                    title="Increase stock"
-                                  >
-                                    +
+                                    <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                                    <span>Edit</span>
                                   </button>
                                 </div>
                               </td>
@@ -1814,14 +1894,22 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-1.5">
                               <button
+                                onClick={() => handleOpenEditProductModal(prod)}
+                                className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-[11px] font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Edit product specifications or stock"
+                              >
+                                <Edit3 className="w-3 h-3 text-amber-700" />
+                                <span>Edit</span>
+                              </button>
+                              <button
                                 onClick={() => handleStockCountChange(prod.id, -1)}
-                                className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D]"
+                                className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D] cursor-pointer"
                               >
                                 -
                               </button>
                               <button
                                 onClick={() => handleStockCountChange(prod.id, 1)}
-                                className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D]"
+                                className="w-7 h-7 rounded-xl bg-white border border-[#E2D7CB] font-bold hover:bg-[#F2ECE1] flex items-center justify-center text-xs text-[#2C241D] cursor-pointer"
                               >
                                 +
                               </button>
@@ -1862,7 +1950,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Items & Product Code</th>
                           <th className="py-3 px-4">Total Amount</th>
                           <th className="py-3 px-4">Payment Time</th>
-                          <th className="py-3 px-4 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -1890,6 +1977,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             <td className="py-4 px-4">
                               <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName}</div>
                               <div className="text-[11px] text-[#6B5C4D] font-semibold">{ord.email}</div>
+                              {ord.assignedWorkers && ord.assignedWorkers.length > 0 && (
+                                <div className="mt-1 font-extrabold text-[10px] text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded-md border border-[#38A132]/20 inline-flex items-center gap-1">
+                                  <span>👷 {ord.assignedWorkers.map((w: any) => w.worker_name).join(', ')}</span>
+                                </div>
+                              )}
                             </td>
                             <td className="py-4 px-4">
                               {ord.items && ord.items.length > 0 ? (
@@ -1938,16 +2030,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   </span>
                                 )}
                               </div>
-                            </td>
-                            <td className="py-4 px-4 text-right">
-                              <button
-                                onClick={() => handleOpenEditOrder(ord)}
-                                className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white transition-all border border-blue-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                title="Edit Order Status & Details"
-                              >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                <span>Edit</span>
-                              </button>
                             </td>
                           </tr>
                         ))}
@@ -2123,8 +2205,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     </div>
 
                     <button
-                      onClick={() => setIsAddSupplierModalOpen(true)}
-                      className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20"
+                      onClick={handleOpenAddSupplierModal}
+                      className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 cursor-pointer"
                     >
                       <Plus className="w-4 h-4" />
                       <span>Add New Supplier</span>
@@ -2141,7 +2223,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Location / Address</th>
                           <th className="py-3 px-4">Supplied Products</th>
                           <th className="py-3 px-4">Products Sold</th>
-                          <th className="py-3 px-4 text-right">Status</th>
+                          <th className="py-3 px-4 text-right">Status & Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -2205,13 +2287,27 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="py-4 px-4 text-right">
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                    sup.status === 'Active'
-                                      ? 'bg-[#48A63E]/15 text-[#48A63E]'
-                                      : 'bg-rose-100 text-rose-700'
-                                  }`}>
-                                    {sup.status}
-                                  </span>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                      sup.status === 'Active'
+                                        ? 'bg-[#48A63E]/15 text-[#48A63E]'
+                                        : 'bg-rose-100 text-rose-700'
+                                    }`}>
+                                      {sup.status}
+                                    </span>
+
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenEditSupplierModal(sup);
+                                      }}
+                                      className="px-2.5 py-1 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                      title="Edit supplier contact, address, or status"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5 text-amber-700" />
+                                      <span>Edit</span>
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -2456,8 +2552,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
           <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#E2D7CB] space-y-4 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Add New Furniture Product</h3>
-                <p className="text-[11px] font-bold text-[#6B5C4D]">Retail Staff Product Catalog Manager</p>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">
+                  {editingProduct ? `Edit Specifications: ${editingProduct.name}` : 'Add New Furniture Product'}
+                </h3>
+                <p className="text-[11px] font-bold text-[#6B5C4D]">
+                  {editingProduct ? 'Update product details, material, price, or amount' : 'Retail Staff Product Catalog Manager'}
+                </p>
               </div>
               <button
                 onClick={() => setIsAddProductModalOpen(false)}
@@ -2748,7 +2848,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   type="submit"
                   className="w-1/2 py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold transition-all shadow-md shadow-[#48A63E]/20"
                 >
-                  Add Product
+                  {editingProduct ? 'Save Product Changes' : 'Add Product'}
                 </button>
               </div>
             </form>
@@ -3047,22 +3147,13 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   </div>
                 )}
 
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Current Password</label>
-                  <input
-                    type="password"
-                    placeholder="Enter current password"
-                    value={profileForm.currentPassword}
-                    onChange={(e) => setProfileForm({ ...profileForm, currentPassword: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs placeholder-[#8C7C6D]"
-                  />
-                </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block font-extrabold text-[#2C241D] mb-1">New Password</label>
                     <input
                       type="password"
+                      autoComplete="new-password"
                       placeholder="Min 6 characters"
                       value={profileForm.newPassword}
                       onChange={(e) => setProfileForm({ ...profileForm, newPassword: e.target.value })}
@@ -3074,6 +3165,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <label className="block font-extrabold text-[#2C241D] mb-1">Confirm New Password</label>
                     <input
                       type="password"
+                      autoComplete="new-password"
                       placeholder="Re-enter new password"
                       value={profileForm.confirmPassword}
                       onChange={(e) => setProfileForm({ ...profileForm, confirmPassword: e.target.value })}
@@ -3111,8 +3203,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
           <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border-2 border-[#E2D7CB] space-y-4 animate-fadeIn">
             <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Add New Supplier</h3>
-                <p className="text-[11px] font-bold text-[#6B5C4D]">Register new raw material vendor</p>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">
+                  {editingSupplier ? `Edit Supplier: ${editingSupplier.supplier_name}` : 'Add New Supplier'}
+                </h3>
+                <p className="text-[11px] font-bold text-[#6B5C4D]">
+                  {editingSupplier ? 'Update supplier contact details, address & status' : 'Register new raw material vendor'}
+                </p>
               </div>
               <button
                 onClick={() => setIsAddSupplierModalOpen(false)}
@@ -3173,6 +3269,18 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Vendor Status</label>
+                <select
+                  value={newSupStatus}
+                  onChange={(e) => setNewSupStatus(e.target.value as 'Active' | 'Inactive')}
+                  className="w-full px-3.5 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold text-xs cursor-pointer"
+                >
+                  <option value="Active">Active (Fulfilling Orders)</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </div>
+
               <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
                 <button
                   type="button"
@@ -3185,7 +3293,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
                 >
-                  Save Supplier
+                  {editingSupplier ? 'Save Changes' : 'Save Supplier'}
                 </button>
               </div>
             </form>
@@ -3562,6 +3670,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <div className="text-[#1A140E] font-black text-sm">{selectedOrderForEdit.customerName}</div>
                 <div className="text-[#6B5C4D] font-mono text-xs">{selectedOrderForEdit.email}</div>
                 <div className="text-[#48A63E] font-black text-sm pt-1">Total Amount: ₹{selectedOrderForEdit.totalAmount.toLocaleString('en-IN')}</div>
+                {selectedOrderForEdit.assignedWorkers && selectedOrderForEdit.assignedWorkers.length > 0 && (
+                  <div className="mt-2 p-2 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-extrabold text-emerald-900 flex items-center gap-1.5">
+                    <span>👷 Assigned Worker(s): {selectedOrderForEdit.assignedWorkers.map((w: any) => `${w.worker_name}${w.specialization ? ` (${w.specialization})` : ''}`).join(', ')}</span>
+                  </div>
+                )}
               </div>
 
               <div>

@@ -4,6 +4,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { getCartCount } from '../../utils/cartStorage';
 import { getWishlistCount } from '../../utils/wishlistStorage';
 import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
+import { Logo } from '../common/Logo';
 
 interface HeaderProps {
   cartCount?: number;
@@ -203,9 +204,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
 
 
         {/* Simple Clean Logo */}
-        <Link to="/dashboard" className="text-base sm:text-lg font-extrabold tracking-tight text-[#2C241D] hover:opacity-90 transition-opacity flex-shrink-0">
-          RetailSphere <span className="text-[#48A63E]">AI</span>
-        </Link>
+        <Logo to="/dashboard" size="md" />
 
         {/* Center Navigation Links (Collection, Contact Us) */}
         <nav className="hidden md:flex items-center gap-8 text-xs font-semibold text-[#6B5C4D]">

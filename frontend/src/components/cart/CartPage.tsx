@@ -16,6 +16,72 @@ import { payCustomOrder } from '../../services/api_production';
 import { validateCouponApi, redeemCouponApi, getCouponsApi, Coupon } from '../../services/api_coupons';
 import { calculateOrderPricing } from '../../utils/pricingUtils';
 
+import { parseReferenceImages } from '../../utils/imageUtils';
+
+const renderCartItemMaterialBadges = (materialStr?: string) => {
+  if (!materialStr || !materialStr.trim()) return null;
+
+  let cleanStr = materialStr
+    .replace(/NOTES:.*$/i, '')
+    .replace(/SPECIAL REQUIREMENTS:.*$/i, '')
+    .trim();
+
+  if (!cleanStr.includes('•') && !cleanStr.includes(':')) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#48A63E]/10 text-[#38A132] text-[10px] font-extrabold tracking-wide uppercase border border-[#38A132]/20 mb-1">
+        <span>🪵</span>
+        <span>{cleanStr}</span>
+      </span>
+    );
+  }
+
+  const parts = cleanStr
+    .split(/[•;]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  const badges: { icon: string; text: string }[] = [];
+
+  parts.forEach((part) => {
+    const uppercase = part.toUpperCase();
+    if (uppercase.includes('ASPECTS') || uppercase.includes('REQUIREMENTS') || uppercase.includes('NONE')) return;
+
+    let textVal = part.replace(/^(MATERIAL|UPHOLSTERY|SPECS|DIMENSIONS|WOOD|FABRIC|FINISH):\s*/i, '').trim();
+
+    if (textVal && textVal.length < 50) {
+      let icon = '✨';
+      if (uppercase.includes('TEAK') || uppercase.includes('WOOD') || uppercase.includes('TIMBER') || uppercase.includes('OAK') || uppercase.includes('WALNUT')) icon = '🪵';
+      else if (uppercase.includes('UPHOLSTERY') || uppercase.includes('FABRIC') || uppercase.includes('LEATHER') || uppercase.includes('COTTON') || uppercase.includes('VELVET')) icon = '🛋️';
+      else if (uppercase.includes('CM') || uppercase.includes('INCH') || uppercase.includes('MM') || uppercase.includes('SPECS') || uppercase.includes('DIMENSIONS')) icon = '📐';
+
+      badges.push({ icon, text: textVal });
+    }
+  });
+
+  if (badges.length === 0) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#48A63E]/10 text-[#38A132] text-[10px] font-extrabold tracking-wide uppercase border border-[#38A132]/20 mb-1">
+        <span>✨</span>
+        <span>Custom Built Specifications</span>
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mb-1.5">
+      {badges.slice(0, 3).map((b, idx) => (
+        <span
+          key={idx}
+          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#48A63E]/10 text-[#38A132] text-[10px] font-extrabold tracking-wide border border-[#38A132]/20"
+        >
+          <span>{b.icon}</span>
+          <span>{b.text}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<CartItem[]>(() => getCartItems());
@@ -329,43 +395,37 @@ export const CartPage: React.FC = () => {
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Cart Items List (2 cols) */}
                 <div className="lg:col-span-2 space-y-4">
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="ultra-glass-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md transition-all hover:border-[#48A63E]/60"
-                    >
-                      {/* Product Thumbnail & Details */}
-                      <div className="flex items-center gap-4 w-full sm:w-auto">
-                        {item.imageUrl && item.imageUrl.trim() !== '' ? (
+                  {items.map((item) => {
+                    const parsedImgs = parseReferenceImages(item.imageUrl || '');
+                    const thumbUrl = parsedImgs.length > 0
+                      ? parsedImgs[0]
+                      : "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80";
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="ultra-glass-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md transition-all hover:border-[#48A63E]/60"
+                      >
+                        {/* Product Thumbnail & Details */}
+                        <div className="flex items-center gap-4 w-full sm:w-auto">
                           <img
-                            src={item.imageUrl}
+                            src={thumbUrl}
                             alt={item.name}
-                            className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl bg-[#F4ECE1] flex-shrink-0 border border-[#E6DDD3]"
+                            className="w-20 h-20 sm:w-24 sm:h-24 object-contain p-1 rounded-xl bg-gradient-to-br from-[#FAF7F2] to-[#EAE0D4] flex-shrink-0 border border-[#E2D7CB] shadow-2xs"
                             onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"; }}
                           />
-                        ) : item.name.toLowerCase().includes('custom') || item.id.includes('custom') ? (
-                          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex-shrink-0 flex items-center justify-center font-extrabold text-[#38A132] shadow-2xs">
-                            <Sliders className="w-8 h-8 text-[#38A132]" />
+
+                          <div>
+                            {renderCartItemMaterialBadges(item.material)}
+
+                            <h3 className="text-sm sm:text-base font-extrabold text-[#2C241D] line-clamp-1">
+                              {item.name}
+                            </h3>
+                            <p className="text-xs font-semibold text-[#6B5C4D] mt-0.5">
+                              ₹{item.price.toLocaleString('en-IN')} each
+                            </p>
                           </div>
-                        ) : (
-                          <img
-                            src="https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"
-                            alt={item.name}
-                            className="w-20 h-20 sm:w-24 sm:h-24 object-cover rounded-xl bg-[#F4ECE1] flex-shrink-0 border border-[#E6DDD3]"
-                          />
-                        )}
-                        <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#48A63E]">
-                            {item.material}
-                          </span>
-                          <h3 className="text-sm sm:text-base font-bold text-[#2C241D] line-clamp-1">
-                            {item.name}
-                          </h3>
-                          <p className="text-xs font-semibold text-[#6B5C4D] mt-1">
-                            ₹{item.price.toLocaleString('en-IN')} each
-                          </p>
                         </div>
-                      </div>
 
                       {/* Quantity Controls & Total */}
                       <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-t-0 border-[#EFE7DE]">
@@ -405,7 +465,8 @@ export const CartPage: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                  ))}
+                  );
+                })}
                 </div>
 
                 {/* Order Summary Box (1 col) */}

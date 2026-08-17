@@ -23,6 +23,7 @@ export interface RetailOrder {
   paymentId?: string;
   createdAt?: number;
   orderDate: string;
+  assignedWorkers?: any[];
   items: RetailOrderItem[];
 }
 
@@ -70,7 +71,7 @@ export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
     const res = await safeFetchOrders('/admin/orders');
     if (res.ok) {
       const dbOrders: RetailOrder[] = await res.json();
-      if (Array.isArray(dbOrders)) {
+      if (Array.isArray(dbOrders) && dbOrders.length > 0) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(dbOrders));
         return dbOrders;
       }

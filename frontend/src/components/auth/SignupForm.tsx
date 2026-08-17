@@ -3,6 +3,35 @@ import { User, Mail, Phone, Eye, EyeOff } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { SignupCredentials, SignupValidationErrors, SignupFormProps } from '../../types/auth';
+import { Logo } from '../common/Logo';
+
+export const validatePhoneNumber = (phone: string): string | null => {
+  const clean = phone.trim().replace(/[\s-()]/g, '');
+  if (!clean) {
+    return 'Phone number is required';
+  }
+  const digits = clean.replace(/\+/g, '');
+  if (!/^\+?[0-9]{10,15}$/.test(clean)) {
+    return 'Please enter a valid 10 to 15 digit phone number';
+  }
+
+  // Rejects all identical repeating digits like 0000000000, 1111111111, 9999999999
+  if (/^(\d)\1+$/.test(digits)) {
+    return 'Please enter a valid active phone number (repeating digits like 1111111111 are invalid)';
+  }
+
+  // Rejects sequential dummy patterns
+  if (digits === '1234567890' || digits === '0123456789' || digits === '9876543210' || digits === '01234567890') {
+    return 'Please enter a valid active phone number';
+  }
+
+  // Standard 10-digit Indian mobile numbers must start with 6, 7, 8, or 9
+  if (digits.length === 10 && !/^[6-9]\d{9}$/.test(digits)) {
+    return '10-digit mobile numbers must start with 6, 7, 8, or 9 (e.g. 9778237180)';
+  }
+
+  return null;
+};
 
 export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) => {
   const navigate = useNavigate();
@@ -23,20 +52,25 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
   const validateForm = (): boolean => {
     const newErrors: SignupValidationErrors = {};
 
-    if (!credentials.username.trim()) {
-      newErrors.username = 'User Name is required';
+    const usernameTrim = credentials.username.trim();
+    if (!usernameTrim) {
+      newErrors.username = 'User Name / Full Name is required';
+    } else if (usernameTrim.length < 2) {
+      newErrors.username = 'Name must be at least 2 characters long';
+    } else if (!/^[a-zA-Z\s.'-]+$/.test(usernameTrim)) {
+      newErrors.username = 'Name must contain letters only (e.g. Alex Smith)';
     }
 
-    if (!credentials.email.trim()) {
+    const emailTrim = credentials.email.trim();
+    if (!emailTrim) {
       newErrors.email = 'Email address is required';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(credentials.email)) {
-      newErrors.email = 'Please enter a valid email address';
+    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(emailTrim)) {
+      newErrors.email = 'Please enter a valid email address (e.g. name@domain.com)';
     }
 
-    if (!credentials.phone.trim()) {
-      newErrors.phone = 'Phone number is required';
-    } else if (!/^\+?[0-9]{7,15}$/.test(credentials.phone.trim().replace(/[\s-]/g, ''))) {
-      newErrors.phone = 'Please enter a valid phone number';
+    const phoneErr = validatePhoneNumber(credentials.phone);
+    if (phoneErr) {
+      newErrors.phone = phoneErr;
     }
 
     if (!credentials.password) {
@@ -72,14 +106,25 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
           password: credentials.password
         });
       }
-      navigate('/dashboard');
+      navigate('/login', {
+        state: {
+          registeredEmail: credentials.email,
+          message: 'Account created successfully! Please login with your credentials.',
+        },
+      });
     } catch (err: any) {
       const msg = err?.message || 'Registration failed. Please try again.';
-      setErrors({ general: msg });
       
       if (msg.toLowerCase().includes('failed to fetch')) {
-        console.warn('Backend server offline. Continuing in local demo mode.');
-        navigate('/dashboard');
+        console.warn('Backend server offline. Redirecting to login in demo mode.');
+        navigate('/login', {
+          state: {
+            registeredEmail: credentials.email,
+            message: 'Account created successfully! Please login with your credentials.',
+          },
+        });
+      } else {
+        setErrors({ general: msg });
       }
     } finally {
       setInternalLoading(false);
@@ -92,8 +137,26 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
       ...prev,
       [name]: value,
     }));
-    if (errors[name as keyof SignupValidationErrors]) {
+
+    if (name === 'phone') {
+      const clean = value.trim().replace(/[\s-()]/g, '');
+      const digits = clean.replace(/\+/g, '');
+      if (digits.length >= 10) {
+        const err = validatePhoneNumber(value);
+        setErrors((prev) => ({ ...prev, phone: err || undefined }));
+      } else if (errors.phone) {
+        setErrors((prev) => ({ ...prev, phone: undefined }));
+      }
+    } else if (errors[name as keyof SignupValidationErrors]) {
       setErrors((prev) => ({ ...prev, [name]: undefined }));
+    }
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    if (name === 'phone') {
+      const err = validatePhoneNumber(value);
+      setErrors((prev) => ({ ...prev, phone: err || undefined }));
     }
   };
 
@@ -102,12 +165,9 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
   return (
     <div className="w-full animate-fadeIn space-y-3.5 text-[#2C241D]">
       {/* Brand Header Inside Card */}
-      <div className="text-left space-y-0.5">
-        <h1 className="text-xl sm:text-2xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-1.5 drop-shadow-xs">
-          <span>RetailSphere</span>
-          <span className="text-[#38A132]">AI</span>
-        </h1>
-        <p className="text-[11px] text-[#6B5C4D] font-extrabold">
+      <div className="text-left space-y-1">
+        <Logo to="/" size="lg" />
+        <p className="text-[11px] text-[#6B5C4D] font-extrabold pt-1">
           Create your account to get started
         </p>
       </div>
@@ -124,11 +184,15 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
           <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
             User Name / Full Name
           </label>
-          <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+          <div className={`relative flex items-center bg-[#FAF7F2] border rounded-2xl overflow-hidden transition-all shadow-xs ${
+            errors.username
+              ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-2 focus-within:ring-rose-500/20'
+              : 'border-[#E2D7CB] focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20'
+          }`}>
             <input
               type="text"
               name="username"
-              placeholder="e.g. Rahul Sharma"
+              placeholder="Enter full name"
               value={credentials.username}
               onChange={handleChange}
               autoComplete="username"
@@ -149,7 +213,11 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
           <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
             Email Address
           </label>
-          <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+          <div className={`relative flex items-center bg-[#FAF7F2] border rounded-2xl overflow-hidden transition-all shadow-xs ${
+            errors.email
+              ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-2 focus-within:ring-rose-500/20'
+              : 'border-[#E2D7CB] focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20'
+          }`}>
             <input
               type="email"
               name="email"
@@ -174,18 +242,23 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
           <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
             Phone Number
           </label>
-          <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+          <div className={`relative flex items-center bg-[#FAF7F2] border rounded-2xl overflow-hidden transition-all shadow-xs ${
+            errors.phone
+              ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-2 focus-within:ring-rose-500/20'
+              : 'border-[#E2D7CB] focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20'
+          }`}>
             <input
               type="tel"
               name="phone"
               placeholder="+91 9778237180"
               value={credentials.phone}
               onChange={handleChange}
+              onBlur={handleBlur}
               autoComplete="tel"
               required
               className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
             />
-            <div className="pr-3.5 text-[#38A132] pointer-events-none">
+            <div className={`pr-3.5 pointer-events-none ${errors.phone ? 'text-rose-600' : 'text-[#38A132]'}`}>
               <Phone className="w-4 h-4" />
             </div>
           </div>

@@ -14,6 +14,7 @@ import {
   Gift
 } from 'lucide-react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
+import { Logo } from '../common/Logo';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -88,9 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         <div>
           {/* Sidebar Header */}
           <div className="h-16 px-6 border-b border-[#E6E1DA] flex items-center justify-between">
-            <Link to="/dashboard" className="font-extrabold text-slate-900 text-base tracking-tight">
-              RetailSphere <span className="text-[#C5A880]">AI</span>
-            </Link>
+            <Logo to="/dashboard" size="sm" />
             <button
               onClick={onClose}
               className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-[#E6E1DA]/50 transition-colors"

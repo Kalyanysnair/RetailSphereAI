@@ -19,8 +19,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Emerald Green Velvet Lounge Sofa',
     category: 'living-room',
     subcategory: 'sofas',
-    price: 145000,
-    originalPrice: 166750,
+    price: 49500,
+    originalPrice: 56900,
     stock: 12,
     salesCount: 45,
     status: 'In Stock',
@@ -40,8 +40,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Nordic Minimalist Modular Sofa',
     category: 'living-room',
     subcategory: 'sofas',
-    price: 220000,
-    originalPrice: 253000,
+    price: 54000,
+    originalPrice: 62100,
     stock: 5,
     salesCount: 30,
     status: 'In Stock',
@@ -103,8 +103,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Minimalist Teak Wood 6-Seater Dining Set',
     category: 'dining-room',
     subcategory: 'dining-tables',
-    price: 98000,
-    originalPrice: 112700,
+    price: 58000,
+    originalPrice: 66700,
     stock: 8,
     salesCount: 35,
     status: 'In Stock',
@@ -124,8 +124,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Smoked Walnut Solid Wood Dining Table',
     category: 'dining-room',
     subcategory: 'dining-tables',
-    price: 112000,
-    originalPrice: 128800,
+    price: 46000,
+    originalPrice: 52900,
     stock: 4,
     salesCount: 22,
     status: 'Low Stock',
@@ -166,8 +166,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Japanese Oak Minimalist Bed Frame',
     category: 'bedroom',
     subcategory: 'king-beds',
-    price: 125000,
-    originalPrice: 143750,
+    price: 52000,
+    originalPrice: 59800,
     stock: 6,
     salesCount: 28,
     status: 'In Stock',
@@ -187,8 +187,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Scandi Solid Teak Platform Bed',
     category: 'bedroom',
     subcategory: 'king-beds',
-    price: 85000,
-    originalPrice: 97750,
+    price: 44000,
+    originalPrice: 50600,
     stock: 10,
     salesCount: 33,
     status: 'In Stock',
@@ -271,8 +271,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Bespoke Curved Architectural Lounge Chair',
     category: 'living-room',
     subcategory: 'accent-chairs',
-    price: 78000,
-    originalPrice: 89700,
+    price: 38000,
+    originalPrice: 43700,
     stock: 3,
     salesCount: 15,
     status: 'Low Stock',
@@ -347,22 +347,33 @@ export const DashboardPage: React.FC = () => {
     return () => window.removeEventListener('reset-dashboard-filters', handleReset);
   }, []);
 
-  // Smooth Hash Scroll & Custom Order Form Trigger
-  useEffect(() => {
-    if (location.hash) {
-      const targetId = location.hash.replace('#', '');
-      if (targetId === 'custom-order-section' || targetId === 'custom-order-form') {
-        setCustomModalTrigger((prev) => prev + 1);
+  const handleOpenCustomStudioModal = () => {
+    setCustomModalTrigger((prev) => prev + 1);
+    setTimeout(() => {
+      const el = document.getElementById('custom-order-form') || document.getElementById('custom-order-section');
+      if (el) {
+        const yOffset = -90;
+        const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+        window.scrollTo({ top: y, behavior: 'smooth' });
       }
+    }, 100);
+  };
+
+  // Smooth Hash Scroll & Custom Order Modal Trigger
+  useEffect(() => {
+    if (location.hash === '#custom-order-section' || location.hash === '#custom-order-form' || location.search.includes('openCustomOrder=true')) {
+      handleOpenCustomStudioModal();
+    } else if (location.hash) {
+      const targetId = location.hash.replace('#', '');
       const timer = setTimeout(() => {
-        const el = document.getElementById(targetId) || document.getElementById('custom-order-form');
+        const el = document.getElementById(targetId);
         if (el) {
           el.scrollIntoView({ behavior: 'smooth' });
         }
       }, 150);
       return () => clearTimeout(timer);
     }
-  }, [location.hash, location.pathname]);
+  }, [location.hash, location.search, location.pathname]);
 
 
   // Filter State
@@ -497,7 +508,7 @@ export const DashboardPage: React.FC = () => {
         <Header
           cartCount={cartItemsCount}
           wishlistCount={wishlistCount}
-          onOpenCustomOrder={() => setCustomModalTrigger((prev) => prev + 1)}
+          onOpenCustomOrder={handleOpenCustomStudioModal}
         />
 
         {/* Main Content Area wrapped in an ultra glass panel */}
@@ -515,7 +526,7 @@ export const DashboardPage: React.FC = () => {
               filterState={filterState}
               onFilterChange={handleFilterChange}
               onResetFilters={handleResetFilters}
-              onOpenCustomOrder={() => setCustomModalTrigger((prev) => prev + 1)}
+              onOpenCustomOrder={handleOpenCustomStudioModal}
             />
 
             {/* Top Furniture Recommendations & Catalog Grid */}
@@ -526,7 +537,7 @@ export const DashboardPage: React.FC = () => {
               onCustomizeProduct={(product) => setSelectedCustomProduct(product)}
             />
 
-            {/* Live Custom Furniture Order & Artisan Tracker */}
+            {/* Live Custom Furniture Order & Artisan Tracker Section */}
             <div id="custom-order-section" className="scroll-mt-24">
               <CustomOrderTracker openModalTrigger={customModalTrigger} />
             </div>

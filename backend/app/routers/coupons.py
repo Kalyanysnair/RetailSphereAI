@@ -146,8 +146,12 @@ def list_coupons(db: Session = Depends(get_db)):
         for c in coupons
     ]
 
-    allotments_list = [
-        {
+    allotments_list = []
+    seen_redemptions = set()
+
+    for r in redemptions:
+        seen_redemptions.add(f"{r.coupon_id}_{r.user_email.strip().lower()}")
+        allotments_list.append({
             "id": str(r.redemption_id),
             "couponCode": r.coupon.code if r.coupon else "PROMO",
             "discountPercent": r.coupon.discount_percent if r.coupon else 15,
@@ -155,9 +159,21 @@ def list_coupons(db: Session = Depends(get_db)):
             "allottedDate": r.redeemed_at.strftime("%d %b %Y, %I:%M %p"),
             "used": True,
             "usedDate": r.redeemed_at.strftime("%d %b %Y, %I:%M %p")
-        }
-        for r in redemptions
-    ]
+        })
+
+    for c in coupons:
+        if c.target_user_email and c.target_user_email.strip():
+            key = f"{c.coupon_id}_{c.target_user_email.strip().lower()}"
+            if key not in seen_redemptions:
+                allotments_list.append({
+                    "id": f"target-{c.coupon_id}",
+                    "couponCode": c.code,
+                    "discountPercent": c.discount_percent,
+                    "targetUserEmail": c.target_user_email,
+                    "allottedDate": c.created_at.strftime("%d %b %Y, %I:%M %p"),
+                    "used": c.current_redemptions > 0,
+                    "usedDate": c.created_at.strftime("%d %b %Y, %I:%M %p") if c.current_redemptions > 0 else None
+                })
 
     return {"coupons": coupons_list, "allotments": allotments_list}
 

@@ -74,10 +74,46 @@ export const CustomerContactSection: React.FC = () => {
 
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; email?: string; subject?: string; message?: string }>({});
+
+  const validateContactForm = (): boolean => {
+    const newErrors: { name?: string; email?: string; subject?: string; message?: string } = {};
+
+    const nameTrim = form.name.trim();
+    if (!nameTrim) {
+      newErrors.name = 'Full Name is required';
+    } else if (nameTrim.length < 2 || !/^[a-zA-Z\s.'-]+$/.test(nameTrim)) {
+      newErrors.name = 'Name must be at least 2 characters and contain letters only';
+    }
+
+    const emailTrim = form.email.trim();
+    if (!emailTrim) {
+      newErrors.email = 'Email address is required';
+    } else if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(emailTrim)) {
+      newErrors.email = 'Please enter a valid email address (e.g. name@domain.com)';
+    }
+
+    const subjectTrim = form.subject.trim();
+    if (!subjectTrim) {
+      newErrors.subject = 'Inquiry topic is required';
+    } else if (subjectTrim.length < 3) {
+      newErrors.subject = 'Topic must be at least 3 characters long';
+    }
+
+    const messageTrim = form.message.trim();
+    if (!messageTrim) {
+      newErrors.message = 'Message details are required';
+    } else if (messageTrim.length < 10) {
+      newErrors.message = 'Please provide a message with at least 10 characters';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.message.trim() || submitting) return;
+    if (!validateContactForm() || submitting) return;
 
     setSubmitting(true);
     try {
@@ -89,13 +125,14 @@ export const CustomerContactSection: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          subject: form.subject,
-          message: form.message,
+          name: form.name.trim(),
+          email: form.email.trim(),
+          subject: form.subject.trim(),
+          message: form.message.trim(),
         }),
       });
       setSubmitted(true);
+      setErrors({});
 
       setTimeout(() => {
         setSubmitted(false);
@@ -170,7 +207,7 @@ export const CustomerContactSection: React.FC = () => {
             </p>
           </div>
         ) : (
-          <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <form onSubmit={handleSubmit} className="space-y-4 pt-2" noValidate>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-[#7A6C5E] mb-1">
@@ -179,11 +216,15 @@ export const CustomerContactSection: React.FC = () => {
                 <input
                   type="text"
                   value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) => {
+                    setForm({ ...form, name: e.target.value });
+                    if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
+                  }}
                   placeholder="e.g. Rahul Sharma"
                   required
                   className="w-full px-4 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
                 />
+                {errors.name && <p className="mt-1 text-[10px] font-bold text-rose-700">{errors.name}</p>}
               </div>
 
               <div>
@@ -193,11 +234,15 @@ export const CustomerContactSection: React.FC = () => {
                 <input
                   type="email"
                   value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  onChange={(e) => {
+                    setForm({ ...form, email: e.target.value });
+                    if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+                  }}
                   placeholder="rahul@example.com"
                   required
                   className="w-full px-4 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
                 />
+                {errors.email && <p className="mt-1 text-[10px] font-bold text-rose-700">{errors.email}</p>}
               </div>
             </div>
 
@@ -208,10 +253,14 @@ export const CustomerContactSection: React.FC = () => {
               <input
                 type="text"
                 value={form.subject}
-                onChange={(e) => setForm({ ...form, subject: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, subject: e.target.value });
+                  if (errors.subject) setErrors((prev) => ({ ...prev, subject: undefined }));
+                }}
                 placeholder="e.g. Custom sofa dimensions or order status"
                 className="w-full px-4 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
               />
+              {errors.subject && <p className="mt-1 text-[10px] font-bold text-rose-700">{errors.subject}</p>}
             </div>
 
             <div>
@@ -221,11 +270,15 @@ export const CustomerContactSection: React.FC = () => {
               <textarea
                 rows={4}
                 value={form.message}
-                onChange={(e) => setForm({ ...form, message: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, message: e.target.value });
+                  if (errors.message) setErrors((prev) => ({ ...prev, message: undefined }));
+                }}
                 placeholder="Describe your furniture request or question..."
                 required
                 className="w-full px-4 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
               />
+              {errors.message && <p className="mt-1 text-[10px] font-bold text-rose-700">{errors.message}</p>}
             </div>
 
             <button

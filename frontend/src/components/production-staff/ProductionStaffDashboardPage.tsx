@@ -15,6 +15,7 @@ import {
   TrendingUp,
   FileText,
   DollarSign,
+  Edit3,
   Layers,
   ChevronRight,
   Search,
@@ -81,6 +82,7 @@ import {
   isMessageReadByUser,
   AdminMessage
 } from '../../utils/adminMessagesStorage';
+import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 
 export const ProductionStaffDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -400,7 +402,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       return;
     }
     setSelectedOrderForReview(ord);
-    setApprovalPrice(ord.estimated_price ? ord.estimated_price.toString() : '');
+    setApprovalPrice(ord.estimated_price && ord.estimated_price > 0 ? ord.estimated_price.toString() : '');
     setApprovalRemarks(ord.latest_remarks || '');
   };
 
@@ -685,10 +687,16 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       o.order_status !== 'Completed' &&
       ((o.assigned_workers && o.assigned_workers.length > 0) || o.order_status === 'In Production')
   ).length;
-  const approvedCount = orders.filter((o) => o.order_status === 'Approved' && !isPaidCustomOrder(o)).length;
+  const approvedCount = orders.filter((o) => (o.order_status === 'Approved' || o.order_status === 'Quote Provided') && !isPaidCustomOrder(o)).length;
   const pendingCount = orders.filter((o) => (o.order_status === 'Pending' || o.order_status === 'Pending Approval') && !isPaidCustomOrder(o)).length;
   const rejectedCount = orders.filter((o) => o.order_status === 'Rejected').length;
   const completedCount = orders.filter((o) => o.order_status === 'Completed').length;
+
+  React.useEffect(() => {
+    if (pendingCount === 0 && approvedCount > 0 && approvalFilter === 'Pending') {
+      setApprovalFilter('Approved');
+    }
+  }, [pendingCount, approvedCount, approvalFilter]);
 
   return (
     <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
@@ -715,89 +723,89 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="space-y-2.5">
+        <nav className="space-y-2 text-xs font-extrabold">
           <button
             onClick={() => setActiveTab('orders')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'orders'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'orders'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
-              <Sliders className="w-4.5 h-4.5" />
-              <span className="text-sm">Custom Orders</span>
+              <Sliders className="w-4 h-4" />
+              <span className="text-xs">Custom Orders</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('approvals')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'approvals'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'approvals'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="w-4.5 h-4.5 flex-shrink-0" />
-              <span className="text-sm whitespace-nowrap">Custom Approvals</span>
+              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+              <span className="text-xs whitespace-nowrap">Custom Approvals</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('assignments')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'assignments'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'assignments'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
-              <Layers className="w-4.5 h-4.5 flex-shrink-0" />
-              <span className="text-sm whitespace-nowrap">Assign Tasks</span>
+              <Layers className="w-4 h-4 flex-shrink-0" />
+              <span className="text-xs whitespace-nowrap">Assign Tasks</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('workers')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'workers'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'workers'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
-              <Users className="w-4.5 h-4.5" />
-              <span className="text-sm">Workers Directory</span>
+              <Users className="w-4 h-4" />
+              <span className="text-xs">Workers Directory</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('queries')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'queries'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'queries'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
-              <MessageSquare className="w-4.5 h-4.5" />
-              <span className="text-sm">Queries & Requests</span>
+              <MessageSquare className="w-4 h-4" />
+              <span className="text-xs">Queries & Requests</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('coupons')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'coupons'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'coupons'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-3">
-              <Tag className="w-4.5 h-4.5" />
-              <span className="text-sm">Coupons & Offers</span>
+              <Tag className="w-4 h-4" />
+              <span className="text-xs">Coupons & Offers</span>
             </div>
           </button>
 
           <button
             onClick={() => setActiveTab('admin_messages')}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl transition-all ${activeTab === 'admin_messages'
-              ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/25 font-extrabold'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'admin_messages'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
@@ -1026,7 +1034,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           setIsUserMenuOpen(false);
                           handleLogout();
                         }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left"
+                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left cursor-pointer"
                       >
                         <LogOut className="w-4 h-4 text-rose-600" />
                         <span>Sign Out</span>
@@ -1190,6 +1198,29 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
                             </div>
                           </div>
+
+                          {/* Assigned Worker Banner */}
+                          <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
+                              <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
+                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {ord.assigned_workers.map((w, idx) => (
+                                    <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
+                                      <span>👷 {w.worker_name}</span>
+                                      {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                                      {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
+                                  No Artisan Assigned Yet
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
 
                         {/* Action Buttons Toolbar */}
@@ -1294,7 +1325,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-extrabold text-[#7A6C5E]">Filter Status:</span>
-                    {(['Pending', 'Approved', 'Rejected', 'Cancelled', 'All'] as const).map((st) => (
+                    {(['Pending', 'Approved', 'Rejected', 'All'] as const).map((st) => (
                       <button
                         key={st}
                         onClick={() => setApprovalFilter(st as any)}
@@ -1323,7 +1354,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <div className="space-y-4">
                   {orders
                     .filter(o => !isPaidCustomOrder(o))
-                    .filter((o) => (approvalFilter === 'All' ? true : o.order_status === approvalFilter))
+                    .filter((o) => {
+                      if (approvalFilter === 'All') return true;
+                      if (approvalFilter === 'Pending') return o.order_status === 'Pending' || o.order_status === 'Pending Approval';
+                      if (approvalFilter === 'Approved') return o.order_status === 'Approved' || o.order_status === 'Quote Provided';
+                      return o.order_status === approvalFilter;
+                    })
                     .filter((o) => {
                       if (!searchQuery.trim()) return true;
                       const q = searchQuery.toLowerCase();
@@ -1343,7 +1379,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   ) : (
                     orders
                       .filter(o => !isPaidCustomOrder(o))
-                      .filter((o) => (approvalFilter === 'All' ? true : o.order_status === approvalFilter))
+                      .filter((o) => {
+                        if (approvalFilter === 'All') return true;
+                        if (approvalFilter === 'Pending') return o.order_status === 'Pending' || o.order_status === 'Pending Approval';
+                        if (approvalFilter === 'Approved') return o.order_status === 'Approved' || o.order_status === 'Quote Provided';
+                        return o.order_status === approvalFilter;
+                      })
                       .filter((o) => {
                         if (!searchQuery.trim()) return true;
                         const q = searchQuery.toLowerCase();
@@ -1372,7 +1413,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             </span>
                           </div>
 
-                          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs text-[#6B5C4D]">
+                          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs text-[#6B5C4D]">
                             <div>
                               <span className="font-bold block text-[#7A6C5E] text-[10px]">Client Name</span>
                               <span className="font-extrabold text-[#2C241D]">{ord.customer_name}</span>
@@ -1390,10 +1431,39 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               <span className="font-extrabold text-[#48A63E]">{ord.estimated_price ? `₹${ord.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}</span>
                             </div>
                             <div>
+                              <span className="font-bold block text-[#7A6C5E] text-[10px]">Approved By</span>
+                              <span className="font-extrabold text-[#38A132] truncate block">
+                                Approved By: {ord.approved_by || ord.staff_name || (ord.order_status === 'Approved' || ord.order_status === 'Quote Provided' || ord.order_status === 'In Production' || ord.order_status === 'Paid' ? (currentUser?.full_name || currentUser?.name || 'Geetha Devi') : '—')}
+                              </span>
+                            </div>
+                            <div>
                               <span className="font-bold block text-[#7A6C5E] text-[10px]">Order Date</span>
-                              <span className="font-bold text-[#2C241D]">{ord.order_date || 'Standard Build'}</span>
+                              <span className="font-bold text-[#2C241D]">
+                                {ord.order_date ? (ord.order_date.includes('T') ? ord.order_date.split('T')[0] : ord.order_date) : 'Standard Build'}
+                              </span>
                             </div>
                           </div>
+
+                          {((ord.design_description && ord.design_description.trim()) || (ord.reference_image && ord.reference_image.trim())) && (
+                            <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs space-y-2">
+                              {ord.design_description && ord.design_description.trim() && (
+                                <div>
+                                  <span className="font-extrabold text-[10px] uppercase text-[#7A6C5E] block mb-0.5">📝 Additional Specs & Requirements</span>
+                                  <span className="font-semibold text-[#2C241D] block">{ord.design_description}</span>
+                                </div>
+                              )}
+                              {ord.reference_image && ord.reference_image.trim() && (
+                                <div className="flex items-center gap-2 pt-1 border-t border-[#EAE0D4]">
+                                  <span className="font-extrabold text-[10px] uppercase text-[#7A6C5E] block shrink-0">📷 Reference Design</span>
+                                  <div className="flex items-center gap-1.5 overflow-x-auto">
+                                    {parseReferenceImages(ord.reference_image).slice(0, 3).map((url, i) => (
+                                      <img key={i} src={url} alt={`Reference ${i+1}`} className="w-10 h-10 rounded-lg object-cover border border-[#E2D7CB] shadow-2xs" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="flex items-center justify-end gap-2 pt-1 border-t border-[#EFE7DE]">
                             <button
@@ -1404,13 +1474,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               <span>View Specs</span>
                             </button>
 
-                            <button
-                              onClick={() => handleOpenPriceModal(ord)}
-                              className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 flex items-center gap-1.5 transition-all cursor-pointer"
-                            >
-                              <DollarSign className="w-3.5 h-3.5" />
-                              <span>Review & Quote Price</span>
-                            </button>
+                            {ord.order_status === 'Approved' || ord.order_status === 'Quote Provided' || (ord.estimated_price && ord.estimated_price > 0) ? (
+                              <button
+                                onClick={() => handleOpenPriceModal(ord)}
+                                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md shadow-amber-600/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                                <span>Edit Amount</span>
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleOpenPriceModal(ord)}
+                                className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 flex items-center gap-1.5 transition-all cursor-pointer"
+                              >
+                                <DollarSign className="w-3.5 h-3.5" />
+                                <span>Review & Quote Price</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))
@@ -2485,6 +2565,34 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* 1.5 ASSIGNED WORKERS CARD IN SPECS MODAL */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+              <h4 className="text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-[#38A132]" />
+                <span>Assigned Workshop Artisan(s) & Production Team</span>
+              </h4>
+              {selectedOrderForDetails.assigned_workers && selectedOrderForDetails.assigned_workers.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                  {selectedOrderForDetails.assigned_workers.map((w, i) => (
+                    <div key={i} className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-between">
+                      <div>
+                        <span className="font-extrabold text-[#2C241D] block text-xs">👷 {w.worker_name}</span>
+                        {w.specialization && <span className="text-[10px] text-[#7A6C5E] block font-semibold">{w.specialization}</span>}
+                        {w.worker_phone && <span className="text-[10px] text-[#38A132] block font-mono">📞 {w.worker_phone}</span>}
+                      </div>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#38A132]/15 text-[#38A132] border border-[#38A132]/30">
+                        {w.task_status || 'Assigned'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 font-bold">
+                  ⚠️ No artisan worker assigned yet to this custom build. Use the "Assign Worker" button in the studio to assign workshop staff.
+                </p>
+              )}
+            </div>
+
             {/* 2. SEPARATED PRODUCT FIELDS GRID */}
             <div className="space-y-3">
               <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Product Specifications & Parameters</h4>
@@ -2506,39 +2614,32 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {selectedOrderForDetails.reference_image && selectedOrderForDetails.reference_image.trim() && (
               <div className="space-y-3">
                 <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
-                  <Eye className="w-4 h-4 text-[#48A63E]" />
-                  Customer Provided Reference Images ({selectedOrderForDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).length})
+                  <Eye className="w-4 h-4 text-[#38A132]" />
+                  Customer Provided Reference Images ({parseReferenceImages(selectedOrderForDetails.reference_image).length})
                 </h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {selectedOrderForDetails.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, i) => (
-                    <a
-                      key={i}
-                      href={imgUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all block h-32"
-                    >
-                      <img
-                        src={imgUrl}
-                        alt={`Reference Design ${i + 1}`}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          const target = e.target as HTMLElement;
-                          target.style.display = 'none';
-                          if (target.nextElementSibling) {
-                            target.nextElementSibling.classList.remove('hidden');
-                          }
-                        }}
-                      />
-                      <div className="hidden absolute inset-0 bg-[#F5ECE1] flex flex-col items-center justify-center p-3 text-center">
-                        <ImageIcon className="w-6 h-6 text-[#9E9082] mb-1" />
-                        <span className="text-[10px] font-extrabold text-[#7A6C5E]">Reference Photo #{i + 1}</span>
-                        <span className="text-[9px] text-[#48A63E] underline font-bold mt-1">Open Image URL</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {parseReferenceImages(selectedOrderForDetails.reference_image).map((imgUrl, i) => (
+                    <div key={i} className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all flex flex-col h-52">
+                      <div className="relative flex-1 bg-neutral-900/5 overflow-hidden flex items-center justify-center cursor-pointer" onClick={() => openImageInNewTab(imgUrl)}>
+                        <img
+                          src={imgUrl}
+                          alt={`Reference Design ${i + 1}`}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                        />
                       </div>
-                      <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-lg bg-black/60 text-white text-[9px] font-extrabold backdrop-blur-xs flex items-center gap-1">
-                        <Eye className="w-3 h-3" /> Photo #{i + 1}
+                      <div className="p-2.5 bg-white border-t border-[#E2D7CB] flex items-center justify-between">
+                        <span className="text-[11px] font-extrabold text-[#2C241D]">Reference Photo #{i + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => openImageInNewTab(imgUrl)}
+                          className="text-[10px] font-extrabold text-[#38A132] hover:underline flex items-center gap-1 bg-[#38A132]/10 px-2 py-1 rounded-lg cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 text-[#38A132]" /> View Full Image
+                        </button>
                       </div>
-                    </a>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -2584,23 +2685,25 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <p><span className="font-bold text-[#7A6C5E]">Dimensions:</span> {selectedOrderForReview.dimensions}</p>
               <p><span className="font-bold text-[#7A6C5E]">Material:</span> {selectedOrderForReview.material}</p>
               <p><span className="font-bold text-[#7A6C5E]">Color / Polish Shade:</span> <strong className="text-[#48A63E]">{selectedOrderForReview.color || 'Natural Finish'}</strong></p>
-              {selectedOrderForReview.estimated_price ? (
+              {selectedOrderForReview.estimated_price && selectedOrderForReview.estimated_price > 0 ? (
                 <p><span className="font-bold text-[#7A6C5E]">Current Quote:</span> <strong className="text-[#38A132]">₹{selectedOrderForReview.estimated_price.toLocaleString()}</strong></p>
-              ) : null}
+              ) : (
+                <p><span className="font-bold text-[#7A6C5E]">Current Quote:</span> <strong className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">Awaiting Price Quote from Staff</strong></p>
+              )}
 
               {selectedOrderForReview.reference_image && (
                 <div className="space-y-1.5 pt-2 border-t border-[#EFE7DE]">
-                  <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Customer Reference Photos ({selectedOrderForReview.reference_image.split(',').map(s => s.trim()).filter(Boolean).length})</span>
+                  <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Customer Reference Photos ({parseReferenceImages(selectedOrderForReview.reference_image).length})</span>
                   <div className="flex items-center gap-2 flex-wrap">
-                    {selectedOrderForReview.reference_image.split(',').map(s => s.trim()).filter(Boolean).map((imgUrl, idx) => (
-                      <a key={idx} href={imgUrl} target="_blank" rel="noopener noreferrer" className="block relative group">
+                    {parseReferenceImages(selectedOrderForReview.reference_image).map((imgUrl, idx) => (
+                      <button key={idx} type="button" onClick={() => openImageInNewTab(imgUrl)} className="block relative group cursor-pointer">
                         <img
                           src={imgUrl}
                           alt={`Reference ${idx + 1}`}
                           className="w-14 h-14 rounded-xl object-cover border border-[#E2D7CB] group-hover:scale-105 transition-transform"
                           onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                         />
-                      </a>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -2887,16 +2990,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               )}
 
               <form onSubmit={handleUpdatePassword} className="space-y-3 text-xs">
-                <div>
-                  <label className="block font-bold text-[#6B5C4D] mb-1">Current Password</label>
-                  <input
-                    type="password"
-                    placeholder="Enter current password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
-                  />
-                </div>
 
                 <div>
                   <label className="block font-bold text-[#6B5C4D] mb-1">New Password</label>
