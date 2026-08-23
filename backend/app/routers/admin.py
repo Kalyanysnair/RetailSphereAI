@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Union, List
+from datetime import datetime, date
 import string
 import secrets
 import random
@@ -158,7 +159,7 @@ def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks,
         db.add(new_staff)
         db.commit()
         db.refresh(new_staff)
-    except Exception as err:
+    except Exception:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -587,8 +588,6 @@ def update_product_stock(product_id: int, payload: StockUpdatePayload, db: Sessi
     return {"message": "Product updated", "stock_count": prod.stock_quantity}
 
 
-from datetime import datetime
-
 class QueryCreateRequest(BaseModel):
     staff_name: str
     staff_email: str
@@ -863,6 +862,7 @@ def get_readymade_orders(db: Session = Depends(get_db)):
             "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
             "totalAmount": float(r.total_amount or 0),
             "orderStatus": r.order_status or "Order Placed",
+            "completionStatus": getattr(r, "completion_status", None) or r.order_status or "Order Placed",
             "paymentStatus": r.payment_status or "Paid",
             "paymentId": r.payment_id,
             "orderDate": r.order_date.strftime("%b %d, %Y") if r.order_date else "Recent",
@@ -1006,6 +1006,44 @@ def cancel_readymade_order(order_id_str: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(ord_record)
     return {"message": f"Order {order_id_str} cancelled successfully", "orderStatus": "Cancelled"}
+
+
+class OrderCompletionStatusPayload(BaseModel):
+    completion_status: str
+    order_status: Optional[str] = None
+    payment_status: Optional[str] = None
+
+
+@router.put("/orders/{order_id_str}/completion-status")
+def update_readymade_completion_status(
+    order_id_str: str,
+    payload: OrderCompletionStatusPayload,
+    db: Session = Depends(get_db)
+):
+    clean_id = order_id_str.replace("RET-", "").lstrip("0")
+    if not clean_id or not clean_id.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid order ID format")
+    
+    order_num = int(clean_id)
+    ord_record = db.query(models.ReadymadeOrder).filter(models.ReadymadeOrder.order_id == order_num).first()
+    if not ord_record:
+        raise HTTPException(status_code=404, detail="Readymade order not found")
+    
+    if hasattr(ord_record, "completion_status"):
+        ord_record.completion_status = payload.completion_status
+    if payload.order_status:
+        ord_record.order_status = payload.order_status
+    if payload.payment_status:
+        ord_record.payment_status = payload.payment_status
+
+    db.commit()
+    db.refresh(ord_record)
+    return {
+        "message": f"Order {order_id_str} completion status updated",
+        "orderId": order_id_str,
+        "completionStatus": payload.completion_status
+    }
+
 
 
 @router.delete("/orders/{order_id_str}")

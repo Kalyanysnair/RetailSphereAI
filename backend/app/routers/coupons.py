@@ -48,8 +48,14 @@ def create_coupon(
     existing = db.query(models.Coupon).filter(models.Coupon.code == clean_code).first()
 
     clean_type = payload.coupon_type.strip().lower()
-    if clean_type == 'first_n_customers':
+    if clean_type == 'first_n_customers' or (payload.customer_limit and payload.customer_limit > 0 and not target_email and clean_type != 'flat_amount'):
+        clean_type = 'first_n_customers'
         target_email = None
+
+    if clean_type == 'first_n_customers':
+        customer_limit_val = payload.customer_limit if (payload.customer_limit and payload.customer_limit > 0) else 10
+    else:
+        customer_limit_val = payload.customer_limit if (payload.customer_limit and payload.customer_limit > 0) else None
 
     if clean_type == 'flat_amount':
         flat_val = payload.flat_discount_amount if payload.flat_discount_amount and payload.flat_discount_amount > 0 else 0.0
@@ -63,7 +69,7 @@ def create_coupon(
         existing.discount_percent = percent_val
         existing.flat_discount_amount = flat_val
         existing.description = payload.description.strip() or (f"₹{flat_val} OFF Flat Discount" if clean_type == 'flat_amount' else f"{percent_val}% Off Discount")
-        existing.customer_limit = payload.customer_limit
+        existing.customer_limit = customer_limit_val
         existing.current_redemptions = 0
         existing.target_user_email = target_email
         existing.status = "Active"
@@ -75,7 +81,7 @@ def create_coupon(
             discount_percent=percent_val,
             flat_discount_amount=flat_val,
             description=payload.description.strip() or (f"₹{flat_val} OFF Flat Discount" if clean_type == 'flat_amount' else f"{percent_val}% Off Discount"),
-            customer_limit=payload.customer_limit,
+            customer_limit=customer_limit_val,
             current_redemptions=0,
             target_user_email=target_email,
             status="Active"
@@ -221,6 +227,7 @@ def get_customer_notifications(
     active_coupons = db.query(models.Coupon).filter(
         models.Coupon.status == "Active",
         models.Coupon.coupon_type != "first_n_customers",
+        or_(models.Coupon.customer_limit.is_(None), models.Coupon.customer_limit <= 0),
         or_(
             models.Coupon.target_user_email.is_(None),
             models.Coupon.target_user_email == "",

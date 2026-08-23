@@ -18,7 +18,13 @@ import {
   CreditCard,
   CheckCircle2,
   FileText,
-  Download
+  Download,
+  MessageSquare,
+  Clock,
+  ShieldCheck,
+  MapPin,
+  RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData, isCustomerOrderMatch } from '../../services/api_production';
@@ -26,6 +32,17 @@ import { openRazorpayCheckout } from '../../services/razorpay';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getStoredRetailOrders, cancelStoredRetailOrder, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
 import { parseReferenceImages } from '../../utils/imageUtils';
+import { 
+  fetchOrderFulfillmentDetails,
+  fetchOrderHistoryAPI,
+  fetchOrderMessagesAPI,
+  sendOrderMessageAPI,
+  cancelOrderAPI,
+  submitReturnRequestAPI,
+  FulfillmentDetails,
+  StatusHistoryItem,
+  OrderMessageItem
+} from '../../services/retailOrdersFulfillmentApi';
 
 interface OrderItem {
   id: string;
@@ -67,7 +84,11 @@ interface OrderData {
   }[];
 }
 
-export const MyOrdersPage: React.FC = () => {
+interface MyOrdersPageProps {
+  hideHeader?: boolean;
+}
+
+export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }) => {
   const navigate = useNavigate();
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,6 +114,84 @@ export const MyOrdersPage: React.FC = () => {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [cancelModalOrder, setCancelModalOrder] = useState<{ id: string | number; isCustom: boolean } | null>(null);
+
+  // Tracking & Fulfillment Modal State
+  const [trackingModalOrder, setTrackingModalOrder] = useState<OrderData | null>(null);
+  const [trackingFulfillmentData, setTrackingFulfillmentData] = useState<FulfillmentDetails | null>(null);
+  const [loadingFulfillment, setLoadingFulfillment] = useState(false);
+
+  // Order Communication Messaging Drawer State
+  const [messagingModalOrder, setMessagingModalOrder] = useState<OrderData | null>(null);
+  const [orderMessages, setOrderMessages] = useState<OrderMessageItem[]>([]);
+  const [newMessageText, setNewMessageText] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+
+  // Return Request Modal State
+  const [returnModalOrder, setReturnModalOrder] = useState<OrderData | null>(null);
+  const [returnReason, setReturnReason] = useState('Damaged');
+  const [returnDescription, setReturnDescription] = useState('');
+  const [returnPhotoUrl, setReturnPhotoUrl] = useState('');
+  const [submittingReturn, setSubmittingReturn] = useState(false);
+
+  const handleOpenTrackingModal = async (ord: OrderData) => {
+    setTrackingModalOrder(ord);
+    setLoadingFulfillment(true);
+    const details = await fetchOrderFulfillmentDetails(ord.orderId);
+    setTrackingFulfillmentData(details);
+    setLoadingFulfillment(false);
+  };
+
+  const handleOpenMessagingModal = async (ord: OrderData) => {
+    setMessagingModalOrder(ord);
+    const msgs = await fetchOrderMessagesAPI(ord.orderId);
+    setOrderMessages(msgs);
+  };
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!messagingModalOrder || !newMessageText.trim()) return;
+
+    setSendingMessage(true);
+    const userId = userObj?.user_id || userObj?.id || userObj?.customer_id;
+    const ok = await sendOrderMessageAPI(
+      messagingModalOrder.orderId,
+      'Customer',
+      userName,
+      newMessageText.trim(),
+      userId
+    );
+    if (ok) {
+      setNewMessageText('');
+      const updatedMsgs = await fetchOrderMessagesAPI(messagingModalOrder.orderId);
+      setOrderMessages(updatedMsgs);
+    }
+    setSendingMessage(false);
+  };
+
+  const handleSubmitReturnRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!returnModalOrder) return;
+
+    const custId = userObj?.customer_id || userObj?.user_id || 1;
+    setSubmittingReturn(true);
+    const res = await submitReturnRequestAPI(
+      returnModalOrder.orderId,
+      custId,
+      returnReason,
+      returnDescription,
+      returnPhotoUrl
+    );
+
+    setSubmittingReturn(false);
+    if (res.success) {
+      setReturnModalOrder(null);
+      setToastMessage('Return request submitted! Our team will review it shortly.');
+      setTimeout(() => setToastMessage(null), 3500);
+      loadOrdersFromDB();
+    } else {
+      alert(res.message || 'Could not submit return request.');
+    }
+  };
 
   const userObj = (() => {
     try {
@@ -400,8 +499,8 @@ export const MyOrdersPage: React.FC = () => {
       {/* Lighter Translucent Warm Cream Overlay Layer */}
       <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/75 via-[#F3EDE5]/65 to-[#EAE1D5]/70 pointer-events-none" />
 
-      {/* ORIGINAL MASTER NAVIGATION HEADER */}
-      <Header />
+      {/* ORIGINAL MASTER NAVIGATION HEADER (Rendered only when not embedded inside MyActivityTab) */}
+      {!hideHeader && <Header />}
 
       {/* Main Content Area */}
       <main className="relative z-10 p-4 sm:p-8 max-w-6xl mx-auto space-y-8">
@@ -409,7 +508,13 @@ export const MyOrdersPage: React.FC = () => {
         <div className="ultra-glass-card bg-white/85 backdrop-blur-xl rounded-[2.5rem] p-6 sm:p-7 border border-[#E2D7CB] shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => {
+                if (hideHeader) {
+                  window.dispatchEvent(new CustomEvent('change-customer-tab', { detail: 'shop' }));
+                } else {
+                  navigate('/dashboard', { state: { activeTab: 'shop' } });
+                }
+              }}
               className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#48A63E] hover:text-[#3D9134] mb-2 transition-colors cursor-pointer bg-[#48A63E]/10 px-3 py-1 rounded-full border border-[#48A63E]/20"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -617,8 +722,47 @@ export const MyOrdersPage: React.FC = () => {
                         </span>
                       )}
 
+                      {/* FULFILLMENT TRACKING & MESSAGING ACTIONS */}
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                        {/* Track Delivery Button */}
+                        <button
+                          onClick={() => handleOpenTrackingModal(order)}
+                          className="px-3 py-1.5 rounded-xl bg-white border border-[#E2D7CB] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                          title="Track delivery status timeline"
+                        >
+                          <Truck className="w-3.5 h-3.5 text-[#38A132]" />
+                          <span>Track Delivery</span>
+                        </button>
+
+                        {/* Order Communication Chat Button */}
+                        <button
+                          onClick={() => handleOpenMessagingModal(order)}
+                          className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                          title="Message workshop staff regarding this order"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-[#38A132]" />
+                          <span>Message Staff</span>
+                        </button>
+
+                        {/* Return Request Button (Eligible for Delivered / Completed orders) */}
+                        {(order.status === 'Delivered' || order.status === 'Completed') && (
+                          <button
+                            onClick={() => {
+                              setReturnModalOrder(order);
+                              setReturnReason('Damaged');
+                              setReturnDescription('');
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                            title="Request item return or replacement"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5 text-white" />
+                            <span>Request Return</span>
+                          </button>
+                        )}
+                      </div>
+
                       {/* CANCEL REQUEST BUTTON FOR ACTIVE ORDERS */}
-                      {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'In Production' && (
+                      {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
                         <button
                           onClick={() => setCancelModalOrder({ id: order.isCustomBuild ? order.numericId : order.orderId, isCustom: !!order.isCustomBuild })}
                           className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
@@ -800,7 +944,6 @@ export const MyOrdersPage: React.FC = () => {
                   const target = cancelModalOrder;
                   setCancelModalOrder(null);
                   if (target) {
-                    // Instant optimistic local state update (no page refresh or reload needed!)
                     setOrders(prev => prev.map(o => {
                       const isMatch = target.isCustom 
                         ? o.numericId === target.id 
@@ -814,6 +957,8 @@ export const MyOrdersPage: React.FC = () => {
                     if (target.isCustom) {
                       await cancelCustomOrder(target.id as number);
                     } else {
+                      const uId = userObj?.user_id || userObj?.id || userObj?.customer_id;
+                      await cancelOrderAPI(target.id as string, 'Customer requested cancellation', uId, 'Customer');
                       cancelStoredRetailOrder(target.id as string);
                     }
                   }
@@ -826,6 +971,284 @@ export const MyOrdersPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* TRACKING & FULFILLMENT TIMELINE MODAL */}
+      {trackingModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-xl bg-white border border-[#E2D7CB] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-6 text-[#2C241D] max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-[#EFE7DE] pb-4">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest text-[#38A132] font-black bg-[#38A132]/10 px-2.5 py-1 rounded-md border border-[#38A132]/20">
+                  {trackingModalOrder.orderId}
+                </span>
+                <h3 className="text-xl font-extrabold text-[#2C241D] mt-2">
+                  Order Delivery Tracking & Timeline
+                </h3>
+                <p className="text-xs text-[#7A6C5E]">Database-backed live fulfillment status</p>
+              </div>
+              <button
+                onClick={() => {
+                  setTrackingModalOrder(null);
+                  setTrackingFulfillmentData(null);
+                }}
+                className="p-2 rounded-xl text-[#9E9082] hover:text-[#2C241D] hover:bg-[#F5ECE1]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingFulfillment ? (
+              <div className="py-12 text-center text-xs font-extrabold text-[#7A6C5E] space-y-2">
+                <Loader2 className="w-7 h-7 animate-spin text-[#38A132] mx-auto" />
+                <span>Fetching live database status history...</span>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Fulfillment Details Banner */}
+                <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs font-semibold">
+                  <div className="flex justify-between items-center border-b border-[#E2D7CB]/60 pb-2">
+                    <span className="text-[#7A6C5E]">Current Order Status:</span>
+                    <span className="font-extrabold text-[#38A132] uppercase">{trackingFulfillmentData?.order_status || trackingModalOrder.status}</span>
+                  </div>
+
+                  {trackingFulfillmentData?.fulfillment?.carrier && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#7A6C5E]">Shipping Carrier:</span>
+                      <span className="font-extrabold text-[#2C241D]">{trackingFulfillmentData.fulfillment.carrier}</span>
+                    </div>
+                  )}
+
+                  {trackingFulfillmentData?.fulfillment?.tracking_number && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#7A6C5E]">Tracking Number:</span>
+                      <span className="font-mono font-bold text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded border border-[#38A132]/20">
+                        {trackingFulfillmentData.fulfillment.tracking_number}
+                      </span>
+                    </div>
+                  )}
+
+                  {trackingFulfillmentData?.fulfillment?.expected_delivery_date && (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#7A6C5E]">Expected Delivery:</span>
+                      <span className="font-bold text-[#2C241D]">{trackingFulfillmentData.fulfillment.expected_delivery_date}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Status Timeline */}
+                <div>
+                  <h4 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider mb-3">Order Lifecycle Progress</h4>
+                  <div className="space-y-4 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-[#E2D7CB]">
+                    {[
+                      'Order Placed',
+                      'Payment Confirmed',
+                      'Order Confirmed',
+                      'Processing',
+                      'Packed',
+                      'Dispatched',
+                      'Out for Delivery',
+                      'Delivered'
+                    ].map((stageName, idx) => {
+                      const curStatus = (trackingFulfillmentData?.order_status || trackingModalOrder.status).toLowerCase();
+                      const isCompleted = curStatus === stageName.toLowerCase() || (
+                        (curStatus === 'delivered' || curStatus === 'completed') ||
+                        (curStatus === 'out for delivery' && idx <= 6) ||
+                        (curStatus === 'dispatched' && idx <= 5) ||
+                        (curStatus === 'packed' && idx <= 4) ||
+                        (curStatus === 'processing' && idx <= 3) ||
+                        (curStatus === 'order confirmed' && idx <= 2) ||
+                        (curStatus === 'payment confirmed' && idx <= 1) ||
+                        (curStatus === 'order placed' && idx <= 0)
+                      );
+                      const isCurrent = curStatus === stageName.toLowerCase();
+
+                      return (
+                        <div key={stageName} className="flex items-start gap-3 relative z-10">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold transition-all shrink-0 ${
+                            isCompleted ? 'bg-[#38A132] text-white' : 'bg-white border-2 border-[#E2D7CB] text-[#9E9082]'
+                          }`}>
+                            {isCompleted ? '✓' : idx + 1}
+                          </div>
+                          <div>
+                            <span className={`text-xs font-extrabold ${isCurrent ? 'text-[#38A132]' : isCompleted ? 'text-[#2C241D]' : 'text-[#9E9082]'}`}>
+                              {stageName}
+                            </span>
+                            {isCurrent && <span className="ml-2 text-[10px] bg-[#38A132]/10 text-[#38A132] font-black px-2 py-0.5 rounded-full">ACTIVE STAGE</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Audit History Log */}
+                {trackingFulfillmentData?.history && trackingFulfillmentData.history.length > 0 && (
+                  <div className="pt-3 border-t border-[#E2D7CB]">
+                    <h4 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider mb-2">Audit History Log</h4>
+                    <div className="space-y-2 max-h-40 overflow-y-auto">
+                      {trackingFulfillmentData.history.map((h) => (
+                        <div key={h.history_id} className="bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-[11px] font-semibold space-y-0.5">
+                          <div className="flex justify-between text-[#2C241D]">
+                            <span className="font-extrabold text-[#38A132]">{h.new_status}</span>
+                            <span className="text-[10px] text-[#7A6C5E]">{h.changed_at ? new Date(h.changed_at).toLocaleString() : ''}</span>
+                          </div>
+                          {h.note && <p className="text-[#6E6458] text-[10px] italic">{h.note}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ORDER COMMUNICATION MESSAGING DRAWER */}
+      {messagingModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4 text-[#2C241D] flex flex-col h-[520px]">
+            <div className="flex items-start justify-between border-b border-[#EFE7DE] pb-3 shrink-0">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-[#38A132]" />
+                  <span>Message Workshop Staff — {messagingModalOrder.orderId}</span>
+                </h3>
+                <p className="text-xs text-[#7A6C5E]">Direct communication for your order</p>
+              </div>
+              <button
+                onClick={() => setMessagingModalOrder(null)}
+                className="p-1.5 rounded-xl text-[#9E9082] hover:text-[#2C241D] hover:bg-[#F5ECE1]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Chat Messages List */}
+            <div className="flex-1 overflow-y-auto space-y-3 p-2 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB]">
+              {orderMessages.length === 0 ? (
+                <div className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
+                  No messages yet. Send a message to workshop staff regarding your delivery or specifications.
+                </div>
+              ) : (
+                orderMessages.map((msg) => {
+                  const isMe = msg.sender_role === 'Customer';
+                  return (
+                    <div key={msg.message_id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-semibold shadow-xs ${
+                        isMe ? 'bg-[#38A132] text-white rounded-br-none' : 'bg-white text-[#2C241D] border border-[#E2D7CB] rounded-bl-none'
+                      }`}>
+                        <div className="text-[10px] font-black opacity-80 mb-0.5">{msg.sender_name} ({msg.sender_role})</div>
+                        <p>{msg.message}</p>
+                      </div>
+                      <span className="text-[9px] text-[#9E9082] mt-0.5 font-mono">
+                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Send Message Input */}
+            <form onSubmit={handleSendMessage} className="flex items-center gap-2 pt-2 border-t border-[#EFE7DE] shrink-0">
+              <input
+                type="text"
+                placeholder="Type a message to workshop staff..."
+                value={newMessageText}
+                onChange={(e) => setNewMessageText(e.target.value)}
+                className="flex-1 px-4 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+              />
+              <button
+                type="submit"
+                disabled={sendingMessage || !newMessageText.trim()}
+                className="px-4 py-2.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-md flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Send</span>
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* RETURN REQUEST MODAL */}
+      {returnModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-md bg-white border border-[#E2D7CB] rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5 text-[#2C241D]">
+            <div className="flex items-start justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D]">Request Order Return</h3>
+                <p className="text-xs text-[#7A6C5E]">Order #{returnModalOrder.orderId}</p>
+              </div>
+              <button
+                onClick={() => setReturnModalOrder(null)}
+                className="p-1 text-[#9E9082] hover:text-[#2C241D]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitReturnRequest} className="space-y-4 text-xs font-semibold">
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase text-[#7A6C5E] mb-1">Return Reason</label>
+                <select
+                  value={returnReason}
+                  onChange={(e) => setReturnReason(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] font-bold"
+                >
+                  <option value="Damaged">Damaged during transit</option>
+                  <option value="Wrong Item">Wrong item received</option>
+                  <option value="Missing Item">Missing accessories / parts</option>
+                  <option value="Defective">Defective / Structural fault</option>
+                  <option value="Other">Other reason</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase text-[#7A6C5E] mb-1">Description / Notes</label>
+                <textarea
+                  rows={3}
+                  value={returnDescription}
+                  onChange={(e) => setReturnDescription(e.target.value)}
+                  placeholder="Describe the issue with the furniture item..."
+                  className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] font-semibold"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase text-[#7A6C5E] mb-1">Photo URL (Optional)</label>
+                <input
+                  type="text"
+                  value={returnPhotoUrl}
+                  onChange={(e) => setReturnPhotoUrl(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2]"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => setReturnModalOrder(null)}
+                  className="px-4 py-2 rounded-xl border border-[#E2D7CB] text-[#7A6C5E] font-bold hover:bg-[#FAF7F2]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingReturn}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  {submittingReturn ? 'Submitting...' : 'Submit Return Request'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

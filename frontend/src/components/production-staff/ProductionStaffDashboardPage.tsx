@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { MachineryTab } from './MachineryTab';
+import { RawMaterialsTab } from './RawMaterialsTab';
+import { QualityControlTab } from './QualityControlTab';
+import { ProductionAiSuiteTab } from './ProductionAiSuiteTab';
 import {
   Wrench,
   PackageCheck,
@@ -42,7 +46,8 @@ import {
   Check,
   AlertCircle,
   Image as ImageIcon,
-  Download
+  Download,
+  AlertTriangle
 } from 'lucide-react';
 import {
   fetchCustomOrders,
@@ -99,7 +104,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [orders, setOrders] = useState<CustomOrderData[]>([]);
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'orders' | 'approvals' | 'assignments' | 'workers' | 'queries' | 'coupons' | 'admin_messages'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'approvals' | 'assignments' | 'workers' | 'queries' | 'coupons' | 'admin_messages' | 'machines' | 'raw_materials' | 'quality' | 'ai_insights'>('orders');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [approvalFilter, setApprovalFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -107,7 +112,37 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   // Direct Assignment Form State
   const [assignFormOrderId, setAssignFormOrderId] = useState<number | ''>('');
   const [assignFormWorkerId, setAssignFormWorkerId] = useState<number | ''>('');
+  const [assignFormDepartment, setAssignFormDepartment] = useState<string>('Woodwork & Carpentry');
   const [assignFormNotes, setAssignFormNotes] = useState<string>('');
+  const [workerDeptFilter, setWorkerDeptFilter] = useState<'All' | 'Woodwork & Carpentry' | 'Upholstery' | 'Assembly'>('All');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('Woodwork & Carpentry');
+
+  const getRequiredProductionStages = (furnitureType?: string, material?: string, designDesc?: string) => {
+    const typeStr = (furnitureType || '').toLowerCase();
+    const matStr = (material || '').toLowerCase();
+    const descStr = (designDesc || '').toLowerCase();
+
+    const isAssemblyOnly = typeStr.includes('ready') || typeStr.includes('assembly only') || typeStr.includes('flatpack') || typeStr.includes('pre-cut') || typeStr.includes('modular kit');
+    if (isAssemblyOnly) {
+      return [
+        { key: 'Assembly', label: 'Assembly & QA', icon: '🔧', desc: 'Final component fitting, hardware & quality inspection' }
+      ];
+    }
+
+    const needsWood = !typeStr.includes('pure upholstery') && !typeStr.includes('re-cushion');
+    const needsUpholstery = typeStr.includes('sofa') || typeStr.includes('couch') || typeStr.includes('chair') || typeStr.includes('seat') || typeStr.includes('recliner') || typeStr.includes('cushion') || typeStr.includes('upholster') || typeStr.includes('daybed') || typeStr.includes('ottoman') || matStr.includes('fabric') || matStr.includes('leather') || matStr.includes('velvet') || matStr.includes('cotton') || matStr.includes('foam') || descStr.includes('cushion') || descStr.includes('fabric') || descStr.includes('leather');
+
+    const stages = [];
+    if (needsWood) {
+      stages.push({ key: 'Woodwork & Carpentry', label: 'Woodwork & Carpentry', icon: '🪵', desc: 'Cutting, shaping, drilling & timber frame joinery' });
+    }
+    if (needsUpholstery) {
+      stages.push({ key: 'Upholstery', label: 'Upholstery', icon: '🪡', desc: 'Foam padding, fabric/leather cushioning & stitching' });
+    }
+    stages.push({ key: 'Assembly', label: 'Assembly & QA', icon: '🔧', desc: 'Final component fitting, hardware & quality inspection' });
+
+    return stages;
+  };
 
   // Notifications & User Menu Dropdown State
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -202,15 +237,16 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     e.preventDefault();
     if (!newCouponCode.trim()) return;
 
-    const limitVal = typeof newCouponCustomerLimit === 'number' ? newCouponCustomerLimit : undefined;
+    const limitVal = typeof newCouponCustomerLimit === 'number' ? newCouponCustomerLimit : (parseInt(newCouponCustomerLimit as any, 10) || 10);
+    const targetEmail = newCouponTargetEmail.trim();
 
     try {
       await createCouponApi({
         code: newCouponCode.trim().toUpperCase(),
-        coupon_type: 'percentage_notification',
+        coupon_type: targetEmail ? 'percentage_notification' : 'first_n_customers',
         discount_percent: newCouponDiscount,
         description: newCouponDescription.trim() || `${newCouponDiscount}% OFF Custom Furniture Offer`,
-        target_user_email: newCouponTargetEmail.trim() || undefined,
+        target_user_email: targetEmail || undefined,
         customer_limit: limitVal
       });
 
@@ -256,6 +292,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [progressStage, setProgressStage] = useState<string>('Material Sourcing');
   const [progressPercent, setProgressPercent] = useState<number>(30);
   const [progressRemarks, setProgressRemarks] = useState<string>('');
+  const [modalProgressError, setModalProgressError] = useState<string | null>(null);
 
   const [userProfile, setUserProfile] = useState<any>(() => {
     try {
@@ -542,10 +579,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleAssignWorkerSubmit = async () => {
     if (!selectedOrderForWorker || !selectedWorkerId) return;
-    await assignWorkerTask(selectedOrderForWorker.custom_order_id, selectedWorkerId);
+    await assignWorkerTask(selectedOrderForWorker.custom_order_id, selectedWorkerId, selectedDepartment);
     setSelectedOrderForWorker(null);
     setSelectedWorkerId(null);
-    setSuccessNotice(`Technician assigned to Order #${selectedOrderForWorker.custom_order_id}.`);
+    setSuccessNotice(`Technician assigned to ${selectedDepartment} for Order #${selectedOrderForWorker.custom_order_id}.`);
     setTimeout(() => setSuccessNotice(null), 5000);
     loadData();
   };
@@ -553,24 +590,85 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const handleDirectAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignFormOrderId || !assignFormWorkerId) return;
-    await assignWorkerTask(Number(assignFormOrderId), Number(assignFormWorkerId));
+    await assignWorkerTask(Number(assignFormOrderId), Number(assignFormWorkerId), assignFormDepartment);
     const targetW = workers.find(w => w.worker_id === Number(assignFormWorkerId));
     setAssignFormOrderId('');
     setAssignFormWorkerId('');
     setAssignFormNotes('');
-    setSuccessNotice(`Assigned artisan ${targetW?.full_name || 'Worker'} to Order #${assignFormOrderId}.`);
+    setSuccessNotice(`Assigned ${targetW?.full_name || 'Artisan'} to ${assignFormDepartment} for Order #${assignFormOrderId}.`);
     setTimeout(() => setSuccessNotice(null), 5000);
     loadData();
   };
 
+  const syncStageFromPercent = (percent: number): string => {
+    if (percent < 25) return 'Material Sourcing';
+    if (percent < 45) return 'Structural Joinery & Framing';
+    if (percent < 65) return 'Upholstery & Cushioning';
+    if (percent < 85) return 'Surface Lacquering & Finishing';
+    if (percent < 100) return 'Quality Assurance & Packaging';
+    return 'Completed & Ready for Dispatch';
+  };
+
+  const handlePercentChange = (val: number) => {
+    setModalProgressError(null);
+    const clamped = Math.min(100, Math.max(0, isNaN(val) ? 0 : val));
+    setProgressPercent(clamped);
+    const autoStage = syncStageFromPercent(clamped);
+    setProgressStage(autoStage);
+  };
+
+  const handleStageChange = (newStage: string) => {
+    setModalProgressError(null);
+    setProgressStage(newStage);
+    switch (newStage) {
+      case 'Material Sourcing':
+        setProgressPercent(15);
+        break;
+      case 'Structural Joinery & Framing':
+        setProgressPercent(35);
+        break;
+      case 'Upholstery & Cushioning':
+        setProgressPercent(55);
+        break;
+      case 'Surface Lacquering & Finishing':
+        setProgressPercent(75);
+        break;
+      case 'Quality Assurance & Packaging':
+        setProgressPercent(90);
+        break;
+      case 'Completed & Ready for Dispatch':
+        setProgressPercent(100);
+        break;
+      default:
+        break;
+    }
+  };
+
   const handleUpdateProgressSubmit = async () => {
     if (!selectedOrderForProgress) return;
-    await updateProductionProgress(selectedOrderForProgress.custom_order_id, progressStage, progressPercent, progressRemarks);
-    setSelectedOrderForProgress(null);
-    setProgressRemarks('');
-    setSuccessNotice(`Production stage updated for Order #${selectedOrderForProgress.custom_order_id}.`);
-    setTimeout(() => setSuccessNotice(null), 5000);
-    loadData();
+    setModalProgressError(null);
+
+    const currentOrdProgress = selectedOrderForProgress.progress_percentage || 0;
+    if (progressPercent < currentOrdProgress) {
+      setModalProgressError(`⚠️ Build progress percentage cannot be reduced below current recorded progress of ${currentOrdProgress}%.`);
+      return;
+    }
+
+    if (!progressRemarks || progressRemarks.trim().length < 3) {
+      setModalProgressError('⚠️ Please enter technician build notes / remarks for this progress update (min 3 chars).');
+      return;
+    }
+
+    try {
+      await updateProductionProgress(selectedOrderForProgress.custom_order_id, progressStage, progressPercent, progressRemarks);
+      setSelectedOrderForProgress(null);
+      setProgressRemarks('');
+      setSuccessNotice(`Production stage updated for Order #${selectedOrderForProgress.custom_order_id}.`);
+      setTimeout(() => setSuccessNotice(null), 5000);
+      loadData();
+    } catch (err: any) {
+      setModalProgressError(err?.message || 'Failed to update production stage.');
+    }
   };
 
   const handleAddWorkerSubmit = async (e: React.FormEvent) => {
@@ -685,12 +783,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     (o) =>
       isPaidCustomOrder(o) &&
       o.order_status !== 'Completed' &&
-      ((o.assigned_workers && o.assigned_workers.length > 0) || o.order_status === 'In Production')
+      (o.progress_percentage || 0) < 100
   ).length;
   const approvedCount = orders.filter((o) => (o.order_status === 'Approved' || o.order_status === 'Quote Provided') && !isPaidCustomOrder(o)).length;
   const pendingCount = orders.filter((o) => (o.order_status === 'Pending' || o.order_status === 'Pending Approval') && !isPaidCustomOrder(o)).length;
   const rejectedCount = orders.filter((o) => o.order_status === 'Rejected').length;
-  const completedCount = orders.filter((o) => o.order_status === 'Completed').length;
+  const completedCount = orders.filter((o) => o.order_status === 'Completed' || (o.progress_percentage && o.progress_percentage >= 100)).length;
 
   React.useEffect(() => {
     if (pendingCount === 0 && approvedCount > 0 && approvalFilter === 'Pending') {
@@ -853,6 +951,30 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'workers' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
             >
               Workers
+            </button>
+            <button
+              onClick={() => setActiveTab('machines')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'machines' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Machinery
+            </button>
+            <button
+              onClick={() => setActiveTab('raw_materials')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'raw_materials' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Raw Materials
+            </button>
+            <button
+              onClick={() => setActiveTab('quality')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'quality' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Quality & Rework
+            </button>
+            <button
+              onClick={() => setActiveTab('ai_insights')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'ai_insights' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              AI Suite
             </button>
             <button
               onClick={() => setActiveTab('coupons')}
@@ -1444,6 +1566,29 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             </div>
                           </div>
 
+                          {/* Assigned Worker Banner */}
+                          <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
+                              <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
+                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {ord.assigned_workers.map((w, idx) => (
+                                    <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
+                                      <span>👷 {w.worker_name}</span>
+                                      {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                                      {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
+                                  No Artisan Assigned Yet
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
                           {((ord.design_description && ord.design_description.trim()) || (ord.reference_image && ord.reference_image.trim())) && (
                             <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs space-y-2">
                               {ord.design_description && ord.design_description.trim() && (
@@ -1507,13 +1652,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   <div className="bg-[#FAF7F2] p-5 rounded-3xl border-2 border-[#E2D7CB] shadow-sm space-y-4">
                     <div className="flex items-center gap-2 border-b border-[#E2D7CB] pb-3">
                       <UserPlus className="w-5 h-5 text-[#48A63E]" />
-                      <h3 className="font-extrabold text-base text-[#2C241D]">Assign Artisan to Custom Order</h3>
+                      <h3 className="font-extrabold text-base text-[#2C241D]">Assign Artisan by Department Stage</h3>
                     </div>
 
                     <form onSubmit={handleDirectAssignSubmit} className="space-y-4 text-xs">
                       <div>
                         <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
-                          <span>Select Approved Furniture Order</span>
+                          <span>1. Select Custom Order</span>
                           <span className="text-[10px] text-[#8C7C6D] font-semibold">Step 1</span>
                         </label>
                         <div className="relative">
@@ -1523,7 +1668,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             required
                             className="w-full pl-4 pr-10 py-3 rounded-2xl border border-[#E2D7CB] bg-white text-[#2C241D] font-extrabold text-xs appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
                           >
-                            <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Order to Assign --</option>
+                            <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Approved Custom Order --</option>
                             {orders
                               .filter(isPaidCustomOrder)
                               .map((o) => (
@@ -1538,8 +1683,42 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                       <div>
                         <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
-                          <span>Assign Skilled Craftsman / Technician</span>
+                          <span>2. Select Production Department Stage</span>
                           <span className="text-[10px] text-[#8C7C6D] font-semibold">Step 2</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={assignFormDepartment}
+                            onChange={(e) => setAssignFormDepartment(e.target.value)}
+                            required
+                            className="w-full pl-4 pr-10 py-3 rounded-2xl border border-[#E2D7CB] bg-white text-[#2C241D] font-extrabold text-xs appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
+                          >
+                            {assignFormOrderId ? (
+                              (() => {
+                                const targetOrd = orders.find(o => o.custom_order_id === Number(assignFormOrderId));
+                                const req = getRequiredProductionStages(targetOrd?.furniture_type, targetOrd?.material, targetOrd?.design_description);
+                                return req.map(s => (
+                                  <option key={s.key} value={s.key}>
+                                    {s.icon} {s.label}
+                                  </option>
+                                ));
+                              })()
+                            ) : (
+                              <>
+                                <option value="Woodwork & Carpentry">🪵 Woodwork & Carpentry (Cutting, Shaping & Joinery)</option>
+                                <option value="Upholstery">🪡 Upholstery (Foam Padding & Cushioning)</option>
+                                <option value="Assembly">🔧 Assembly & Quality Check (Final Assembly)</option>
+                              </>
+                            )}
+                          </select>
+                          <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
+                          <span>3. Select Department Artisan Worker</span>
+                          <span className="text-[10px] text-[#8C7C6D] font-semibold">Step 3</span>
                         </label>
                         <div className="relative">
                           <select
@@ -1565,7 +1744,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           <span className="text-[10px] text-[#8C7C6D] font-semibold">Optional</span>
                         </label>
                         <textarea
-                          placeholder="Specific jointing, finish grade, or timber handling instructions..."
+                          placeholder="Department instructions (e.g., teak frame jointing, velvet upholstery, hardware specs)..."
                           value={assignFormNotes}
                           onChange={(e) => setAssignFormNotes(e.target.value)}
                           rows={3}
@@ -1578,15 +1757,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         className="w-full py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
                       >
                         <UserPlus className="w-4 h-4" />
-                        <span>Confirm Artisan Task Assignment</span>
+                        <span>Confirm Department Task Assignment</span>
                       </button>
                     </form>
                   </div>
 
-                  {/* Active Worker Assignments Roster Feed */}
+                  {/* Active Worker Assignments Roster Feed with Production Pipeline Stages */}
                   <div className="lg:col-span-2 space-y-4">
-
-                    <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                    <div className="space-y-4 max-h-[650px] overflow-y-auto pr-1">
                       {orders.filter(isPaidCustomOrder).length === 0 ? (
                         <div className="bg-white p-8 rounded-2xl border border-[#E2D7CB] text-center space-y-2">
                           <Users className="w-8 h-8 text-[#A09080] mx-auto" />
@@ -1595,41 +1773,136 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         </div>
                       ) : (
                         orders.filter(isPaidCustomOrder).map((ord) => {
-                          const assignedWorker = ord.assigned_workers && ord.assigned_workers.length > 0 ? ord.assigned_workers[0] : null;
+                          const assignedWorkersList = ord.assigned_workers || [];
+                          const requiredStages = getRequiredProductionStages(ord.furniture_type, ord.material);
+                          const currentPercent = ord.progress_percentage || 0;
+
                           return (
-                            <div key={ord.custom_order_id} className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-xs font-extrabold text-[#48A63E]">Order #{ord.custom_order_id}</span>
-                                  <h4 className="font-extrabold text-sm text-[#2C241D]">{ord.furniture_type}</h4>
+                            <div key={ord.custom_order_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-4">
+                              {/* Header Row */}
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-3">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/15 px-2.5 py-0.5 rounded-full">
+                                      Order #{ord.custom_order_id}
+                                    </span>
+                                    <h4 className="font-black text-base text-[#2C241D]">{ord.furniture_type}</h4>
+                                  </div>
+                                  <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
+                                    <span className="font-bold">Client:</span> {ord.customer_name} | <span className="font-bold">Material:</span> {ord.material} | <span className="font-bold">Polish/Finish:</span> {ord.color || 'Natural'}
+                                  </p>
                                 </div>
-                                <p className="text-xs text-[#6B5C4D]">
-                                  <span className="font-bold">Client:</span> {ord.customer_name} | <span className="font-bold">Material:</span> {ord.material}
-                                </p>
-                                <div className="flex items-center gap-2 pt-1 text-[11px]">
-                                  <span className="font-bold text-[#7A6C5E]">Assigned Artisan:</span>
-                                  {assignedWorker ? (
-                                    <span className="font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md">
-                                      {assignedWorker.worker_name}
-                                    </span>
-                                  ) : (
-                                    <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md">
-                                      Unassigned
-                                    </span>
-                                  )}
+
+                                <div className="flex items-center gap-2 self-start sm:self-auto">
+                                  <span className="text-xs font-black text-[#38A132] bg-[#38A132]/10 px-3 py-1 rounded-full border border-[#38A132]/30">
+                                    {ord.order_status} ({currentPercent}%)
+                                  </span>
                                 </div>
                               </div>
 
-                              <button
-                                onClick={() => {
-                                  setSelectedOrderForWorker(ord);
-                                  setSelectedWorkerId(assignedWorker ? assignedWorker.worker_id : null);
-                                }}
-                                className="px-3.5 py-2 rounded-xl bg-[#F5ECE1] hover:bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer whitespace-nowrap self-end sm:self-auto"
-                              >
-                                <UserPlus className="w-3.5 h-3.5 text-[#48A63E]" />
-                                <span>{assignedWorker ? 'Reassign Worker' : 'Assign Worker'}</span>
-                              </button>
+                              {/* Department Production Stages Pipeline */}
+                              <div className="space-y-2">
+                                <h5 className="text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">
+                                  Production Workflow Stages & Department Assignments
+                                </h5>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                  {requiredStages.map((stg, idx) => {
+                                    // Find worker assigned to this department
+                                    const stageWorker = assignedWorkersList.find(w => 
+                                      (w.specialization && w.specialization.toLowerCase().includes(stg.key.toLowerCase().split(' ')[0])) ||
+                                      (w.task_status && w.task_status.toLowerCase().includes(stg.key.toLowerCase().split(' ')[0]))
+                                    );
+
+                                    // Determine stage availability/status based on sequence
+                                    let isUnlocked = true;
+                                    let stageStatusText = 'Assigned';
+                                    let badgeStyle = 'bg-emerald-50 text-emerald-800 border-emerald-300';
+
+                                    if (stg.key === 'Woodwork & Carpentry') {
+                                      if (currentPercent >= 35) {
+                                        stageStatusText = 'Completed ✓';
+                                        badgeStyle = 'bg-purple-50 text-purple-800 border-purple-200';
+                                      } else if (stageWorker) {
+                                        stageStatusText = 'In Progress';
+                                      } else {
+                                        stageStatusText = 'Awaiting Worker';
+                                        badgeStyle = 'bg-amber-50 text-amber-800 border-amber-200';
+                                      }
+                                    } else if (stg.key === 'Upholstery') {
+                                      if (currentPercent < 35 && !stageWorker) {
+                                        isUnlocked = false;
+                                        stageStatusText = 'Waiting for Woodwork';
+                                        badgeStyle = 'bg-neutral-100 text-neutral-600 border-neutral-200';
+                                      } else if (currentPercent >= 70) {
+                                        stageStatusText = 'Completed ✓';
+                                        badgeStyle = 'bg-purple-50 text-purple-800 border-purple-200';
+                                      } else if (stageWorker) {
+                                        stageStatusText = 'In Progress';
+                                      } else {
+                                        stageStatusText = 'Ready for Assignment';
+                                        badgeStyle = 'bg-amber-50 text-amber-800 border-amber-200';
+                                      }
+                                    } else if (stg.key === 'Assembly') {
+                                      const prevRequiredDone = currentPercent >= (requiredStages.length === 3 ? 70 : 35);
+                                      if (!prevRequiredDone && !stageWorker) {
+                                        isUnlocked = false;
+                                        stageStatusText = 'Waiting for Previous Stage';
+                                        badgeStyle = 'bg-neutral-100 text-neutral-600 border-neutral-200';
+                                      } else if (currentPercent >= 100) {
+                                        stageStatusText = 'Completed ✓';
+                                        badgeStyle = 'bg-purple-50 text-purple-800 border-purple-200';
+                                      } else if (stageWorker) {
+                                        stageStatusText = 'In Progress';
+                                      } else {
+                                        stageStatusText = 'Ready for Assembly';
+                                        badgeStyle = 'bg-amber-50 text-amber-800 border-amber-200';
+                                      }
+                                    }
+
+                                    return (
+                                      <div key={stg.key} className={`p-3 rounded-2xl border text-xs space-y-2 ${isUnlocked ? 'bg-[#FAF7F2] border-[#E2D7CB]' : 'bg-neutral-50/70 border-neutral-200 opacity-80'}`}>
+                                        <div className="flex items-center justify-between">
+                                          <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                                            <span>{stg.icon}</span>
+                                            <span>{stg.key}</span>
+                                          </span>
+                                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${badgeStyle}`}>
+                                            {stageStatusText}
+                                          </span>
+                                        </div>
+
+                                        <p className="text-[10px] text-[#7A6C5E] font-medium leading-tight">{stg.desc}</p>
+
+                                        <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between">
+                                          {stageWorker ? (
+                                            <div className="min-w-0">
+                                              <span className="font-extrabold text-[#2C241D] block truncate text-xs">👷 {stageWorker.worker_name}</span>
+                                              {stageWorker.worker_phone && <span className="text-[10px] text-[#38A132] font-mono block">📞 {stageWorker.worker_phone}</span>}
+                                            </div>
+                                          ) : (
+                                            <span className="text-[11px] font-bold text-amber-800 italic">No Worker Assigned</span>
+                                          )}
+
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedOrderForWorker(ord);
+                                              setAssignFormOrderId(ord.custom_order_id);
+                                              setAssignFormDepartment(stg.key);
+                                              setSelectedDepartment(stg.key);
+                                              if (stageWorker) setSelectedWorkerId(stageWorker.worker_id);
+                                            }}
+                                            className="px-2.5 py-1 rounded-xl bg-white hover:bg-[#F3EDE5] text-[#48A63E] border border-[#E2D7CB] font-extrabold text-[10px] flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                          >
+                                            <UserPlus className="w-3 h-3 text-[#48A63E]" />
+                                            <span>{stageWorker ? 'Reassign' : 'Assign'}</span>
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
                             </div>
                           );
                         })
@@ -1643,28 +1916,85 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* TAB 4: ARTISAN TECHNICIANS DIRECTORY */}
             {activeTab === 'workers' && (
               <div className="space-y-5">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pb-2">
-                  <div className="relative w-full sm:w-72">
-                    <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search worker, email, specialty..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
-                    />
+                {/* Search Bar & Department Filter Pills */}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-extrabold text-[#7A6C5E] mr-1">Department Filter:</span>
+                    <button
+                      onClick={() => setWorkerDeptFilter('All')}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
+                        workerDeptFilter === 'All'
+                          ? 'bg-[#48A63E] text-white shadow-sm'
+                          : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                      }`}
+                    >
+                      All ({workers.length})
+                    </button>
+                    <button
+                      onClick={() => setWorkerDeptFilter('Woodwork & Carpentry')}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
+                        workerDeptFilter === 'Woodwork & Carpentry'
+                          ? 'bg-[#48A63E] text-white shadow-sm'
+                          : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                      }`}
+                    >
+                      🪵 Wood & Carpentry ({workers.filter(w => (w.specialization || '').includes('Wood') || (w.specialization || '').includes('Carpen')).length})
+                    </button>
+                    <button
+                      onClick={() => setWorkerDeptFilter('Upholstery')}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
+                        workerDeptFilter === 'Upholstery'
+                          ? 'bg-[#48A63E] text-white shadow-sm'
+                          : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                      }`}
+                    >
+                      🪡 Upholstery ({workers.filter(w => (w.specialization || '').includes('Upholster')).length})
+                    </button>
+                    <button
+                      onClick={() => setWorkerDeptFilter('Assembly')}
+                      className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
+                        workerDeptFilter === 'Assembly'
+                          ? 'bg-[#48A63E] text-white shadow-sm'
+                          : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                      }`}
+                    >
+                      🔧 Assembly ({workers.filter(w => (w.specialization || '').includes('Assembl') || (w.specialization || '').includes('Finish')).length})
+                    </button>
                   </div>
 
-                  <button
-                    onClick={() => setIsAddWorkerModalOpen(true)}
-                    className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#48A63E]/20 transition-all whitespace-nowrap self-end sm:self-auto"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Add New Worker</span>
-                  </button>
+                  <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search worker, email, specialty..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                      />
+                    </div>
+
+                    <button
+                      onClick={() => setIsAddWorkerModalOpen(true)}
+                      className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#48A63E]/20 transition-all whitespace-nowrap cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Worker</span>
+                    </button>
+                  </div>
                 </div>
 
                 {workers.filter((w) => {
+                  // Department filter
+                  if (workerDeptFilter !== 'All') {
+                    const spec = (w.specialization || '').toLowerCase();
+                    const targetFilter = workerDeptFilter.toLowerCase();
+                    if (targetFilter.includes('wood') && !spec.includes('wood') && !spec.includes('carpen')) return false;
+                    if (targetFilter.includes('upholster') && !spec.includes('upholster')) return false;
+                    if (targetFilter.includes('assembl') && !spec.includes('assembl') && !spec.includes('finish')) return false;
+                  }
+
+                  // Search query
                   if (!searchQuery.trim()) return true;
                   const q = searchQuery.toLowerCase();
                   return (
@@ -1678,21 +2008,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="w-14 h-14 rounded-2xl bg-[#F5ECE1] text-[#8C7C6D] flex items-center justify-center mx-auto shadow-xs">
                       <Users className="w-7 h-7" />
                     </div>
-                    <h4 className="font-extrabold text-base text-[#2C241D]">No workers yet</h4>
+                    <h4 className="font-extrabold text-base text-[#2C241D]">No workers match filter</h4>
                     <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto font-medium">
-                      {searchQuery.trim()
-                        ? `No artisan technicians match "${searchQuery}". Try a different search keyword.`
-                        : 'No artisan technicians registered yet. Click below to add a craftsman to the workshop directory.'}
+                      No artisan technicians found matching department "{workerDeptFilter}". Try selecting another department filter or add a worker.
                     </p>
-                    {!searchQuery.trim() && (
-                      <button
-                        onClick={() => setIsAddWorkerModalOpen(true)}
-                        className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs inline-flex items-center gap-1.5 shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer mt-1"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Add First Worker</span>
-                      </button>
-                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2309,6 +2628,18 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
+            {/* TAB: Machinery & Equipment */}
+            {activeTab === 'machines' && <MachineryTab />}
+
+            {/* TAB: Raw Manufacturing Materials */}
+            {activeTab === 'raw_materials' && <RawMaterialsTab />}
+
+            {/* TAB: Quality Control & Rework Queue */}
+            {activeTab === 'quality' && <QualityControlTab />}
+
+            {/* TAB: Production Telemetry AI Suite */}
+            {activeTab === 'ai_insights' && <ProductionAiSuiteTab />}
+
           </div>
         </main>
       </div>
@@ -2377,15 +2708,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Craft Specialization</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Craft Specialization / Production Department</label>
                 <select
                   value={newWorkerSpec}
                   onChange={(e) => setNewWorkerSpec(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
                 >
-                  <option value="Woodwork & Carpentry">Woodwork & Carpentry</option>
-                  <option value="Upholstery">Upholstery</option>
-                  <option value="Finishing & Assembly">Finishing & Assembly</option>
+                  <option value="Woodwork & Carpentry">🪵 Woodwork & Carpentry (Framing & Timber Joining)</option>
+                  <option value="Upholstery">🪡 Upholstery (Cushioning, Stitching & Fabrics)</option>
+                  <option value="Assembly">🔧 Assembly & Quality Check (Final Assembly & QA)</option>
                 </select>
               </div>
 
@@ -2476,15 +2807,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Craft Specialization</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Craft Specialization / Department</label>
                 <select
                   value={editWorkerSpec}
                   onChange={(e) => setEditWorkerSpec(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
                 >
-                  <option value="Woodwork & Carpentry">Woodwork & Carpentry</option>
-                  <option value="Upholstery">Upholstery</option>
-                  <option value="Finishing & Assembly">Finishing & Assembly</option>
+                  <option value="Woodwork & Carpentry">🪵 Woodwork & Carpentry (Framing & Timber Joining)</option>
+                  <option value="Upholstery">🪡 Upholstery (Cushioning, Stitching & Fabrics)</option>
+                  <option value="Assembly">🔧 Assembly & Quality Check (Final Assembly & QA)</option>
                 </select>
               </div>
 
@@ -2596,47 +2927,75 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* 2. SEPARATED PRODUCT FIELDS GRID */}
             <div className="space-y-3">
               <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Product Specifications & Parameters</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                {parseOrderSpecDetails(selectedOrderForDetails).map((field, idx) => (
-                  <div key={idx} className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
-                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">{field.label}</span>
-                    {field.isColor || field.label.toLowerCase().includes('color') ? (
-                      renderColorSwatchBadge(field.value, field.hex)
-                    ) : (
-                      <span className="font-extrabold text-xs text-[#2C241D] block">{field.value}</span>
-                    )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="bg-white p-3 rounded-xl border border-[#E2D7CB] space-y-1">
+                  <span className="font-extrabold text-[#7A6C5E] text-[10px] uppercase block">Furniture Category</span>
+                  <span className="font-extrabold text-[#2C241D] text-xs block">{selectedOrderForDetails.furniture_type}</span>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-[#E2D7CB] space-y-1">
+                  <span className="font-extrabold text-[#7A6C5E] text-[10px] uppercase block">Primary Hardwood / Material</span>
+                  <span className="font-extrabold text-[#2C241D] text-xs block">{selectedOrderForDetails.material}</span>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-[#E2D7CB] space-y-1">
+                  <span className="font-extrabold text-[#7A6C5E] text-[10px] uppercase block">Exact Dimensions</span>
+                  <span className="font-extrabold text-[#2C241D] text-xs block">{selectedOrderForDetails.dimensions}</span>
+                </div>
+
+                <div className="bg-white p-3 rounded-xl border border-[#E2D7CB] space-y-1">
+                  <span className="font-extrabold text-[#7A6C5E] text-[10px] uppercase block">Polish / Color Shade</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {renderColorSwatchBadge(selectedOrderForDetails.color)}
                   </div>
-                ))}
+                </div>
               </div>
+
+              {selectedOrderForDetails.design_description && (
+                <div className="bg-white p-4 rounded-xl border border-[#E2D7CB] space-y-1.5">
+                  <span className="font-extrabold text-[#7A6C5E] text-[10px] uppercase block">Client Customization Request / Notes</span>
+                  <p className="bg-[#FAF7F2] p-3 rounded-lg border border-[#E2D7CB] text-[#4A3E32] text-xs leading-relaxed font-semibold whitespace-pre-wrap">
+                    {selectedOrderForDetails.design_description}
+                  </p>
+                </div>
+              )}
             </div>
 
-            {/* 3. CUSTOMER PROVIDED REFERENCE DESIGN IMAGES */}
+            {/* 3. REFERENCE IMAGES GALLERY */}
             {selectedOrderForDetails.reference_image && selectedOrderForDetails.reference_image.trim() && (
-              <div className="space-y-3">
-                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
-                  <Eye className="w-4 h-4 text-[#38A132]" />
-                  Customer Provided Reference Images ({parseReferenceImages(selectedOrderForDetails.reference_image).length})
-                </h4>
+              <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-3">
+                <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
+                  <span className="text-xs font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                    <Eye className="w-4 h-4 text-[#38A132]" />
+                    <span>Customer Reference Images ({parseReferenceImages(selectedOrderForDetails.reference_image).length})</span>
+                  </span>
+                  <span className="text-[10px] font-bold text-[#7A6C5E]">Click photo to open full resolution</span>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {parseReferenceImages(selectedOrderForDetails.reference_image).map((imgUrl, i) => (
-                    <div key={i} className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all flex flex-col h-52">
-                      <div className="relative flex-1 bg-neutral-900/5 overflow-hidden flex items-center justify-center cursor-pointer" onClick={() => openImageInNewTab(imgUrl)}>
+                    <div key={i} className="group relative rounded-xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-2xs hover:shadow-md transition-all flex flex-col h-44">
+                      <div 
+                        className="relative flex-1 bg-neutral-900/5 overflow-hidden flex items-center justify-center cursor-pointer"
+                        onClick={() => openImageInNewTab(imgUrl)}
+                      >
                         <img
                           src={imgUrl}
-                          alt={`Reference Design ${i + 1}`}
+                          alt={`Reference ${i + 1}`}
                           referrerPolicy="no-referrer"
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                           onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                         />
                       </div>
-                      <div className="p-2.5 bg-white border-t border-[#E2D7CB] flex items-center justify-between">
-                        <span className="text-[11px] font-extrabold text-[#2C241D]">Reference Photo #{i + 1}</span>
+                      <div className="p-2 bg-white border-t border-[#E2D7CB] flex items-center justify-between text-[11px]">
+                        <span className="font-extrabold text-[#2C241D]">Photo #{i + 1}</span>
                         <button
                           type="button"
                           onClick={() => openImageInNewTab(imgUrl)}
-                          className="text-[10px] font-extrabold text-[#38A132] hover:underline flex items-center gap-1 bg-[#38A132]/10 px-2 py-1 rounded-lg cursor-pointer"
+                          className="font-extrabold text-[#38A132] hover:underline flex items-center gap-1 bg-[#38A132]/10 px-2 py-0.5 rounded cursor-pointer"
                         >
-                          <Eye className="w-3 h-3 text-[#38A132]" /> View Full Image
+                          <Eye className="w-3 h-3 text-[#38A132]" /> Full View
                         </button>
                       </div>
                     </div>
@@ -2644,8 +3003,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </div>
               </div>
             )}
-
-
 
             <div className="flex items-center justify-end gap-3 border-t border-[#E2D7CB] pt-4">
               <button
@@ -2774,7 +3131,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 relative">
             <button
               onClick={() => setSelectedOrderForWorker(null)}
-              className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1"
+              className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1 cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -2784,27 +3141,51 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <Users className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Assign Artisan Technician</h3>
-                <p className="text-xs text-[#7A6C5E]">Order #{selectedOrderForWorker.custom_order_id}</p>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">Assign Artisan by Department</h3>
+                <p className="text-xs text-[#7A6C5E]">Order #{selectedOrderForWorker.custom_order_id} ({selectedOrderForWorker.furniture_type})</p>
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Select Worker</label>
-              <div className="relative">
-                <select
-                  value={selectedWorkerId || ''}
-                  onChange={(e) => setSelectedWorkerId(Number(e.target.value))}
-                  className="w-full pl-4 pr-10 py-3 text-xs bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
-                >
-                  <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Artisan Worker --</option>
-                  {workers.map((w) => (
-                    <option key={w.worker_id} value={w.worker_id} className="bg-white text-[#2C241D] font-semibold py-2">
-                      {w.full_name} ({w.specialization || 'General Technician'})
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Production Department Stage</label>
+                <div className="relative">
+                  <select
+                    value={selectedDepartment}
+                    onChange={(e) => setSelectedDepartment(e.target.value)}
+                    className="w-full pl-4 pr-10 py-3 text-xs bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
+                  >
+                    {getRequiredProductionStages(
+                      selectedOrderForWorker.furniture_type,
+                      selectedOrderForWorker.material,
+                      selectedOrderForWorker.design_description
+                    ).map(s => (
+                      <option key={s.key} value={s.key}>
+                        {s.icon} {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Select Skilled Artisan Worker</label>
+                <div className="relative">
+                  <select
+                    value={selectedWorkerId || ''}
+                    onChange={(e) => setSelectedWorkerId(Number(e.target.value))}
+                    className="w-full pl-4 pr-10 py-3 text-xs bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
+                  >
+                    <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Artisan Worker --</option>
+                    {workers.map((w) => (
+                      <option key={w.worker_id} value={w.worker_id} className="bg-white text-[#2C241D] font-semibold py-2">
+                        {w.full_name} ({w.specialization || 'Craft Specialist'})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-[#8C7C6D] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
               </div>
             </div>
 
@@ -2812,7 +3193,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedOrderForWorker(null)}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1]"
+                className="px-4 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#F2ECE1] cursor-pointer"
               >
                 Cancel
               </button>
@@ -2821,9 +3202,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 type="button"
                 onClick={handleAssignWorkerSubmit}
                 disabled={!selectedWorkerId}
-                className="bg-[#48A63E] disabled:opacity-50 hover:bg-[#3D9134] px-5 py-2 rounded-xl text-xs font-extrabold text-white shadow-md shadow-[#48A63E]/20"
+                className="bg-[#48A63E] disabled:opacity-50 hover:bg-[#3D9134] px-5 py-2 rounded-xl text-xs font-extrabold text-white shadow-md shadow-[#48A63E]/20 cursor-pointer"
               >
-                Assign Worker
+                Confirm Department Assignment
               </button>
             </div>
           </div>
@@ -2852,45 +3233,86 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             </div>
 
             <div className="space-y-4 text-xs">
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Current Workshop Stage</label>
-                <select
-                  value={progressStage}
-                  onChange={(e) => setProgressStage(e.target.value)}
-                  className="w-full py-2.5 px-3.5 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                >
-                  <option value="Material Sourcing">Material Sourcing</option>
-                  <option value="Structural Joinery & Framing">Structural Joinery & Framing</option>
-                  <option value="Upholstery & Cushioning">Upholstery & Cushioning</option>
-                  <option value="Surface Lacquering & Finishing">Surface Lacquering & Finishing</option>
-                  <option value="Quality Assurance & Packaging">Quality Assurance & Packaging</option>
-                  <option value="Completed & Ready for Dispatch">Completed & Ready for Dispatch</option>
-                </select>
+              {modalProgressError && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 font-extrabold rounded-2xl text-xs flex items-center gap-2 animate-fadeIn shadow-xs">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  <span>{modalProgressError}</span>
+                </div>
+              )}
+
+              {/* Current Recorded Progress Indicator */}
+              <div className="flex items-center justify-between p-3 rounded-2xl bg-white border border-[#E2D7CB]">
+                <span className="font-extrabold text-[#7A6C5E] text-[11px]">Current Order Progress</span>
+                <span className="font-mono font-black text-xs text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
+                  Recorded: <strong className="text-[#38A132]">{selectedOrderForProgress.progress_percentage || 0}%</strong>
+                </span>
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-extrabold text-[#2C241D]">Progress Percentage</label>
-                  <span className="font-extrabold text-[#48A63E]">{progressPercent}%</span>
+                <label className="block font-extrabold text-[#2C241D] mb-1.5">Current Workshop Stage</label>
+                <div className="relative">
+                  <select
+                    value={progressStage}
+                    onChange={(e) => handleStageChange(e.target.value)}
+                    className="w-full py-3 pl-4 pr-10 text-xs bg-white border-2 border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 transition-all appearance-none cursor-pointer shadow-xs hover:border-[#48A63E]"
+                  >
+                    <option value="Material Sourcing" className="py-2 font-bold bg-white text-[#2C241D]">1. Material Sourcing & Timber Prep (15%)</option>
+                    <option value="Structural Joinery & Framing" className="py-2 font-bold bg-white text-[#2C241D]">2. Structural Joinery & Framing (35%)</option>
+                    <option value="Upholstery & Cushioning" className="py-2 font-bold bg-white text-[#2C241D]">3. Upholstery & Cushioning (55%)</option>
+                    <option value="Surface Lacquering & Finishing" className="py-2 font-bold bg-white text-[#2C241D]">4. Surface Lacquering & Finishing (75%)</option>
+                    <option value="Quality Assurance & Packaging" className="py-2 font-bold bg-white text-[#2C241D]">5. Quality Assurance & Packaging (90%)</option>
+                    <option value="Completed & Ready for Dispatch" className="py-2 font-bold bg-white text-[#2C241D]">6. Completed & Ready for Dispatch (100%)</option>
+                  </select>
+                  <ChevronDown className="w-4 h-4 text-[#48A63E] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="font-extrabold text-[#2C241D]">Progress Percentage</label>
+                  <div className="flex items-center gap-1 bg-[#48A63E]/10 border border-[#48A63E]/30 px-3 py-1 rounded-xl">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={progressPercent}
+                      onChange={(e) => handlePercentChange(Number(e.target.value))}
+                      className="w-12 text-right font-black text-sm text-[#48A63E] bg-transparent focus:outline-none"
+                    />
+                    <span className="font-black text-xs text-[#48A63E]">%</span>
+                  </div>
+                </div>
+
                 <input
                   type="range"
                   min="0"
                   max="100"
                   value={progressPercent}
-                  onChange={(e) => setProgressPercent(Number(e.target.value))}
-                  className="w-full accent-[#48A63E]"
+                  onChange={(e) => handlePercentChange(Number(e.target.value))}
+                  className="w-full accent-[#48A63E] h-2 bg-[#E2D7CB] rounded-lg cursor-pointer"
                 />
+
+                <div className="flex items-center justify-between mt-2 text-[10px] text-[#7A6C5E] font-bold">
+                  <button type="button" onClick={() => handlePercentChange(15)} className="hover:text-[#48A63E] cursor-pointer">15%</button>
+                  <button type="button" onClick={() => handlePercentChange(35)} className="hover:text-[#48A63E] cursor-pointer">35%</button>
+                  <button type="button" onClick={() => handlePercentChange(55)} className="hover:text-[#48A63E] cursor-pointer">55%</button>
+                  <button type="button" onClick={() => handlePercentChange(75)} className="hover:text-[#48A63E] cursor-pointer">75%</button>
+                  <button type="button" onClick={() => handlePercentChange(100)} className="hover:text-[#48A63E] cursor-pointer">100%</button>
+                </div>
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Progress Remarks</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Technician Build Remarks / Notes</label>
                 <textarea
                   rows={3}
-                  placeholder="Notes on current build progress..."
+                  placeholder="Notes on current build progress, quality checks, or technical notes..."
                   value={progressRemarks}
-                  onChange={(e) => setProgressRemarks(e.target.value)}
-                  className="w-full py-2.5 px-3.5 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E]"
+                  onChange={(e) => {
+                    setModalProgressError(null);
+                    setProgressRemarks(e.target.value);
+                  }}
+                  required
+                  className="w-full p-3 bg-white border-2 border-[#E2D7CB] rounded-2xl text-[#2C241D] font-medium focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs"
                 />
               </div>
             </div>

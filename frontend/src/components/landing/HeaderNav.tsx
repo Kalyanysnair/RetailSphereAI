@@ -12,9 +12,10 @@ export const HeaderNav: React.FC = () => {
   const location = useLocation();
 
   const navLinks = [
-    { name: 'Collection', hash: '#categories' },
-    { name: 'About', hash: '#about' },
-    { name: 'Contact Us', hash: '#contact' },
+    { name: 'SHOP', hash: '#categories' },
+    { name: 'FABRICATE', hash: '#fabrication' },
+    { name: 'ABOUT', hash: '#about' },
+    { name: 'CONTACT', hash: '#contact' },
   ];
 
   // Smart Hide on Scroll Down, Show Instantly on Scroll Up
@@ -42,6 +43,12 @@ export const HeaderNav: React.FC = () => {
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, hash: string) => {
     e.preventDefault();
     setMobileMenuOpen(false);
+
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      navigate('/dashboard');
+      return;
+    }
 
     if (location.pathname !== '/') {
       navigate(`/${hash}`);

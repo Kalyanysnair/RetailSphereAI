@@ -634,28 +634,124 @@ export async function toggleWorkerStatus(workerId: number, newStatus: boolean): 
   return target || { worker_id: workerId, full_name: 'Worker', email: '', phone: '', status: newStatus };
 }
 
-export async function assignWorkerTask(orderId: number, workerId: number): Promise<any> {
-  const res = await fetch(`${BASE_URL}/assign-worker`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ custom_order_id: orderId, worker_id: workerId })
-  });
-  if (!res.ok) throw new Error('Failed to assign worker in database');
-  return await res.json();
+export async function assignWorkerTask(orderId: number, workerId: number, department?: string): Promise<any> {
+  let result: any = null;
+  try {
+    const res = await safeFetchProd('/assign-worker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_order_id: orderId, worker_id: workerId, department })
+    });
+    if (res.ok) {
+      result = await res.json();
+    }
+  } catch (err) {
+    console.warn('DB assign-worker request failed, fallback locally:', err);
+  }
+
+  // Update local persistent store for instant reactivity across all dashboards
+  const allStored = getAllUserStoredCustomOrders();
+  const target = allStored.find(o => o.custom_order_id === orderId);
+  if (target) {
+    if (!target.assigned_workers) target.assigned_workers = [];
+    try {
+      const workers = await fetchWorkers();
+      const wObj = workers.find(w => w.worker_id === workerId);
+      if (wObj) {
+        const deptLabel = department || wObj.specialization || 'Woodwork & Carpentry';
+        const existingIdx = target.assigned_workers.findIndex(w => w.worker_id === workerId || (department && w.specialization === department));
+        const newAssignment: AssignedWorker = {
+          assignment_id: Date.now(),
+          worker_id: wObj.worker_id,
+          worker_name: wObj.full_name,
+          worker_email: wObj.email,
+          worker_phone: wObj.phone,
+          specialization: deptLabel,
+          task_status: `${deptLabel}: Assigned`
+        };
+        if (existingIdx >= 0) {
+          target.assigned_workers[existingIdx] = newAssignment;
+        } else {
+          target.assigned_workers.push(newAssignment);
+        }
+      }
+    } catch {}
+    if (target.order_status === 'Approved' || target.order_status === 'Pending') {
+      target.order_status = 'In Production';
+    }
+    saveStoredCustomOrders(allStored);
+  }
+
+  window.dispatchEvent(new Event('custom-orders-updated'));
+  return result || { message: `Worker assigned to Order #${orderId}` };
 }
 
-export async function updateProductionProgress(orderId: number, stage: string, percentage: number, remarks?: string): Promise<any> {
-  const res = await safeFetchProd('/update-progress', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ custom_order_id: orderId, stage, progress_percentage: percentage, remarks })
-  });
-  if (!res.ok) throw new Error('Failed to update progress in database');
-  return await res.json();
+export async function updateProductionProgress(
+  orderId: number,
+  stage: string,
+  percentage: number,
+  remarks?: string,
+  department?: string,
+  workerId?: number
+): Promise<any> {
+  let result: any = null;
+  try {
+    const res = await safeFetchProd('/update-progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        custom_order_id: orderId,
+        stage,
+        progress_percentage: percentage,
+        remarks,
+        department,
+        worker_id: workerId
+      })
+    });
+    if (res.ok) {
+      result = await res.json();
+    }
+  } catch (err) {
+    console.warn('DB update-progress request failed, fallback locally:', err);
+  }
+
+  // Update local persistent store for instant reactivity across all dashboards
+  const allStored = getAllUserStoredCustomOrders();
+  const target = allStored.find(o => o.custom_order_id === orderId);
+  if (target) {
+    target.current_stage = stage;
+    target.progress_percentage = percentage;
+    if (remarks) target.latest_remarks = remarks;
+
+    // Update specific department worker assignment task status
+    if (department && target.assigned_workers) {
+      const asgn = target.assigned_workers.find(w =>
+        (workerId && Number(w.worker_id) === Number(workerId)) ||
+        (w.specialization && w.specialization.toLowerCase().includes(department.toLowerCase().split(' ')[0]))
+      );
+      if (asgn) {
+        if (percentage >= 100 || stage.includes('Complete') || stage.includes('Done')) {
+          asgn.task_status = `${department}: Completed`;
+        } else {
+          asgn.task_status = `${department}: In Progress`;
+        }
+      }
+    }
+
+    if (percentage >= 100 || stage.includes('Ready for Dispatch') || (department === 'Assembly' && stage.includes('Complete'))) {
+      target.order_status = 'Completed';
+    } else if (target.order_status === 'Approved' || target.order_status === 'Pending') {
+      target.order_status = 'In Production';
+    }
+    saveStoredCustomOrders(allStored);
+  }
+
+  window.dispatchEvent(new Event('custom-orders-updated'));
+  return result || { message: `Progress updated for Order #${orderId}: ${stage} (${percentage}%)` };
 }
 
 export async function fetchOrderTrackingTimeline(orderId: number): Promise<OrderTrackingInfo> {
-  const res = await fetch(`${BASE_URL}/custom-orders/${orderId}/tracking`);
+  const res = await safeFetchProd(`/custom-orders/${orderId}/tracking`);
   if (!res.ok) throw new Error('Failed to fetch tracking from database');
   return await res.json();
 }

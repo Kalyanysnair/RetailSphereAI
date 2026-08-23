@@ -3,6 +3,8 @@ import { HeaderNav } from './HeaderNav';
 import { HeroCarousel } from './HeroCarousel';
 import { CategorySection } from './CategorySection';
 import { CustomizationSection } from './CustomizationSection';
+import { FabricationShowcaseSection } from './FabricationShowcaseSection';
+import { ServicesShowcaseSection } from './ServicesShowcaseSection';
 import { AboutSection } from './AboutSection';
 import { ContactSection } from './ContactSection';
 import { Footer } from './Footer';
@@ -37,6 +39,7 @@ export const LandingPage: React.FC = () => {
           <div className="w-full ultra-glass-panel rounded-[2.5rem] p-6 sm:p-10 shadow-2xl transition-all duration-300 relative space-y-12 sm:space-y-16">
             <CategorySection />
             <CustomizationSection />
+            <FabricationShowcaseSection />
             <AboutSection />
             <ContactSection />
           </div>

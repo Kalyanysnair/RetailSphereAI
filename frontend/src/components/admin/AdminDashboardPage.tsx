@@ -78,7 +78,7 @@ import {
   Coupon,
   CouponAllotment
 } from '../../services/api_coupons';
-import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
+import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder, computeLogicalCompletionStatus, updateStoredRetailOrderCompletionStatus } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders, updateOrderStatus, toggleLockOrderSpecifications, downloadPaymentReceipt, CustomOrderData } from '../../services/api_production';
 import { getStoredAdminMessages, sendAdminMessage, deleteAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
 import { getStoredUserAuthorities, saveUserAuthority, UserAuthorityRecord, CAPABILITY_DEFINITIONS, CapabilityKey } from '../../utils/userAuthoritiesStorage';
@@ -153,6 +153,8 @@ export interface RetailOrder {
   orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Cancelled';
   paymentStatus?: 'Paid' | 'Pending' | 'Cancelled';
   paymentId?: string;
+  completionStatus?: string;
+  completionPercentage?: number;
   orderDate: string;
   assignedWorkers?: any[];
   items?: Array<{
@@ -365,20 +367,53 @@ export const AdminDashboardPage: React.FC = () => {
   const [selectedOrderForEdit, setSelectedOrderForEdit] = useState<RetailOrder | null>(null);
   const [editOrderStatusValue, setEditOrderStatusValue] = useState<string>('Order Placed');
   const [editOrderPaymentStatusValue, setEditOrderPaymentStatusValue] = useState<string>('Paid');
+  const [editOrderCompletionStatusValue, setEditOrderCompletionStatusValue] = useState<string>('Order Placed & Processing');
 
   const handleOpenEditOrder = (ord: RetailOrder) => {
     setSelectedOrderForEdit(ord);
     setEditOrderStatusValue(ord.orderStatus || 'Order Placed');
     setEditOrderPaymentStatusValue(ord.paymentStatus || 'Paid');
+    const compInfo = computeLogicalCompletionStatus(ord);
+    setEditOrderCompletionStatusValue(ord.completionStatus || compInfo.status);
+  };
+
+  const handleLogicallyGenerateCompletionStatus = () => {
+    if (!selectedOrderForEdit) return;
+    const info = computeLogicalCompletionStatus({
+      ...selectedOrderForEdit,
+      orderStatus: editOrderStatusValue || selectedOrderForEdit.orderStatus,
+      paymentStatus: editOrderPaymentStatusValue || selectedOrderForEdit.paymentStatus
+    });
+    setEditOrderCompletionStatusValue(info.status);
   };
 
   const handleSaveEditOrder = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrderForEdit) return;
 
+    const compInfo = computeLogicalCompletionStatus({
+      ...selectedOrderForEdit,
+      orderStatus: editOrderStatusValue,
+      paymentStatus: editOrderPaymentStatusValue,
+      completionStatus: editOrderCompletionStatusValue
+    });
+
+    const finalStatus = editOrderCompletionStatusValue || compInfo.status;
+    updateStoredRetailOrderCompletionStatus(
+      selectedOrderForEdit.orderId,
+      finalStatus,
+      compInfo.percentage
+    );
+
     const updatedList = orderList.map((o) =>
       o.orderId === selectedOrderForEdit.orderId
-        ? { ...o, orderStatus: editOrderStatusValue as any, paymentStatus: editOrderPaymentStatusValue as any }
+        ? {
+            ...o,
+            orderStatus: editOrderStatusValue as any,
+            paymentStatus: editOrderPaymentStatusValue as any,
+            completionStatus: finalStatus,
+            completionPercentage: compInfo.percentage
+          }
         : o
     );
     setOrderList(updatedList as any);
@@ -387,7 +422,7 @@ export const AdminDashboardPage: React.FC = () => {
     window.dispatchEvent(new Event('retail-orders-updated'));
 
     setSelectedOrderForEdit(null);
-    setSuccessBanner(`Order #${selectedOrderForEdit.orderId} updated successfully!`);
+    setSuccessBanner(`Order #${selectedOrderForEdit.orderId} updated successfully with status "${finalStatus}"!`);
     setTimeout(() => setSuccessBanner(null), 4000);
   };
 
@@ -3811,19 +3846,21 @@ export const AdminDashboardPage: React.FC = () => {
                         <span>Active Coupons</span>
                         <Tag className="w-4 h-4 text-[#7C3AED]" />
                       </div>
-                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{couponsList.length}</div>
-                      <div className="text-[10px] text-[#7C3AED] font-bold mt-1">Promotional Discount Codes</div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {couponsList.filter(c => c.status === 'Active' && (!c.customerLimit || c.customerLimit <= 0 || (c.currentRedemptions || 0) < c.customerLimit)).length}
+                      </div>
+                      <div className="text-[10px] text-[#7C3AED] font-bold mt-1">Available Redeemable Coupons</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Retail Store Coupons</span>
+                        <span>Retail Shop Coupons</span>
                         <Percent className="w-4 h-4 text-emerald-600" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {couponsList.filter(c => c.audienceType === 'retail' || c.audienceType === 'all' || !c.audienceType).length}
+                        {couponsList.length}
                       </div>
-                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Furniture Store Discounts</div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Total Coupons Created</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
@@ -5317,6 +5354,37 @@ export const AdminDashboardPage: React.FC = () => {
                   <option value="Pending">Pending</option>
                   <option value="Cancelled">Cancelled</option>
                 </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block font-bold text-[#7A6C5E] text-xs">Completion Status</label>
+                  <button
+                    type="button"
+                    onClick={() => handleLogicallyGenerateCompletionStatus()}
+                    className="text-[10px] font-black text-[#48A63E] bg-[#48A63E]/10 hover:bg-[#48A63E]/20 px-2 py-0.5 rounded-lg border border-[#48A63E]/30 transition-all flex items-center gap-1 cursor-pointer"
+                    title="Calculate status based on payment status, worker assignments & progress"
+                  >
+                    <span>⚡ Logically Auto-Generate</span>
+                  </button>
+                </div>
+                <select
+                  value={editOrderCompletionStatusValue}
+                  onChange={(e) => setEditOrderCompletionStatusValue(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Order Placed & Processing">Order Placed & Processing (15%)</option>
+                  <option value="Pending Payment">Pending Payment (5%)</option>
+                  <option value="In Production (40%)">In Production (40%)</option>
+                  <option value="In Production (65%)">In Production (65%)</option>
+                  <option value="Completed & Ready for Dispatch">Completed & Ready for Dispatch (100%)</option>
+                  <option value="Shipped & In Transit">Shipped & In Transit (85%)</option>
+                  <option value="Delivered">Delivered (100%)</option>
+                  <option value="Cancelled">Cancelled (0%)</option>
+                </select>
+                <div className="mt-1 text-[10px] text-[#7A6C5E] font-medium italic">
+                  * Click "⚡ Logically Auto-Generate" to automatically deduce stage from order parameters.
+                </div>
               </div>
 
               <div className="pt-2 flex gap-2 justify-end">

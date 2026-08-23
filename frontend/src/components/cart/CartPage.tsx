@@ -126,7 +126,7 @@ export const CartPage: React.FC = () => {
         const res = await getCouponsApi();
         const activeFirstN = res.coupons.find((c: Coupon) => 
           c.status === 'Active' && 
-          c.type === 'first_n_customers' && 
+          (c.type === 'first_n_customers' || (c.customerLimit && c.customerLimit > 0 && !c.targetUserEmail)) && 
           c.customerLimit && 
           c.customerLimit > 0 && 
           (c.currentRedemptions || 0) < c.customerLimit

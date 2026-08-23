@@ -9,10 +9,12 @@ import { Logo } from '../common/Logo';
 interface HeaderProps {
   cartCount?: number;
   wishlistCount?: number;
+  activeTab?: string;
+  onSelectTab?: (tab: string) => void;
   onOpenCustomOrder?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpenCustomOrder }) => {
+export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, activeTab = 'shop', onSelectTab, onOpenCustomOrder }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [visible, setVisible] = useState(true);
@@ -33,10 +35,13 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const navLinks = [
-    { name: 'Collection', hash: '#catalog-section' },
-    { name: 'Custom Orders', hash: '#custom-order-section' },
-    { name: 'Contact Us', hash: '#contact-section' },
+  const navTabs = [
+    { id: 'shop', name: 'SHOP' },
+    { id: 'create', name: 'CREATE' },
+    { id: 'fabricate', name: 'FABRICATE' },
+    { id: 'services', name: 'SERVICES' },
+    { id: 'my-activity', name: 'MY ACTIVITY' },
+    { id: 'assistant', name: 'ASSISTANT' },
   ];
 
   const handleOpenCustomOrder = () => {
@@ -200,25 +205,39 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, onOpen
     >
 
 
-      <div className="max-w-7xl mx-auto h-16 rounded-full ultra-glass-pill px-6 sm:px-8 flex items-center justify-between transition-all gap-4">
+      <div className="max-w-7xl mx-auto h-16 rounded-full bg-white/95 backdrop-blur-2xl border-2 border-[#E4DCD0] shadow-[0_8px_30px_rgb(0,0,0,0.06)] px-6 sm:px-8 flex items-center justify-between transition-all gap-4">
 
 
         {/* Simple Clean Logo */}
         <Logo to="/dashboard" size="md" />
 
-        {/* Center Navigation Links (Collection, Contact Us) */}
-        <nav className="hidden md:flex items-center gap-8 text-xs font-semibold text-[#6B5C4D]">
-          {navLinks.map((link) => (
-            <a
-              key={link.name}
-              href={link.hash}
-              onClick={(e) => handleNavClick(e, link.hash || '#', link.name)}
-              className="hover:text-[#2C241D] transition-colors relative py-1 group cursor-pointer"
-            >
-              <span>{link.name}</span>
-              <span className="absolute bottom-0 left-0 w-0 h-[1.5px] bg-[#48A63E] transition-all duration-300 group-hover:w-full" />
-            </a>
-          ))}
+        {/* Center Navigation Links (SHOP, CREATE, FABRICATE, SERVICES, MY ACTIVITY, ASSISTANT) */}
+        <nav className="hidden md:flex items-center gap-6 text-[11px] font-extrabold tracking-wider text-[#6B5C4D]">
+          {navTabs.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  if (onSelectTab) {
+                    onSelectTab(tab.id);
+                  } else {
+                    navigate('/dashboard', { state: { activeTab: tab.id } });
+                  }
+                }}
+                className={`transition-all relative py-1 px-1 cursor-pointer font-extrabold ${
+                  isActive ? 'text-[#48A63E]' : 'hover:text-[#2C241D]'
+                }`}
+              >
+                <span>{tab.name}</span>
+                <span
+                  className={`absolute bottom-0 left-0 h-[2px] bg-[#48A63E] transition-all duration-300 ${
+                    isActive ? 'w-full' : 'w-0 group-hover:w-full'
+                  }`}
+                />
+              </button>
+            );
+          })}
         </nav>
 
         {/* Right Logged-In Customer Actions */}

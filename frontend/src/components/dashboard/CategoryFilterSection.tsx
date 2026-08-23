@@ -5,26 +5,28 @@ import {
   Bed, 
   Utensils, 
   Briefcase, 
-  Palette,
-  SlidersHorizontal,
-  ArrowUpDown,
-  X,
-  Search,
-  Plus,
+  SlidersHorizontal, 
+  ArrowUpDown, 
+  X, 
+  Search, 
+  Plus, 
+  Mic, 
+  Sparkles,
   ChevronDown,
   Check
 } from 'lucide-react';
-import { CategoryItem, DashboardFilterState } from '../../types/dashboard';
+import { CategoryItem, DashboardFilterState, RecommendationProduct } from '../../types/dashboard';
 
 interface CategoryFilterSectionProps {
   filterState: DashboardFilterState;
   onFilterChange: (updated: Partial<DashboardFilterState>) => void;
   onResetFilters: () => void;
   onOpenCustomOrder?: () => void;
+  allProducts?: RecommendationProduct[];
 }
 
-const DASHBOARD_SORT_OPTIONS = [
-  { value: 'recommended', label: 'Featured & Recommended' },
+const SORT_OPTIONS = [
+  { value: 'recommended', label: 'Featured & AI Recommended' },
   { value: 'price-low', label: 'Price: Low to High' },
   { value: 'price-high', label: 'Price: High to Low' },
   { value: 'rating', label: 'Highest Customer Rating' },
@@ -35,41 +37,53 @@ export const CATEGORIES_DATA: CategoryItem[] = [
     id: 'all',
     name: 'All Collections',
     icon: 'Grid',
-    count: 24,
+    count: 14,
     subcategories: [
-      { id: 'all-sub', name: 'All', count: 24 },
-      { id: 'bestsellers', name: 'Bestsellers', count: 8 },
+      { id: 'all-sub', name: 'All Products', count: 14 },
+      { id: 'bestsellers', name: 'Best Sellers ⭐', count: 8 },
+      { id: 'custom-ready', name: 'Customizable 🎨', count: 10 },
+      { id: 'sofas', name: 'Sofas & Couches', count: 4 },
+      { id: 'coffee-tables', name: 'Coffee Tables', count: 3 },
+      { id: 'dining-tables', name: 'Dining Tables', count: 3 },
+      { id: 'king-beds', name: 'Beds', count: 2 },
+      { id: 'desks', name: 'Desks & Workstations', count: 2 },
     ]
   },
   {
     id: 'living-room',
     name: 'Living Room',
     icon: 'Sofa',
-    count: 8,
+    count: 6,
     subcategories: [
-      { id: 'sofas', name: 'Luxury Sofas', count: 4 },
-      { id: 'accent-chairs', name: 'Accent Chairs', count: 2 },
-      { id: 'coffee-tables', name: 'Coffee Tables', count: 2 },
+      { id: 'all-sub', name: 'All Living Room', count: 6 },
+      { id: 'sofas', name: 'Sofas & Couches', count: 3 },
+      { id: 'coffee-tables', name: 'Coffee & Accent Tables', count: 2 },
+      { id: 'accent-chairs', name: 'Accent Chairs', count: 1 },
+      { id: 'tv-units', name: 'TV Consoles & Media Units', count: 1 },
     ]
   },
   {
     id: 'bedroom',
     name: 'Bedroom',
     icon: 'Bed',
-    count: 5,
+    count: 4,
     subcategories: [
-      { id: 'king-beds', name: 'King & Queen Beds', count: 3 },
-      { id: 'nightstands', name: 'Nightstands', count: 2 },
+      { id: 'all-sub', name: 'All Bedroom', count: 4 },
+      { id: 'king-beds', name: 'Beds & Headboards', count: 2 },
+      { id: 'wardrobes', name: 'Wardrobes & Storage', count: 1 },
+      { id: 'nightstands', name: 'Nightstands & Side Tables', count: 1 },
     ]
   },
   {
     id: 'dining-room',
     name: 'Dining Room',
     icon: 'Utensils',
-    count: 5,
+    count: 4,
     subcategories: [
-      { id: 'dining-tables', name: 'Dining Tables', count: 3 },
-      { id: 'dining-chairs', name: 'Dining Chairs', count: 2 },
+      { id: 'all-sub', name: 'All Dining', count: 4 },
+      { id: 'dining-tables', name: 'Dining Tables', count: 2 },
+      { id: 'dining-chairs', name: 'Dining Chairs', count: 1 },
+      { id: 'buffets', name: 'Buffets & Sideboards', count: 1 },
     ]
   },
   {
@@ -78,8 +92,10 @@ export const CATEGORIES_DATA: CategoryItem[] = [
     icon: 'Briefcase',
     count: 3,
     subcategories: [
-      { id: 'desks', name: 'Executive Desks', count: 2 },
-      { id: 'ergonomic', name: 'Ergonomic Chairs', count: 1 },
+      { id: 'all-sub', name: 'All Office', count: 3 },
+      { id: 'desks', name: 'Desks & Workstations', count: 2 },
+      { id: 'ergonomic', name: 'Ergonomic Seating', count: 1 },
+      { id: 'bookshelves', name: 'Bookshelves & Storage', count: 1 },
     ]
   }
 ];
@@ -91,7 +107,8 @@ export const MATERIALS_LIST = [
   'Italian Marble',
   'Italian Velvet',
   'Brass & Steel',
-  'Full Grain Leather'
+  'Natural Rattan',
+  'Genuine Leather'
 ];
 
 export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
@@ -100,8 +117,21 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
   onResetFilters,
   onOpenCustomOrder,
 }) => {
+  const [isFilterDrawerOpen, setIsFilterDrawerOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
+
+  const activeCategory = CATEGORIES_DATA.find((cat) => cat.id === filterState.categoryId) || CATEGORIES_DATA[0];
+
+  const getCategoryIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'Sofa': return <Sofa className="w-3.5 h-3.5" />;
+      case 'Bed': return <Bed className="w-3.5 h-3.5" />;
+      case 'Utensils': return <Utensils className="w-3.5 h-3.5" />;
+      case 'Briefcase': return <Briefcase className="w-3.5 h-3.5" />;
+      default: return <Grid className="w-3.5 h-3.5" />;
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -113,225 +143,229 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const activeCategory = CATEGORIES_DATA.find((c) => c.id === filterState.categoryId) || CATEGORIES_DATA[0];
-
-  const getCategoryIcon = (iconName: string) => {
-    switch (iconName) {
-      case 'Sofa': return <Sofa className="w-4 h-4" />;
-      case 'Bed': return <Bed className="w-4 h-4" />;
-      case 'Utensils': return <Utensils className="w-4 h-4" />;
-      case 'Briefcase': return <Briefcase className="w-4 h-4" />;
-      case 'Palette': return <Palette className="w-4 h-4" />;
-      default: return <Grid className="w-4 h-4" />;
-    }
-  };
-
-  const hasActiveFilters = 
-    filterState.categoryId !== 'all' ||
-    filterState.subcategoryId !== 'all-sub' ||
-    filterState.material !== 'All Materials' ||
-    filterState.maxPrice < 350000 ||
-    filterState.searchQuery !== '';
+  const activeFiltersCount = 
+    (filterState.categoryId !== 'all' ? 1 : 0) +
+    (filterState.subcategoryId !== 'all-sub' ? 1 : 0) +
+    (filterState.material !== 'All Materials' ? 1 : 0) +
+    (filterState.maxPrice < 350000 ? 1 : 0) +
+    (filterState.searchQuery ? 1 : 0);
 
   return (
-    <div id="catalog-section" className="space-y-4">
-      {/* Search Bar & + Custom Order Button Row */}
-      <div className="flex items-center gap-3 w-full max-w-4xl mx-auto mb-2">
-        <div className="relative flex-1">
-          <Search className="w-5 h-5 text-[#48A63E] absolute left-4 top-1/2 -translate-y-1/2" />
+    <div id="catalog-section" className="space-y-3">
+      {/* 1. Compact 80px Top Search & Action Bar (Borderless Container) */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+        
+        {/* Full-width Search Input with AI & Voice Icon */}
+        <div className="relative flex-1 w-full">
+          <Sparkles className="w-4 h-4 text-[#387A46] absolute left-4 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={filterState.searchQuery}
             onChange={(e) => onFilterChange({ searchQuery: e.target.value })}
-            placeholder="Search luxury sofas, teak wood dining tables, velvet chairs..."
-            className="w-full pl-12 pr-10 py-3.5 text-sm ultra-glass-pill rounded-full text-[#2C241D] placeholder-[#9E9082] focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 transition-all font-medium"
+            placeholder="Search luxury sofas, teak dining tables, velvet armchairs with AI..."
+            className="w-full pl-11 pr-12 py-3 bg-white border border-[#E4DCD0] focus:border-[#387A46] rounded-full text-xs font-bold text-[#1C1814] placeholder-[#8A7E72] focus:outline-none transition-all shadow-[0_4px_20px_rgb(0,0,0,0.03)]"
           />
-          {filterState.searchQuery && (
-            <button
-              onClick={() => onFilterChange({ searchQuery: '' })}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-[#9E9082] hover:text-[#2C241D] transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {filterState.searchQuery ? (
+              <button onClick={() => onFilterChange({ searchQuery: '' })} className="p-1 text-[#8A7E72] hover:text-[#1C1814]">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            ) : (
+              <button type="button" title="Voice Search" className="p-1 text-[#8A7E72] hover:text-[#387A46] transition-colors cursor-pointer">
+                <Mic className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => {
-            if (onOpenCustomOrder) {
-              onOpenCustomOrder();
-            } else {
-              const el = document.getElementById('custom-order-section');
-              if (el) el.scrollIntoView({ behavior: 'smooth' });
-            }
-          }}
-          className="py-3.5 px-5 rounded-full bg-[#48A63E] hover:bg-[#3d9134] text-white text-xs font-extrabold flex items-center gap-2 shadow-md shadow-[#48A63E]/25 transition-all flex-shrink-0 cursor-pointer"
-          title="Configure Bespoke Custom Furniture Order"
-        >
-          <Plus className="w-4 h-4 text-white" />
-          <span className="hidden sm:inline">Custom Order</span>
-          <span className="sm:hidden">Custom</span>
-        </button>
+        {/* Action Controls: Filter Drawer Toggle, Sort Dropdown, Custom Order CTA */}
+        <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end flex-shrink-0">
+          
+          {/* Collapsible Filter Button */}
+          <button
+            onClick={() => setIsFilterDrawerOpen(!isFilterDrawerOpen)}
+            className={`px-4 py-3 rounded-full text-xs font-extrabold border transition-all flex items-center gap-2 cursor-pointer shadow-[0_4px_20px_rgb(0,0,0,0.03)] ${
+              activeFiltersCount > 0
+                ? 'bg-[#387A46] text-white border-[#387A46]'
+                : 'bg-white border-[#E4DCD0] text-[#1C1814] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5 text-[#387A46]" />
+            <span>Filters</span>
+            {activeFiltersCount > 0 && (
+              <span className="w-4 h-4 rounded-full bg-white text-[#387A46] text-[10px] font-black flex items-center justify-center">
+                {activeFiltersCount}
+              </span>
+            )}
+          </button>
+
+          {/* Sort Dropdown */}
+          <div className="relative" ref={sortDropdownRef}>
+            <button
+              onClick={() => setSortOpen(!sortOpen)}
+              className="px-4 py-3 rounded-full bg-white border border-[#E4DCD0] hover:bg-[#FAF8F5] text-xs font-extrabold text-[#1C1814] transition-all flex items-center gap-1.5 cursor-pointer shadow-[0_4px_20px_rgb(0,0,0,0.03)]"
+            >
+              <ArrowUpDown className="w-3.5 h-3.5 text-[#387A46]" />
+              <span className="hidden sm:inline">Sort:</span>
+              <span className="truncate max-w-[100px]">
+                {SORT_OPTIONS.find((s) => s.value === filterState.sortBy)?.label.split(':')[0] || 'Featured'}
+              </span>
+              <ChevronDown className="w-3 h-3 text-[#6E6458]" />
+            </button>
+
+            {sortOpen && (
+              <div className="absolute right-0 mt-2 w-48 bg-white border border-[#E4DCD0] rounded-2xl p-2 shadow-xl z-50 space-y-1">
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      onFilterChange({ sortBy: opt.value as any });
+                      setSortOpen(false);
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-between ${
+                      filterState.sortBy === opt.value
+                        ? 'bg-[#387A46] text-white'
+                        : 'text-[#1C1814] hover:bg-[#F1EDE6]'
+                    }`}
+                  >
+                    <span>{opt.label}</span>
+                    {filterState.sortBy === opt.value && <Check className="w-3.5 h-3.5" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Custom Order CTA */}
+          <button
+            onClick={() => {
+              if (onOpenCustomOrder) onOpenCustomOrder();
+              else document.getElementById('custom-order-section')?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className="px-5 py-3 rounded-full bg-[#1C1814] hover:bg-[#0A0807] text-white text-xs font-extrabold flex items-center gap-1.5 shadow-md cursor-pointer transition-all whitespace-nowrap"
+          >
+            <Plus className="w-3.5 h-3.5 text-[#387A46]" />
+            <span>Custom Order</span>
+          </button>
+        </div>
       </div>
 
-      {/* Top Category Tabs */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none justify-start sm:justify-center">
+      {/* 2. Main Category Pills Row */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
         {CATEGORIES_DATA.map((cat) => {
           const isSelected = filterState.categoryId === cat.id;
           return (
             <button
               key={cat.id}
-              onClick={() => {
-                onFilterChange({
-                  categoryId: cat.id,
-                  subcategoryId: cat.subcategories[0]?.id || 'all-sub'
-                });
-              }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all duration-300 ${
+              onClick={() => onFilterChange({ categoryId: cat.id, subcategoryId: 'all-sub' })}
+              className={`px-4 py-2.5 rounded-full text-xs font-extrabold transition-all flex items-center gap-2 flex-shrink-0 cursor-pointer whitespace-nowrap border ${
                 isSelected
-                  ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 scale-[1.02] border-2 border-[#48A63E]'
-                  : 'bg-[#FAF7F2] border-2 border-[#E2D7CB] text-[#5C4E42] hover:text-[#2C241D] hover:border-[#48A63E]'
+                  ? 'bg-[#387A46] text-white border-[#387A46] shadow-sm'
+                  : 'bg-white/80 text-[#6E6458] border-[#E4DCD0] hover:bg-white hover:text-[#1C1814]'
               }`}
             >
               {getCategoryIcon(cat.icon)}
               <span>{cat.name}</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                isSelected ? 'bg-white/20 text-white font-extrabold' : 'bg-[#F4ECE1] text-[#2C241D] font-extrabold'
-              }`}>
-                {cat.count}
-              </span>
             </button>
           );
         })}
       </div>
 
-
-      {/* Subcategory Chips & Quick Filters Bar */}
-      <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-5 shadow-sm space-y-4">
-
-
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-          {/* Subcategories Chips */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold text-[#7A6C5E] mr-1 flex items-center gap-1.5">
-              <SlidersHorizontal className="w-3.5 h-3.5 text-[#48A63E]" />
-              Filter:
-            </span>
-            {activeCategory.subcategories.map((sub) => {
-              const isSelected = filterState.subcategoryId === sub.id;
-              return (
-                <button
-                  key={sub.id}
-                  onClick={() => onFilterChange({ subcategoryId: sub.id })}
-                  className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
-                    isSelected
-                      ? 'bg-[#48A63E] text-white shadow-sm font-bold'
-                      : 'bg-[#F5ECE1]/80 border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#EAE0D4] hover:text-[#2C241D]'
-                  }`}
-                >
-                  {sub.name}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Reset Filters */}
-          {hasActiveFilters && (
-            <button
-              onClick={onResetFilters}
-              className="flex items-center gap-1 text-xs text-rose-600 hover:text-rose-800 font-bold hover:underline transition-colors ml-auto"
-            >
-              <X className="w-3.5 h-3.5" />
-              Reset Filters
-            </button>
-          )}
+      {/* 3. Dedicated Subcategories Bar for Active Category */}
+      {activeCategory && activeCategory.subcategories.length > 0 && (
+        <div className="flex items-center gap-2 overflow-x-auto py-1.5 scrollbar-none border-t border-[#E4DCD0]/60 pt-2">
+          <span className="text-[10px] font-black text-[#8A7E72] uppercase tracking-wider flex-shrink-0 mr-1">
+            Subcategories:
+          </span>
+          {activeCategory.subcategories.map((sub) => {
+            const isSubSelected = filterState.subcategoryId === sub.id;
+            return (
+              <button
+                key={sub.id}
+                onClick={() => onFilterChange({ subcategoryId: sub.id })}
+                className={`px-3.5 py-1.5 rounded-full text-[11px] font-extrabold transition-all flex-shrink-0 cursor-pointer whitespace-nowrap border flex items-center gap-1.5 ${
+                  isSubSelected
+                    ? 'bg-[#1C1814] text-white border-[#1C1814] shadow-sm'
+                    : 'bg-white/90 text-[#524538] border-[#E4DCD0] hover:bg-white hover:text-[#1C1814]'
+                }`}
+              >
+                <span>{sub.name}</span>
+                {sub.count !== undefined && (
+                  <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-black ${
+                    isSubSelected ? 'bg-white/20 text-white' : 'bg-[#F1EDE6] text-[#6E6458]'
+                  }`}>
+                    {sub.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
+      )}
 
-        {/* Material & Sorting Dropdowns */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
-          {/* Material Select */}
-          <div>
-            <label className="block text-[11px] font-bold text-[#5C4E42] mb-1">
-              Material Finish
-            </label>
-            <select
-              value={filterState.material}
-              onChange={(e) => onFilterChange({ material: e.target.value })}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] focus:outline-none focus:border-[#48A63E] font-semibold"
-            >
-              {MATERIALS_LIST.map((mat) => (
-                <option key={mat} value={mat} className="bg-white text-[#2C241D]">
-                  {mat}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Price Range Slider */}
-          <div>
-            <div className="flex items-center justify-between text-[11px] font-bold text-[#5C4E42] mb-1">
-              <span>Max Budget:</span>
-              <span className="text-[#2C241D] font-extrabold">₹{filterState.maxPrice.toLocaleString('en-IN')}</span>
-
+      {/* 4. Secondary Collapsible Filter Drawer */}
+      {isFilterDrawerOpen && (
+        <div className="bg-white border-2 border-[#E2D7CB] rounded-3xl p-5 shadow-lg space-y-4 animate-fadeIn">
+          <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="w-4 h-4 text-[#48A63E]" />
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Refine Furniture Selection</h4>
             </div>
-            <input
-              type="range"
-              min="20000"
-              max="350000"
-              step="10000"
-              value={filterState.maxPrice}
-              onChange={(e) => onFilterChange({ maxPrice: Number(e.target.value) })}
-              className="w-full accent-[#48A63E] bg-[#EAE1D5] rounded-lg cursor-pointer h-1.5"
-            />
-          </div>
-
-          {/* Sorting */}
-          {/* Sort By Dropdown */}
-          <div className="relative" ref={sortDropdownRef}>
-            <label className="block text-[11px] font-bold text-[#5C4E42] mb-1 flex items-center gap-1">
-              <ArrowUpDown className="w-3 h-3 text-[#48A63E]" />
-              Sort Furniture By
-            </label>
-            <button
-              type="button"
-              onClick={() => setSortOpen(!sortOpen)}
-              className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] font-bold flex items-center justify-between shadow-xs hover:border-[#48A63E] hover:bg-white transition-all cursor-pointer"
-            >
-              <span>{DASHBOARD_SORT_OPTIONS.find(o => o.value === filterState.sortBy)?.label || 'Featured & Recommended'}</span>
-              <ChevronDown className={`w-3.5 h-3.5 text-[#48A63E] transition-transform duration-200 ${sortOpen ? 'rotate-180' : ''}`} />
-            </button>
-
-            {sortOpen && (
-              <div className="absolute right-0 top-full mt-1.5 w-full min-w-[200px] rounded-2xl bg-white/95 backdrop-blur-xl border border-[#E2D7CB] p-1.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150 space-y-0.5">
-                {DASHBOARD_SORT_OPTIONS.map((opt) => {
-                  const isSelected = opt.value === filterState.sortBy;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => {
-                        onFilterChange({ sortBy: opt.value as any });
-                        setSortOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 text-xs font-black rounded-xl transition-all cursor-pointer ${
-                        isSelected
-                          ? 'bg-[#48A63E] text-white shadow-xs'
-                          : 'text-[#2C241D] hover:bg-[#48A63E]/10 hover:text-[#48A63E]'
-                      }`}
-                    >
-                      <span>{opt.label}</span>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                    </button>
-                  );
-                })}
-              </div>
+            {activeFiltersCount > 0 && (
+              <button onClick={onResetFilters} className="text-xs font-bold text-rose-600 hover:underline">
+                Reset All Filters
+              </button>
             )}
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5 text-xs font-semibold text-[#2C241D]">
+            {/* Price Slider */}
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-[#7A6C5E] font-bold">Max Price:</span>
+                <span className="font-extrabold text-[#48A63E]">₹{filterState.maxPrice.toLocaleString('en-IN')}</span>
+              </div>
+              <input
+                type="range"
+                min="10000"
+                max="350000"
+                step="5000"
+                value={filterState.maxPrice}
+                onChange={(e) => onFilterChange({ maxPrice: Number(e.target.value) })}
+                className="w-full accent-[#48A63E] cursor-pointer"
+              />
+            </div>
+
+            {/* Material Filter */}
+            <div>
+              <label className="block text-[#7A6C5E] font-bold mb-1">Material Preference</label>
+              <select
+                value={filterState.material}
+                onChange={(e) => onFilterChange({ material: e.target.value })}
+                className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] font-bold text-xs"
+              >
+                {MATERIALS_LIST.map((mat) => (
+                  <option key={mat} value={mat}>{mat}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* AI Picked Toggle */}
+            <div className="flex items-center justify-between bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+              <div>
+                <span className="font-extrabold text-xs text-[#2C241D] block">AI Match Prioritization</span>
+                <span className="text-[10px] text-[#7A6C5E]">Show highest match score items first</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={filterState.subcategoryId === 'bestsellers'}
+                onChange={(e) => onFilterChange({ subcategoryId: e.target.checked ? 'bestsellers' : 'all-sub' })}
+                className="w-4 h-4 accent-[#48A63E] rounded cursor-pointer"
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
-
 };
-

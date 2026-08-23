@@ -5,6 +5,8 @@ from typing import Optional, List
 from datetime import datetime, date
 import string
 import secrets
+import time
+import re
 
 from app.database import get_db
 from app import models, auth
@@ -40,6 +42,7 @@ class CustomOrderCreatePayload(BaseModel):
 
 class OrderStatusUpdatePayload(BaseModel):
     order_status: str  # "Approved", "Rejected", "In Production", "Completed"
+    completion_status: Optional[str] = None
     estimated_price: Optional[float] = None
     remarks: Optional[str] = None
 
@@ -61,13 +64,16 @@ class WorkerStatusPayload(BaseModel):
 class TaskAssignPayload(BaseModel):
     custom_order_id: int
     worker_id: int
+    department: Optional[str] = None  # "Woodwork & Carpentry", "Upholstery", "Assembly"
     task_description: Optional[str] = None
 
 class ProgressUpdatePayload(BaseModel):
     custom_order_id: int
-    stage: str  # "Material Sourcing", "Cutting & Joinery", "Assembly & Upholstery", "Quality Control & Finishing", "Ready for Dispatch"
+    stage: str
     progress_percentage: int
     remarks: Optional[str] = None
+    department: Optional[str] = None
+    worker_id: Optional[int] = None
 
 # 1. Fetch Custom Orders for Production Staff / Worker Portal
 @router.get("/custom-orders")
@@ -102,6 +108,17 @@ def get_custom_orders(
         user = db.query(models.User).filter(models.User.email.ilike(customer_email.strip())).first()
         if user and user.customer_profile:
             query = query.filter(models.CustomOrder.customer_id == user.customer_profile.customer_id)
+    else:
+        # PRODUCTION STAFF VIEW: ONLY show requests that have been APPROVED by Retail Staff
+        from sqlalchemy import or_
+        query = query.filter(
+            or_(
+                models.CustomOrder.review_status == "APPROVED",
+                models.CustomOrder.order_status.in_([
+                    "APPROVED_BY_RETAIL", "Approved", "In Production", "Completed", "Quote Provided", "Paid", "QC_PENDING"
+                ])
+            )
+        )
 
     orders = query.order_by(models.CustomOrder.order_date.desc()).all()
 
@@ -314,7 +331,6 @@ def cancel_custom_order(order_id: int, db: Session = Depends(get_db)):
 # 2d. Record Payment for Custom Order
 @router.put("/custom-orders/{order_id}/pay")
 def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
-    import time
     order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
@@ -338,7 +354,6 @@ def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
     db.refresh(order)
     return {"message": f"Payment completed for Custom Order #{order_id}", "order_id": order_id, "payment_status": "Paid"}
 
-import re
 
 def normalize_phone(phone_str: str) -> str:
     """Extracts last 10 digits from any phone string (+91 9446758046, 09446758046, 9446758046)."""
@@ -391,7 +406,6 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
                     )
     else:
         # Auto-generate unique timestamp-based phone number if omitted
-        import time
         phone_clean = f"+919{int(time.time() * 1000) % 1000000009:09d}"
 
     generated_password = generate_strong_password(12)
@@ -412,11 +426,11 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
         db.add(worker_user)
         db.commit()
         db.refresh(worker_user)
-    except Exception as db_err:
+    except Exception:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Database constraint error: A worker with this email or phone already exists."
+            detail="Database constraint error: A worker with this email or phone already exists."
         )
 
     # Send login credentials email to worker via SMTP immediately (recipient is dynamic)
@@ -424,7 +438,7 @@ def create_worker(payload: WorkerCreatePayload, background_tasks: BackgroundTask
     email_error = None
 
     masked_to = mask_email(worker_user.email)
-    print(f"[WORKER EMAIL TRACE]")
+    print("[WORKER EMAIL TRACE]")
     print(f"Worker Name: {worker_user.full_name}")
     print(f"Recipient from request: {masked_to}")
 
@@ -472,6 +486,7 @@ def resend_worker_credentials(worker_id: int, db: Session = Depends(get_db)):
     email_sent = False
     email_error = None
     masked_to = mask_email(worker_user.email)
+    print(f"[RESEND WORKER CREDENTIALS] Recipient: {masked_to}")
 
     try:
         email_sent = send_staff_credentials_email(
@@ -603,13 +618,25 @@ def assign_worker_task(payload: TaskAssignPayload, db: Session = Depends(get_db)
     if not worker:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
 
-    assignment = models.WorkerAssignment(
-        custom_order_id=payload.custom_order_id,
-        worker_id=payload.worker_id,
-        assigned_date=date.today(),
-        task_status="Assigned"
-    )
-    db.add(assignment)
+    dept_label = payload.department.strip() if payload.department and payload.department.strip() else getattr(worker, "specialization", "Woodwork & Carpentry")
+    
+    # Check if assignment already exists for this order & worker or department
+    existing = db.query(models.WorkerAssignment).filter(
+        models.WorkerAssignment.custom_order_id == payload.custom_order_id,
+        models.WorkerAssignment.worker_id == payload.worker_id
+    ).first()
+
+    if existing:
+        existing.task_status = f"{dept_label}: Assigned"
+        assignment = existing
+    else:
+        assignment = models.WorkerAssignment(
+            custom_order_id=payload.custom_order_id,
+            worker_id=payload.worker_id,
+            assigned_date=date.today(),
+            task_status=f"{dept_label}: Assigned"
+        )
+        db.add(assignment)
     
     # Auto-update order status to In Production if currently Approved
     if order.order_status == "Approved":
@@ -618,7 +645,7 @@ def assign_worker_task(payload: TaskAssignPayload, db: Session = Depends(get_db)
     db.commit()
     db.refresh(assignment)
 
-    return {"message": f"Worker {worker.full_name} assigned to Order #{payload.custom_order_id}"}
+    return {"message": f"Worker {worker.full_name} assigned to Order #{payload.custom_order_id} ({dept_label})"}
 
 # 6. Update Production Progress Stage
 @router.post("/update-progress")
@@ -636,7 +663,20 @@ def update_production_progress(payload: ProgressUpdatePayload, db: Session = Dep
     )
     db.add(progress)
 
-    if payload.progress_percentage >= 100 or payload.stage == "Ready for Dispatch":
+    # Update worker assignment task status for the specific department
+    if payload.department or payload.worker_id:
+        query_asgn = db.query(models.WorkerAssignment).filter(models.WorkerAssignment.custom_order_id == payload.custom_order_id)
+        if payload.worker_id:
+            query_asgn = query_asgn.filter(models.WorkerAssignment.worker_id == payload.worker_id)
+        asgns = query_asgn.all()
+        for asgn in asgns:
+            dept_name = payload.department or "Production"
+            if payload.progress_percentage >= 100 or "Complete" in payload.stage or "Done" in payload.stage:
+                asgn.task_status = f"{dept_name}: Completed"
+            else:
+                asgn.task_status = f"{dept_name}: In Progress"
+
+    if payload.progress_percentage >= 100 or payload.stage == "Ready for Dispatch" or "Assembly Complete" in payload.stage:
         order.order_status = "Completed"
     elif order.order_status in ["Pending", "Approved"]:
         order.order_status = "In Production"

@@ -6,6 +6,11 @@ import { RecommendationSection } from './RecommendationSection';
 import { CustomerContactSection } from './CustomerContactSection';
 import { CustomizationModal } from './CustomizationModal';
 import { CustomOrderTracker } from './CustomOrderTracker';
+import { FabricationTab } from '../customer/FabricationTab';
+import { ServicesTab } from '../customer/ServicesTab';
+import { MyActivityTab } from '../customer/MyActivityTab';
+import { CustomerAssistantTab } from '../customer/CustomerAssistantTab';
+import { QuickActionsFab } from './QuickActionsFab';
 import { DashboardFilterState, RecommendationProduct } from '../../types/dashboard';
 
 import { getCartCount } from '../../utils/cartStorage';
@@ -422,21 +427,55 @@ export const DashboardPage: React.FC = () => {
         filterState.subcategoryId !== 'custom-ready' &&
         filterState.subcategoryId !== 'in-stock'
       ) {
-        const subName = (product.subcategory || '').toLowerCase();
+        const subName = (product.subcategory || '').toLowerCase().replace(/-/g, ' ');
         const prodName = (product.name || '').toLowerCase();
-        const filterSub = filterState.subcategoryId.toLowerCase().replace(/-/g, ' ');
+        const subId = filterState.subcategoryId;
 
-        // Tokenize target keywords and stem plurals
-        const targetKeywords = filterSub
-          .replace(/[^a-z0-9\s]/g, ' ')
-          .split(/\s+/)
-          .map((w) => (w.endsWith('s') && w.length > 3 ? w.slice(0, -1) : w))
-          .filter((w) => w.length >= 3);
-
-        const matchesSub =
-          subName.includes(filterSub) ||
-          prodName.includes(filterSub) ||
-          (targetKeywords.length > 0 && targetKeywords.some((kw) => prodName.includes(kw) || subName.includes(kw)));
+        let matchesSub = false;
+        switch (subId) {
+          case 'sofas':
+            matchesSub = (subName.includes('sofa') || subName.includes('couch') || prodName.includes('sofa') || prodName.includes('couch') || prodName.includes('sectional')) &&
+              !prodName.includes('table');
+            break;
+          case 'coffee-tables':
+            matchesSub = (subName.includes('coffee') || subName.includes('side table') || (subName.includes('accent') && subName.includes('table')) || prodName.includes('coffee') || prodName.includes('side table')) &&
+              !prodName.includes('chair');
+            break;
+          case 'accent-chairs':
+            matchesSub = (subName.includes('accent chair') || subName.includes('lounge chair') || subName.includes('armchair') || prodName.includes('accent chair') || prodName.includes('lounge chair') || prodName.includes('armchair') || (prodName.includes('accent') && prodName.includes('chair'))) ||
+              (subName === 'accent chairs' || (subName.includes('chair') && !subName.includes('dining') && !subName.includes('ergonomic') && !prodName.includes('table') && !subName.includes('table')));
+            break;
+          case 'dining-tables':
+            matchesSub = (subName.includes('dining table') || (subName.includes('dining') && subName.includes('table')) || (prodName.includes('dining') && (prodName.includes('table') || prodName.includes('set')))) &&
+              !subName.includes('chair') && !prodName.includes('chair');
+            break;
+          case 'dining-chairs':
+            matchesSub = (subName.includes('dining chair') || (subName.includes('dining') && subName.includes('chair')) || (prodName.includes('dining') && prodName.includes('chair'))) &&
+              !subName.includes('table') && !prodName.includes('table');
+            break;
+          case 'king-beds':
+          case 'beds':
+            matchesSub = (subName.includes('bed') || subName.includes('headboard') || prodName.includes('bed') || prodName.includes('headboard')) &&
+              !subName.includes('dresser') && !prodName.includes('dresser') && !prodName.includes('wardrobe');
+            break;
+          case 'wardrobes':
+            matchesSub = (subName.includes('wardrobe') || subName.includes('storage') || subName.includes('dresser') || prodName.includes('dresser') || prodName.includes('wardrobe') || prodName.includes('storage')) &&
+              !prodName.includes('bed');
+            break;
+          case 'desks':
+            matchesSub = (subName.includes('desk') || subName.includes('workstation') || prodName.includes('desk') || prodName.includes('workstation')) &&
+              !prodName.includes('chair');
+            break;
+          case 'ergonomic':
+            matchesSub = (subName.includes('ergonomic') || subName.includes('seating') || prodName.includes('ergonomic') || (prodName.includes('executive') && prodName.includes('chair')) || (prodName.includes('leather') && prodName.includes('chair'))) &&
+              !prodName.includes('desk');
+            break;
+          default: {
+            const filterSub = subId.toLowerCase().replace(/-/g, ' ');
+            matchesSub = subName.includes(filterSub) || prodName.includes(filterSub);
+            break;
+          }
+        }
 
         if (!matchesSub) {
           return false;
@@ -481,6 +520,31 @@ export const DashboardPage: React.FC = () => {
     });
   }, [filterState, dbProducts]);
 
+  const [activeCustomerTab, setActiveCustomerTab] = useState<string>('shop');
+
+  useEffect(() => {
+    if (location.state && (location.state as any).activeTab) {
+      setActiveCustomerTab((location.state as any).activeTab);
+    } else {
+      const params = new URLSearchParams(location.search);
+      const tabParam = params.get('tab');
+      if (tabParam) {
+        setActiveCustomerTab(tabParam);
+      }
+    }
+  }, [location]);
+
+  useEffect(() => {
+    const handleTabChangeEvent = (e: any) => {
+      if (e.detail) {
+        setActiveCustomerTab(e.detail);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+    window.addEventListener('change-customer-tab', handleTabChangeEvent);
+    return () => window.removeEventListener('change-customer-tab', handleTabChangeEvent);
+  }, []);
+
   const handleAddToCart = () => {
     setCartItemsCount((prev) => prev + 1);
   };
@@ -490,17 +554,10 @@ export const DashboardPage: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex flex-col selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Ambient Warm Luxury Living Room Background Image Layer */}
-      <div 
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
-        style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
-        }}
-      />
-
-      {/* Lighter Translucent Warm Cream Overlay Layer */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+    <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden">
+      {/* Warm Linen & Silk Ivory Luxury Studio Background (West Elm / Apple Style) */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#FAF8F5] via-[#F1EDE6] to-[#E6E0D5] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.8),_transparent_70%)] pointer-events-none" />
 
       {/* Foreground Interactive Content */}
       <div className="relative z-10 flex flex-col min-h-screen">
@@ -508,46 +565,73 @@ export const DashboardPage: React.FC = () => {
         <Header
           cartCount={cartItemsCount}
           wishlistCount={wishlistCount}
+          activeTab={activeCustomerTab}
+          onSelectTab={(tab) => {
+            if (tab === 'create') {
+              handleOpenCustomStudioModal();
+            }
+            setActiveCustomerTab(tab);
+          }}
           onOpenCustomOrder={handleOpenCustomStudioModal}
         />
 
-        {/* Main Content Area wrapped in an ultra glass panel */}
-        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto pt-3">
+        {/* Main Content Area placing content directly on the page layout without double-card nesting */}
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto space-y-8 pt-3">
+          {/* TAB: SHOP (E-Commerce Product Catalog View) */}
+          {activeCustomerTab === 'shop' && (
+            <>
+              <CategoryFilterSection
+                filterState={filterState}
+                onFilterChange={handleFilterChange}
+                onResetFilters={handleResetFilters}
+                onOpenCustomOrder={() => {
+                  setActiveCustomerTab('create');
+                  handleOpenCustomStudioModal();
+                }}
+                allProducts={dbProducts.length > 0 ? dbProducts : DEFAULT_CATALOG_PRODUCTS}
+              />
 
+              <RecommendationSection
+                products={filteredProducts}
+                onAddToCart={handleAddToCart}
+                onToggleWishlist={handleToggleWishlist}
+                onCustomizeProduct={(product) => setSelectedCustomProduct(product)}
+              />
 
-          <div className="ultra-glass-panel rounded-[2.5rem] p-5 sm:p-8 lg:p-10 space-y-10 relative overflow-hidden">
-            {/* Glossy Top Reflection Sheen */}
-            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
+              <CustomerContactSection />
+            </>
+          )}
 
-
-
-            {/* Search Bar Outside Header + Category Tabs, Subcategory Chips & Filters */}
-            <CategoryFilterSection
-              filterState={filterState}
-              onFilterChange={handleFilterChange}
-              onResetFilters={handleResetFilters}
-              onOpenCustomOrder={handleOpenCustomStudioModal}
-            />
-
-            {/* Top Furniture Recommendations & Catalog Grid */}
-            <RecommendationSection
-              products={filteredProducts}
-              onAddToCart={handleAddToCart}
-              onToggleWishlist={handleToggleWishlist}
-              onCustomizeProduct={(product) => setSelectedCustomProduct(product)}
-            />
-
-            {/* Live Custom Furniture Order & Artisan Tracker Section */}
+          {/* TAB: CREATE (Custom Furniture Builder) */}
+          {activeCustomerTab === 'create' && (
             <div id="custom-order-section" className="scroll-mt-24">
               <CustomOrderTracker openModalTrigger={customModalTrigger} />
             </div>
+          )}
 
-            {/* Dedicated Customer Support & Contact Us Section */}
-            <CustomerContactSection />
-          </div>
+          {/* TAB: FABRICATE (Wood Cutting, Shaping, Finishing & 2D Cutting Optimizer) */}
+          {activeCustomerTab === 'fabricate' && <FabricationTab />}
+
+          {/* TAB: SERVICES (On-Site Skilled Services Booking) */}
+          {activeCustomerTab === 'services' && <ServicesTab />}
+
+          {/* TAB: MY ACTIVITY (Unified Customer Hub for Orders, Requests, Materials, Quotes) */}
+          {activeCustomerTab === 'my-activity' && <MyActivityTab />}
+
+          {/* TAB: ASSISTANT (Customer Context-Aware AI Chatbot & Computer Vision Tools) */}
+          {activeCustomerTab === 'assistant' && <CustomerAssistantTab />}
         </main>
-
       </div>
+
+      {/* Floating Expandable Quick Actions FAB */}
+      <QuickActionsFab
+        onSelectTab={(tab) => {
+          if (tab === 'create') {
+            handleOpenCustomStudioModal();
+          }
+          setActiveCustomerTab(tab);
+        }}
+      />
 
       {/* Customization Studio Modal */}
       <CustomizationModal

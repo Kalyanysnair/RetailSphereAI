@@ -1,10 +1,11 @@
 import random
+import re
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app import models, schemas, auth
-from app.email_utils import send_contact_inquiry_email
+from app.email_utils import send_contact_inquiry_email, send_password_reset_email
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
@@ -41,7 +42,6 @@ def build_user_response(user: models.User) -> schemas.UserResponse:
         customer=customer_info
     )
 
-import re
 
 def normalize_phone(phone_str: str) -> str:
     """Extracts last 10 digits from any phone string (+91 9446758046, 09446758046, 9446758046)."""
@@ -304,10 +304,6 @@ def google_login(payload: schemas.GoogleLoginRequest, db: Session = Depends(get_
     )
 
 # In-memory store for verification codes: email -> {"code": str, "expires_at": datetime}
-from datetime import datetime, timedelta
-import random
-from app.email_utils import send_password_reset_email
-
 reset_codes_db = {}
 
 @router.post("/forgot-password")

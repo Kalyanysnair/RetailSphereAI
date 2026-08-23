@@ -26,6 +26,7 @@ import {
   X,
   Eye,
   RefreshCw,
+  AlertTriangle,
   SlidersHorizontal,
   Layers,
   Hammer,
@@ -43,6 +44,7 @@ import {
   fetchWorkers
 } from '../../services/api_production';
 import { getCurrentUser, updateUserProfile, changeFirstPassword } from '../../services/api';
+import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 
 export const WorkerDashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -64,10 +66,14 @@ export const WorkerDashboardPage: React.FC = () => {
   const [progressPercent, setProgressPercent] = useState<number>(25);
   const [progressRemarks, setProgressRemarks] = useState<string>('');
   const [isUpdatingProgress, setIsUpdatingProgress] = useState(false);
+  const [modalProgressError, setModalProgressError] = useState<string | null>(null);
 
   // Profile / Password Modal
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [mustChangePasswordModal, setMustChangePasswordModal] = useState(false);
+  const [profileFullName, setProfileFullName] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileSpecialization, setProfileSpecialization] = useState('Woodwork & Carpentry');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -85,6 +91,9 @@ export const WorkerDashboardPage: React.FC = () => {
       try {
         currentUser = JSON.parse(savedUser);
         setUserProfile(currentUser);
+        setProfileFullName(currentUser.full_name || '');
+        setProfilePhone(currentUser.phone || '');
+        setProfileSpecialization(currentUser.specialization || 'Woodwork & Carpentry');
         if (currentUser.must_change_password) {
           setMustChangePasswordModal(true);
         }
@@ -93,6 +102,14 @@ export const WorkerDashboardPage: React.FC = () => {
       }
     }
     loadDashboardData(currentUser);
+
+    const handleUpdate = () => loadDashboardData(currentUser);
+    window.addEventListener('custom-orders-updated', handleUpdate);
+    window.addEventListener('storage', handleUpdate);
+    return () => {
+      window.removeEventListener('custom-orders-updated', handleUpdate);
+      window.removeEventListener('storage', handleUpdate);
+    };
   }, []);
 
   const loadDashboardData = async (userObj?: any) => {
@@ -103,19 +120,26 @@ export const WorkerDashboardPage: React.FC = () => {
       const workerEmail = (activeUser?.email || '').toLowerCase().trim();
       const workerName = (activeUser?.full_name || '').toLowerCase().trim();
 
-      const data = await fetchCustomOrders(undefined, false, workerId);
+      const data = await fetchCustomOrders(undefined, true, workerId);
       
-      // Strictly filter to orders assigned to this worker in tbl_worker_assignments
+      // Filter to orders assigned to this worker in tbl_worker_assignments
       const assignedToMe = (data || []).filter((o) => {
         if (!o.assigned_workers || o.assigned_workers.length === 0) return false;
         return o.assigned_workers.some((w) => {
           if (workerId && w.worker_id && Number(w.worker_id) === Number(workerId)) return true;
           if (workerName && w.worker_name && w.worker_name.toLowerCase().trim() === workerName) return true;
+          if (workerEmail && w.worker_email && w.worker_email.toLowerCase().trim() === workerEmail) return true;
           return false;
         });
       });
 
-      setOrders(assignedToMe);
+      // If user has specific assigned builds, display them; otherwise fallback to showing all assigned build tasks in workshop queue
+      if (assignedToMe.length > 0) {
+        setOrders(assignedToMe);
+      } else {
+        const assignedInWorkshop = (data || []).filter(o => o.assigned_workers && o.assigned_workers.length > 0);
+        setOrders(assignedInWorkshop.length > 0 ? assignedInWorkshop : (data || []));
+      }
     } catch (err: any) {
       console.error('Failed to load assigned builds:', err);
       setErrorNotice('Could not load workshop builds. Please check server connection.');
@@ -131,61 +155,142 @@ export const WorkerDashboardPage: React.FC = () => {
     navigate('/login');
   };
 
+  const syncStageFromPercent = (percent: number): string => {
+    if (percent < 25) return 'Material Sourcing';
+    if (percent < 45) return 'Structural Joinery & Framing';
+    if (percent < 65) return 'Upholstery & Cushioning';
+    if (percent < 85) return 'Surface Lacquering & Finishing';
+    if (percent < 100) return 'Quality Assurance & Packaging';
+    return 'Completed & Ready for Dispatch';
+  };
+
+  const handlePercentChange = (val: number) => {
+    setModalProgressError(null);
+    const clamped = Math.min(100, Math.max(0, isNaN(val) ? 0 : val));
+    setProgressPercent(clamped);
+    const autoStage = syncStageFromPercent(clamped);
+    setProgressStage(autoStage);
+  };
+
+  const handleStageChange = (newStage: string) => {
+    setModalProgressError(null);
+    setProgressStage(newStage);
+    switch (newStage) {
+      case 'Material Sourcing':
+        setProgressPercent(15);
+        break;
+      case 'Structural Joinery & Framing':
+        setProgressPercent(35);
+        break;
+      case 'Upholstery & Cushioning':
+        setProgressPercent(55);
+        break;
+      case 'Surface Lacquering & Finishing':
+        setProgressPercent(75);
+        break;
+      case 'Quality Assurance & Packaging':
+        setProgressPercent(90);
+        break;
+      case 'Completed & Ready for Dispatch':
+        setProgressPercent(100);
+        break;
+      default:
+        break;
+    }
+  };
+
   const handleUpdateProgressSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedOrderForProgress) return;
+    setModalProgressError(null);
+
+    const currentOrdProgress = selectedOrderForProgress.progress_percentage || 0;
+    if (progressPercent < currentOrdProgress) {
+      setModalProgressError(`⚠️ Build progress percentage cannot be reduced below current recorded progress of ${currentOrdProgress}%.`);
+      return;
+    }
+
+    if (!progressRemarks || progressRemarks.trim().length < 3) {
+      setModalProgressError('⚠️ Please enter technician build notes / remarks for this progress update (min 3 chars).');
+      return;
+    }
+
     setIsUpdatingProgress(true);
     setErrorNotice(null);
 
     try {
+      const activeWorkerId = userProfile?.worker_id || userProfile?.user_id || userProfile?.id;
+      const myAsgn = selectedOrderForProgress.assigned_workers?.find(w => Number(w.worker_id) === Number(activeWorkerId));
+      const myDept = myAsgn?.specialization || userProfile?.specialization || 'Woodwork & Carpentry';
+
       await updateProductionProgress(
         selectedOrderForProgress.custom_order_id,
         progressStage,
         progressPercent,
-        progressRemarks
+        progressRemarks,
+        myDept,
+        activeWorkerId
       );
-      setSuccessNotice(`Updated build progress for Order #${selectedOrderForProgress.custom_order_id} (${progressStage} - ${progressPercent}%)`);
+      setSuccessNotice(`Updated ${myDept} task progress for Order #${selectedOrderForProgress.custom_order_id} (${progressStage} - ${progressPercent}%)`);
       setTimeout(() => setSuccessNotice(null), 6000);
       setSelectedOrderForProgress(null);
       await loadDashboardData();
     } catch (err: any) {
-      setErrorNotice(err.message || 'Failed to update build progress.');
+      setModalProgressError(err.message || 'Failed to update build progress.');
     } finally {
       setIsUpdatingProgress(false);
     }
   };
 
-  const handlePasswordChangeSubmit = async (e: React.FormEvent) => {
+  const handleProfileUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setPasswordNotice({ type: 'error', text: 'Please fill in all password fields.' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordNotice({ type: 'error', text: 'New password and confirm password do not match.' });
-      return;
-    }
-    if (newPassword.length < 6) {
-      setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
-      return;
+    setPasswordNotice(null);
+
+    // If user provided password fields, validate them
+    if (newPassword || confirmPassword || currentPassword) {
+      if (!currentPassword) {
+        setPasswordNotice({ type: 'error', text: 'Please enter your current password to update password.' });
+        return;
+      }
+      if (newPassword !== confirmPassword) {
+        setPasswordNotice({ type: 'error', text: 'New password and confirm password do not match.' });
+        return;
+      }
+      if (newPassword.length < 6) {
+        setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
+        return;
+      }
     }
 
     try {
-      await updateUserProfile({
-        full_name: userProfile?.full_name || 'Artisan Craftsman',
-        current_password: currentPassword,
-        new_password: newPassword
+      const updated = await updateUserProfile({
+        full_name: profileFullName || userProfile?.full_name || 'Artisan Craftsman',
+        phone: profilePhone || userProfile?.phone,
+        current_password: currentPassword || undefined,
+        new_password: newPassword || undefined
       });
-      setPasswordNotice({ type: 'success', text: 'Password updated successfully! Use your new password on next login.' });
+
+      const merged = {
+        ...userProfile,
+        ...updated,
+        full_name: profileFullName || userProfile?.full_name,
+        phone: profilePhone || userProfile?.phone,
+        specialization: profileSpecialization || userProfile?.specialization
+      };
+      setUserProfile(merged);
+      localStorage.setItem('user', JSON.stringify(merged));
+      localStorage.setItem('user_profile', JSON.stringify(merged));
+
+      setPasswordNotice({ type: 'success', text: 'Profile details & credentials updated successfully!' });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => {
         setPasswordNotice(null);
         setIsProfileModalOpen(false);
-      }, 3000);
+      }, 2500);
     } catch (err: any) {
-      setPasswordNotice({ type: 'error', text: err?.message || 'Failed to update password.' });
+      setPasswordNotice({ type: 'error', text: err?.message || 'Failed to update profile details.' });
     }
   };
 
@@ -222,14 +327,16 @@ export const WorkerDashboardPage: React.FC = () => {
 
   const filteredOrders = orders.filter((o) => {
     const st = (o.order_status || '').toLowerCase();
-    
+    const isCompleted = st.includes('completed') || (o.progress_percentage && o.progress_percentage >= 100);
+    const isInProduction = !isCompleted && (st.includes('production') || st.includes('approved'));
+
     // Sidebar Tab filter
-    if (activeTab === 'in_production' && (!st.includes('production') && !st.includes('approved'))) return false;
-    if (activeTab === 'completed' && !st.includes('completed')) return false;
+    if (activeTab === 'in_production' && !isInProduction) return false;
+    if (activeTab === 'completed' && !isCompleted) return false;
 
     // Status Filter Pill
-    if (statusFilter === 'In Production' && (!st.includes('production') && !st.includes('approved'))) return false;
-    if (statusFilter === 'Completed' && !st.includes('completed')) return false;
+    if (statusFilter === 'In Production' && !isInProduction) return false;
+    if (statusFilter === 'Completed' && !isCompleted) return false;
 
     // Search query
     if (searchQuery.trim()) {
@@ -244,9 +351,32 @@ export const WorkerDashboardPage: React.FC = () => {
     return true;
   });
 
+  const renderColorSwatchBadge = (colorStr?: string) => {
+    if (!colorStr) return <span className="font-bold text-[#2C241D]">Natural Polish</span>;
+    const hexMatch = colorStr.match(/#(?:[0-9a-fA-F]{3}){1,2}/)?.[0] || null;
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+        {hexMatch && (
+          <span
+            className="w-4 h-4 rounded-full inline-block border border-black/30 shadow-2xs shrink-0"
+            style={{ backgroundColor: hexMatch }}
+          />
+        )}
+        <span className="font-black text-xs text-[#2C241D]">{colorStr}</span>
+      </div>
+    );
+  };
+
   const totalAssignedCount = orders.length;
-  const inProductionCount = orders.filter(o => (o.order_status || '').toLowerCase().includes('production') || (o.order_status || '').toLowerCase().includes('approved')).length;
-  const completedCount = orders.filter(o => (o.order_status || '').toLowerCase().includes('completed')).length;
+  const inProductionCount = orders.filter(o => {
+    const st = (o.order_status || '').toLowerCase();
+    const isComp = st.includes('completed') || (o.progress_percentage && o.progress_percentage >= 100);
+    return !isComp;
+  }).length;
+  const completedCount = orders.filter(o => {
+    const st = (o.order_status || '').toLowerCase();
+    return st.includes('completed') || (o.progress_percentage && o.progress_percentage >= 100);
+  }).length;
 
   const initials = (userProfile?.full_name || 'Worker')
     .split(' ')
@@ -264,7 +394,7 @@ export const WorkerDashboardPage: React.FC = () => {
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
         }}
       />
-      <div className="fixed inset-0 z-0 bg-gradient-to-r from-[#FAF7F2]/85 via-[#F3EDE5]/80 to-[#EAE1D5]/85 pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
 
       {/* 2. LEFT SIDEBAR NAVIGATION PANEL (VISIBLE SIDE CARD) */}
       <aside className="w-72 flex-shrink-0 min-h-screen hidden md:block border-r border-[#D8CCBD] bg-[#E5DCD0]/80 backdrop-blur-xl p-6 space-y-8 relative z-20 shadow-sm">
@@ -365,7 +495,7 @@ export const WorkerDashboardPage: React.FC = () => {
                 >
                   <Bell className="w-4.5 h-4.5" />
                   <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#38A132] text-white text-[9px] font-black flex items-center justify-center">
-                    6
+                    {totalAssignedCount}
                   </span>
                 </button>
 
@@ -398,7 +528,7 @@ export const WorkerDashboardPage: React.FC = () => {
                     {initials}
                   </div>
                   <span className="text-xs font-extrabold text-[#2C241D] hidden sm:inline">
-                    {userProfile?.full_name || 'Geetha Devi'}
+                    {userProfile?.full_name || 'Worker'}
                   </span>
                   <ChevronDown className={`w-3.5 h-3.5 text-[#6B5C4D] transition-transform ${isUserMenuOpen ? 'rotate-180 text-[#38A132]' : ''}`} />
                 </button>
@@ -553,68 +683,152 @@ export const WorkerDashboardPage: React.FC = () => {
                 </p>
               </div>
             ) : (
-              filteredOrders.map((ord) => (
-                <div key={ord.custom_order_id} className="bg-white p-6 rounded-3xl border border-[#E2D7CB] shadow-sm hover:shadow-md transition-shadow space-y-5">
-                  {/* Top Row: Order Badge & Title */}
-                  <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-4">
-                    <div className="flex items-center gap-3">
-                      <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-[#38A132]/15 text-[#38A132]">
-                        Order #{ord.custom_order_id}
-                      </span>
-                      <h3 className="text-lg font-black text-[#2C241D]">{ord.furniture_type}</h3>
+              filteredOrders.map((ord) => {
+                const stageName = ord.current_stage || ord.production_stage || 'Material Sourcing';
+                const percentVal = ord.progress_percentage ?? ord.progress_percent ?? 15;
+                const assignedList = ord.assigned_workers || [];
+
+                return (
+                  <div key={ord.custom_order_id} className="bg-white p-6 rounded-3xl border border-[#E2D7CB] shadow-sm hover:shadow-md transition-shadow space-y-5">
+                    {/* Top Row: Order Badge, Title & Status */}
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-4 flex-wrap gap-2">
+                      <div className="flex items-center gap-3">
+                        <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-[#38A132]/15 text-[#38A132]">
+                          Order #{ord.custom_order_id}
+                        </span>
+                        <h3 className="text-lg font-black text-[#2C241D]">{ord.furniture_type}</h3>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className={`px-3 py-1 rounded-full text-xs font-extrabold ${
+                          ord.order_status === 'Completed' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                          ord.order_status === 'In Production' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
+                          'bg-amber-50 text-amber-800 border border-amber-200'
+                        }`}>
+                          {ord.order_status}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Specs Grid - 4 Clean Columns */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
+                      <div>
+                        <p className="text-[11px] font-bold text-[#7A6C5E]">Client Name</p>
+                        <p className="font-black text-[#2C241D] mt-0.5">{ord.customer_name || 'Customer'}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-bold text-[#7A6C5E]">Material Finish</p>
+                        <p className="font-black text-[#2C241D] mt-0.5">{ord.material || 'Solid Teak Wood'}</p>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-bold text-[#7A6C5E]">Color / Polish</p>
+                        <div className="mt-0.5">{renderColorSwatchBadge(ord.color)}</div>
+                      </div>
+
+                      <div>
+                        <p className="text-[11px] font-bold text-[#7A6C5E]">Order Date</p>
+                        <p className="font-black text-[#2C241D] mt-0.5">{ord.order_date ? ord.order_date.split('T')[0] : (ord.created_at || '2026-08-13')}</p>
+                      </div>
+                    </div>
+
+                    {/* Workshop Build Progress Bar Section */}
+                    {(() => {
+                      const activeWorkerId = userProfile?.worker_id || userProfile?.user_id || userProfile?.id;
+                      const myAsgn = ord.assigned_workers?.find(w => Number(w.worker_id) === Number(activeWorkerId));
+                      const myDept = myAsgn?.specialization || userProfile?.specialization || 'Woodwork & Carpentry';
+                      const isMyTaskCompleted = (myAsgn?.task_status || '').toLowerCase().includes('completed') || (ord.order_status || '').toLowerCase() === 'completed' || (ord.progress_percentage || 0) >= 100;
+                      
+                      let displayPercent = percentVal;
+                      if (isMyTaskCompleted) {
+                        displayPercent = 100;
+                      } else if (myDept.toLowerCase().includes('woodwork') && percentVal >= 35) {
+                        displayPercent = 100;
+                      } else if (myDept.toLowerCase().includes('upholstery') && percentVal >= 70) {
+                        displayPercent = 100;
+                      }
+
+                      return (
+                        <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-2 text-xs">
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-[#38A132]" />
+                              <span>My Department Task: <strong className="text-[#38A132]">{myDept}</strong> ({stageName})</span>
+                            </span>
+                            <span className={`font-black text-xs px-2.5 py-0.5 rounded-full border ${
+                              displayPercent >= 100 
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                                : 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
+                            }`}>
+                              {displayPercent >= 100 ? '100% Completed ✓' : `${displayPercent}% Completed`}
+                            </span>
+                          </div>
+                          <div className="w-full h-2.5 bg-[#EAE0D4] rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-[#38A132] to-[#32922D] rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(0, displayPercent))}%` }}
+                            />
+                          </div>
+                          {ord.latest_remarks && (
+                            <p className="text-[11px] text-[#6B5C4D] font-medium pt-1 italic">
+                              "{ord.latest_remarks}"
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Assigned Worker Team Banner */}
+                    <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
+                        <span className="font-extrabold text-[#5C4E42]">Assigned Artisan Team:</span>
+                        {assignedList.length > 0 ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {assignedList.map((w, idx) => (
+                              <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
+                                <span>👷 {w.worker_name}</span>
+                                {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
+                            Assigned to Workshop Queue
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Bottom Action Bar */}
+                    <div className="pt-4 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrderForDetails(ord)}
+                        className="px-5 py-2.5 rounded-2xl bg-[#F3EDE5] hover:bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs transition-colors flex items-center gap-2 cursor-pointer"
+                      >
+                        <Eye className="w-4 h-4 text-[#7A6C5E]" />
+                        <span>View Specs</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrderForProgress(ord);
+                          setProgressStage(ord.current_stage || ord.production_stage || 'Structural Joinery & Framing');
+                          setProgressPercent(ord.progress_percentage ?? ord.progress_percent ?? 50);
+                          setProgressRemarks(ord.latest_remarks || ord.progress_remarks || '');
+                        }}
+                        className="px-6 py-2.5 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-2 cursor-pointer"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Update Stage & Progress</span>
+                      </button>
                     </div>
                   </div>
-
-                  {/* Specs Grid - 4 Clean Columns */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-                    <div>
-                      <p className="text-[11px] font-bold text-[#7A6C5E]">Client Name</p>
-                      <p className="font-black text-[#2C241D] mt-0.5">{ord.customer_name || 'Customer'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-[11px] font-bold text-[#7A6C5E]">Material Finish</p>
-                      <p className="font-black text-[#2C241D] mt-0.5">{ord.material || 'Solid Teak Wood'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-[11px] font-bold text-[#7A6C5E]">Color / Polish</p>
-                      <p className="font-black text-[#2C241D] mt-0.5">{ord.color || 'Natural Polish'}</p>
-                    </div>
-
-                    <div>
-                      <p className="text-[11px] font-bold text-[#7A6C5E]">Order Date</p>
-                      <p className="font-black text-[#2C241D] mt-0.5">{ord.order_date ? ord.order_date.split('T')[0] : (ord.created_at || '2026-08-13')}</p>
-                    </div>
-                  </div>
-
-                  {/* Bottom Action Bar */}
-                  <div className="pt-4 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedOrderForDetails(ord)}
-                      className="px-5 py-2.5 rounded-2xl bg-[#F3EDE5] hover:bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs transition-colors flex items-center gap-2 cursor-pointer"
-                    >
-                      <Eye className="w-4 h-4 text-[#7A6C5E]" />
-                      <span>View Specs</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedOrderForProgress(ord);
-                        setProgressStage(ord.current_stage || ord.production_stage || 'Structural Joinery & Framing');
-                        setProgressPercent(ord.progress_percentage ?? ord.progress_percent ?? 50);
-                        setProgressRemarks(ord.latest_remarks || ord.progress_remarks || '');
-                      }}
-                      className="px-6 py-2.5 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-2 cursor-pointer"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      <span>Update Stage & Progress</span>
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -642,45 +856,73 @@ export const WorkerDashboardPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleUpdateProgressSubmit} className="space-y-5 text-xs">
+              {modalProgressError && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 font-extrabold rounded-2xl text-xs flex items-center gap-2 animate-fadeIn shadow-xs">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0" />
+                  <span>{modalProgressError}</span>
+                </div>
+              )}
+
+              {/* Current Recorded Progress & Department Indicator */}
+              <div className="p-3.5 rounded-2xl bg-white border border-[#E2D7CB] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-[#7A6C5E] text-[11px]">My Assigned Department Stage</span>
+                  <span className="font-extrabold text-xs text-[#38A132] bg-[#38A132]/10 px-2.5 py-0.5 rounded-full border border-[#38A132]/30">
+                    {(() => {
+                      const activeWorkerId = userProfile?.worker_id || userProfile?.user_id || userProfile?.id;
+                      const myAsgn = selectedOrderForProgress.assigned_workers?.find(w => Number(w.worker_id) === Number(activeWorkerId));
+                      return myAsgn?.specialization || userProfile?.specialization || 'Woodwork & Carpentry';
+                    })()}
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 border-t border-[#EFE7DE]">
+                  <span className="font-extrabold text-[#7A6C5E] text-[11px]">Current Recorded Build Progress</span>
+                  <span className="font-mono font-black text-xs text-[#2C241D]">
+                    {selectedOrderForProgress.progress_percentage || 0}% Completed
+                  </span>
+                </div>
+              </div>
+
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1.5">Current Workshop Stage</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1.5">My Department Task Progress Stage</label>
                 <div className="relative">
                   <select
                     value={progressStage}
-                    onChange={(e) => {
-                      const newStage = e.target.value;
-                      setProgressStage(newStage);
-                      switch (newStage) {
-                        case 'Material Sourcing':
-                          setProgressPercent(15);
-                          break;
-                        case 'Structural Joinery & Framing':
-                          setProgressPercent(35);
-                          break;
-                        case 'Upholstery & Cushioning':
-                          setProgressPercent(55);
-                          break;
-                        case 'Surface Lacquering & Finishing':
-                          setProgressPercent(75);
-                          break;
-                        case 'Quality Assurance & Packaging':
-                          setProgressPercent(90);
-                          break;
-                        case 'Completed & Ready for Dispatch':
-                          setProgressPercent(100);
-                          break;
-                        default:
-                          break;
-                      }
-                    }}
-                    className="w-full py-3 pl-4 pr-10 text-xs bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all appearance-none cursor-pointer shadow-xs"
+                    onChange={(e) => handleStageChange(e.target.value)}
+                    className="w-full py-3 pl-4 pr-10 text-xs bg-white border-2 border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all appearance-none cursor-pointer shadow-xs hover:border-[#38A132]"
                   >
-                    <option value="Material Sourcing" className="py-2 font-bold bg-white text-[#2C241D]">1. Material Sourcing (15%)</option>
-                    <option value="Structural Joinery & Framing" className="py-2 font-bold bg-white text-[#2C241D]">2. Structural Joinery & Framing (35%)</option>
-                    <option value="Upholstery & Cushioning" className="py-2 font-bold bg-white text-[#2C241D]">3. Upholstery & Cushioning (55%)</option>
-                    <option value="Surface Lacquering & Finishing" className="py-2 font-bold bg-white text-[#2C241D]">4. Surface Lacquering & Finishing (75%)</option>
-                    <option value="Quality Assurance & Packaging" className="py-2 font-bold bg-white text-[#2C241D]">5. Quality Assurance & Packaging (90%)</option>
-                    <option value="Completed & Ready for Dispatch" className="py-2 font-bold bg-white text-[#2C241D]">6. Completed & Ready for Dispatch (100%)</option>
+                    {(() => {
+                      const activeWorkerId = userProfile?.worker_id || userProfile?.user_id || userProfile?.id;
+                      const myAsgn = selectedOrderForProgress.assigned_workers?.find(w => Number(w.worker_id) === Number(activeWorkerId));
+                      const dept = (myAsgn?.specialization || userProfile?.specialization || 'Woodwork & Carpentry').toLowerCase();
+
+                      if (dept.includes('upholster')) {
+                        return (
+                          <>
+                            <option value="Foam Padding & Cushioning" className="py-2 font-bold bg-white text-[#2C241D]">1. Foam Padding & Cushion Fitting (45%)</option>
+                            <option value="Fabric & Leather Covering" className="py-2 font-bold bg-white text-[#2C241D]">2. Fabric / Leather Stitching & Covering (60%)</option>
+                            <option value="Upholstery & Cushioning" className="py-2 font-bold bg-white text-[#2C241D]">3. Upholstery Stage Complete (100% of Upholstery Stage / 70% total)</option>
+                          </>
+                        );
+                      } else if (dept.includes('assembly')) {
+                        return (
+                          <>
+                            <option value="Component & Hardware Assembly" className="py-2 font-bold bg-white text-[#2C241D]">1. Hardware & Component Assembly (80%)</option>
+                            <option value="Surface Polishing & Finishing" className="py-2 font-bold bg-white text-[#2C241D]">2. Surface Polish & Quality Inspection Pass (95%)</option>
+                            <option value="Completed & Ready for Dispatch" className="py-2 font-bold bg-white text-[#2C241D]">3. Assembly & Final Order Complete (100% Total Order Finished)</option>
+                          </>
+                        );
+                      } else {
+                        return (
+                          <>
+                            <option value="Material Sourcing" className="py-2 font-bold bg-white text-[#2C241D]">1. Timber Selection & Material Prep (15%)</option>
+                            <option value="Cutting & Joinery" className="py-2 font-bold bg-white text-[#2C241D]">2. Timber Cutting, Shaping & Joinery (25%)</option>
+                            <option value="Structural Joinery & Framing" className="py-2 font-bold bg-white text-[#2C241D]">3. Woodwork & Frame Stage Complete (100% of Woodwork Stage / 35% total)</option>
+                          </>
+                        );
+                      }
+                    })()}
                   </select>
                   <ChevronDown className="w-4 h-4 text-[#38A132] absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 </div>
@@ -695,11 +937,8 @@ export const WorkerDashboardPage: React.FC = () => {
                       min="0"
                       max="100"
                       value={progressPercent}
-                      onChange={(e) => {
-                        const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
-                        setProgressPercent(val);
-                      }}
-                      className="w-10 text-right font-black text-sm text-[#38A132] bg-transparent focus:outline-none"
+                      onChange={(e) => handlePercentChange(Number(e.target.value))}
+                      className="w-12 text-right font-black text-sm text-[#38A132] bg-transparent focus:outline-none"
                     />
                     <span className="font-black text-xs text-[#38A132]">%</span>
                   </div>
@@ -710,16 +949,16 @@ export const WorkerDashboardPage: React.FC = () => {
                   min="0"
                   max="100"
                   value={progressPercent}
-                  onChange={(e) => setProgressPercent(Number(e.target.value))}
+                  onChange={(e) => handlePercentChange(Number(e.target.value))}
                   className="w-full accent-[#38A132] h-2 bg-[#E2D7CB] rounded-lg cursor-pointer"
                 />
 
                 <div className="flex items-center justify-between mt-2 text-[10px] text-[#7A6C5E] font-bold">
-                  <button type="button" onClick={() => setProgressPercent(15)} className="hover:text-[#38A132] cursor-pointer">15%</button>
-                  <button type="button" onClick={() => setProgressPercent(35)} className="hover:text-[#38A132] cursor-pointer">35%</button>
-                  <button type="button" onClick={() => setProgressPercent(55)} className="hover:text-[#38A132] cursor-pointer">55%</button>
-                  <button type="button" onClick={() => setProgressPercent(75)} className="hover:text-[#38A132] cursor-pointer">75%</button>
-                  <button type="button" onClick={() => setProgressPercent(100)} className="hover:text-[#38A132] cursor-pointer">100%</button>
+                  <button type="button" onClick={() => handlePercentChange(15)} className="hover:text-[#38A132] cursor-pointer">15%</button>
+                  <button type="button" onClick={() => handlePercentChange(35)} className="hover:text-[#38A132] cursor-pointer">35%</button>
+                  <button type="button" onClick={() => handlePercentChange(55)} className="hover:text-[#38A132] cursor-pointer">55%</button>
+                  <button type="button" onClick={() => handlePercentChange(75)} className="hover:text-[#38A132] cursor-pointer">75%</button>
+                  <button type="button" onClick={() => handlePercentChange(100)} className="hover:text-[#38A132] cursor-pointer">100%</button>
                 </div>
               </div>
 
@@ -727,10 +966,14 @@ export const WorkerDashboardPage: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Technician Build Remarks / Notes</label>
                 <textarea
                   rows={3}
-                  placeholder="Add workshop notes or technical details..."
+                  placeholder="Add workshop notes, quality checks, or technical build remarks..."
                   value={progressRemarks}
-                  onChange={(e) => setProgressRemarks(e.target.value)}
-                  className="w-full p-3 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl text-[#2C241D] font-medium focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20"
+                  onChange={(e) => {
+                    setModalProgressError(null);
+                    setProgressRemarks(e.target.value);
+                  }}
+                  required
+                  className="w-full p-3 bg-white border-2 border-[#E2D7CB] rounded-2xl text-[#2C241D] font-medium focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 shadow-xs"
                 />
               </div>
 
@@ -790,7 +1033,10 @@ export const WorkerDashboardPage: React.FC = () => {
               <h4 className="font-extrabold text-[#7A6C5E] uppercase tracking-wider text-[10px]">Technical Specifications</h4>
               <p><span className="font-bold">Primary Hardwood/Material:</span> {selectedOrderForDetails.material}</p>
               <p><span className="font-bold">Dimensions:</span> {selectedOrderForDetails.dimensions}</p>
-              <p><span className="font-bold">Upholstery / Polish Finish:</span> {selectedOrderForDetails.color}</p>
+              <div className="flex items-center gap-2">
+                <span className="font-bold">Upholstery / Polish Finish:</span>
+                {renderColorSwatchBadge(selectedOrderForDetails.color)}
+              </div>
               {selectedOrderForDetails.design_description && (
                 <div className="pt-2 border-t border-[#EFE7DE]">
                   <span className="font-bold block mb-1">Design Notes:</span>
@@ -800,6 +1046,68 @@ export const WorkerDashboardPage: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* Assigned Workshop Workers Section */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs shadow-xs">
+              <h4 className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
+                <Wrench className="w-3.5 h-3.5 text-[#38A132]" />
+                <span>Assigned Workshop Artisan(s)</span>
+              </h4>
+              {selectedOrderForDetails.assigned_workers && selectedOrderForDetails.assigned_workers.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {selectedOrderForDetails.assigned_workers.map((w, i) => (
+                    <div key={i} className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-between">
+                      <div>
+                        <span className="font-extrabold text-[#2C241D] block text-xs">👷 {w.worker_name}</span>
+                        {w.specialization && <span className="text-[10px] text-[#7A6C5E] block font-semibold">{w.specialization}</span>}
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#38A132]/15 text-[#38A132] border border-[#38A132]/30">
+                        {w.task_status || 'Assigned'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 font-bold">
+                  Assigned to Workshop Queue
+                </p>
+              )}
+            </div>
+
+            {/* Customer Reference Design Images */}
+            {selectedOrderForDetails.reference_image && selectedOrderForDetails.reference_image.trim() && (
+              <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-3 shadow-xs">
+                <h4 className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
+                  <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                  <span>Reference Design Photos ({parseReferenceImages(selectedOrderForDetails.reference_image).length})</span>
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {parseReferenceImages(selectedOrderForDetails.reference_image).map((imgUrl, i) => (
+                    <div key={i} className="group relative rounded-xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-2xs hover:shadow-sm transition-all flex flex-col h-40">
+                      <div className="relative flex-1 bg-neutral-900/5 overflow-hidden flex items-center justify-center cursor-pointer" onClick={() => openImageInNewTab(imgUrl)}>
+                        <img
+                          src={imgUrl}
+                          alt={`Reference Design ${i + 1}`}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                        />
+                      </div>
+                      <div className="p-2 bg-white border-t border-[#E2D7CB] flex items-center justify-between">
+                        <span className="text-[10px] font-extrabold text-[#2C241D]">Photo #{i + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => openImageInNewTab(imgUrl)}
+                          className="text-[10px] font-extrabold text-[#38A132] hover:underline flex items-center gap-1 bg-[#38A132]/10 px-2 py-0.5 rounded cursor-pointer"
+                        >
+                          <Eye className="w-3 h-3 text-[#38A132]" /> View Full Image
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-end pt-2">
               <button
@@ -814,10 +1122,10 @@ export const WorkerDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 3: Update Worker Password / Profile */}
+      {/* MODAL 3: Worker Profile & Credentials */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
-          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 relative text-xs">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 relative text-xs max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setIsProfileModalOpen(false)}
               className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1 cursor-pointer"
@@ -825,44 +1133,141 @@ export const WorkerDashboardPage: React.FC = () => {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-4">
-              <div className="w-10 h-10 rounded-2xl bg-[#38A132]/15 text-[#38A132] flex items-center justify-center font-extrabold">
-                <Key className="w-5 h-5" />
+            {/* Header Banner */}
+            <div className="flex items-center gap-3.5 border-b border-[#E2D7CB] pb-4">
+              <div className="w-12 h-12 rounded-2xl bg-[#38A132] text-white flex items-center justify-center font-black text-lg shadow-md">
+                {initials}
               </div>
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Worker Profile & Credentials</h3>
-                <p className="text-xs text-[#7A6C5E]">{userProfile?.email || 'worker@retailsphere.ai'}</p>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-[#38A132]/15 text-[#38A132] border border-[#38A132]/30">
+                  {userProfile?.specialization || 'Workshop Artisan Specialist'}
+                </span>
+                <h3 className="text-xl font-black text-[#2C241D] mt-0.5">{userProfile?.full_name || 'Artisan Worker'}</h3>
+                <p className="text-xs text-[#7A6C5E] font-medium">{userProfile?.email || 'worker@retailsphere.ai'}</p>
               </div>
             </div>
 
-            <form onSubmit={handlePasswordChangeSubmit} className="space-y-4 text-xs">
+            {/* Profile Overview Stats / Info Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Artisan ID Code</span>
+                <span className="font-extrabold text-xs text-[#2C241D] font-mono block">
+                  ART-{(userProfile?.worker_id || userProfile?.user_id || userProfile?.id || 101)}
+                </span>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Department Specialty</span>
+                <span className="font-extrabold text-xs text-[#38A132] block">
+                  {userProfile?.specialization || profileSpecialization || 'Woodwork & Carpentry'}
+                </span>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Account Role</span>
+                <span className="font-extrabold text-xs text-[#2C241D] block">
+                  Workshop Craftsman / Worker
+                </span>
+              </div>
+
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Assigned Build Queue</span>
+                <span className="font-extrabold text-xs text-[#2C241D] block">
+                  {totalAssignedCount} Custom Build Tasks
+                </span>
+              </div>
+            </div>
+
+            {/* Editable Profile & Security Form */}
+            <form onSubmit={handleProfileUpdateSubmit} className="space-y-4 text-xs">
               {passwordNotice && (
                 <div className={`p-3 rounded-xl font-bold border ${passwordNotice.type === 'success' ? 'bg-emerald-50 text-emerald-800 border-emerald-300' : 'bg-red-50 text-red-800 border-red-300'}`}>
                   {passwordNotice.text}
                 </div>
               )}
 
+              {/* Personal Info Section */}
+              <div className="space-y-3 bg-white p-4 rounded-2xl border border-[#E2D7CB]">
+                <h4 className="font-extrabold text-[#7A6C5E] uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                  <User className="w-3.5 h-3.5 text-[#38A132]" />
+                  <span>Personal & Contact Information</span>
+                </h4>
 
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">New Password</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                />
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    value={profileFullName}
+                    onChange={(e) => setProfileFullName(e.target.value)}
+                    required
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Phone Contact</label>
+                  <input
+                    type="text"
+                    placeholder="+91 98765 43210"
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Production Department Specialization</label>
+                  <select
+                    value={profileSpecialization}
+                    onChange={(e) => setProfileSpecialization(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  >
+                    <option value="Woodwork & Carpentry">🪵 Woodwork & Carpentry</option>
+                    <option value="Upholstery">🪡 Upholstery</option>
+                    <option value="Assembly">🔧 Assembly & Quality Check</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Confirm New Password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                />
+              {/* Change Password Section */}
+              <div className="space-y-3 bg-white p-4 rounded-2xl border border-[#E2D7CB]">
+                <h4 className="font-extrabold text-[#7A6C5E] uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                  <Key className="w-3.5 h-3.5 text-[#38A132]" />
+                  <span>Change Login Password (Optional)</span>
+                </h4>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Current Password</label>
+                  <input
+                    type="password"
+                    placeholder="Enter current password to change"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">New Password</label>
+                  <input
+                    type="password"
+                    placeholder="Minimum 6 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Confirm New Password</label>
+                  <input
+                    type="password"
+                    placeholder="Re-enter new password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
               </div>
 
               <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-end gap-3">
@@ -877,7 +1282,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2.5 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
                 >
-                  Save New Password
+                  Save Profile & Security Details
                 </button>
               </div>
             </form>

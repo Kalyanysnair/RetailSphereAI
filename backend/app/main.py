@@ -57,28 +57,61 @@ def startup_db():
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;"))
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS specialization VARCHAR(100);"))
                 conn.execute(text("ALTER TABLE tbl_product ADD COLUMN IF NOT EXISTS available_colors TEXT;"))
+                
+                # Custom Order review & priority columns
+                conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
+                conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
+                conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
+                conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
+                conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
+
+                # Fabrication Request review & priority columns
+                conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
+                conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
+                conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
+                conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
+                conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
+
+                # Service Request review & priority columns
+                conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
+                conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
+                conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
+                conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
+                conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
+
                 conn.commit()
-                print("[MIGRATION] Added must_change_password, specialization, and available_colors columns.")
-            except Exception:
-                try:
-                    conn.execute(text("ALTER TABLE tbl_users ADD COLUMN must_change_password BOOLEAN DEFAULT 0;"))
-                    conn.execute(text("ALTER TABLE tbl_users ADD COLUMN specialization VARCHAR(100);"))
-                    conn.execute(text("ALTER TABLE tbl_product ADD COLUMN available_colors TEXT;"))
-                    conn.commit()
-                    print("[MIGRATION] Added must_change_password, specialization, and available_colors columns.")
-                except Exception:
-                    pass
+                print("[MIGRATION] Added review metadata and priority columns to requests.")
+            except Exception as mig_err:
+                print(f"[MIGRATION WARNING] Column migration notice: {mig_err}")
         print("Database tables initialized successfully.")
         from seed_admin import seed_admin_user
         seed_admin_user()
     except Exception as e:
         print(f"Warning: Could not automatically initialize database tables: {e}")
 
+import os
+from fastapi.staticfiles import StaticFiles
+from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff
+
+# Mount static uploads directory
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 # Include routers
 app.include_router(auth.router)
 app.include_router(admin.router)
 app.include_router(production.router)
 app.include_router(coupons.router)
+app.include_router(uploads.router)
+app.include_router(materials.router)
+app.include_router(fabrication.router)
+app.include_router(services.router)
+app.include_router(machines.router)
+app.include_router(quality.router)
+app.include_router(ai_services.router)
+app.include_router(fulfillment.router)
+app.include_router(retail_staff.router)
 
 @app.get("/")
 def read_root():
