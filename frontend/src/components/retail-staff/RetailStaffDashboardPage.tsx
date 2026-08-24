@@ -45,6 +45,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { getCouponsApi, createCouponApi, deleteCouponApi, regenerateCouponApi, Coupon, CouponAllotment } from '../../services/api_coupons';
+import { fetchAvailableVehiclesDB, VehicleItem } from '../../services/api_fleet';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { getMessagesForUser, markAdminMessageRead, markAllAdminMessagesReadForUser, isMessageReadByUser, AdminMessage } from '../../utils/adminMessagesStorage';
 import { parseAvailableColors, getColorHex } from '../../utils/colorUtils';
@@ -220,10 +221,25 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [packingNote, setPackingNote] = useState('Packed with high-density protective foam.');
 
   const [dispatchModalOrder, setDispatchModalOrder] = useState<RetailOrder | null>(null);
-  const [dispatchCarrier, setDispatchCarrier] = useState('Express Delivery');
+  const [dispatchCarrier, setDispatchCarrier] = useState('RetailSphere Internal Fleet');
   const [dispatchTrackingNumber, setDispatchTrackingNumber] = useState('');
   const [dispatchExpectedDate, setDispatchExpectedDate] = useState('');
   const [dispatchNote, setDispatchNote] = useState('');
+  const [availableVehiclesList, setAvailableVehiclesList] = useState<VehicleItem[]>([]);
+  const [selectedDispatchVehicleId, setSelectedDispatchVehicleId] = useState<string>('');
+
+  useEffect(() => {
+    if (dispatchModalOrder) {
+      fetchAvailableVehiclesDB().then((list) => {
+        setAvailableVehiclesList(list || []);
+        if (list && list.length > 0) {
+          setSelectedDispatchVehicleId(list[0].vehicle_id.toString());
+        } else {
+          setSelectedDispatchVehicleId('');
+        }
+      });
+    }
+  }, [dispatchModalOrder]);
 
   const [deliveryStatusModalOrder, setDeliveryStatusModalOrder] = useState<RetailOrder | null>(null);
   const [deliveryStatusVal, setDeliveryStatusVal] = useState('Out for Delivery');
@@ -5174,7 +5190,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: DISPATCH ORDER */}
+      {/* MODAL 2: DISPATCH ORDER (Requirements 10, 11, 12, 13, 14, 15) */}
       {dispatchModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="bg-white border border-[#E2D7CB] rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl space-y-5 text-[#2C241D]">
@@ -5183,7 +5199,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <span className="text-[10px] font-mono font-black text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded border border-[#48A63E]/20">
                   {dispatchModalOrder.orderId}
                 </span>
-                <h3 className="text-lg font-extrabold text-[#2C241D] mt-1">Dispatch Order</h3>
+                <h3 className="text-lg font-extrabold text-[#2C241D] mt-1 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-[#38A132]" />
+                  <span>Dispatch Order with Internal Fleet</span>
+                </h3>
               </div>
               <button onClick={() => setDispatchModalOrder(null)} className="p-1 text-[#9E9082] hover:text-[#2C241D]">
                 <X className="w-5 h-5" />
@@ -5191,24 +5210,65 @@ export const RetailStaffDashboardPage: React.FC = () => {
             </div>
 
             <div className="space-y-3.5 text-xs font-semibold">
+              {/* Select Available Internal Vehicle */}
               <div>
-                <label className="block font-bold text-[#7A6C5E] mb-1">Carrier Partner</label>
-                <select
+                <label className="block font-extrabold text-[#2C241D] mb-1">Select Internal Delivery Vehicle *</label>
+                {availableVehiclesList.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium space-y-1">
+                    <div className="font-extrabold flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      <span>No Internal Vehicles Available</span>
+                    </div>
+                    <p className="text-[11px] text-amber-700">All registered company vehicles are currently assigned or in maintenance. You may dispatch via default fleet carrier or wait for vehicle return.</p>
+                  </div>
+                ) : (
+                  <select
+                    value={selectedDispatchVehicleId}
+                    onChange={(e) => setSelectedDispatchVehicleId(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  >
+                    {availableVehiclesList.map((v) => (
+                      <option key={v.vehicle_id} value={v.vehicle_id}>
+                        {v.id} — {v.registration_number} ({v.vehicle_type}, {v.capacity} kg payload)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Vehicle & Assigned Driver Summary Card */}
+              {(() => {
+                const sel = availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId);
+                if (!sel) return null;
+                return (
+                  <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-[11px]">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#7A6C5E]">Assigned Driver:</span>
+                      <span className="font-extrabold text-[#38A132]">{sel.assigned_driver_name}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-[#7A6C5E]">Vehicle Specs:</span>
+                      <span className="font-semibold text-[#2C241D]">{sel.vehicle_type} ({sel.capacity} kg)</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div>
+                <label className="block font-bold text-[#7A6C5E] mb-1">Fleet Carrier Partner</label>
+                <input
+                  type="text"
                   value={dispatchCarrier}
                   onChange={(e) => setDispatchCarrier(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                >
-                  <option value="RetailSphere Express Logistics">RetailSphere Express Logistics</option>
-                  <option value="FedEx Heavy Freight">FedEx Heavy Freight</option>
-                  <option value="DHL Express Delivery">DHL Express Delivery</option>
-                  <option value="Blue Dart Courier">Blue Dart Courier</option>
-                </select>
+                />
               </div>
 
               <div>
                 <label className="block font-bold text-[#7A6C5E] mb-1">Tracking Number *</label>
                 <input
                   type="text"
+                  placeholder="e.g. TRK-001005"
                   value={dispatchTrackingNumber}
                   onChange={(e) => setDispatchTrackingNumber(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-mono font-bold text-[#38A132]"
@@ -5231,7 +5291,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <label className="block font-bold text-[#7A6C5E] mb-1">Dispatch Note (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Handed over to logistics team at warehouse dock #4"
+                  placeholder="e.g. Handed over to internal driver at store loading dock"
                   value={dispatchNote}
                   onChange={(e) => setDispatchNote(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl"
@@ -5251,11 +5311,26 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   const target = dispatchModalOrder;
                   setDispatchModalOrder(null);
                   if (target) {
-                    await dispatchOrderAPI(target.orderId, dispatchCarrier, dispatchTrackingNumber, dispatchExpectedDate, 1, dispatchNote);
+                    const selVehicle = availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId);
+                    const vehicleIdNum = selVehicle ? selVehicle.vehicle_id : undefined;
+                    const driverIdNum = selVehicle ? selVehicle.assigned_driver_id || undefined : undefined;
+                    const finalCarrier = selVehicle ? `Internal Fleet (${selVehicle.registration_number})` : dispatchCarrier;
+                    const finalTracking = dispatchTrackingNumber.trim() || `TRK-${target.orderId}`;
+
+                    await dispatchOrderAPI(
+                      target.orderId,
+                      finalCarrier,
+                      finalTracking,
+                      dispatchExpectedDate,
+                      1,
+                      dispatchNote,
+                      vehicleIdNum,
+                      driverIdNum
+                    );
                     await refreshFulfillmentData();
                   }
                 }}
-                className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
+                className="px-5 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
               >
                 Dispatch Order
               </button>

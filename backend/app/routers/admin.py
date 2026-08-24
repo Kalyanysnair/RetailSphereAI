@@ -101,16 +101,19 @@ class StaffCreateRequest(BaseModel):
     full_name: str
     email: EmailStr
     phone: Optional[str] = None
-    role_name: str  # "Retail Staff" or "Production Staff"
+    role_name: str  # "Retail Staff", "Production Staff", or "Artisan Worker"
     password: Optional[str] = None
+    skill_name: Optional[str] = "Woodwork & Carpentry"
+    proficiency_level: Optional[str] = "Expert"
 
 @router.post("/create-staff", status_code=status.HTTP_201_CREATED)
 def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     role_clean = payload.role_name.strip()
-    if role_clean not in ["Retail Staff", "Production Staff"]:
+    valid_roles = ["Retail Staff", "Production Staff", "Artisan Worker", "Worker"]
+    if role_clean not in valid_roles:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Role must be either 'Retail Staff' or 'Production Staff'"
+            detail="Role must be 'Retail Staff', 'Production Staff', or 'Artisan Worker'"
         )
 
     email_clean = payload.email.strip()
@@ -135,10 +138,11 @@ def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks,
     else:
         phone_clean = f"+91{random.randint(7000000000, 9999999999)}"
 
-    # Get or create Role
-    role = db.query(models.Role).filter(models.Role.role_name == role_clean).first()
+    # Get or create Role (Map Artisan Worker / Worker to Worker role)
+    db_role_name = "Worker" if role_clean in ["Artisan Worker", "Worker"] else role_clean
+    role = db.query(models.Role).filter(models.Role.role_name == db_role_name).first()
     if not role:
-        role = models.Role(role_name=role_clean)
+        role = models.Role(role_name=db_role_name)
         db.add(role)
         db.commit()
         db.refresh(role)
@@ -159,11 +163,36 @@ def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks,
         db.add(new_staff)
         db.commit()
         db.refresh(new_staff)
-    except Exception:
+
+        # If creating a Worker/Artisan Worker, initialize availability and skill records
+        if db_role_name == "Worker":
+            avail = models.WorkerAvailability(
+                worker_id=new_staff.user_id,
+                status="AVAILABLE",
+                active_jobs_count=0,
+                rating_score=4.8
+            )
+            db.add(avail)
+            skill = models.WorkerSkill(
+                worker_id=new_staff.user_id,
+                skill_name=payload.skill_name or "Woodwork & Carpentry",
+                proficiency_level=payload.proficiency_level or "Expert"
+            )
+            db.add(skill)
+            db.commit()
+
+        log_audit_event(
+            db,
+            action=f"CREATE_{db_role_name.upper().replace(' ', '_')}",
+            entity_type="User",
+            entity_id=str(new_staff.user_id),
+            details=f"Created {role_clean} account for {new_staff.full_name} ({new_staff.email})."
+        )
+    except Exception as e:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Could not create staff member. Email or phone number is already registered."
+            detail=f"Could not create account: {str(e)}"
         )
 
     # Dispatch welcome email asynchronously via BackgroundTasks (instant response to frontend)
@@ -188,7 +217,7 @@ def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks,
 @router.get("/staff")
 def list_staff(db: Session = Depends(get_db)):
     staff_roles = db.query(models.Role).filter(
-        models.Role.role_name.in_(["Retail Staff", "Production Staff"])
+        models.Role.role_name.in_(["Retail Staff", "Production Staff", "Worker", "Artisan Worker"])
     ).all()
     staff_role_ids = [r.role_id for r in staff_roles]
     
@@ -200,7 +229,8 @@ def list_staff(db: Session = Depends(get_db)):
     
     result = []
     for u in users:
-        role_name = u.role.role_name if u.role else "Retail Staff"
+        raw_role = u.role.role_name if u.role else "Retail Staff"
+        role_name = "Artisan Worker" if raw_role in ["Worker", "Artisan Worker"] else raw_role
         result.append({
             "id": f"st-{u.user_id}",
             "user_id": u.user_id,
@@ -208,6 +238,8 @@ def list_staff(db: Session = Depends(get_db)):
             "email": u.email,
             "phone": u.phone or "+91 98765 43210",
             "role": role_name,
+            "skill": u.specialization or ("Woodwork & Carpentry" if role_name == "Artisan Worker" else None),
+            "is_driver": bool(u.is_driver),
             "status": "Active" if u.status else "Inactive",
             "dateAdded": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent"
         })
@@ -217,7 +249,8 @@ class UserCreateRequest(BaseModel):
     full_name: str
     email: EmailStr
     phone: Optional[str] = None
-    role_name: str  # "Customer", "Retail Staff", "Production Staff", "Admin"
+    role_name: str  # "Customer", "Retail Staff", "Production Staff", "Worker", "Admin"
+    is_driver: Optional[bool] = False
     password: Optional[str] = None
     status: Optional[bool] = True
 
@@ -226,6 +259,7 @@ class UserUpdateRequest(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     role_name: Optional[str] = None
+    is_driver: Optional[bool] = None
     status: Optional[bool] = None
 
 @router.get("/users")
@@ -254,6 +288,7 @@ def list_all_users(db: Session = Depends(get_db)):
             "phone": u.phone or "+91 98765 43210",
             "role_name": role_name,
             "role": role_name,
+            "is_driver": bool(u.is_driver),
             "status": u.status,
             "status_text": "Active" if u.status else "Inactive",
             "created_at": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent",
@@ -277,9 +312,10 @@ def create_user_admin(payload: UserCreateRequest, db: Session = Depends(get_db))
     if not phone_clean:
         phone_clean = f"+91{random.randint(7000000000, 9999999999)}"
 
-    role = db.query(models.Role).filter(models.Role.role_name == role_clean).first()
+    db_role_name = "Worker" if role_clean in ["Artisan Worker", "Worker"] else role_clean
+    role = db.query(models.Role).filter(models.Role.role_name == db_role_name).first()
     if not role:
-        role = models.Role(role_name=role_clean)
+        role = models.Role(role_name=db_role_name)
         db.add(role)
         db.commit()
         db.refresh(role)
@@ -293,6 +329,7 @@ def create_user_admin(payload: UserCreateRequest, db: Session = Depends(get_db))
         email=email_clean,
         phone=phone_clean,
         password=hashed_pwd,
+        is_driver=bool(payload.is_driver),
         status=payload.status if payload.status is not None else True
     )
     db.add(new_user)
@@ -317,6 +354,7 @@ def create_user_admin(payload: UserCreateRequest, db: Session = Depends(get_db))
         "phone": new_user.phone,
         "role_name": role_clean,
         "role": role_clean,
+        "is_driver": new_user.is_driver,
         "status": new_user.status,
         "generated_password": generated_password
     }
@@ -333,17 +371,31 @@ def update_user_admin(user_id: int, payload: UserUpdateRequest, db: Session = De
     if payload.full_name is not None and payload.full_name.strip():
         user.full_name = payload.full_name.strip()
 
+    if payload.email is not None and payload.email.strip():
+        new_email = payload.email.strip()
+        existing = db.query(models.User).filter(models.User.email == new_email, models.User.user_id != user_id).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Email address '{new_email}' is already registered to another user account."
+            )
+        user.email = new_email
+
     if payload.phone is not None:
         user.phone = payload.phone.strip()
 
     if payload.status is not None:
         user.status = payload.status
 
+    if payload.is_driver is not None:
+        user.is_driver = bool(payload.is_driver)
+
     if payload.role_name is not None and payload.role_name.strip():
         role_clean = payload.role_name.strip()
-        role = db.query(models.Role).filter(models.Role.role_name == role_clean).first()
+        db_role_name = "Worker" if role_clean in ["Artisan Worker", "Worker"] else role_clean
+        role = db.query(models.Role).filter(models.Role.role_name == db_role_name).first()
         if not role:
-            role = models.Role(role_name=role_clean)
+            role = models.Role(role_name=db_role_name)
             db.add(role)
             db.commit()
             db.refresh(role)
@@ -359,6 +411,7 @@ def update_user_admin(user_id: int, payload: UserUpdateRequest, db: Session = De
         "email": user.email,
         "phone": user.phone,
         "role": user.role.role_name if user.role else "Customer",
+        "is_driver": bool(user.is_driver),
         "status": user.status
     }
 
@@ -1047,6 +1100,7 @@ def update_readymade_completion_status(
 
 
 @router.delete("/orders/{order_id_str}")
+@router.delete("/orders/{order_id_str}")
 def delete_readymade_order(order_id_str: str, db: Session = Depends(get_db)):
     clean_id = order_id_str.replace("RET-", "").lstrip("0")
     if not clean_id or not clean_id.isdigit():
@@ -1067,6 +1121,480 @@ def delete_readymade_order(order_id_str: str, db: Session = Depends(get_db)):
 
     db.commit()
     return {"message": f"Order {order_id_str} deleted from database successfully"}
+
+
+# ----------------------------------------------------
+# ADMIN SYSTEM-WIDE BUSINESS INTELLIGENCE & AUDIT ENDPOINTS
+# ----------------------------------------------------
+
+def log_audit_event(
+    db: Session,
+    action: str,
+    entity_type: str,
+    entity_id: Optional[str] = None,
+    details: Optional[str] = None,
+    actor_id: Optional[int] = None,
+    actor_role: Optional[str] = None,
+    actor_name: Optional[str] = None
+):
+    try:
+        entry = models.AuditLog(
+            actor_id=actor_id,
+            actor_role=actor_role or "System Admin",
+            actor_name=actor_name or "System Administrator",
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            details=details,
+            timestamp=datetime.utcnow()
+        )
+        db.add(entry)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print(f"[AUDIT LOG] Warning: {e}")
+
+
+@router.get("/dashboard-summary")
+def get_admin_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    # Verify Admin Authorization
+    if current_user.role and current_user.role.role_name not in ["Admin", "System Admin"]:
+        if current_user.email != "admin@retailsphere.com":
+            raise HTTPException(status_code=403, detail="Admin authorization required.")
+
+    readymade_orders = db.query(models.ReadymadeOrder).all()
+    custom_orders = db.query(models.CustomOrder).all()
+    fabrication_requests = db.query(models.FabricationRequest).all()
+    service_requests = db.query(models.ServiceRequest).all()
+
+    total_orders_count = len(readymade_orders) + len(custom_orders)
+    
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_orders_count = sum(1 for o in readymade_orders if o.order_date and o.order_date >= today_start) + \
+                         sum(1 for c in custom_orders if c.order_date and c.order_date >= today_start)
+
+    pending_orders_count = sum(1 for o in readymade_orders if o.order_status not in ["Delivered", "Cancelled"]) + \
+                           sum(1 for c in custom_orders if c.order_status not in ["Completed", "Delivered", "Cancelled"])
+
+    completed_orders_count = sum(1 for o in readymade_orders if o.order_status == "Delivered") + \
+                             sum(1 for c in custom_orders if c.order_status in ["Completed", "Delivered"])
+
+    cancelled_orders_count = sum(1 for o in readymade_orders if o.order_status == "Cancelled") + \
+                             sum(1 for c in custom_orders if c.order_status == "Cancelled")
+
+    return_requests_count = db.query(models.OrderReturn).count()
+
+    total_customers_count = db.query(models.Customer).count()
+    active_customers_count = db.query(models.User).filter(models.User.status == True).count()
+    total_products_count = db.query(models.Product).count()
+    low_stock_products_count = db.query(models.Product).filter(models.Product.stock_quantity < 5).count()
+
+    # Revenue Metrics (from paid tbl_payment records)
+    payments = db.query(models.Payment).filter(models.Payment.payment_status == "Paid").all()
+    total_revenue = sum(float(p.amount or 0) for p in payments)
+
+    today_revenue = sum(float(p.amount or 0) for p in payments if p.payment_date and p.payment_date >= today_start)
+    
+    month_start = today_start.replace(day=1)
+    month_revenue = sum(float(p.amount or 0) for p in payments if p.payment_date and p.payment_date >= month_start)
+
+    paid_orders_count = len(payments)
+    pending_payments_count = sum(1 for o in readymade_orders if o.payment_status in ["Pending", "UNPAID"]) + \
+                             sum(1 for c in custom_orders if c.payment_status in ["Pending", "UNPAID"]) + \
+                             sum(1 for f in fabrication_requests if f.payment_status in ["Pending", "UNPAID"]) + \
+                             sum(1 for s in service_requests if s.payment_status in ["Pending", "UNPAID"])
+
+    returns_paid = db.query(models.OrderReturn).filter(models.OrderReturn.refund_status == "Refunded").all()
+    refunds_total_amount = sum(float(r.refund_amount or 0) for r in returns_paid)
+
+    cancelled_readymade = db.query(models.ReadymadeOrder).filter(models.ReadymadeOrder.order_status == "Cancelled").all()
+    cancelled_custom = db.query(models.CustomOrder).filter(models.CustomOrder.order_status == "Cancelled").all()
+    cancelled_order_value = sum(float(r.total_amount or 0) for r in cancelled_readymade) + \
+                            sum(float(c.estimated_price or 0) for c in cancelled_custom)
+
+    order_overview = {
+        "readymade": len(readymade_orders),
+        "customization": len(custom_orders),
+        "fabrication": len(fabrication_requests),
+        "onsite_services": len(service_requests)
+    }
+
+    order_status_counts = {
+        "Placed": sum(1 for o in readymade_orders if o.order_status in ["Placed", "Order Placed"]),
+        "Confirmed": sum(1 for o in readymade_orders if o.order_status == "Confirmed"),
+        "Processing": sum(1 for o in readymade_orders if o.order_status in ["Processing", "In Production"]),
+        "Packing": sum(1 for o in readymade_orders if o.order_status == "Packing"),
+        "Packed": sum(1 for o in readymade_orders if o.order_status == "Packed"),
+        "Dispatched": sum(1 for o in readymade_orders if o.order_status == "Dispatched"),
+        "Out for Delivery": sum(1 for o in readymade_orders if o.order_status == "Out for Delivery"),
+        "Delivered": sum(1 for o in readymade_orders if o.order_status == "Delivered"),
+        "Cancelled": sum(1 for o in readymade_orders if o.order_status == "Cancelled"),
+        "Returned": sum(1 for o in readymade_orders if o.order_status == "Returned")
+    }
+
+    custom_pipeline_counts = {
+        "request": sum(1 for c in custom_orders if (c.review_status or 'NEW') in ["NEW", "UNDER_REVIEW"]),
+        "retail_review": sum(1 for c in custom_orders if c.review_status == "APPROVED"),
+        "technical_assessment": sum(1 for c in custom_orders if c.order_status == "Technical Assessment"),
+        "quotation": sum(1 for c in custom_orders if c.order_status == "Quotation Sent"),
+        "customer_approval": sum(1 for c in custom_orders if c.order_status == "Quotation Approved"),
+        "payment": sum(1 for c in custom_orders if c.payment_status == "Pending" and c.order_status in ["Quotation Approved", "Awaiting Payment"]),
+        "production": sum(1 for c in custom_orders if c.order_status == "In Production"),
+        "qc": sum(1 for c in custom_orders if c.order_status == "QC Pending"),
+        "completed": sum(1 for c in custom_orders if c.order_status in ["Completed", "Delivered"])
+    }
+
+    assessments_pending = sum(1 for c in custom_orders if c.order_status in ["NEW", "APPROVED", "Pending Assessment"]) + \
+                          sum(1 for f in fabrication_requests if f.status in ["REQUESTED", "ASSESSED"])
+    
+    quotations_pending = sum(1 for c in custom_orders if c.order_status == "Quotation Pending") + \
+                         sum(1 for f in fabrication_requests if f.status == "ASSESSED")
+
+    customer_approvals_pending = sum(1 for c in custom_orders if c.order_status == "Quotation Sent") + \
+                                sum(1 for f in fabrication_requests if f.status == "QUOTED")
+
+    materials_pending = sum(1 for c in custom_orders if c.order_status == "Material Pending") + \
+                        sum(1 for f in fabrication_requests if f.status == "APPROVED" and f.material_source == "Customer-Owned")
+
+    in_production_count = sum(1 for c in custom_orders if c.order_status == "In Production") + \
+                          sum(1 for f in fabrication_requests if f.status == "IN_PRODUCTION")
+
+    qc_pending_count = sum(1 for c in custom_orders if c.order_status == "QC Pending") + \
+                       sum(1 for f in fabrication_requests if f.status == "QC_PENDING")
+
+    rework_count = db.query(models.ReworkJob).filter(models.ReworkJob.status != "RESOLVED").count()
+    completed_today_count = sum(1 for c in custom_orders if c.order_status == "Completed" and c.order_date >= today_start)
+
+    production_status_summary = {
+        "technical_assessment": assessments_pending,
+        "quotation_pending": quotations_pending,
+        "customer_approval": customer_approvals_pending,
+        "payment_pending": pending_payments_count,
+        "material_pending": materials_pending,
+        "in_production": in_production_count,
+        "qc_pending": qc_pending_count,
+        "rework": rework_count,
+        "completed_today": completed_today_count
+    }
+
+    worker_role = db.query(models.Role).filter(models.Role.role_name == "Worker").first()
+    worker_role_id = worker_role.role_id if worker_role else None
+    
+    if worker_role_id:
+        workers = db.query(models.User).filter(models.User.role_id == worker_role_id).all()
+    else:
+        workers = []
+
+    availabilities = db.query(models.WorkerAvailability).all()
+    avail_map = {a.worker_id: a.status for a in availabilities}
+
+    worker_status_counts = {
+        "available": sum(1 for w in workers if avail_map.get(w.user_id, "AVAILABLE") == "AVAILABLE"),
+        "busy": sum(1 for w in workers if avail_map.get(w.user_id) == "BUSY"),
+        "on_site": sum(1 for w in workers if avail_map.get(w.user_id) == "ON_SITE"),
+        "offline": sum(1 for w in workers if avail_map.get(w.user_id) in ["OFF_DUTY", "OFFLINE", "INACTIVE"])
+    }
+
+    worker_skills = db.query(models.WorkerSkill).all()
+    skill_counts = {
+        "Woodwork & Carpentry": sum(1 for s in worker_skills if "Wood" in s.skill_name or "Carpen" in s.skill_name),
+        "Upholstery": sum(1 for s in worker_skills if "Upholster" in s.skill_name),
+        "Assembly": sum(1 for s in worker_skills if "Assembl" in s.skill_name),
+        "Surface Finishing": sum(1 for s in worker_skills if "Finish" in s.skill_name or "Polish" in s.skill_name)
+    }
+
+    alerts = []
+    for c in custom_orders:
+        if c.order_status == "In Production" and c.order_date and (datetime.utcnow() - c.order_date).days > 5:
+            alerts.append({
+                "id": f"alert-delay-{c.custom_order_id}",
+                "severity": "URGENT",
+                "title": f"Production Delay on Custom Order #{c.custom_order_id}",
+                "description": f"Order for {c.furniture_type} has been in production for over 5 days.",
+                "type": "delay"
+            })
+
+    failed_inspections = db.query(models.QualityInspection).filter(models.QualityInspection.result == "FAIL").order_by(models.QualityInspection.inspection_id.desc()).limit(3).all()
+    for qc in failed_inspections:
+        alerts.append({
+            "id": f"alert-qc-{qc.inspection_id}",
+            "severity": "URGENT",
+            "title": f"QC Failure on {qc.order_type} Order #{qc.order_id}",
+            "description": f"Notes: {qc.inspection_notes or 'Quality checklist inspection failed.'}",
+            "type": "qc_failure"
+        })
+
+    low_stock_prods = db.query(models.Product).filter(models.Product.stock_quantity < 5).all()
+    for p in low_stock_prods[:3]:
+        alerts.append({
+            "id": f"alert-stock-{p.product_id}",
+            "severity": "LOW_STOCK",
+            "title": f"Low Stock Warning: {p.product_name}",
+            "description": f"Current inventory: {p.stock_quantity} units (Threshold: 5 units).",
+            "type": "low_stock"
+        })
+
+    audit_logs = db.query(models.AuditLog).order_by(models.AuditLog.audit_id.desc()).limit(15).all()
+    activities = []
+    for log in audit_logs:
+        activities.append({
+            "id": log.audit_id,
+            "actorName": log.actor_name or "System Admin",
+            "actorRole": log.actor_role or "Admin",
+            "action": log.action,
+            "entityType": log.entity_type,
+            "entityId": log.entity_id or "",
+            "details": log.details or "",
+            "timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M:%S") if log.timestamp else ""
+        })
+
+    return {
+        "business_metrics": {
+            "total_orders": total_orders_count,
+            "todays_orders": today_orders_count,
+            "pending_orders": pending_orders_count,
+            "completed_orders": completed_orders_count,
+            "cancelled_orders": cancelled_orders_count,
+            "return_requests": return_requests_count,
+            "total_customers": total_customers_count,
+            "active_customers": active_customers_count,
+            "total_products": total_products_count,
+            "low_stock_items": low_stock_products_count
+        },
+        "revenue_metrics": {
+            "total_revenue": total_revenue,
+            "todays_revenue": today_revenue,
+            "this_month_revenue": month_revenue,
+            "paid_orders_count": paid_orders_count,
+            "pending_payments_count": pending_payments_count,
+            "refunds_total_amount": refunds_total_amount,
+            "cancelled_order_value": cancelled_order_value
+        },
+        "order_overview": order_overview,
+        "order_status_counts": order_status_counts,
+        "custom_pipeline_counts": custom_pipeline_counts,
+        "production_status_summary": production_status_summary,
+        "worker_overview": {
+            "total_workers": len(workers),
+            "status_counts": worker_status_counts,
+            "skill_counts": skill_counts
+        },
+        "alerts": alerts,
+        "recent_activities": activities
+    }
+
+
+@router.get("/analytics/revenue")
+def get_revenue_analytics(
+    period: str = "30days",
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    payments = db.query(models.Payment).filter(models.Payment.payment_status == "Paid").all()
+    
+    total_paid_amount = sum(float(p.amount or 0) for p in payments)
+    paid_count = len(payments)
+    avg_order_val = total_paid_amount / paid_count if paid_count > 0 else 0.0
+
+    returns_paid = db.query(models.OrderReturn).filter(models.OrderReturn.refund_status == "Refunded").all()
+    refund_amount = sum(float(r.refund_amount or 0) for r in returns_paid)
+
+    # Time series breakdown
+    revenue_chart = []
+    for p in sorted(payments, key=lambda x: x.payment_date or datetime.min)[-10:]:
+        revenue_chart.append({
+            "date": p.payment_date.strftime("%d %b") if p.payment_date else "Recent",
+            "amount": float(p.amount or 0),
+            "orderType": p.order_type
+        })
+
+    return {
+        "period": period,
+        "total_revenue": total_paid_amount,
+        "order_count": paid_count,
+        "average_order_value": round(avg_order_val, 2),
+        "paid_amount": total_paid_amount,
+        "refund_amount": refund_amount,
+        "chart_data": revenue_chart
+    }
+
+
+@router.get("/pipeline/bottlenecks")
+def get_production_bottlenecks(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    stages = db.query(models.ProductionStage).all()
+    stage_groups: dict = {}
+    for st in stages:
+        s_name = st.stage_name
+        if s_name not in stage_groups:
+            stage_groups[s_name] = {"pending": 0, "in_progress": 0, "workers": set()}
+        if st.status in ["LOCKED", "READY_FOR_ASSIGNMENT", "ASSIGNED"]:
+            stage_groups[s_name]["pending"] += 1
+        elif st.status == "IN_PROGRESS":
+            stage_groups[s_name]["in_progress"] += 1
+        if st.assigned_worker_id:
+            stage_groups[s_name]["workers"].add(st.assigned_worker_id)
+
+    bottlenecks = []
+    for name, data in stage_groups.items():
+        bottlenecks.append({
+            "stage": name,
+            "pending_jobs": data["pending"],
+            "in_progress_jobs": data["in_progress"],
+            "assigned_workers_count": len(data["workers"]),
+            "avg_waiting_time_hours": 4.5 if data["pending"] > 2 else 1.2,
+            "risk": "HIGH" if data["pending"] >= 3 else ("MEDIUM" if data["pending"] > 0 else "LOW")
+        })
+
+    return bottlenecks
+
+
+@router.get("/audit-logs")
+def get_audit_logs(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    logs = db.query(models.AuditLog).order_by(models.AuditLog.audit_id.desc()).limit(limit).all()
+    res = []
+    for l in logs:
+        res.append({
+            "audit_id": l.audit_id,
+            "actor_id": l.actor_id,
+            "actor_name": l.actor_name or "System Admin",
+            "actor_role": l.actor_role or "Admin",
+            "action": l.action,
+            "entity_type": l.entity_type,
+            "entity_id": l.entity_id or "",
+            "details": l.details or "",
+            "timestamp": l.timestamp.strftime("%Y-%m-%d %H:%M:%S") if l.timestamp else ""
+        })
+    return res
+
+
+class CreateAuditLogPayload(BaseModel):
+    action: str
+    entity_type: str
+    entity_id: Optional[str] = None
+    details: Optional[str] = None
+
+
+@router.post("/audit-logs", status_code=status.HTTP_201_CREATED)
+def create_audit_log(
+    payload: CreateAuditLogPayload,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    log_audit_event(
+        db,
+        action=payload.action,
+        entity_type=payload.entity_type,
+        entity_id=payload.entity_id,
+        details=payload.details,
+        actor_id=current_user.user_id,
+        actor_role=current_user.role.role_name if current_user.role else "Admin",
+        actor_name=current_user.full_name
+    )
+    return {"message": "Audit event recorded."}
+
+
+@router.get("/search")
+def global_system_search(
+    q: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    query_str = q.strip().lower()
+    if not query_str:
+        return {"results": []}
+
+    results = []
+
+    # 1. Readymade Orders
+    readymade = db.query(models.ReadymadeOrder).all()
+    for r in readymade:
+        ord_code = f"RET-{r.order_id:06d}".lower()
+        if query_str in ord_code or query_str in (r.customer_name or "").lower() or query_str in (r.customer_email or "").lower():
+            results.append({
+                "type": "Order",
+                "id": f"RET-{r.order_id:06d}",
+                "title": f"Ready-Made Order RET-{r.order_id:06d}",
+                "subtitle": f"Customer: {r.customer_name or 'Client'} | Status: {r.order_status} | ₹{r.total_amount}",
+                "entityId": r.order_id
+            })
+
+    # 2. Custom Orders
+    customs = db.query(models.CustomOrder).all()
+    for c in customs:
+        code = f"CUS-{c.custom_order_id:04d}".lower()
+        if query_str in code or query_str in (c.furniture_type or "").lower() or query_str in (c.material or "").lower():
+            results.append({
+                "type": "Customization",
+                "id": f"CUS-{c.custom_order_id:04d}",
+                "title": f"Customization Request #{c.custom_order_id} ({c.furniture_type})",
+                "subtitle": f"Status: {c.order_status} | Material: {c.material}",
+                "entityId": c.custom_order_id
+            })
+
+    # 3. Fabrication Requests
+    fabs = db.query(models.FabricationRequest).all()
+    for f in fabs:
+        code = f"FBR-{f.fabrication_id:04d}".lower()
+        if query_str in code or query_str in (f.service_type or "").lower() or query_str in (f.dimensions or "").lower():
+            results.append({
+                "type": "Fabrication",
+                "id": f"FBR-{f.fabrication_id:04d}",
+                "title": f"Fabrication Request #{f.fabrication_id} ({f.service_type})",
+                "subtitle": f"Status: {f.status} | Source: {f.material_source}",
+                "entityId": f.fabrication_id
+            })
+
+    # 4. Service Requests
+    srvs = db.query(models.ServiceRequest).all()
+    for s in srvs:
+        code = f"SRV-{s.service_id:04d}".lower()
+        if query_str in code or query_str in (s.service_category or "").lower() or query_str in (s.city or "").lower():
+            results.append({
+                "type": "On-Site Service",
+                "id": f"SRV-{s.service_id:04d}",
+                "title": f"On-Site Service Job #{s.service_id} ({s.service_category})",
+                "subtitle": f"Status: {s.status} | Location: {s.city}",
+                "entityId": s.service_id
+            })
+
+    # 5. Products
+    prods = db.query(models.Product).all()
+    for p in prods:
+        sku = f"SKU-RS-{p.product_id}".lower()
+        if query_str in sku or query_str in p.product_name.lower() or query_str in (p.material or "").lower():
+            results.append({
+                "type": "Product",
+                "id": f"SKU-RS-{p.product_id}",
+                "title": p.product_name,
+                "subtitle": f"Material: {p.material} | Stock: {p.stock_quantity} | ₹{p.price}",
+                "entityId": p.product_id
+            })
+
+    # 6. Users / Customers
+    users = db.query(models.User).all()
+    for u in users:
+        if query_str in u.full_name.lower() or query_str in u.email.lower():
+            role_name = u.role.role_name if u.role else "User"
+            results.append({
+                "type": "User",
+                "id": f"USR-{u.user_id}",
+                "title": f"{u.full_name} ({role_name})",
+                "subtitle": f"Email: {u.email} | Phone: {u.phone or 'N/A'}",
+                "entityId": u.user_id
+            })
+
+    return {"results": results[:20]}
+
 
 
 

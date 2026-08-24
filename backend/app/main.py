@@ -102,7 +102,7 @@ def startup_db():
 
 import os
 from fastapi.staticfiles import StaticFiles
-from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff
+from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff, fleet, worker_ops
 
 # Mount static uploads directory
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
@@ -123,6 +123,8 @@ app.include_router(quality.router)
 app.include_router(ai_services.router)
 app.include_router(fulfillment.router)
 app.include_router(retail_staff.router)
+app.include_router(fleet.router)
+app.include_router(worker_ops.router)
 
 @app.get("/")
 def read_root():

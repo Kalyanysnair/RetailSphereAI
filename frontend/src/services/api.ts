@@ -222,6 +222,8 @@ export interface CreateStaffPayload {
   phone?: string;
   role_name: string;
   password?: string;
+  skill_name?: string;
+  proficiency_level?: string;
 }
 
 export async function createStaffUser(payload: CreateStaffPayload): Promise<any> {
@@ -256,7 +258,7 @@ export async function createStaffUser(payload: CreateStaffPayload): Promise<any>
 
 export async function fetchStaffUsers(): Promise<any[]> {
   try {
-    const response = await fetch(`${BASE_URL}/admin/staff`);
+    const response = await safeFetch('/admin/staff');
     if (!response.ok) return [];
     return await response.json();
   } catch {
@@ -266,7 +268,7 @@ export async function fetchStaffUsers(): Promise<any[]> {
 
 export async function fetchAllUsers(): Promise<any[]> {
   try {
-    const response = await fetch(`${BASE_URL}/admin/users`);
+    const response = await safeFetch('/admin/users');
     if (!response.ok) return [];
     return await response.json();
   } catch {

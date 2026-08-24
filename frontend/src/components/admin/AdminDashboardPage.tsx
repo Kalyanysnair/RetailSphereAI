@@ -25,6 +25,7 @@ import {
   Mail,
   Tag,
   Trash2,
+  PackageMinus,
   Bell,
   Edit,
   Eye,
@@ -69,6 +70,18 @@ import {
   deleteUserById
 } from '../../services/api';
 
+import {
+  VehicleItem,
+  FleetSummary,
+  VehicleDetailResponse,
+  fetchFleetSummaryDB,
+  fetchVehiclesDB,
+  fetchVehicleDetailsDB,
+  createVehicleDB,
+  updateVehicleDB,
+  updateVehicleStatusDB,
+} from '../../services/api_fleet';
+
 import { respondToStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 import {
   createCouponApi,
@@ -78,6 +91,20 @@ import {
   Coupon,
   CouponAllotment
 } from '../../services/api_coupons';
+import {
+  fetchAdminDashboardSummaryDB,
+  fetchRevenueAnalyticsDB,
+  fetchProductionBottlenecksDB,
+  fetchAuditLogsDB,
+  recordAuditLogDB,
+  performGlobalSearchDB,
+  toggleUserStatusDB,
+  updateUserDB,
+  AdminDashboardSummary,
+  RevenueAnalyticsData,
+  ProductionBottleneckItem,
+  SearchResultItem
+} from '../../services/api_admin';
 import { getStoredRetailOrders, fetchRetailOrdersFromDB, deleteStoredRetailOrder, computeLogicalCompletionStatus, updateStoredRetailOrderCompletionStatus } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders, updateOrderStatus, toggleLockOrderSpecifications, downloadPaymentReceipt, CustomOrderData } from '../../services/api_production';
 import { getStoredAdminMessages, sendAdminMessage, deleteAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
@@ -105,7 +132,8 @@ export interface StaffMember {
   name: string;
   email: string;
   phone: string;
-  role: 'Retail Staff' | 'Production Staff';
+  role: 'Retail Staff' | 'Production Staff' | 'Artisan Worker';
+  skill?: string;
   status: 'Active' | 'Inactive';
   dateAdded: string;
 }
@@ -198,9 +226,69 @@ export const INITIAL_INVENTORY: InventoryItem[] = [];
 export const AdminDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'staff' | 'products' | 'inventory' | 'suppliers' | 'orders' | 'custom_orders' | 'queries' | 'coupons' | 'users' | 'broadcast'>('staff');
+  const [activeTab, setActiveTab] = useState<
+    | 'overview'
+    | 'orders'
+    | 'requests'
+    | 'production'
+    | 'fabrication'
+    | 'onsite'
+    | 'inventory'
+    | 'workers'
+    | 'customers'
+    | 'products'
+    | 'payments'
+    | 'fulfillment'
+    | 'returns'
+    | 'communication'
+    | 'reports'
+    | 'alerts'
+    | 'audit'
+    | 'roles'
+    | 'staff'
+    | 'suppliers'
+    | 'custom_orders'
+    | 'queries'
+    | 'coupons'
+    | 'broadcast'
+    | 'users'
+    | 'analytics'
+    | 'fleet'
+  >('overview');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+
+  // Fleet Management State
+  const [fleetSummaryData, setFleetSummaryData] = useState<FleetSummary | null>(null);
+  const [vehiclesList, setVehiclesList] = useState<VehicleItem[]>([]);
+  const [fleetStatusFilter, setFleetStatusFilter] = useState<string>('ALL');
+  const [fleetSearchQuery, setFleetSearchQuery] = useState('');
+  const [isAddVehicleModalOpen, setIsAddVehicleModalOpen] = useState(false);
+  const [isEditVehicleModalOpen, setIsEditVehicleModalOpen] = useState(false);
+  const [isVehicleDetailModalOpen, setIsVehicleDetailModalOpen] = useState(false);
+  const [selectedVehicleForDetail, setSelectedVehicleForDetail] = useState<VehicleDetailResponse | null>(null);
+  const [selectedVehicleForEdit, setSelectedVehicleForEdit] = useState<VehicleItem | null>(null);
+  const [isSubmittingVehicle, setIsSubmittingVehicle] = useState(false);
+  const [vehicleFormError, setVehicleFormError] = useState<string | null>(null);
+
+  // Form values for Add / Edit Vehicle
+  const [vRegNumber, setVRegNumber] = useState('');
+  const [vType, setVType] = useState('Mini Truck');
+  const [vCapacity, setVCapacity] = useState('500');
+  const [vDriverId, setVDriverId] = useState<string>('');
+  const [vStatus, setVStatus] = useState('AVAILABLE');
+  const [vNotes, setVNotes] = useState('');
+  const [vModelName, setVModelName] = useState('');
+  const [vYear, setVYear] = useState('');
+
+  // System BI Dashboard & Real-Time Analytics State
+  const [dashboardSummary, setDashboardSummary] = useState<AdminDashboardSummary | null>(null);
+  const [revenueAnalytics, setRevenueAnalytics] = useState<RevenueAnalyticsData | null>(null);
+  const [bottlenecksList, setBottlenecksList] = useState<ProductionBottleneckItem[]>([]);
+  const [auditLogsList, setAuditLogsList] = useState<any[]>([]);
+  const [globalSearchResults, setGlobalSearchResults] = useState<SearchResultItem[]>([]);
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
+  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
 
   // Custom Orders Admin Studio State
   const [allAdminCustomOrders, setAllAdminCustomOrders] = useState<CustomOrderData[]>([]);
@@ -250,6 +338,41 @@ export const AdminDashboardPage: React.FC = () => {
     return () => window.removeEventListener('admin-messages-updated', refreshMsgs);
   }, []);
 
+  useEffect(() => {
+    const loadSystemBIData = async () => {
+      setIsLoadingSummary(true);
+      const summary = await fetchAdminDashboardSummaryDB();
+      if (summary) setDashboardSummary(summary);
+
+      const rev = await fetchRevenueAnalyticsDB(analyticsTimeframe);
+      if (rev) setRevenueAnalytics(rev);
+
+      const bot = await fetchProductionBottlenecksDB();
+      setBottlenecksList(bot || []);
+
+      const logs = await fetchAuditLogsDB(50);
+      setAuditLogsList(logs || []);
+      setIsLoadingSummary(false);
+    };
+
+    loadSystemBIData();
+  }, [analyticsTimeframe, activeTab]);
+
+  useEffect(() => {
+    const handleGlobalSearch = async () => {
+      if (searchQuery.trim().length >= 2) {
+        const results = await performGlobalSearchDB(searchQuery);
+        setGlobalSearchResults(results);
+        setIsSearchDropdownOpen(true);
+      } else {
+        setGlobalSearchResults([]);
+        setIsSearchDropdownOpen(false);
+      }
+    };
+    const timer = setTimeout(handleGlobalSearch, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const unreadCount = notifications.filter(n => n.unread).length;
 
   // Current Admin Profile State
@@ -294,47 +417,119 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Staff Management State
   const [staffMembers, setStaffMembers] = useState<StaffMember[]>(INITIAL_STAFF);
-  const [staffRoleFilter, setStaffRoleFilter] = useState<'All' | 'Retail Staff' | 'Production Staff'>('All');
+  const [staffRoleFilter, setStaffRoleFilter] = useState<'All' | 'Retail Staff' | 'Production Staff' | 'Artisan Worker'>('All');
   const [staffSearchQuery, setStaffSearchQuery] = useState('');
   const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
 
-  // Form values for Add Staff
+  // Form values for Add Staff & Worker
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffEmail, setNewStaffEmail] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
-  const [newStaffRole, setNewStaffRole] = useState<'Retail Staff' | 'Production Staff'>('Retail Staff');
+  const [newStaffRole, setNewStaffRole] = useState<'Retail Staff' | 'Production Staff' | 'Artisan Worker'>('Retail Staff');
+  const [newStaffWorkerSkill, setNewStaffWorkerSkill] = useState('Woodwork & Carpentry');
   const [newStaffPassword, setNewStaffPassword] = useState('');
+  const [newStaffIsDriver, setNewStaffIsDriver] = useState(false);
+
+  // Form values for Edit Staff & Worker
+  const [selectedStaffForEdit, setSelectedStaffForEdit] = useState<StaffMember | null>(null);
+  const [isEditStaffModalOpen, setIsEditStaffModalOpen] = useState(false);
+  const [editStaffName, setEditStaffName] = useState('');
+  const [editStaffEmail, setEditStaffEmail] = useState('');
+  const [editStaffPhone, setEditStaffPhone] = useState('');
+  const [editStaffRole, setEditStaffRole] = useState<'Retail Staff' | 'Production Staff' | 'Artisan Worker'>('Retail Staff');
+  const [editStaffWorkerSkill, setEditStaffWorkerSkill] = useState('Woodwork & Carpentry');
+  const [editStaffIsDriver, setEditStaffIsDriver] = useState(false);
+  const [isSubmittingEditStaff, setIsSubmittingEditStaff] = useState(false);
+  const [editStaffModalError, setEditStaffModalError] = useState<string | null>(null);
+
+  const handleOpenEditStaffModal = (staff: StaffMember) => {
+    setSelectedStaffForEdit(staff);
+    setEditStaffName(staff.name || '');
+    setEditStaffEmail(staff.email || '');
+    setEditStaffPhone(staff.phone || '');
+    setEditStaffRole(staff.role);
+    setEditStaffWorkerSkill(staff.skill || 'Woodwork & Carpentry');
+    setEditStaffIsDriver(Boolean((staff as any).is_driver));
+    setEditStaffModalError(null);
+    setIsEditStaffModalOpen(true);
+  };
+
+  const handleUpdateStaffSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStaffForEdit || !selectedStaffForEdit.user_id) return;
+    setIsSubmittingEditStaff(true);
+    setEditStaffModalError(null);
+    try {
+      await updateUserDB(selectedStaffForEdit.user_id, {
+        full_name: editStaffName.trim(),
+        email: editStaffEmail.trim() || undefined,
+        phone: editStaffPhone.trim() || undefined,
+        role_name: editStaffRole,
+        is_driver: editStaffIsDriver
+      });
+
+      setSuccessBanner(`${editStaffRole} account for "${editStaffName.trim()}" updated successfully!`);
+      setIsEditStaffModalOpen(false);
+      setSelectedStaffForEdit(null);
+      await loadStaffFromDB();
+    } catch (err: any) {
+      setEditStaffModalError(err.message || 'Failed to update staff member details.');
+    } finally {
+      setIsSubmittingEditStaff(false);
+      setTimeout(() => setSuccessBanner(null), 4000);
+    }
+  };
 
   // Load Staff Users from DB
   const loadStaffFromDB = async () => {
     try {
-      const dbUsers = await fetchStaffUsers();
-      if (dbUsers && Array.isArray(dbUsers)) {
-        const staffOnly = dbUsers.filter((u: any) => {
-          const role = u.role || '';
-          const email = (u.email || '').toLowerCase();
-          const name = (u.name || u.full_name || '').toLowerCase();
-          if (email === 'admin@retailsphere.com' || name === 'admin' || role === 'Admin' || role === 'Customer') {
-            return false;
+      const [dbUsers, allUsers] = await Promise.all([
+        fetchStaffUsers(),
+        fetchAllUsers()
+      ]);
+
+      const rawList = [
+        ...(Array.isArray(dbUsers) ? dbUsers : []),
+        ...(Array.isArray(allUsers) ? allUsers : [])
+      ];
+
+      const staffMap = new Map<string, StaffMember>();
+
+      for (const u of rawList) {
+        const role = u.role || u.role_name || '';
+        const email = (u.email || '').toLowerCase();
+        const name = (u.name || u.full_name || '').toLowerCase();
+        const userId = u.user_id || u.id;
+
+        if (email === 'admin@retailsphere.com' || name === 'admin' || role === 'Admin' || role === 'Customer') {
+          continue;
+        }
+
+        if (['Retail Staff', 'Production Staff', 'Artisan Worker', 'Worker', 'Staff'].includes(role)) {
+          let roleName: 'Retail Staff' | 'Production Staff' | 'Artisan Worker' = 'Retail Staff';
+          if (role === 'Production Staff') roleName = 'Production Staff';
+          else if (role === 'Artisan Worker' || role === 'Worker') roleName = 'Artisan Worker';
+
+          const memberKey = String(userId || email || u.id);
+          if (!staffMap.has(memberKey)) {
+            staffMap.set(memberKey, {
+              id: u.id || `staff-${userId}`,
+              user_id: typeof userId === 'number' ? userId : (parseInt(String(userId).replace(/\D/g, '')) || 1),
+              name: u.name || u.full_name || (u.email ? u.email.split('@')[0].replace('.', ' ').replace(/^./, (str: string) => str.toUpperCase()) : 'Staff Member'),
+              email: u.email || 'N/A',
+              phone: u.phone || '+91 98765 43210',
+              role: roleName,
+              skill: u.skill || u.specialization || (roleName === 'Artisan Worker' ? 'Woodwork & Carpentry' : undefined),
+              status: u.status === false || u.status === 'Inactive' ? 'Inactive' : 'Active',
+              dateAdded: u.dateAdded || (u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent')
+            });
           }
-          return role === 'Retail Staff' || role === 'Production Staff' || role === 'Staff';
-        });
-        const mapped: StaffMember[] = staffOnly.map((u: any) => ({
-          id: u.id || `staff-${u.user_id}`,
-          user_id: u.user_id || (typeof u.id === 'number' ? u.id : parseInt(String(u.id).replace(/\D/g, '')) || 1),
-          name: u.name || u.full_name || (u.email ? u.email.split('@')[0].replace('.', ' ').replace(/^./, (str: string) => str.toUpperCase()) : 'Staff Member'),
-          email: u.email || 'N/A',
-          phone: u.phone || '+91 98765 43210',
-          role: u.role === 'Production Staff' ? 'Production Staff' : 'Retail Staff',
-          status: u.status === 'Inactive' ? 'Inactive' : 'Active',
-          dateAdded: u.dateAdded || (u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent')
-        }));
-        setStaffMembers(mapped);
-      } else {
-        setStaffMembers([]);
+        }
       }
+
+      setStaffMembers(Array.from(staffMap.values()));
     } catch (err) {
       console.warn('Could not fetch DB staff members:', err);
       setStaffMembers([]);
@@ -345,18 +540,165 @@ export const AdminDashboardPage: React.FC = () => {
     loadStaffFromDB();
   }, []);
 
+  const handleToggleStaffStatus = async (staff: StaffMember) => {
+    if (!staff.user_id) return;
+    try {
+      const res = await toggleUserStatusDB(staff.user_id);
+      const newStatus: 'Active' | 'Inactive' = res.status ? 'Active' : 'Inactive';
+      setStaffMembers(prev =>
+        prev.map(s => (s.user_id === staff.user_id ? { ...s, status: newStatus } : s))
+      );
+      setSuccessBanner(`${staff.role} "${staff.name}" account set to ${newStatus.toUpperCase()}!`);
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
+      setStaffFormError(err.message || 'Failed to update status.');
+      setTimeout(() => setStaffFormError(null), 4000);
+    }
+  };
+
+  const loadFleetDataFromDB = async () => {
+    try {
+      const summary = await fetchFleetSummaryDB();
+      if (summary) setFleetSummaryData(summary);
+      const list = await fetchVehiclesDB(fleetStatusFilter);
+      setVehiclesList(list || []);
+    } catch (err) {
+      console.warn('Error loading fleet data:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadFleetDataFromDB();
+  }, [fleetStatusFilter, activeTab]);
+
+  const handleOpenAddVehicleModal = () => {
+    setVRegNumber('');
+    setVType('Mini Truck');
+    setVCapacity('500');
+    setVDriverId('');
+    setVStatus('AVAILABLE');
+    setVNotes('');
+    setVModelName('');
+    setVYear('');
+    setVehicleFormError(null);
+    setIsAddVehicleModalOpen(true);
+  };
+
+  const handleOpenEditVehicleModal = (veh: VehicleItem) => {
+    setSelectedVehicleForEdit(veh);
+    setVRegNumber(veh.registration_number);
+    setVType(veh.vehicle_type);
+    setVCapacity(veh.capacity.toString());
+    setVDriverId(veh.assigned_driver_id ? veh.assigned_driver_id.toString() : '');
+    setVStatus(veh.status);
+    setVNotes(veh.notes || '');
+    setVModelName(veh.model_name || '');
+    setVYear(veh.year ? veh.year.toString() : '');
+    setVehicleFormError(null);
+    setIsEditVehicleModalOpen(true);
+  };
+
+  const handleOpenVehicleDetailModal = async (veh: VehicleItem) => {
+    try {
+      const detail = await fetchVehicleDetailsDB(veh.vehicle_id);
+      if (detail) {
+        setSelectedVehicleForDetail(detail);
+        setIsVehicleDetailModalOpen(true);
+      }
+    } catch (err) {
+      console.error('Error fetching vehicle details:', err);
+    }
+  };
+
+  const isValidVehicleRegistration = (reg: string) => {
+    const clean = reg.trim().toUpperCase();
+    if (!clean || clean.length < 4 || clean.length > 20) return false;
+    const regRegex = /^[A-Z]{2}[-\s]?[0-9]{1,2}[-\s]?[A-Z]{0,3}[-\s]?[0-9]{1,4}$|^[A-Z0-9\s-]{4,15}$/i;
+    return regRegex.test(clean);
+  };
+
+  const handleCreateVehicleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vRegNumber.trim()) {
+      setVehicleFormError('Registration number is required.');
+      return;
+    }
+    if (!isValidVehicleRegistration(vRegNumber)) {
+      setVehicleFormError('Invalid vehicle registration number format. Expected format like KL-01-AB-1234 or KL-14-1234.');
+      return;
+    }
+    setIsSubmittingVehicle(true);
+    setVehicleFormError(null);
+    try {
+      await createVehicleDB({
+        registration_number: vRegNumber.trim(),
+        vehicle_type: vType,
+        capacity: parseInt(vCapacity) || 500,
+        assigned_driver_id: vDriverId ? parseInt(vDriverId) : null,
+        status: vStatus,
+        notes: vNotes.trim() || undefined,
+        model_name: vModelName.trim() || undefined,
+        year: vYear ? parseInt(vYear) : undefined
+      });
+
+      setSuccessBanner(`Vehicle "${vRegNumber.trim().toUpperCase()}" added to company fleet successfully!`);
+      setIsAddVehicleModalOpen(false);
+      loadFleetDataFromDB();
+    } catch (err: any) {
+      setVehicleFormError(err.message || 'Failed to add vehicle to fleet.');
+    } finally {
+      setIsSubmittingVehicle(false);
+      setTimeout(() => setSuccessBanner(null), 5000);
+    }
+  };
+
+  const handleUpdateVehicleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedVehicleForEdit) return;
+    if (!isValidVehicleRegistration(vRegNumber)) {
+      setVehicleFormError('Invalid vehicle registration number format. Expected format like KL-01-AB-1234 or KL-14-1234.');
+      return;
+    }
+    setIsSubmittingVehicle(true);
+    setVehicleFormError(null);
+    try {
+      await updateVehicleDB(selectedVehicleForEdit.vehicle_id, {
+        registration_number: vRegNumber.trim(),
+        vehicle_type: vType,
+        capacity: parseInt(vCapacity) || 500,
+        assigned_driver_id: vDriverId ? parseInt(vDriverId) : null,
+        status: vStatus,
+        notes: vNotes.trim(),
+        model_name: vModelName.trim(),
+        year: vYear ? parseInt(vYear) : undefined
+      });
+
+      setSuccessBanner(`Vehicle "${vRegNumber.trim().toUpperCase()}" details updated successfully!`);
+      setIsEditVehicleModalOpen(false);
+      setSelectedVehicleForEdit(null);
+      loadFleetDataFromDB();
+    } catch (err: any) {
+      setVehicleFormError(err.message || 'Failed to update vehicle.');
+    } finally {
+      setIsSubmittingVehicle(false);
+      setTimeout(() => setSuccessBanner(null), 5000);
+    }
+  };
+
   // System User Management State
   const [allUsersList, setAllUsersList] = useState<SystemUserItem[]>([]);
-  const [userRoleFilter, setUserRoleFilter] = useState<'All' | 'Customer' | 'Retail Staff' | 'Production Staff'>('All');
+  const [userRoleFilter, setUserRoleFilter] = useState<'All Customers' | 'Active' | 'Inactive' | string>('All Customers');
   const [userSearchQuery, setUserSearchQuery] = useState('');
 
   // Edit User State
   const [editingUser, setEditingUser] = useState<SystemUserItem | null>(null);
   const [isEditUserModalOpen, setIsEditUserModalOpen] = useState(false);
   const [editUserName, setEditUserName] = useState('');
+  const [editUserEmail, setEditUserEmail] = useState('');
   const [editUserPhone, setEditUserPhone] = useState('');
   const [editUserRole, setEditUserRole] = useState<string>('Customer');
   const [editUserStatus, setEditUserStatus] = useState<boolean>(true);
+  const [editUserIsDriver, setEditUserIsDriver] = useState<boolean>(false);
   const [isUpdatingUser, setIsUpdatingUser] = useState(false);
 
   // Purchased Products Modal State
@@ -484,6 +826,7 @@ export const AdminDashboardPage: React.FC = () => {
   const handleOpenEditUser = (u: SystemUserItem) => {
     setEditingUser(u);
     setEditUserName(u.full_name || u.name);
+    setEditUserEmail(u.email || '');
     setEditUserPhone(u.phone === '+91 98765 43210' ? '' : u.phone);
     setEditUserRole(u.role || u.role_name || 'Customer');
     setEditUserStatus(u.status !== false);
@@ -497,6 +840,7 @@ export const AdminDashboardPage: React.FC = () => {
     try {
       await updateAdminUser(editingUser.user_id, {
         full_name: editUserName.trim(),
+        email: editUserEmail.trim() || undefined,
         phone: editUserPhone.trim() || undefined,
         role_name: editUserRole,
         status: editUserStatus,
@@ -747,15 +1091,21 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const handleExportAnalyticsReport = () => {
-    const realStoreRevenue = (orderList || []).reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
-    const realCustomRevenue = (allAdminCustomOrders || [])
-      .filter((co: any) => (co.payment_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'completed')
-      .reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+    const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-'));
+    const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
+      (co: any) => (co.payment_status || '').toLowerCase() === 'paid' || 
+                   (co.order_status || '').toLowerCase() === 'paid' || 
+                   (co.order_status || '').toLowerCase() === 'in production' || 
+                   (co.order_status || '').toLowerCase() === 'completed'
+    );
+
+    const realStoreRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+    const realCustomRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
     const realGrossRevenue = realStoreRevenue + realCustomRevenue;
 
-    const totalOrdersCount = (orderList || []).length + (allAdminCustomOrders || []).length;
-    const completedOrdersCount = (orderList || []).filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
-      (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+    const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length;
+    const completedOrdersCount = readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
+      paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
     const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
       (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
     ).length;
@@ -772,15 +1122,21 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const handleExportAnalyticsPDF = () => {
-    const realStoreRevenue = (orderList || []).reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
-    const realCustomRevenue = (allAdminCustomOrders || [])
-      .filter((co: any) => (co.payment_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'completed')
-      .reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+    const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-'));
+    const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
+      (co: any) => (co.payment_status || '').toLowerCase() === 'paid' || 
+                   (co.order_status || '').toLowerCase() === 'paid' || 
+                   (co.order_status || '').toLowerCase() === 'in production' || 
+                   (co.order_status || '').toLowerCase() === 'completed'
+    );
+
+    const realStoreRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+    const realCustomRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
     const realGrossRevenue = realStoreRevenue + realCustomRevenue;
 
-    const totalOrdersCount = (orderList || []).length + (allAdminCustomOrders || []).length;
-    const completedOrdersCount = (orderList || []).filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
-      (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+    const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length;
+    const completedOrdersCount = readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
+      paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
     const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
       (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
     ).length;
@@ -1366,6 +1722,7 @@ export const AdminDashboardPage: React.FC = () => {
         phone: newStaffPhone.trim() || undefined,
         role_name: newStaffRole,
         password: newStaffPassword.trim() || undefined,
+        skill_name: newStaffRole === 'Artisan Worker' ? newStaffWorkerSkill : undefined,
       });
 
       const newMember: StaffMember = {
@@ -1374,13 +1731,18 @@ export const AdminDashboardPage: React.FC = () => {
         name: created.full_name || newStaffName.trim(),
         email: created.email || newStaffEmail.trim(),
         phone: newStaffPhone.trim() || '+91 98765 43210',
-        role: created.role_name === 'Production Staff' ? 'Production Staff' : 'Retail Staff',
+        role: newStaffRole,
+        skill: newStaffRole === 'Artisan Worker' ? newStaffWorkerSkill : undefined,
         status: 'Active',
         dateAdded: 'Just Now',
       };
 
       setStaffMembers((prev) => [newMember, ...prev]);
-      setSuccessBanner(`Staff user "${newMember.name}" created! Credentials emailed to ${newMember.email}.`);
+      setSuccessBanner(
+        newStaffRole === 'Artisan Worker'
+          ? `Artisan Worker "${newMember.name}" (${newStaffWorkerSkill}) created & added to workshop roster!`
+          : `Staff user "${newMember.name}" created! Credentials emailed to ${newMember.email}.`
+      );
       setIsAddStaffModalOpen(false);
       setNewStaffName('');
       setNewStaffEmail('');
@@ -1388,7 +1750,7 @@ export const AdminDashboardPage: React.FC = () => {
       setNewStaffPassword('');
     } catch (err: any) {
       console.error('Error creating staff:', err);
-      setStaffFormError(err.message || 'Failed to create staff account. Check if email already exists.');
+      setStaffFormError(err.message || 'Failed to create account. Check if email already exists.');
     } finally {
       setIsSubmittingStaff(false);
       setTimeout(() => setSuccessBanner(null), 7000);
@@ -1780,18 +2142,74 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="space-y-2 text-xs font-extrabold">
+        <nav className="space-y-1.5 text-xs font-extrabold max-h-[calc(100vh-140px)] overflow-y-auto pr-1">
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => setActiveTab('overview')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'users'
+              activeTab === 'overview'
                 ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <UserCheck className="w-4 h-4" />
-              <span className="text-xs">User Management</span>
+              <LayoutDashboard className="w-4 h-4" />
+              <span className="text-xs">Dashboard Overview</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('orders')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'orders'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <ShoppingBag className="w-4 h-4" />
+              <span className="text-xs">Orders & Live Pipeline</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('custom_orders')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'custom_orders'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Sliders className="w-4 h-4" />
+              <span className="text-xs">Customer Requests</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('production')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'production'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Wrench className="w-4 h-4" />
+              <span className="text-xs">Production & Bottlenecks</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('inventory')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'inventory'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <SlidersHorizontal className="w-4 h-4" />
+              <span className="text-xs">Stock & Raw Materials</span>
             </div>
           </button>
 
@@ -1805,7 +2223,35 @@ export const AdminDashboardPage: React.FC = () => {
           >
             <div className="flex items-center gap-3">
               <Users className="w-4 h-4" />
-              <span className="text-xs">Staff Accounts</span>
+              <span className="text-xs">Workers & Staff</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('fleet')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'fleet'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Truck className="w-4 h-4" />
+              <span className="text-xs">Fleet & Vehicles</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'users'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <UserCheck className="w-4 h-4" />
+              <span className="text-xs">Customer Directory</span>
             </div>
           </button>
 
@@ -1824,20 +2270,6 @@ export const AdminDashboardPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('inventory')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'inventory'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <SlidersHorizontal className="w-4 h-4" />
-              <span className="text-xs">Stock & Inventory</span>
-            </div>
-          </button>
-
-          <button
             onClick={() => setActiveTab('suppliers')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'suppliers'
@@ -1852,30 +2284,44 @@ export const AdminDashboardPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('orders')}
+            onClick={() => setActiveTab('analytics')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'orders'
+              activeTab === 'analytics' || activeTab === 'reports'
                 ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <ShoppingBag className="w-4 h-4" />
-              <span className="text-xs">Customer Orders</span>
+              <TrendingUp className="w-4 h-4" />
+              <span className="text-xs">Revenue & Analytics</span>
             </div>
           </button>
 
           <button
-            onClick={() => setActiveTab('custom_orders')}
+            onClick={() => setActiveTab('alerts')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'custom_orders'
+              activeTab === 'alerts'
                 ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-3">
-              <Sliders className="w-4 h-4" />
-              <span className="text-xs">Customization Orders</span>
+              <AlertTriangle className="w-4 h-4 text-amber-600" />
+              <span className="text-xs">Needs Attention</span>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('audit')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'audit'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Clock className="w-4 h-4" />
+              <span className="text-xs">System Audit Log</span>
             </div>
           </button>
 
@@ -1917,21 +2363,7 @@ export const AdminDashboardPage: React.FC = () => {
           >
             <div className="flex items-center gap-3">
               <Send className="w-4 h-4" />
-              <span className="text-xs">Broadcast & Direct Messages</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'analytics'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-xs">Analytics & Reports</span>
+              <span className="text-xs">Admin Directives</span>
             </div>
           </button>
         </nav>
@@ -1942,10 +2374,10 @@ export const AdminDashboardPage: React.FC = () => {
           {/* Mobile Top Header */}
           <div className="md:hidden bg-white border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-sm text-[#2C241D]">Admin Executive Portal</span>
+              <span className="font-extrabold text-sm text-[#2C241D]">Admin Control Center</span>
             </div>
             <div className="flex items-center gap-1.5 overflow-x-auto">
-              {['staff', 'products', 'orders'].map((tab) => (
+              {['overview', 'orders', 'production', 'inventory'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab as any)}
@@ -1981,32 +2413,76 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
+                    {activeTab === 'overview' && 'System-Wide Executive Dashboard & Control Center'}
                     {activeTab === 'analytics' && 'Executive Business Analytics & Performance Reports'}
-                    {activeTab === 'users' && 'System User Management'}
-                    {activeTab === 'staff' && 'Staff Accounts Management'}
+                    {activeTab === 'users' && 'Customer Directory & Shopper Accounts'}
+                    {activeTab === 'staff' && 'Staff Accounts & Workers Management'}
                     {activeTab === 'products' && 'Retail Product Management'}
-                    {activeTab === 'inventory' && 'Inventory Stock Control'}
+                    {activeTab === 'inventory' && 'Stock & Raw Materials Control'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
-                    {activeTab === 'orders' && 'Customer Store Orders'}
-                    {activeTab === 'custom_orders' && 'Bespoke Customization Orders & Approval Requests'}
+                    {activeTab === 'orders' && 'Customer Orders & Live Pipeline'}
+                    {activeTab === 'custom_orders' && 'Bespoke Customization & Customer Requests'}
+                    {activeTab === 'production' && 'Production Control & Stage Bottlenecks'}
+                    {activeTab === 'alerts' && 'Needs Attention & Operational Alerts'}
+                    {activeTab === 'audit' && 'System-Wide Audit Log & Activity Feed'}
                     {activeTab === 'queries' && 'Queries & Request Communications'}
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
-                    {activeTab === 'broadcast' && 'Admin Broadcast & Direct Messages'}
+                    {activeTab === 'broadcast' && 'Admin Directives & Official Announcements'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
+                    {activeTab === 'overview' && 'Complete real-time business visibility, sales performance, production bottlenecks, and operational status calculated live from PostgreSQL.'}
                     {activeTab === 'analytics' && 'Track overall store revenue, order volume, category sales share, and custom build performance across RetailSphere AI.'}
-                    {activeTab === 'users' && 'View, search, edit, create, activate, or deactivate all user accounts (Customers, Staff, Administrators) across RetailSphere.'}
-                    {activeTab === 'staff' && 'Create and manage Retail Staff and Production Staff user accounts with credentials dispatch.'}
-                    {activeTab === 'inventory' && 'Monitor stock counts across living room, dining, and bedroom collections.'}
-                    {activeTab === 'suppliers' && 'Manage ready-made furniture manufacturers, wholesale product vendors, and catalog stock allocations.'}
-                    {activeTab === 'queries' && 'Review staff requests, email change applications, and issue official admin responses.'}
-                    {activeTab === 'coupons' && 'Create promo codes and dispatch notifications & emails directly to targeted customer accounts.'}
-                    {activeTab === 'broadcast' && 'Send official directives and direct messages to Staff members.'}
+                    {activeTab === 'users' && 'View, search, edit, activate, or deactivate registered customer accounts across RetailSphere AI.'}
+                    {activeTab === 'staff' && 'Create and manage Retail Staff, Production Staff, and Artisan Worker accounts.'}
+                    {activeTab === 'inventory' && 'Monitor finished furniture products and raw material timber/fabric inventory.'}
+                    {activeTab === 'orders' && 'Track ready-made and custom furniture orders across the complete live fulfillment pipeline.'}
+                    {activeTab === 'production' && 'Monitor stage progression, active build loads, and workstation bottleneck risks.'}
+                    {activeTab === 'alerts' && 'Operational alerts requiring immediate administrative attention.'}
+                    {activeTab === 'audit' && 'Complete chronological audit log of all system actions.'}
                   </p>
                 </div>
 
-                {/* Top Right Controls: Notification Bell + Profile Menu Pill */}
+                {/* Global Search + Controls */}
                 <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
+                  {/* Global Search Field with Autocomplete */}
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7A6C5E]" />
+                    <input
+                      type="text"
+                      placeholder="Global System Search (ID, User, Product)..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-white/90 border border-[#E2D7CB] rounded-xl text-xs font-medium focus:outline-none focus:border-[#38A132] shadow-2xs text-[#2C241D]"
+                    />
+                    {isSearchDropdownOpen && globalSearchResults.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-2 bg-white border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] max-h-72 overflow-y-auto space-y-1 animate-fadeIn">
+                        <div className="px-3 py-1.5 text-[10px] font-extrabold text-[#7A6C5E] uppercase border-b border-[#EFE7DE]">
+                          Search Matches ({globalSearchResults.length})
+                        </div>
+                        {globalSearchResults.map((res) => (
+                          <div
+                            key={`${res.type}-${res.id}`}
+                            onClick={() => {
+                              setIsSearchDropdownOpen(false);
+                              if (res.type === 'Order') setActiveTab('orders');
+                              else if (res.type === 'Customization') setActiveTab('custom_orders');
+                              else if (res.type === 'Product') setActiveTab('products');
+                              else if (res.type === 'User') setActiveTab('users');
+                            }}
+                            className="p-2.5 rounded-xl hover:bg-[#FAF7F2] cursor-pointer transition-colors border border-transparent hover:border-[#E2D7CB]"
+                          >
+                            <div className="flex items-center justify-between text-xs font-bold text-[#2C241D]">
+                              <span>{res.title}</span>
+                              <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-[#38A132]/10 text-[#38A132] uppercase border border-[#38A132]/20">
+                                {res.type}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-[#7A6C5E] mt-0.5">{res.subtitle}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Notification Bell Dropdown */}
                   <div className="relative">
@@ -2106,18 +2582,374 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               </div>
 
+              {/* TAB OVERVIEW: SYSTEM-WIDE EXECUTIVE CONTROL CENTER */}
+              {activeTab === 'overview' && (
+                <div className="space-y-6 relative z-10">
+                  {/* Top Level Business Metrics Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                      <div className="flex items-center justify-between text-[#8C8275]">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Total Revenue</span>
+                        <DollarSign className="w-4 h-4 text-[#38A132]" />
+                      </div>
+                      <div className="text-2xl font-black text-[#2C241D]">
+                        ₹{(dashboardSummary?.revenue_metrics?.total_revenue || 0).toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
+                        PostgreSQL Paid Payments
+                      </span>
+                    </div>
+
+                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                      <div className="flex items-center justify-between text-[#8C8275]">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Total Orders</span>
+                        <ShoppingBag className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-black text-[#2C241D]">
+                        {dashboardSummary?.business_metrics?.total_orders || orderList.length}
+                      </div>
+                      <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">
+                        Ready-made & Custom Builds
+                      </span>
+                    </div>
+
+                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                      <div className="flex items-center justify-between text-[#8C8275]">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Active Customers</span>
+                        <UserCheck className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div className="text-2xl font-black text-[#2C241D]">
+                        {dashboardSummary?.business_metrics?.active_customers || allUsersList.length}
+                      </div>
+                      <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">
+                        Registered System Accounts
+                      </span>
+                    </div>
+
+                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                      <div className="flex items-center justify-between text-[#8C8275]">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Low Stock Warnings</span>
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-black text-amber-600">
+                        {dashboardSummary?.business_metrics?.low_stock_items || lowStockCount}
+                      </div>
+                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">
+                        Items Under Reorder Level
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Revenue Analytics & Period Selector */}
+                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                          <DollarSign className="w-4 h-4 text-[#38A132]" />
+                          <span>Revenue & Financial Performance Overview</span>
+                        </h4>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Calculated strictly from paid PostgreSQL transactions. Excludes cart values and unpaid quotes.</p>
+                      </div>
+
+                      {/* Timeframe Selector Pills */}
+                      <div className="flex items-center gap-1.5 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB]">
+                        {['today', '7days', '30days', 'this_month', 'this_year'].map((period) => (
+                          <button
+                            key={period}
+                            onClick={() => setAnalyticsTimeframe(period)}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-extrabold capitalize transition-all cursor-pointer ${
+                              analyticsTimeframe === period
+                                ? 'bg-[#38A132] text-white shadow-xs'
+                                : 'text-[#7A6C5E] hover:text-[#2C241D]'
+                            }`}
+                          >
+                            {period.replace('_', ' ')}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Today's Revenue</span>
+                        <div className="text-lg font-black text-[#38A132]">₹{(dashboardSummary?.revenue_metrics?.todays_revenue || 0).toLocaleString('en-IN')}</div>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">This Month Revenue</span>
+                        <div className="text-lg font-black text-[#2C241D]">₹{(dashboardSummary?.revenue_metrics?.this_month_revenue || 0).toLocaleString('en-IN')}</div>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Average Order Value</span>
+                        <div className="text-lg font-black text-purple-700">₹{(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}</div>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Refunds Total</span>
+                        <div className="text-lg font-black text-red-600">₹{(dashboardSummary?.revenue_metrics?.refunds_total_amount || 0).toLocaleString('en-IN')}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live Operational Order & Production Pipeline */}
+                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-blue-600" />
+                      <span>Live Order & Custom Production Pipeline</span>
+                    </h4>
+
+                    {/* Stage Pipeline Progress Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Order Placed</span>
+                        <div className="text-xl font-black text-[#2C241D]">{dashboardSummary?.order_status_counts?.Placed || 0}</div>
+                        <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">New Orders</span>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Technical Review</span>
+                        <div className="text-xl font-black text-[#2C241D]">{dashboardSummary?.production_status_summary?.technical_assessment || 0}</div>
+                        <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">Assessment</span>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Quotation / Approval</span>
+                        <div className="text-xl font-black text-[#2C241D]">{dashboardSummary?.production_status_summary?.customer_approval || 0}</div>
+                        <span className="text-[9px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">Pending Approval</span>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">In Production</span>
+                        <div className="text-xl font-black text-[#38A132]">{dashboardSummary?.production_status_summary?.in_production || 0}</div>
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">Workstation</span>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">QC Pending</span>
+                        <div className="text-xl font-black text-amber-600">{dashboardSummary?.production_status_summary?.qc_pending || 0}</div>
+                        <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">Inspection</span>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Delivered</span>
+                        <div className="text-xl font-black text-emerald-600">{dashboardSummary?.order_status_counts?.Delivered || 0}</div>
+                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">Completed</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Production Workstation Bottlenecks & Needs Attention Alert Center */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Workstation Bottlenecks Card */}
+                    <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                        <span className="flex items-center gap-2">
+                          <Wrench className="w-4 h-4 text-[#38A132]" />
+                          <span>Production Stage Bottlenecks</span>
+                        </span>
+                        <span className="text-[10px] font-extrabold bg-[#38A132]/10 text-[#38A132] px-2.5 py-0.5 rounded-full border border-[#38A132]/20">
+                          {bottlenecksList.length} Stages Monitored
+                        </span>
+                      </h4>
+
+                      <div className="space-y-3">
+                        {bottlenecksList.length === 0 ? (
+                          <div className="p-4 text-center text-[#7A6C5E] text-xs italic">
+                            No production bottlenecks detected across shop floor workstations.
+                          </div>
+                        ) : (
+                          bottlenecksList.map((bot) => (
+                            <div key={bot.stage} className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] flex items-center justify-between">
+                              <div>
+                                <h5 className="font-extrabold text-xs text-[#2C241D]">{bot.stage} Stage</h5>
+                                <p className="text-[11px] text-[#7A6C5E] font-medium">
+                                  {bot.pending_jobs} pending jobs • {bot.in_progress_jobs} active • {bot.assigned_workers_count} craftsmen assigned
+                                </p>
+                              </div>
+                              <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${
+                                bot.risk === 'HIGH' ? 'bg-red-50 text-red-700 border-red-200' :
+                                bot.risk === 'MEDIUM' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              }`}>
+                                {bot.risk} RISK
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Operational Alerts / Needs Attention Card */}
+                    <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                        <span className="flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-600" />
+                          <span>Operational Alert Center ("Needs Attention")</span>
+                        </span>
+                        <span className="text-[10px] font-extrabold bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-300">
+                          {(dashboardSummary?.alerts || []).length} Active Alerts
+                        </span>
+                      </h4>
+
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {(dashboardSummary?.alerts || []).length === 0 ? (
+                          <div className="p-4 text-center text-[#7A6C5E] text-xs italic">
+                            All operations clear! No critical delays, QC failures, or inventory issues.
+                          </div>
+                        ) : (
+                          (dashboardSummary?.alerts || []).map((alt) => (
+                            <div key={alt.id} className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-amber-200 flex items-start gap-3">
+                              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <h5 className="font-extrabold text-xs text-[#2C241D]">{alt.title}</h5>
+                                <p className="text-[11px] text-[#5C4E42] mt-0.5">{alt.description}</p>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* FLEET OVERVIEW & ACTIVE INTERNAL DELIVERIES (Requirement 19) */}
+                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                        <Truck className="w-4 h-4 text-[#38A132]" />
+                        <span>Fleet Overview & Active Internal Deliveries</span>
+                      </h4>
+                      <button
+                        onClick={() => setActiveTab('fleet')}
+                        className="text-xs font-extrabold text-[#38A132] hover:text-[#2E8529] cursor-pointer inline-flex items-center gap-1"
+                      >
+                        <span>Manage Fleet</span>
+                        <span>→</span>
+                      </button>
+                    </div>
+
+                    {/* Compact Fleet Summary Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Total Vehicles</span>
+                        <div className="text-xl font-black text-[#2C241D]">{fleetSummaryData?.summary?.total || 0}</div>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Available</span>
+                        <div className="text-xl font-black text-emerald-600">{fleetSummaryData?.summary?.available || 0}</div>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Assigned</span>
+                        <div className="text-xl font-black text-blue-600">{fleetSummaryData?.summary?.assigned || 0}</div>
+                      </div>
+
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Maintenance</span>
+                        <div className="text-xl font-black text-amber-600">{fleetSummaryData?.summary?.maintenance || 0}</div>
+                      </div>
+                    </div>
+
+                    {/* Active Internal Deliveries List */}
+                    <div className="space-y-2 pt-2">
+                      <h5 className="text-xs font-extrabold text-[#2C241D]">Active Internal Deliveries</h5>
+                      {(!fleetSummaryData?.active_deliveries || fleetSummaryData.active_deliveries.length === 0) ? (
+                        <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-center text-[#7A6C5E] text-xs italic">
+                          No active internal deliveries currently in transit.
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                                <th className="py-2 px-3">Order ID</th>
+                                <th className="py-2 px-3">Vehicle</th>
+                                <th className="py-2 px-3">Driver</th>
+                                <th className="py-2 px-3">Status</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                              {fleetSummaryData.active_deliveries.map((del) => (
+                                <tr key={del.fulfillment_id} className="hover:bg-[#FAF7F2] cursor-pointer" onClick={() => setActiveTab('fleet')}>
+                                  <td className="py-2 px-3 font-extrabold text-[#38A132]">{del.order_id}</td>
+                                  <td className="py-2 px-3 font-bold">{del.vehicle_code} <span className="text-[#7A6C5E] font-normal">({del.registration_number})</span></td>
+                                  <td className="py-2 px-3">{del.driver_name}</td>
+                                  <td className="py-2 px-3">
+                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
+                                      {del.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* System Audit Log & Chronological Activity Feed */}
+                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2 border-b border-[#EFE7DE] pb-3">
+                      <Clock className="w-4 h-4 text-[#38A132]" />
+                      <span>System-Wide Chronological Activity & Audit Log</span>
+                    </h4>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                            <th className="py-2.5 px-3">Timestamp</th>
+                            <th className="py-2.5 px-3">Actor / Staff</th>
+                            <th className="py-2.5 px-3">Action Performed</th>
+                            <th className="py-2.5 px-3">Entity Type</th>
+                            <th className="py-2.5 px-3">Entity ID</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                          {(dashboardSummary?.recent_activities || auditLogsList).length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-4 text-center text-[#7A6C5E] italic">
+                                System audit activity feed initialized. Real-time actions will log here.
+                              </td>
+                            </tr>
+                          ) : (
+                            (dashboardSummary?.recent_activities || auditLogsList).slice(0, 8).map((act) => (
+                              <tr key={act.id} className="hover:bg-[#FAF7F2]">
+                                <td className="py-2.5 px-3 font-mono text-[11px] text-[#7A6C5E]">{act.timestamp || 'Just now'}</td>
+                                <td className="py-2.5 px-3 font-bold">{act.actorName} ({act.actorRole})</td>
+                                <td className="py-2.5 px-3 font-extrabold text-[#38A132]">{act.action}</td>
+                                <td className="py-2.5 px-3">{act.entityType}</td>
+                                <td className="py-2.5 px-3 font-mono text-[#7A6C5E]">{act.entityId || '—'}</td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* TAB ANALYTICS: EXECUTIVE BUSINESS ANALYTICS */}
               {activeTab === 'analytics' && (() => {
-                // Real DB Computations - Zero Hardcoded Demo Data
-                const realStoreRevenue = (orderList || []).reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
-                const realCustomRevenue = (allAdminCustomOrders || [])
-                  .filter((co: any) => (co.payment_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'paid' || (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'completed')
-                  .reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+                // Precise DB Computations - Deduplicated across store and custom orders
+                const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-'));
+                const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
+                  (co: any) => (co.payment_status || '').toLowerCase() === 'paid' || 
+                               (co.order_status || '').toLowerCase() === 'paid' || 
+                               (co.order_status || '').toLowerCase() === 'in production' || 
+                               (co.order_status || '').toLowerCase() === 'completed'
+                );
+
+                const realStoreRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+                const realCustomRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
                 const realGrossRevenue = realStoreRevenue + realCustomRevenue;
 
-                const totalOrdersCount = (orderList || []).length + (allAdminCustomOrders || []).length;
-                const completedOrdersCount = (orderList || []).filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
-                  (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+                const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length;
+                const completedOrdersCount = readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
+                  paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
 
                 const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
                   (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
@@ -2139,17 +2971,27 @@ export const AdminDashboardPage: React.FC = () => {
                   };
                 });
 
-                (orderList || []).forEach((ord: any) => {
-                  const d = new Date(ord.createdAt || ord.orderDate || Date.now());
-                  const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
-                  if (found) {
-                    found.storeVal += (ord.totalAmount || 0);
+                // Calculate store revenue per month (without duplicating custom orders)
+                readymadeStoreOrders.forEach((ord: any) => {
+                  let d: Date | null = null;
+                  if (ord.createdAt) d = new Date(ord.createdAt);
+                  else if (ord.orderDate) d = new Date(ord.orderDate);
+                  
+                  if (d && !isNaN(d.getTime())) {
+                    const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
+                    if (found) {
+                      found.storeVal += (ord.totalAmount || 0);
+                    }
                   }
                 });
 
-                (allAdminCustomOrders || []).forEach((co: any) => {
-                  if (co.order_date) {
-                    const d = new Date(co.order_date);
+                // Calculate custom revenue per month
+                paidCustomOrdersList.forEach((co: any) => {
+                  let d: Date | null = null;
+                  if (co.order_date) d = new Date(co.order_date);
+                  else if (co.created_at) d = new Date(co.created_at);
+                  
+                  if (d && !isNaN(d.getTime())) {
                     const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
                     if (found) {
                       found.customVal += (co.estimated_price || 0);
@@ -2162,15 +3004,15 @@ export const AdminDashboardPage: React.FC = () => {
                   1
                 );
 
-                // Dynamic Category Distribution from Real DB
+                // Dynamic Category Distribution from Real DB (deduplicated)
                 const catTotalsMap: Record<string, number> = {};
-                (orderList || []).forEach((ord: any) => {
+                readymadeStoreOrders.forEach((ord: any) => {
                   (ord.items || []).forEach((it: any) => {
                     const catName = it.category || 'General Store Product';
                     catTotalsMap[catName] = (catTotalsMap[catName] || 0) + ((it.price || 0) * (it.quantity || 1));
                   });
                 });
-                (allAdminCustomOrders || []).forEach((co: any) => {
+                paidCustomOrdersList.forEach((co: any) => {
                   const catName = `Bespoke ${co.furniture_type || 'Custom Build'}`;
                   catTotalsMap[catName] = (catTotalsMap[catName] || 0) + (co.estimated_price || 0);
                 });
@@ -2178,24 +3020,30 @@ export const AdminDashboardPage: React.FC = () => {
                 const catList = Object.entries(catTotalsMap).sort((a, b) => b[1] - a[1]);
                 const overallCatSum = catList.reduce((acc, curr) => acc + curr[1], 0) || 1;
 
-                // Merge Real Orders for Performance Table
+                // Merge Real Orders for Performance Table (deduplicated)
                 const combinedRealOrders = [
-                  ...(orderList || []).map((o: any) => ({
+                  ...readymadeStoreOrders.map((o: any) => ({
                     id: o.orderId,
                     name: (o.items && o.items[0]) ? o.items[0].name : `Store Order #${o.orderId}`,
-                    type: 'Catalog Product',
+                    type: 'Catalog Order',
+                    customer: o.customerName || 'Store Customer',
                     qty: o.itemsCount || 1,
                     value: o.totalAmount || 0,
-                    status: o.orderStatus || 'Pending',
+                    amount: o.totalAmount || 0,
+                    status: o.orderStatus || 'Processing',
+                    date: o.orderDate || 'Recent'
                   })),
-                  ...(allAdminCustomOrders || []).map((co: any) => ({
+                  ...paidCustomOrdersList.map((co: any) => ({
                     id: `CUSTOM-${co.custom_order_id}`,
-                    name: `Custom ${co.furniture_type} (${co.material || 'Wood'})`,
-                    type: 'Bespoke Build',
+                    name: `Custom ${co.furniture_type || 'Furniture Build'}`,
+                    type: 'Bespoke Custom',
+                    customer: co.customer_name || 'Bespoke Customer',
                     qty: 1,
                     value: co.estimated_price || 0,
-                    status: co.order_status || 'Pending',
-                  })),
+                    amount: co.estimated_price || 0,
+                    status: co.order_status || 'In Production',
+                    date: co.order_date || 'Recent'
+                  }))
                 ];
 
                 return (
@@ -2451,58 +3299,254 @@ export const AdminDashboardPage: React.FC = () => {
                 );
               })()}
 
-              {/* TAB 0: SYSTEM USER MANAGEMENT */}
+              {/* TAB: FLEET & VEHICLES MANAGEMENT (Requirement 2-9) */}
+              {activeTab === 'fleet' && (
+                <div className="relative z-10 space-y-6 animate-fadeIn">
+                  {/* Top Header & Add Vehicle CTA */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg">
+                    <div>
+                      <h3 className="text-xl font-extrabold text-[#2C241D] flex items-center gap-2.5">
+                        <Truck className="w-6 h-6 text-[#38A132]" />
+                        <span>Fleet & Vehicles Management</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
+                        Manage internal company delivery vehicles, capacity allocations, and driver assignments.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={handleOpenAddVehicleModal}
+                      className="px-4 py-2.5 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-2 cursor-pointer transform active:scale-95 shrink-0"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Add Vehicle</span>
+                    </button>
+                  </div>
+
+                  {/* Small Summary Statistics (From PostgreSQL DB) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="ultra-glass-card bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-[#E2D7CB] shadow-sm space-y-2">
+                      <div className="text-xs font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Vehicles</span>
+                        <Truck className="w-4 h-4 text-[#38A132]" />
+                      </div>
+                      <div className="text-3xl font-black text-[#2C241D]">
+                        {fleetSummaryData?.summary?.total || vehiclesList.length}
+                      </div>
+                      <div className="text-[10px] font-bold text-[#7A6C5E]">Registered Internal Fleet</div>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-[#E2D7CB] shadow-sm space-y-2">
+                      <div className="text-xs font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Available</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-3xl font-black text-emerald-600">
+                        {fleetSummaryData?.summary?.available || vehiclesList.filter(v => v.status === 'AVAILABLE').length}
+                      </div>
+                      <div className="text-[10px] font-bold text-emerald-700">Ready for Order Dispatch</div>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-[#E2D7CB] shadow-sm space-y-2">
+                      <div className="text-xs font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Assigned</span>
+                        <Briefcase className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-3xl font-black text-blue-600">
+                        {fleetSummaryData?.summary?.assigned || vehiclesList.filter(v => v.status === 'ASSIGNED').length}
+                      </div>
+                      <div className="text-[10px] font-bold text-blue-700">Currently Out on Delivery</div>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-[#E2D7CB] shadow-sm space-y-2">
+                      <div className="text-xs font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Maintenance</span>
+                        <Wrench className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-3xl font-black text-amber-600">
+                        {fleetSummaryData?.summary?.maintenance || vehiclesList.filter(v => v.status === 'MAINTENANCE').length}
+                      </div>
+                      <div className="text-[10px] font-bold text-amber-800">Under Servicing & Repairs</div>
+                    </div>
+                  </div>
+
+                  {/* Filter Pills & Vehicle Search Bar */}
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-3xl p-6 border border-[#E2D7CB] shadow-xl space-y-4">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                      {/* Status Filter Pills */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {['ALL', 'AVAILABLE', 'ASSIGNED', 'MAINTENANCE', 'INACTIVE'].map((st) => (
+                          <button
+                            key={st}
+                            onClick={() => setFleetStatusFilter(st)}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                              fleetStatusFilter === st
+                                ? 'bg-[#38A132] text-white shadow-sm'
+                                : 'bg-[#F9F6F0] text-[#7A6C5E] hover:bg-[#F2ECE1] border border-[#E2D7CB]'
+                            }`}
+                          >
+                            {st === 'ALL' ? 'All Fleet' : st}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search registration, type..."
+                          value={fleetSearchQuery}
+                          onChange={(e) => setFleetSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Vehicle Table */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead>
+                          <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-extrabold uppercase tracking-wider text-[10px]">
+                            <th className="py-3 px-3">Vehicle ID</th>
+                            <th className="py-3 px-3">Registration Number</th>
+                            <th className="py-3 px-3">Vehicle Type</th>
+                            <th className="py-3 px-3">Capacity</th>
+                            <th className="py-3 px-3">Assigned Driver</th>
+                            <th className="py-3 px-3">Status</th>
+                            <th className="py-3 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                          {vehiclesList.filter(v => {
+                            if (!fleetSearchQuery.trim()) return true;
+                            const q = fleetSearchQuery.toLowerCase();
+                            return v.id.toLowerCase().includes(q) ||
+                                   v.registration_number.toLowerCase().includes(q) ||
+                                   v.vehicle_type.toLowerCase().includes(q) ||
+                                   v.assigned_driver_name.toLowerCase().includes(q);
+                          }).length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="py-8 text-center text-[#7A6C5E] text-xs italic">
+                                No internal vehicles match the current filter. Click "Add Vehicle" to register new fleet vehicles.
+                              </td>
+                            </tr>
+                          ) : (
+                            vehiclesList.filter(v => {
+                              if (!fleetSearchQuery.trim()) return true;
+                              const q = fleetSearchQuery.toLowerCase();
+                              return v.id.toLowerCase().includes(q) ||
+                                     v.registration_number.toLowerCase().includes(q) ||
+                                     v.vehicle_type.toLowerCase().includes(q) ||
+                                     v.assigned_driver_name.toLowerCase().includes(q);
+                            }).map((veh) => (
+                              <tr key={veh.vehicle_id} className="hover:bg-[#FAF7F2] transition-colors">
+                                <td className="py-3.5 px-3 font-extrabold text-[#38A132] font-mono">{veh.id}</td>
+                                <td className="py-3.5 px-3 font-extrabold text-[#2C241D] tracking-wide">{veh.registration_number}</td>
+                                <td className="py-3.5 px-3 font-semibold">{veh.vehicle_type}</td>
+                                <td className="py-3.5 px-3 font-bold text-[#6B5C4D]">{veh.capacity} kg</td>
+                                <td className="py-3.5 px-3 font-semibold">{veh.assigned_driver_name}</td>
+                                <td className="py-3.5 px-3">
+                                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                    veh.status === 'AVAILABLE' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                    veh.status === 'ASSIGNED' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                    veh.status === 'MAINTENANCE' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                                    'bg-gray-100 text-gray-700 border-gray-300'
+                                  }`}>
+                                    {veh.status}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-3 text-right space-x-2">
+                                  <button
+                                    onClick={() => handleOpenVehicleDetailModal(veh)}
+                                    className="px-2.5 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-600 hover:text-white font-extrabold text-xs transition-all cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    <span>View</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleOpenEditVehicleModal(veh)}
+                                    className="px-2.5 py-1.5 bg-[#FAF7F2] text-[#6B5C4D] border border-[#E2D7CB] rounded-lg hover:bg-[#EFE7DE] hover:text-[#2C241D] font-extrabold text-xs transition-all cursor-pointer inline-flex items-center gap-1"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 0: CUSTOMER DIRECTORY & SHOPPER ACCOUNTS */}
               {activeTab === 'users' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
                   {/* Summary Stat Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Total Users</span>
+                        <span>Total Customers</span>
                         <Users className="w-4 h-4 text-[#48A63E]" />
                       </div>
-                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{allUsersList.length}</div>
-                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">System User Database</div>
+                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
+                        {allUsersList.filter(u => (u.role || u.role_name || 'Customer') === 'Customer').length}
+                      </div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Retail & Store Shoppers</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Customer Accounts</span>
+                        <span>Active Shoppers</span>
                         <UserCheck className="w-4 h-4 text-emerald-600" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {allUsersList.filter(u => (u.role || u.role_name) === 'Customer').length}
+                        {allUsersList.filter(u => (u.role || u.role_name || 'Customer') === 'Customer' && u.status !== false).length}
                       </div>
-                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Retail & Store Shoppers</div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Active Accounts</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Staff Members</span>
-                        <ShieldCheck className="w-4 h-4 text-blue-600" />
+                        <span>Custom Build Buyers</span>
+                        <ShoppingBag className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-purple-700 mt-2">
+                        {allAdminCustomOrders.length}
+                      </div>
+                      <div className="text-[10px] text-purple-700 font-bold mt-1">Custom Furniture Orders</div>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Store Orders</span>
+                        <PackageCheck className="w-4 h-4 text-blue-600" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {allUsersList.filter(u => ['Retail Staff', 'Production Staff'].includes(u.role || u.role_name)).length}
+                        {getStoredRetailOrders().length}
                       </div>
-                      <div className="text-[10px] text-blue-700 font-bold mt-1">Retail & Production Portals</div>
+                      <div className="text-[10px] text-blue-700 font-bold mt-1">Total Store Orders</div>
                     </div>
                   </div>
 
                   {/* Header & Controls */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-b border-[#EFE7DE] py-4">
-                    {/* Role Filter Pills */}
+                    {/* Filter Pills */}
                     <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-                      {(['All', 'Customer', 'Retail Staff', 'Production Staff'] as const).map((r) => (
+                      {(['All Customers', 'Active', 'Inactive'] as const).map((r) => (
                         <button
                           key={r}
-                          onClick={() => setUserRoleFilter(r)}
+                          onClick={() => setUserRoleFilter(r as any)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
                             userRoleFilter === r
                               ? 'bg-[#48A63E] text-white shadow-xs'
                               : 'bg-[#F9F6F0] text-[#6B5C4D] hover:bg-[#EFE7DE]'
                           }`}
                         >
-                          {r === 'All' ? 'All Roles' : r}
+                          {r}
                         </button>
                       ))}
                     </div>
@@ -2511,7 +3555,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
                         type="text"
-                        placeholder="Search name, email, phone..."
+                        placeholder="Search customer name, email, phone..."
                         value={userSearchQuery}
                         onChange={(e) => setUserSearchQuery(e.target.value)}
                         className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
@@ -2524,7 +3568,7 @@ export const AdminDashboardPage: React.FC = () => {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">User Details</th>
+                          <th className="py-3 px-4">Customer Details</th>
                           <th className="py-3 px-4">Email / Username</th>
                           <th className="py-3 px-4">Phone Number</th>
                           <th className="py-3 px-4">Role</th>
@@ -2535,10 +3579,11 @@ export const AdminDashboardPage: React.FC = () => {
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {allUsersList
                           .filter((u) => {
-                            const r = u.role || u.role_name;
-                            if (r === 'Admin' || u.email === 'admin@retailsphere.com' || u.name === 'admin') return false;
-                            if (userRoleFilter === 'All') return true;
-                            return r === userRoleFilter;
+                            const r = u.role || u.role_name || 'Customer';
+                            if (r !== 'Customer') return false; // Strictly show ONLY Customers!
+                            if (userRoleFilter === 'Active' && u.status === false) return false;
+                            if (userRoleFilter === 'Inactive' && u.status !== false) return false;
+                            return true;
                           })
                           .filter((u) => {
                             if (!userSearchQuery.trim()) return true;
@@ -2572,15 +3617,22 @@ export const AdminDashboardPage: React.FC = () => {
                                 <td className="py-4 px-4 font-mono text-[#6B5C4D]">{u.email}</td>
                                 <td className="py-4 px-4 text-[#6B5C4D]">{u.phone || '+91 98765 43210'}</td>
                                 <td className="py-4 px-4">
-                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border ${
-                                    roleStr === 'Production Staff'
-                                      ? 'bg-amber-100 text-amber-800 border-amber-300'
-                                      : roleStr === 'Retail Staff'
-                                      ? 'bg-blue-100 text-blue-800 border-blue-300'
-                                      : 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                                  }`}>
-                                    {roleStr}
-                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border ${
+                                      roleStr === 'Production Staff'
+                                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                        : roleStr === 'Retail Staff'
+                                        ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                        : 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                    }`}>
+                                      {roleStr}
+                                    </span>
+                                    {Boolean((u as any).is_driver) && (
+                                      <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 border border-purple-300 shadow-xs">
+                                        🚚 Driver
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="py-4 px-4">
                                   <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
@@ -2593,45 +3645,57 @@ export const AdminDashboardPage: React.FC = () => {
                                 </td>
                                  <td className="py-4 px-4 text-right whitespace-nowrap">
                                    <div className="flex items-center justify-end gap-2">
-                                     {roleStr.toLowerCase().includes('staff') ? (
-                                       <button
-                                         onClick={() => handleViewUserPurchases(u)}
-                                         className="px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all border border-emerald-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                         title="View Products Sold by Staff"
-                                       >
-                                         <PackageCheck className="w-3.5 h-3.5" />
-                                         <span>Sold Products</span>
-                                       </button>
-                                     ) : (
-                                       <button
-                                         onClick={() => handleViewUserPurchases(u)}
-                                         className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-600 hover:text-white transition-all border border-purple-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                         title="View Products Purchased by User"
-                                       >
-                                         <ShoppingBag className="w-3.5 h-3.5" />
-                                         <span>Purchases</span>
-                                       </button>
-                                     )}
-                                     <button
-                                       onClick={() => handleOpenEditUser(u)}
-                                       className="p-1.5 text-blue-700 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
-                                       title="Edit User Details"
-                                     >
-                                       <Edit3 className="w-4 h-4" />
-                                       <span>Edit</span>
-                                     </button>
-                                     <button
-                                       onClick={() => handleToggleUserStatus(u.user_id)}
-                                       className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition-all shadow-xs cursor-pointer ${
-                                         isAct
-                                           ? 'bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-200'
-                                           : 'bg-[#48A63E]/15 text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30'
-                                       }`}
-                                       title={isAct ? 'Deactivate Account' : 'Activate Account'}
-                                     >
-                                       {isAct ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
-                                       <span>{isAct ? 'Deactivate' : 'Activate'}</span>
-                                     </button>
+                                      {roleStr.toLowerCase().includes('staff') ? (
+                                        <button
+                                          onClick={() => handleViewUserPurchases(u)}
+                                          className="px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all border border-emerald-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                          title="View Products Sold by Staff"
+                                        >
+                                          <PackageCheck className="w-3.5 h-3.5" />
+                                          <span>Sold Products</span>
+                                        </button>
+                                      ) : (roleStr.toLowerCase().includes('worker') || roleStr.toLowerCase().includes('craftsman')) ? (
+                                        <button
+                                          onClick={() => {
+                                            setActiveTab('custom_orders');
+                                            setCustomOrderSearchQuery(u.name || u.full_name || u.email || '');
+                                          }}
+                                          className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-600 hover:text-white transition-all border border-purple-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                          title="View Production Builds Assigned to Worker"
+                                        >
+                                          <Wrench className="w-3.5 h-3.5" />
+                                          <span>Assigned Jobs</span>
+                                        </button>
+                                      ) : roleStr.toLowerCase().includes('customer') ? (
+                                        <button
+                                          onClick={() => handleViewUserPurchases(u)}
+                                          className="px-2.5 py-1.5 rounded-xl bg-purple-50 text-purple-700 hover:bg-purple-600 hover:text-white transition-all border border-purple-200 shadow-xs cursor-pointer inline-flex items-center gap-1 font-bold text-xs"
+                                          title="View Customer Order Purchases"
+                                        >
+                                          <ShoppingBag className="w-3.5 h-3.5" />
+                                          <span>Purchases</span>
+                                        </button>
+                                      ) : null}
+                                      <button
+                                        onClick={() => handleOpenEditUser(u)}
+                                        className="px-2.5 py-1.5 text-blue-700 bg-blue-50 hover:bg-blue-600 hover:text-white border border-blue-200 rounded-xl transition-all transform hover:scale-105 active:scale-95 cursor-pointer inline-flex items-center gap-1 font-extrabold text-xs shadow-xs"
+                                        title="Edit User Account Details"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                        <span>Edit</span>
+                                      </button>
+                                      <button
+                                        onClick={() => handleToggleUserStatus(u.user_id)}
+                                        className={`inline-flex items-center gap-1 text-[11px] font-extrabold px-3 py-1.5 rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-xs cursor-pointer ${
+                                          isAct
+                                            ? 'bg-rose-50 text-rose-700 hover:bg-rose-600 hover:text-white border border-rose-200 hover:shadow-rose-600/20'
+                                            : 'bg-[#48A63E]/15 text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30 hover:shadow-[#48A63E]/20'
+                                        }`}
+                                        title={isAct ? 'Deactivate Account' : 'Activate Account'}
+                                      >
+                                        {isAct ? <UserX className="w-3.5 h-3.5" /> : <UserCheck className="w-3.5 h-3.5" />}
+                                        <span>{isAct ? 'Deactivate' : 'Activate'}</span>
+                                      </button>
                                    </div>
                                  </td>
                               </tr>
@@ -2646,15 +3710,15 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB 1: STAFF ACCOUNTS MANAGEMENT (ADMIN FEATURE) */}
               {activeTab === 'staff' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  {/* Staff Summary Stat Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Staff & Workers Summary Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Staff Members</span>
+                        <span>Total Roster</span>
                         <Users className="w-4 h-4 text-[#48A63E]" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{staffMembers.length}</div>
-                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Active Staff Accounts</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Active Accounts & Craftsmen</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
@@ -2676,25 +3740,39 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
                         {staffMembers.filter(s => s.role === 'Production Staff').length}
                       </div>
-                      <div className="text-[10px] text-amber-700 font-bold mt-1">Manufacturing & Assembly</div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Studio Managers & QC</div>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Artisan Workers</span>
+                        <Wrench className="w-4 h-4 text-purple-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-purple-700 mt-2">
+                        {staffMembers.filter(s => s.role === 'Artisan Worker').length}
+                      </div>
+                      <div className="text-[10px] text-purple-700 font-bold mt-1">Workshop Technicians</div>
                     </div>
                   </div>
 
-                  {/* Header & Create Staff Trigger */}
-                  <div className="flex flex-col sm:flex-row items-center justify-end gap-4 border-b border-[#EFE7DE] pb-4">
+                  {/* Header & Create Staff/Worker Trigger */}
+                  <div className="flex flex-col sm:flex-row items-center justify-end gap-3 border-b border-[#EFE7DE] pb-4">
                     <button
-                      onClick={() => setIsAddStaffModalOpen(true)}
-                      className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer"
+                      onClick={() => {
+                        setNewStaffRole('Retail Staff');
+                        setIsAddStaffModalOpen(true);
+                      }}
+                      className="px-5 py-2.5 rounded-2xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-2 cursor-pointer transform active:scale-95"
                     >
-                      <Plus className="w-4 h-4" />
-                      <span>Add New Staff Member</span>
+                      <UserPlus className="w-4 h-4" />
+                      <span>+ Add Staff / Worker Member</span>
                     </button>
                   </div>
 
                   {/* Role Filters & Search Bar */}
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
                     <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-                      {['All', 'Retail Staff', 'Production Staff'].map((role) => (
+                      {['All', 'Retail Staff', 'Production Staff', 'Artisan Worker'].map((role) => (
                         <button
                           key={role}
                           onClick={() => setStaffRoleFilter(role as any)}
@@ -2731,7 +3809,8 @@ export const AdminDashboardPage: React.FC = () => {
                           <th className="py-3 px-4">Phone Number</th>
                           <th className="py-3 px-4">Role</th>
                           <th className="py-3 px-4">Status</th>
-                          <th className="py-3 px-4 text-right">Date Added</th>
+                          <th className="py-3 px-4">Date Added</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -2758,20 +3837,64 @@ export const AdminDashboardPage: React.FC = () => {
                               <td className="py-4 px-4 font-mono text-[#6B5C4D]">{staff.email}</td>
                               <td className="py-4 px-4 text-[#6B5C4D]">{staff.phone}</td>
                               <td className="py-4 px-4">
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  staff.role === 'Production Staff'
-                                    ? 'bg-amber-100 text-amber-800'
-                                    : 'bg-blue-100 text-blue-800'
-                                }`}>
-                                  {staff.role}
-                                </span>
+                                <div className="space-y-0.5">
+                                  <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    staff.role === 'Production Staff'
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : staff.role === 'Artisan Worker'
+                                      ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                                      : 'bg-blue-100 text-blue-800'
+                                  }`}>
+                                    {staff.role}
+                                  </span>
+                                  {staff.skill && (
+                                    <span className="block text-[10px] font-bold text-purple-700">
+                                      🛠️ {staff.skill}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className="py-4 px-4">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E]">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md border ${
+                                  staff.status === 'Active'
+                                    ? 'bg-[#48A63E]/15 text-[#48A63E] border-[#48A63E]/30'
+                                    : 'bg-rose-100 text-rose-800 border-rose-200'
+                                }`}>
                                   {staff.status}
                                 </span>
                               </td>
-                              <td className="py-4 px-4 text-right font-mono text-[#7A6C5E]">{staff.dateAdded}</td>
+                              <td className="py-4 px-4 font-mono text-[#7A6C5E]">{staff.dateAdded}</td>
+                              <td className="py-4 px-4 text-right">
+                                <div className="flex items-center justify-end gap-2">
+                                  <button
+                                    onClick={() => handleOpenEditStaffModal(staff)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200 transition-all font-extrabold text-[11px] inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                                    title="Edit staff details, role, specialization, and driver authorization"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    <span>Edit</span>
+                                  </button>
+                                  {staff.status === 'Active' ? (
+                                    <button
+                                      onClick={() => handleToggleStaffStatus(staff)}
+                                      className="px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-extrabold text-[11px] inline-flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                      title="Deactivate staff/worker account"
+                                    >
+                                      <UserX className="w-3.5 h-3.5" />
+                                      <span>Deactivate</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleToggleStaffStatus(staff)}
+                                      className="px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-700 font-extrabold text-[11px] inline-flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                      title="Activate staff/worker account"
+                                    >
+                                      <UserCheck className="w-3.5 h-3.5" />
+                                      <span>Activate</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                       </tbody>
@@ -2933,20 +4056,33 @@ export const AdminDashboardPage: React.FC = () => {
                             </td>
                             <td className="py-3.5 px-4 text-right">
                               <div className="flex items-center justify-end gap-2">
-                                <button
-                                  onClick={() => handleOpenEditProduct(prod)}
-                                  className="p-1.5 rounded-lg text-[#6B5C4D] hover:bg-[#F2ECE1] transition-colors"
-                                  title="Edit product"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => handleOpenDeleteModal(prod)}
-                                  className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition-colors"
-                                  title="Delete product"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                {/* Edit Product Button */}
+                                <div className="relative group/tip">
+                                  <button
+                                    onClick={() => handleOpenEditProduct(prod)}
+                                    className="p-2 rounded-xl text-[#6B5C4D] hover:text-[#48A63E] hover:bg-[#48A63E]/10 transition-all transform hover:scale-110 active:scale-95 border border-transparent hover:border-[#48A63E]/20 shadow-xs cursor-pointer"
+                                    aria-label="Edit product details"
+                                  >
+                                    <Edit className="w-4 h-4" />
+                                  </button>
+                                  <div className="absolute right-0 -top-8 opacity-0 group-hover/tip:opacity-100 group-hover/tip:-translate-y-1 transition-all duration-200 pointer-events-none bg-[#2C241D] text-white text-[10px] font-extrabold px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap z-30 border border-white/10 flex items-center gap-1">
+                                    <span>Edit Specs</span>
+                                  </div>
+                                </div>
+
+                                {/* Remove Product Button */}
+                                <div className="relative group/tip">
+                                  <button
+                                    onClick={() => handleOpenDeleteModal(prod)}
+                                    className="p-2 rounded-xl text-rose-600 hover:text-white hover:bg-rose-600 transition-all transform hover:scale-110 active:scale-95 border border-transparent hover:border-rose-700 shadow-xs cursor-pointer"
+                                    aria-label="Remove product from catalog"
+                                  >
+                                    <PackageMinus className="w-4 h-4" />
+                                  </button>
+                                  <div className="absolute right-0 -top-8 opacity-0 group-hover/tip:opacity-100 group-hover/tip:-translate-y-1 transition-all duration-200 pointer-events-none bg-rose-950 text-rose-200 text-[10px] font-extrabold px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap z-30 border border-rose-800/40 flex items-center gap-1">
+                                    <span>Remove Item</span>
+                                  </div>
+                                </div>
                               </div>
                             </td>
                           </tr>
@@ -3558,22 +4694,22 @@ export const AdminDashboardPage: React.FC = () => {
                       .map((ord) => (
                         <div
                           key={ord.custom_order_id}
-                          className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-white/80 bg-white/60 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-[#38A132]/50 hover:bg-white/70 transition-all"
+                          className="rounded-2xl p-3.5 shadow-sm border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-2.5 hover:border-[#38A132]/50 hover:bg-white transition-all"
                         >
-                          {/* Top Badges & Price Header */}
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-                            <div className="flex items-center gap-2.5 flex-wrap">
-                              <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
+                          {/* Compact Top Header Bar */}
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] font-mono font-extrabold text-[#38A132] px-2.5 py-0.5 rounded-md bg-[#38A132]/10 border border-[#38A132]/25">
                                 ORDER #{ord.custom_order_id}
                               </span>
 
                               {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
-                                <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                                   <span>Paid in Full</span>
                                 </span>
                               ) : (
-                                <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
+                                <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-md ${
                                   ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
                                   ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
                                   ord.order_status === 'In Production' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
@@ -3583,73 +4719,48 @@ export const AdminDashboardPage: React.FC = () => {
                                   Status: {ord.order_status}
                                 </span>
                               )}
+
+                              <h3 className="text-sm font-black text-[#2C241D] tracking-tight ml-1">
+                                {ord.furniture_type}
+                              </h3>
                             </div>
 
-                            <div className="text-base font-black text-[#38A132] bg-[#38A132]/10 px-3.5 py-1 rounded-xl border border-[#38A132]/20">
+                            <div className="text-xs font-black text-[#38A132] bg-[#38A132]/10 px-3 py-0.5 rounded-lg border border-[#38A132]/20 shrink-0">
                               {ord.estimated_price ? `₹${ord.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}
                             </div>
                           </div>
 
-                          {/* Title & Specifications Grid */}
-                          <div className="space-y-3">
-                            <h3 className="text-xl font-black text-[#2C241D] tracking-tight">
-                              {ord.furniture_type}
-                            </h3>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/50 backdrop-blur-md p-3.5 rounded-2xl border border-white/70 text-xs shadow-inner">
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client Name</span>
-                                <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
-                                <span className="text-[10px] text-[#5C4E42] block truncate">{ord.customer_email || 'N/A'}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
-                                <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Timber / Material</span>
-                                <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
-                              </div>
-                              <div className="space-y-0.5">
-                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
-                                <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
-                              </div>
+                          {/* Compact Specifications Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-xs">
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Name</span>
+                              <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {ord.customer_name}</span>
+                              <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || 'N/A'}</span>
                             </div>
-
-                            {/* Assigned Worker Banner */}
-                            <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
-                                <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
-                                {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
-                                  <div className="flex items-center gap-1.5 flex-wrap">
-                                    {ord.assigned_workers.map((w, idx) => (
-                                      <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
-                                        <span>👷 {w.worker_name}</span>
-                                        {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
-                                        {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
-                                    No Artisan Worker Assigned Yet
-                                  </span>
-                                )}
-                              </div>
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
+                              <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">📐 {ord.dimensions}</span>
+                            </div>
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
+                              <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">🪵 {ord.material}</span>
+                            </div>
+                            <div className="space-y-0.5 min-w-0">
+                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
+                              <span className="font-extrabold text-[#38A132] block truncate text-[11px]">🎨 {renderColorSwatchBadge(ord.color)}</span>
                             </div>
                           </div>
 
                           {/* Reference Images Thumbnails */}
                           {ord.reference_image && parseReferenceImages(ord.reference_image).length > 0 && (
-                            <div className="flex items-center gap-2 pt-2 border-t border-[#EFE7DE]">
-                              <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mr-2">Reference Images:</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block shrink-0">Reference Images:</span>
                               {parseReferenceImages(ord.reference_image).map((imgUrl, i) => (
                                 <button
                                   key={i}
                                   type="button"
                                   onClick={() => openImageInNewTab(imgUrl)}
-                                  className="w-10 h-10 rounded-lg overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0 cursor-pointer"
+                                  className="w-7 h-7 rounded-md overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0 cursor-pointer"
                                 >
                                   <img
                                     src={imgUrl}
@@ -3662,49 +4773,66 @@ export const AdminDashboardPage: React.FC = () => {
                             </div>
                           )}
 
-                          {/* Action Buttons Toolbar */}
-                          <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between gap-3 flex-wrap">
-                            <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end ml-auto">
+                          {/* Compact Footer: Worker Banner + Action Buttons */}
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-1 border-t border-[#EFE7DE]">
+                            <div className="flex items-center gap-1.5 text-[11px]">
+                              <Wrench className="w-3.5 h-3.5 text-[#38A132] shrink-0" />
+                              <span className="font-extrabold text-[#7A6C5E]">Assigned Artisan:</span>
+                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {ord.assigned_workers.map((w, idx) => (
+                                    <span key={idx} className="font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB] text-[10px]">
+                                      👷 {w.worker_name}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="font-bold text-amber-800 italic bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 text-[10px]">
+                                  No Artisan Worker Assigned Yet
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
                               <button
                                 onClick={() => setSelectedCustomForAdminDetails(ord)}
-                                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
+                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-200"
                               >
-                                <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                <Eye className="w-3 h-3 text-slate-600" />
                                 <span>View Full Specs</span>
                               </button>
 
                               <button
                                 onClick={() => handleAdminOpenPriceModal(ord)}
-                                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                                className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
                               >
-                                <DollarSign className="w-3.5 h-3.5 text-amber-600" />
+                                <DollarSign className="w-3 h-3 text-amber-600" />
                                 <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
                               </button>
 
                               {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
                                 <button
                                   onClick={() => handleAdminToggleLock(ord)}
-                                  className="p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
+                                  className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
                                   title="Specs Unlocked. Click to Lock Specs."
                                 >
-                                  <Unlock className="w-4 h-4 text-amber-600" />
+                                  <Unlock className="w-3.5 h-3.5 text-amber-600" />
                                 </button>
                               ) : (
                                 <button
                                   disabled
-                                  className="p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-300 shadow-2xs opacity-90 cursor-not-allowed"
-                                  title="Specs Locked."
+                                  className="p-1.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                                  title="Specs Locked"
                                 >
-                                  <Lock className="w-4 h-4 text-emerald-600" />
+                                  <Lock className="w-3.5 h-3.5 text-slate-400" />
                                 </button>
                               )}
-
                               {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') && (
                                 <button
                                   onClick={() => downloadPaymentReceipt(ord)}
-                                  className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
+                                  className="px-2.5 py-1 rounded-lg bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-[11px] flex items-center gap-1 shadow-xs cursor-pointer"
                                 >
-                                  <Download className="w-3.5 h-3.5 text-white" />
+                                  <Download className="w-3 h-3 text-white" />
                                   <span>Download Receipt</span>
                                 </button>
                               )}
@@ -3713,6 +4841,173 @@ export const AdminDashboardPage: React.FC = () => {
                         </div>
                       ))
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 7: SYSTEM AUDIT LOG & ACTIVITY FEED */}
+            {activeTab === 'audit' && (
+              <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl bg-white/80 backdrop-blur-xl">
+                {/* Header & Description */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                  <div>
+                    <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-2">
+                      <Clock className="w-5 h-5 text-[#38A132]" />
+                      <span>System-Wide Chronological Audit Log</span>
+                    </h2>
+                    <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                      Real-time activity audit trail capturing user actions, orders, inventory updates, and dispatches directly from PostgreSQL.
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setIsLoadingSummary(true);
+                      const logs = await fetchAuditLogsDB(100);
+                      setAuditLogsList(logs || []);
+                      setIsLoadingSummary(false);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#F9F6F0] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-[#38A132]" />
+                    <span>Refresh Audit Trail</span>
+                  </button>
+                </div>
+
+                {/* Audit Statistics Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Total Audit Logs</span>
+                      <Clock className="w-4 h-4 text-[#38A132]" />
+                    </div>
+                    <div className="text-2xl font-black text-[#2C241D] mt-2">
+                      {(dashboardSummary?.recent_activities || auditLogsList).length}
+                    </div>
+                    <div className="text-[10px] text-[#38A132] font-bold mt-1">Recorded System Events</div>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Order Events</span>
+                      <ShoppingBag className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div className="text-2xl font-black text-blue-700 mt-2">
+                      {(dashboardSummary?.recent_activities || auditLogsList).filter((a: any) => (a.entityType || '').toLowerCase().includes('order') || (a.action || '').toLowerCase().includes('order')).length}
+                    </div>
+                    <div className="text-[10px] text-blue-700 font-bold mt-1">Placements & Dispatches</div>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Inventory & Catalog</span>
+                      <Package className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div className="text-2xl font-black text-amber-700 mt-2">
+                      {(dashboardSummary?.recent_activities || auditLogsList).filter((a: any) => (a.entityType || '').toLowerCase().includes('product') || (a.entityType || '').toLowerCase().includes('inventory')).length}
+                    </div>
+                    <div className="text-[10px] text-amber-700 font-bold mt-1">Stock & Product Audits</div>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                      <span>Security & Auth</span>
+                      <ShieldCheck className="w-4 h-4 text-purple-600" />
+                    </div>
+                    <div className="text-2xl font-black text-purple-700 mt-2">
+                      {(dashboardSummary?.recent_activities || auditLogsList).filter((a: any) => (a.entityType || '').toLowerCase().includes('user') || (a.action || '').toLowerCase().includes('user') || (a.action || '').toLowerCase().includes('login')).length}
+                    </div>
+                    <div className="text-[10px] text-purple-700 font-bold mt-1">User & Role Actions</div>
+                  </div>
+                </div>
+
+                {/* Search & Filter Bar */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-b border-[#EFE7DE] py-4">
+                  <div className="relative w-full sm:w-80">
+                    <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search timestamp, actor, action, entity ID..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                    />
+                  </div>
+                </div>
+
+                {/* Audit Logs Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-black uppercase tracking-wider text-[10px]">
+                        <th className="py-3 px-4">Timestamp</th>
+                        <th className="py-3 px-4">Actor / Staff Member</th>
+                        <th className="py-3 px-4">Action Performed</th>
+                        <th className="py-3 px-4">Entity Type</th>
+                        <th className="py-3 px-4">Target Entity ID</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                      {(dashboardSummary?.recent_activities || auditLogsList)
+                        .filter((act: any) => {
+                          if (!searchQuery.trim()) return true;
+                          const q = searchQuery.toLowerCase();
+                          return (
+                            (act.timestamp || '').toLowerCase().includes(q) ||
+                            (act.actorName || '').toLowerCase().includes(q) ||
+                            (act.actorRole || '').toLowerCase().includes(q) ||
+                            (act.action || '').toLowerCase().includes(q) ||
+                            (act.entityType || '').toLowerCase().includes(q) ||
+                            (String(act.entityId || '')).toLowerCase().includes(q)
+                          );
+                        }).length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="py-12 text-center text-[#7A6C5E]">
+                            <Clock className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-2" />
+                            <p className="font-extrabold text-xs text-[#2C241D]">No system audit logs found</p>
+                            <p className="text-[11px] text-[#7A6C5E] mt-0.5">Chronological system events and administrative actions will log here automatically.</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        (dashboardSummary?.recent_activities || auditLogsList)
+                          .filter((act: any) => {
+                            if (!searchQuery.trim()) return true;
+                            const q = searchQuery.toLowerCase();
+                            return (
+                              (act.timestamp || '').toLowerCase().includes(q) ||
+                              (act.actorName || '').toLowerCase().includes(q) ||
+                              (act.actorRole || '').toLowerCase().includes(q) ||
+                              (act.action || '').toLowerCase().includes(q) ||
+                              (act.entityType || '').toLowerCase().includes(q) ||
+                              (String(act.entityId || '')).toLowerCase().includes(q)
+                            );
+                          })
+                          .map((act: any, idx: number) => (
+                            <tr key={act.id || idx} className="hover:bg-[#FAF7F2] transition-colors">
+                              <td className="py-3.5 px-4 font-mono text-xs font-bold text-[#7A6C5E]">
+                                {act.timestamp || 'Just now'}
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <div className="font-extrabold text-[#2C241D] text-xs">{act.actorName || 'System Admin'}</div>
+                                <div className="text-[10px] text-[#7A6C5E] font-bold">{act.actorRole || 'Administrator'}</div>
+                              </td>
+                              <td className="py-3.5 px-4">
+                                <span className="inline-flex items-center gap-1 font-extrabold text-xs text-[#38A132] bg-[#38A132]/10 border border-[#38A132]/20 px-2.5 py-1 rounded-lg">
+                                  {act.action}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 font-bold text-[#6B5C4D]">
+                                <span className="px-2 py-0.5 rounded-md bg-[#F9F6F0] border border-[#E2D7CB] text-[10px] uppercase font-black tracking-wider">
+                                  {act.entityType || 'General'}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 font-mono text-xs font-bold text-[#7A6C5E]">
+                                {act.entityId ? `#${act.entityId}` : '—'}
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -4444,16 +5739,16 @@ export const AdminDashboardPage: React.FC = () => {
           </main>
         </div>
 
-      {/* MODAL 1: ADD STAFF MEMBER */}
+      {/* MODAL 1: ADD STAFF MEMBER (High-Contrast Clean White Design) */}
       {isAddStaffModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
-          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/70 backdrop-blur-md">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4 animate-fadeIn text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Add Staff Member</h3>
-                <p className="text-[11px] text-[#7A6C5E]">Account will be created & credentials emailed to staff.</p>
+                <h3 className="text-lg font-black text-[#2C241D]">Add Staff / Worker Member</h3>
+                <p className="text-xs font-bold text-[#6B5C4D]">Account will be created & credentials emailed to staff/worker.</p>
               </div>
-              <button onClick={() => setIsAddStaffModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+              <button onClick={() => setIsAddStaffModalOpen(false)} className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -4466,25 +5761,25 @@ export const AdminDashboardPage: React.FC = () => {
 
             <form onSubmit={handleAddStaffSubmit} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Staff Full Name</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Staff Full Name *</label>
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Verma"
                   value={newStaffName}
                   onChange={(e) => setNewStaffName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Email Address (Username)</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Email Address (Username) *</label>
                 <input
                   type="email"
                   placeholder="ramesh@retailsphere.com"
                   value={newStaffEmail}
                   onChange={(e) => setNewStaffEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]"
                   required
                 />
               </div>
@@ -4496,20 +5791,55 @@ export const AdminDashboardPage: React.FC = () => {
                   placeholder="+91 9876543210"
                   value={newStaffPhone}
                   onChange={(e) => setNewStaffPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]"
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Role</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Role *</label>
                 <select
                   value={newStaffRole}
                   onChange={(e) => setNewStaffRole(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-semibold"
+                  className="w-full px-3.5 py-2.5 bg-white border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold cursor-pointer"
                 >
-                  <option value="Retail Staff">Retail Staff (Sales & Orders)</option>
-                  <option value="Production Staff">Production Staff (Furniture Studio)</option>
+                  <option value="Retail Staff" className="bg-white text-[#2C241D] font-bold">Retail Staff (Sales & Orders)</option>
+                  <option value="Production Staff" className="bg-white text-[#2C241D] font-bold">Production Staff (Studio Manager / QC)</option>
+                  <option value="Artisan Worker" className="bg-white text-[#2C241D] font-bold">Artisan Worker (Workshop Craftsman / Technician)</option>
                 </select>
+              </div>
+
+              {newStaffRole === 'Artisan Worker' && (
+                <div className="animate-fadeIn">
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Craftsman Specialization / Primary Skill *</label>
+                  <select
+                    value={newStaffWorkerSkill}
+                    onChange={(e) => setNewStaffWorkerSkill(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border-2 border-purple-300 rounded-xl focus:outline-none focus:border-purple-600 text-[#2C241D] font-extrabold text-xs cursor-pointer"
+                  >
+                    <option value="Woodwork & Carpentry" className="bg-white text-[#2C241D]">Woodwork & Carpentry (Furniture Framing & Timber Joinery)</option>
+                    <option value="Upholstery & Cushioning" className="bg-white text-[#2C241D]">Upholstery & Cushioning (Fabric/Leather Padding)</option>
+                    <option value="Assembly & Fitting" className="bg-white text-[#2C241D]">Assembly & Fitting (Hardware & Structural Assembly)</option>
+                    <option value="Surface Finishing & Polishing" className="bg-white text-[#2C241D]">Surface Finishing & Polishing (Satin Varnish & Lacquer Polish)</option>
+                    <option value="Custom Metalwork & Forging" className="bg-white text-[#2C241D]">Custom Metalwork & Forging (Steel/Brass Frames)</option>
+                    <option value="Quality Inspection & QC" className="bg-white text-[#2C241D]">Quality Inspection & QC (Final Audit & Testing)</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-extrabold text-[#2C241D] text-xs flex items-center gap-1.5 cursor-pointer">
+                    <Truck className="w-4 h-4 text-[#38A132]" />
+                    <span>Driver Capability (Eligible to Drive Fleet Vehicle)</span>
+                  </label>
+                  <input
+                    type="checkbox"
+                    checked={newStaffIsDriver}
+                    onChange={(e) => setNewStaffIsDriver(e.target.checked)}
+                    className="w-4 h-4 text-[#38A132] accent-[#38A132] rounded cursor-pointer"
+                  />
+                </div>
+                <p className="text-[10px] text-[#7A6C5E] font-medium">Mark this staff or worker as an eligible driver for company delivery vehicles.</p>
               </div>
 
               <div>
@@ -4519,16 +5849,16 @@ export const AdminDashboardPage: React.FC = () => {
                   placeholder="Leave empty to auto-generate"
                   value={newStaffPassword}
                   onChange={(e) => setNewStaffPassword(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-mono text-xs"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-mono text-xs font-bold placeholder:text-[#9E9082]"
                 />
-                <p className="text-[10px] text-[#7A6C5E] mt-1">Leave empty to auto-generate a strong password. Credentials will be emailed.</p>
+                <p className="text-[11px] font-bold text-[#6B5C4D] mt-1">Leave empty to auto-generate a strong password. Credentials will be emailed.</p>
               </div>
 
-              <div className="pt-3 flex gap-2">
+              <div className="pt-3 flex gap-3 border-t border-[#EFE7DE]">
                 <button
                   type="button"
                   onClick={() => setIsAddStaffModalOpen(false)}
-                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold hover:bg-[#F2ECE1]"
+                  className="w-1/2 py-3 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
                   disabled={isSubmittingStaff}
                 >
                   Cancel
@@ -4536,7 +5866,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSubmittingStaff}
-                  className="w-1/2 py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold shadow-md flex items-center justify-center gap-1.5"
+                  className="w-1/2 py-3 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
                 >
                   {isSubmittingStaff ? <span>Creating...</span> : <><Mail className="w-4 h-4" /><span>Create & Send</span></>}
                 </button>
@@ -4842,25 +6172,25 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 4: DELETE PRODUCT CONFIRMATION */}
+      {/* MODAL 4: REMOVE PRODUCT CONFIRMATION */}
       {isDeleteModalOpen && productToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
           <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 w-full max-w-sm shadow-2xl border border-[#E2D7CB] space-y-4 text-center">
-            <Trash2 className="w-10 h-10 text-rose-600 mx-auto" />
-            <h3 className="text-base font-extrabold text-[#2C241D]">Remove Product?</h3>
+            <PackageMinus className="w-10 h-10 text-rose-600 mx-auto" />
+            <h3 className="text-base font-extrabold text-[#2C241D]">Remove Product from Catalog?</h3>
             <p className="text-xs text-[#7A6C5E]">Are you sure you want to remove <strong>"{productToDelete.name}"</strong> from catalog?</p>
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setIsDeleteModalOpen(false)}
-                className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold text-xs"
+                className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold text-xs cursor-pointer hover:bg-gray-100"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirmDeleteProduct}
-                className="w-1/2 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs shadow-md"
+                className="w-1/2 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md cursor-pointer transition-colors"
               >
-                Confirm Delete
+                Confirm Removal
               </button>
             </div>
           </div>
@@ -5205,91 +6535,139 @@ export const AdminDashboardPage: React.FC = () => {
       )}
       {/* MODAL: EDIT USER */}
       {isEditUserModalOpen && editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
-          <div className="ultra-glass-panel bg-white/95 rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4 relative z-50">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Edit User Profile</h3>
-                <p className="text-[11px] text-[#7A6C5E] font-mono">{editingUser.email}</p>
+                <h3 className="text-base font-extrabold text-[#2C241D]">Edit User Profile</h3>
+                <p className="text-xs text-[#7A6C5E] font-mono mt-0.5">{editingUser.email}</p>
               </div>
-              <button onClick={() => setIsEditUserModalOpen(false)} className="p-1.5 text-[#9E9082] hover:text-[#2C241D]">
+              <button
+                onClick={() => setIsEditUserModalOpen(false)}
+                className="p-1.5 rounded-full text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#F9F6F0] transition-colors cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateUserSubmit} className="space-y-3.5 text-xs">
+            <form onSubmit={handleUpdateUserSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-[#6B5C4D] mb-1">Full Name</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1 text-xs">Full Name</label>
                 <input
                   type="text"
                   value={editUserName}
                   onChange={(e) => setEditUserName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] focus:bg-white text-[#2C241D] text-xs transition-all shadow-inner-xs"
                   required
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-[#6B5C4D] mb-1">Phone Number</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1 text-xs">Email Address (Mail ID)</label>
                 <input
-                  type="text"
-                  value={editUserPhone}
-                  onChange={(e) => setEditUserPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                  type="email"
+                  value={editUserEmail}
+                  onChange={(e) => setEditUserEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] focus:bg-white text-[#2C241D] text-xs transition-all shadow-inner-xs"
+                  required
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-[#6B5C4D] mb-1">Account Role</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1 text-xs">Phone Number</label>
+                <input
+                  type="text"
+                  value={editUserPhone}
+                  onChange={(e) => setEditUserPhone(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] focus:bg-white text-[#2C241D] text-xs transition-all shadow-inner-xs"
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1 text-xs">Account Role</label>
                 <select
                   value={editUserRole}
                   onChange={(e) => setEditUserRole(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#48A63E] focus:bg-white text-[#2C241D] text-xs cursor-pointer transition-all shadow-inner-xs"
                 >
-                  <option value="Customer">Customer</option>
-                  <option value="Retail Staff">Retail Staff</option>
-                  <option value="Production Staff">Production Staff</option>
+                  <option value="Customer">Customer (Shopper)</option>
+                  <option value="Retail Staff">Retail Staff (Sales & Operations)</option>
+                  <option value="Production Staff">Production Staff (Furniture Studio Manager)</option>
+                  <option value="Worker">Artisan Worker (Workshop Technician)</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-bold text-[#6B5C4D] mb-1">Account Status</label>
-                <div className="flex items-center gap-4 pt-1">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-[#2C241D]">
-                    <input
-                      type="radio"
-                      name="editStatus"
-                      checked={editUserStatus === true}
-                      onChange={() => setEditUserStatus(true)}
-                      className="accent-[#48A63E]"
-                    />
-                    <span>Active</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-rose-700">
-                    <input
-                      type="radio"
-                      name="editStatus"
-                      checked={editUserStatus === false}
-                      onChange={() => setEditUserStatus(false)}
-                      className="accent-rose-600"
-                    />
-                    <span>Inactive</span>
-                  </label>
+                <label className="block font-extrabold text-[#2C241D] mb-1.5 text-xs">Driver Capability (Can Drive Fleet Vehicle)</label>
+                <div className="grid grid-cols-2 gap-3 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditUserIsDriver(true)}
+                    className={`py-2.5 px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      editUserIsDriver === true
+                        ? 'bg-purple-100 text-purple-800 border-purple-400 shadow-xs ring-2 ring-purple-400/20'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                    }`}
+                  >
+                    <Truck className="w-3.5 h-3.5 text-purple-700" />
+                    <span>Driver (Capable)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditUserIsDriver(false)}
+                    className={`py-2.5 px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      editUserIsDriver === false
+                        ? 'bg-slate-100 text-slate-700 border-slate-300 shadow-xs'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                    }`}
+                  >
+                    <span>No Driver Role</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="pt-2 flex gap-2">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1.5 text-xs">Account Status</label>
+                <div className="grid grid-cols-2 gap-3 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setEditUserStatus(true)}
+                    className={`py-2.5 px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      editUserStatus === true
+                        ? 'bg-[#48A63E]/15 text-[#48A63E] border-[#48A63E] shadow-xs ring-2 ring-[#48A63E]/20'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Active Account</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditUserStatus(false)}
+                    className={`py-2.5 px-3 rounded-xl border text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      editUserStatus === false
+                        ? 'bg-rose-100 text-rose-700 border-rose-400 shadow-xs ring-2 ring-rose-400/20'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                    }`}
+                  >
+                    <UserX className="w-3.5 h-3.5" />
+                    <span>Inactive Account</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-3 flex items-center gap-3 border-t border-[#EFE7DE]">
                 <button
                   type="button"
                   onClick={() => setIsEditUserModalOpen(false)}
-                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] text-[#6B5C4D] font-bold hover:bg-[#F5ECE1]"
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isUpdatingUser}
-                  className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold shadow-md transition-all flex items-center justify-center gap-1.5"
+                  className="w-1/2 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-1.5 cursor-pointer transform active:scale-95"
                 >
                   {isUpdatingUser ? 'Saving...' : 'Save Changes'}
                 </button>
@@ -5922,6 +7300,531 @@ export const AdminDashboardPage: React.FC = () => {
                 Approve & Send Quote
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* VEHICLE MODAL: ADD VEHICLE (Requirement 7) */}
+      {isAddVehicleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-[#38A132]" />
+                  <span>Add Company Delivery Vehicle</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">Register internal transport vehicle for order dispatch.</p>
+              </div>
+              <button
+                onClick={() => setIsAddVehicleModalOpen(false)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {vehicleFormError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{vehicleFormError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleCreateVehicleSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Registration Number *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. KL-01-AB-1234 or KL-14-1234"
+                  value={vRegNumber}
+                  onChange={(e) => setVRegNumber(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold uppercase focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  required
+                />
+                <span className="text-[10px] text-[#7A6C5E] font-medium mt-1 block">Format: State Code + RTO + Series + Number (e.g., KL-01-AB-1234)</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Vehicle Type *</label>
+                  <select
+                    value={vType}
+                    onChange={(e) => setVType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  >
+                    <option value="Mini Truck">Mini Truck</option>
+                    <option value="Pickup Van">Pickup Van</option>
+                    <option value="Light Truck">Light Truck</option>
+                    <option value="Delivery Van">Delivery Van</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Capacity (kg) *</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 500"
+                    value={vCapacity}
+                    onChange={(e) => setVCapacity(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Driver</label>
+                <select
+                  value={vDriverId}
+                  onChange={(e) => setVDriverId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                >
+                  <option value="">-- Select Driver (Optional) --</option>
+                  {allUsersList.filter(u => u.role !== 'Customer').map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.full_name || u.name} ({u.role || u.role_name || 'Staff'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Initial Status</label>
+                <select
+                  value={vStatus}
+                  onChange={(e) => setVStatus(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                >
+                  <option value="AVAILABLE">AVAILABLE (Can be selected for dispatch)</option>
+                  <option value="MAINTENANCE">MAINTENANCE (Servicing / Repairs)</option>
+                  <option value="INACTIVE">INACTIVE (Not currently used)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Notes / Description</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Primary urban delivery vehicle for retail items..."
+                  value={vNotes}
+                  onChange={(e) => setVNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddVehicleModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingVehicle}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingVehicle ? 'Saving...' : 'Add Vehicle'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VEHICLE MODAL: EDIT VEHICLE (Requirement 8) */}
+      {isEditVehicleModalOpen && selectedVehicleForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-[#38A132]" />
+                  <span>Edit Vehicle Specs — {selectedVehicleForEdit.id}</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">Update capacity, driver, status or notes.</p>
+              </div>
+              <button
+                onClick={() => setIsEditVehicleModalOpen(false)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {vehicleFormError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{vehicleFormError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateVehicleSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Registration Number *</label>
+                <input
+                  type="text"
+                  value={vRegNumber}
+                  onChange={(e) => setVRegNumber(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold uppercase focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Vehicle Type *</label>
+                  <select
+                    value={vType}
+                    onChange={(e) => setVType(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  >
+                    <option value="Mini Truck">Mini Truck</option>
+                    <option value="Pickup Van">Pickup Van</option>
+                    <option value="Light Truck">Light Truck</option>
+                    <option value="Delivery Van">Delivery Van</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Capacity (kg) *</label>
+                  <input
+                    type="number"
+                    value={vCapacity}
+                    onChange={(e) => setVCapacity(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Driver</label>
+                <select
+                  value={vDriverId}
+                  onChange={(e) => setVDriverId(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                >
+                  <option value="">-- Select Driver (Unassigned) --</option>
+                  {allUsersList.filter(u => u.role !== 'Customer').map((u) => (
+                    <option key={u.user_id} value={u.user_id}>
+                      {u.full_name || u.name} ({u.role || u.role_name || 'Staff'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Status</label>
+                <select
+                  value={vStatus}
+                  onChange={(e) => setVStatus(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                >
+                  <option value="AVAILABLE">AVAILABLE (Can be selected for dispatch)</option>
+                  <option value="ASSIGNED">ASSIGNED (Currently out on order delivery)</option>
+                  <option value="MAINTENANCE">MAINTENANCE (Servicing / Repairs)</option>
+                  <option value="INACTIVE">INACTIVE (Preserved for historical data)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Notes</label>
+                <textarea
+                  rows={2}
+                  value={vNotes}
+                  onChange={(e) => setVNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditVehicleModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingVehicle}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingVehicle ? 'Saving...' : 'Save Specs'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* VEHICLE MODAL: VIEW VEHICLE DETAIL & HISTORY (Requirement 9) */}
+      {isVehicleDetailModalOpen && selectedVehicleForDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-xl shadow-2xl border border-[#E2D7CB] relative z-50 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-black text-[#38A132] bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                    {selectedVehicleForDetail.vehicle.id}
+                  </span>
+                  <h3 className="text-base font-extrabold text-[#2C241D]">
+                    {selectedVehicleForDetail.vehicle.registration_number}
+                  </h3>
+                </div>
+                <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
+                  {selectedVehicleForDetail.vehicle.vehicle_type} • {selectedVehicleForDetail.vehicle.capacity} kg Capacity
+                </p>
+              </div>
+              <button
+                onClick={() => setIsVehicleDetailModalOpen(false)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Vehicle Master Metadata */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB]">
+              <div>
+                <span className="block text-[10px] font-bold text-[#7A6C5E] uppercase">Assigned Driver</span>
+                <span className="font-extrabold text-[#2C241D]">{selectedVehicleForDetail.vehicle.assigned_driver_name}</span>
+              </div>
+
+              <div>
+                <span className="block text-[10px] font-bold text-[#7A6C5E] uppercase">Status</span>
+                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase mt-0.5 border ${
+                  selectedVehicleForDetail.vehicle.status === 'AVAILABLE' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                  selectedVehicleForDetail.vehicle.status === 'ASSIGNED' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                  selectedVehicleForDetail.vehicle.status === 'MAINTENANCE' ? 'bg-amber-100 text-amber-800 border-amber-300' :
+                  'bg-gray-100 text-gray-700 border-gray-300'
+                }`}>
+                  {selectedVehicleForDetail.vehicle.status}
+                </span>
+              </div>
+
+              <div>
+                <span className="block text-[10px] font-bold text-[#7A6C5E] uppercase">Model / Year</span>
+                <span className="font-bold text-[#2C241D]">
+                  {selectedVehicleForDetail.vehicle.model_name || 'Standard'} {selectedVehicleForDetail.vehicle.year ? `(${selectedVehicleForDetail.vehicle.year})` : ''}
+                </span>
+              </div>
+            </div>
+
+            {selectedVehicleForDetail.vehicle.notes && (
+              <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-xs">
+                <span className="block text-[10px] font-bold text-[#7A6C5E] uppercase mb-0.5">Notes</span>
+                <p className="text-[#2C241D] font-medium italic">{selectedVehicleForDetail.vehicle.notes}</p>
+              </div>
+            )}
+
+            {/* Current Active Assignment Section */}
+            <div className="space-y-2 border-t border-[#EFE7DE] pt-4">
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5 text-blue-600" />
+                <span>Current Active Delivery Assignment</span>
+              </h4>
+
+              {selectedVehicleForDetail.current_assignment ? (
+                <div className="bg-blue-50/70 p-4 rounded-2xl border border-blue-200 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-black text-blue-900">{selectedVehicleForDetail.current_assignment.order_id}</span>
+                    <span className="px-2 py-0.5 rounded-md text-[10px] font-black bg-blue-100 text-blue-800 border border-blue-200">
+                      {selectedVehicleForDetail.current_assignment.order_status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-[#4A3E32]">
+                    <div><span className="font-bold">Customer:</span> {selectedVehicleForDetail.current_assignment.customer}</div>
+                    <div><span className="font-bold">Dispatched:</span> {selectedVehicleForDetail.current_assignment.dispatch_date}</div>
+                    <div><span className="font-bold">Expected Delivery:</span> {selectedVehicleForDetail.current_assignment.expected_delivery_date}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-center text-[#7A6C5E] text-xs italic">
+                  No active delivery assignment. Vehicle is ready for dispatch.
+                </div>
+              )}
+            </div>
+
+            {/* Delivery History Section */}
+            <div className="space-y-2 border-t border-[#EFE7DE] pt-4">
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-[#38A132]" />
+                <span>Delivery Order History</span>
+              </h4>
+
+              {selectedVehicleForDetail.delivery_history.length === 0 ? (
+                <div className="p-3.5 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-center text-[#7A6C5E] text-xs italic">
+                  No previous order deliveries recorded for this vehicle.
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-48 overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-2 px-3">Order ID</th>
+                        <th className="py-2 px-3">Customer</th>
+                        <th className="py-2 px-3">Dispatch Date</th>
+                        <th className="py-2 px-3">Delivery Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                      {selectedVehicleForDetail.delivery_history.map((h, idx) => (
+                        <tr key={idx} className="hover:bg-[#FAF7F2]">
+                          <td className="py-2 px-3 font-extrabold text-[#38A132] font-mono">{h.order_id}</td>
+                          <td className="py-2 px-3">{h.customer}</td>
+                          <td className="py-2 px-3 text-[#7A6C5E]">{h.dispatch_date}</td>
+                          <td className="py-2 px-3 font-bold text-emerald-700">{h.delivery_status}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 text-right border-t border-[#EFE7DE]">
+              <button
+                type="button"
+                onClick={() => setIsVehicleDetailModalOpen(false)}
+                className="px-5 py-2 rounded-xl bg-[#F9F6F0] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#6B5C4D] font-extrabold text-xs cursor-pointer"
+              >
+                Close Details
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EDIT STAFF & WORKER DETAILS */}
+      {isEditStaffModalOpen && selectedStaffForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-[#38A132]" />
+                  <span>Edit Staff / Worker — {selectedStaffForEdit.name}</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">Update contact details, role, specialization, or driver capability.</p>
+              </div>
+              <button
+                onClick={() => setIsEditStaffModalOpen(false)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editStaffModalError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold rounded-xl flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{editStaffModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateStaffSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Full Name *</label>
+                <input
+                  type="text"
+                  value={editStaffName}
+                  onChange={(e) => setEditStaffName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Email Address *</label>
+                <input
+                  type="email"
+                  value={editStaffEmail}
+                  onChange={(e) => setEditStaffEmail(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number</label>
+                <input
+                  type="text"
+                  value={editStaffPhone}
+                  onChange={(e) => setEditStaffPhone(e.target.value)}
+                  placeholder="+91 98765 43210"
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Role *</label>
+                <select
+                  value={editStaffRole}
+                  onChange={(e) => setEditStaffRole(e.target.value as any)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                >
+                  <option value="Retail Staff">Retail Staff (Store Operations & Orders)</option>
+                  <option value="Production Staff">Production Staff (Manager & Stage QC)</option>
+                  <option value="Artisan Worker">Artisan Worker (Workshop Technician)</option>
+                </select>
+              </div>
+
+              {editStaffRole === 'Artisan Worker' && (
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Artisan Specialization Skill *</label>
+                  <select
+                    value={editStaffWorkerSkill}
+                    onChange={(e) => setEditStaffWorkerSkill(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  >
+                    <option value="Woodwork & Carpentry">Woodwork & Carpentry</option>
+                    <option value="Finishing & Assembly">Finishing & Assembly</option>
+                    <option value="Upholstery">Upholstery</option>
+                    <option value="Metalwork & Framing">Metalwork & Framing</option>
+                    <option value="Quality Inspection & Polish">Quality Inspection & Polish</option>
+                  </select>
+                </div>
+              )}
+
+              <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB]">
+                <label className="flex items-center gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={editStaffIsDriver}
+                    onChange={(e) => setEditStaffIsDriver(e.target.checked)}
+                    className="w-4 h-4 text-[#38A132] rounded focus:ring-[#38A132] border-gray-300"
+                  />
+                  <div>
+                    <span className="font-extrabold text-[#2C241D] block">🚚 Fleet Driver Capability</span>
+                    <span className="text-[10px] text-[#7A6C5E] font-medium block">
+                      Enable to allow dispatching delivery vehicles to this staff/worker.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => setIsEditStaffModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingEditStaff}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingEditStaff ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

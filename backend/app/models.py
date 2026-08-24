@@ -24,6 +24,7 @@ class User(Base):
     status = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False, nullable=True)
     specialization = Column(String(100), nullable=True)
+    is_driver = Column(Boolean, default=False, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     role = relationship("Role", back_populates="users")
@@ -225,9 +226,16 @@ class OrderFulfillment(Base):
     delivery_notes = Column(Text, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    vehicle_id = Column(Integer, ForeignKey("tbl_vehicle.vehicle_id"), nullable=True)
+    driver_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    dispatch_date = Column(DateTime, nullable=True)
+    dispatch_note = Column(Text, nullable=True)
+
     order = relationship("ReadymadeOrder", back_populates="fulfillment")
     packed_by_user = relationship("User", foreign_keys=[packed_by_id])
     dispatched_by_user = relationship("User", foreign_keys=[dispatched_by_id])
+    vehicle = relationship("Vehicle", back_populates="fulfillments")
+    driver_user = relationship("User", foreign_keys=[driver_id])
 
 
 class OrderStatusHistory(Base):
@@ -788,6 +796,43 @@ class AIAnalysisLog(Base):
     input_payload = Column(Text, nullable=False)
     output_result = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AuditLog(Base):
+    __tablename__ = "tbl_audit_log"
+
+    audit_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    actor_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    actor_role = Column(String(50), nullable=True)
+    actor_name = Column(String(100), nullable=True)
+    action = Column(String(100), nullable=False)
+    entity_type = Column(String(50), nullable=False)
+    entity_id = Column(String(50), nullable=True)
+    details = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    actor = relationship("User")
+
+
+class Vehicle(Base):
+    __tablename__ = "tbl_vehicle"
+
+    vehicle_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    registration_number = Column(String(50), unique=True, index=True, nullable=False)
+    vehicle_type = Column(String(50), nullable=False, default="Mini Truck")
+    capacity = Column(Integer, nullable=False, default=500)
+    assigned_driver_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    status = Column(String(30), nullable=False, default="AVAILABLE") # AVAILABLE, ASSIGNED, MAINTENANCE, INACTIVE
+    notes = Column(Text, nullable=True)
+    model_name = Column(String(100), nullable=True)
+    year = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    assigned_driver = relationship("User", foreign_keys=[assigned_driver_id])
+    fulfillments = relationship("OrderFulfillment", back_populates="vehicle")
+
+
 
 
 

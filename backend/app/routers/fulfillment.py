@@ -189,6 +189,8 @@ class DispatchOrderPayload(BaseModel):
     tracking_number: str
     expected_delivery_date: str
     dispatch_note: Optional[str] = None
+    vehicle_id: Optional[int] = None
+    driver_id: Optional[int] = None
 
 class DeliveryStatusPayload(BaseModel):
     staff_id: Optional[int] = None
@@ -254,6 +256,26 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
     if ord_obj.order_status in ["Cancelled", "Returned"]:
         raise HTTPException(status_code=400, detail=f"Cannot dispatch order in status '{ord_obj.order_status}'")
 
+    vehicle_obj = None
+    if payload.vehicle_id:
+        vehicle_obj = db.query(models.Vehicle).filter(models.Vehicle.vehicle_id == payload.vehicle_id).first()
+        if not vehicle_obj:
+            raise HTTPException(status_code=400, detail="Selected internal delivery vehicle not found.")
+        if vehicle_obj.status != "AVAILABLE":
+            raise HTTPException(status_code=400, detail=f"Vehicle '{vehicle_obj.registration_number}' is currently unavailable (Status: {vehicle_obj.status}).")
+        
+        target_driver_id = payload.driver_id or vehicle_obj.assigned_driver_id
+        if not target_driver_id:
+            raise HTTPException(status_code=400, detail=f"Vehicle '{vehicle_obj.registration_number}' has no assigned driver. Please assign a driver with Driver capability in Fleet Management first.")
+        
+        driver_obj = db.query(models.User).filter(models.User.user_id == target_driver_id).first()
+        if not driver_obj:
+            raise HTTPException(status_code=400, detail="Assigned driver user record not found.")
+        if not driver_obj.status:
+            raise HTTPException(status_code=400, detail=f"Assigned driver '{driver_obj.full_name}' account is currently inactive.")
+        if not driver_obj.is_driver:
+            raise HTTPException(status_code=400, detail=f"User '{driver_obj.full_name}' does not have Driver capability. Enable Driver capability for this user first.")
+
     prev_status = ord_obj.order_status
     ord_obj.order_status = "Dispatched"
     if hasattr(ord_obj, "completion_status"):
@@ -267,12 +289,19 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
     fulfillment.fulfillment_status = "Dispatched"
     fulfillment.dispatched_at = datetime.utcnow()
     fulfillment.dispatched_by_id = payload.staff_id
-    fulfillment.carrier = payload.carrier.strip()
-    fulfillment.tracking_number = payload.tracking_number.strip()
-    fulfillment.expected_delivery_date = payload.expected_delivery_date.strip()
+    fulfillment.carrier = payload.carrier.strip() if payload.carrier else "Internal Fleet"
+    fulfillment.tracking_number = payload.tracking_number.strip() if payload.tracking_number else f"TRK-{order_num}"
+    fulfillment.expected_delivery_date = payload.expected_delivery_date.strip() if payload.expected_delivery_date else "Pending"
     fulfillment.delivery_status = "Dispatched"
     if payload.dispatch_note:
         fulfillment.delivery_notes = payload.dispatch_note
+        fulfillment.dispatch_note = payload.dispatch_note
+
+    if vehicle_obj:
+        vehicle_obj.status = "ASSIGNED"
+        fulfillment.vehicle_id = vehicle_obj.vehicle_id
+        fulfillment.driver_id = target_driver_id
+        fulfillment.dispatch_date = datetime.utcnow()
 
     record_status_history(
         db,
@@ -281,14 +310,14 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
         new_status="Dispatched",
         changed_by_id=payload.staff_id,
         changed_by_role="Retail Staff",
-        note=f"Dispatched via {payload.carrier}. Tracking: {payload.tracking_number}. Expected: {payload.expected_delivery_date}."
+        note=f"Dispatched via {fulfillment.carrier}. Vehicle: {vehicle_obj.registration_number if vehicle_obj else 'N/A'}. Expected: {payload.expected_delivery_date}."
     )
 
     create_customer_notification(
         db,
         customer_id=ord_obj.customer_id,
         title=f"Order Dispatched — RET-{ord_obj.order_id:06d}",
-        message=f"Your order RET-{ord_obj.order_id:06d} has been dispatched via {payload.carrier}. Tracking: {payload.tracking_number}."
+        message=f"Your order RET-{ord_obj.order_id:06d} has been dispatched. Expected delivery: {payload.expected_delivery_date}."
     )
 
     db.commit()
@@ -322,6 +351,11 @@ def update_delivery_status(order_id_str: str, payload: DeliveryStatusPayload, db
 
     if new_st.lower() == "delivered":
         fulfillment.delivered_at = datetime.utcnow()
+        # Release vehicle automatically upon order delivery completion
+        if fulfillment.vehicle_id:
+            vehicle_obj = db.query(models.Vehicle).filter(models.Vehicle.vehicle_id == fulfillment.vehicle_id).first()
+            if vehicle_obj and vehicle_obj.status == "ASSIGNED":
+                vehicle_obj.status = "AVAILABLE"
 
     record_status_history(
         db,

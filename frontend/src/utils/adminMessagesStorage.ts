@@ -80,9 +80,11 @@ export const sendAdminMessage = (msgData: Omit<AdminMessage, 'id' | 'createdDate
 export const getMessagesForUser = (userEmail: string, role: string): AdminMessage[] => {
   const all = getStoredAdminMessages();
   return all.filter(msg => {
-    if (msg.recipientType === 'All Staff') return role === 'Retail Staff' || role === 'Production Staff' || role === 'Staff';
+    if (msg.recipientType === 'All Staff') {
+      return role === 'Retail Staff' || role === 'Production Staff' || role === 'Staff' || role === 'Worker' || role === 'Artisan Worker';
+    }
     if (msg.recipientType === 'Retail Staff') return role === 'Retail Staff';
-    if (msg.recipientType === 'Production Staff') return role === 'Production Staff';
+    if (msg.recipientType === 'Production Staff') return role === 'Production Staff' || role === 'Worker' || role === 'Artisan Worker';
     if (msg.recipientType === 'Specific Staff') {
       return msg.targetEmail?.toLowerCase().trim() === userEmail.toLowerCase().trim();
     }

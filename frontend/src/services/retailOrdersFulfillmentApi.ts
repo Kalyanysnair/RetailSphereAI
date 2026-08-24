@@ -159,7 +159,9 @@ export async function dispatchOrderAPI(
   trackingNumber: string,
   expectedDeliveryDate: string,
   staffId?: number,
-  dispatchNote?: string
+  dispatchNote?: string,
+  vehicleId?: number,
+  driverId?: number
 ): Promise<boolean> {
   try {
     const res = await fetch(`/api/orders/${orderIdStr}/dispatch`, {
@@ -171,6 +173,8 @@ export async function dispatchOrderAPI(
         tracking_number: trackingNumber,
         expected_delivery_date: expectedDeliveryDate,
         dispatch_note: dispatchNote,
+        vehicle_id: vehicleId,
+        driver_id: driverId,
       }),
     });
     return res.ok;
