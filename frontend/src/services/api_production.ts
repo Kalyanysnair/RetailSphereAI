@@ -949,3 +949,342 @@ export function downloadPaymentReceipt(order: CustomOrderData) {
     printWin.document.close();
   }
 }
+
+// ------------------------------------------------------------
+// NEW PRODUCTION MANAGEMENT API INTERFACES & FUNCTIONS
+// ------------------------------------------------------------
+
+export interface ProductionOverviewData {
+  metrics: {
+    pending_assessment: number;
+    quotation_pending: number;
+    customer_approved: number;
+    material_pending: number;
+    in_production: number;
+    qc_pending: number;
+    rework: number;
+    completed_today: number;
+  };
+  priorities: {
+    id: string;
+    title: string;
+    issue: string;
+    priority: string;
+  }[];
+  active_production: {
+    order_id: string;
+    numeric_id: number;
+    order_type: 'Custom' | 'Fabrication';
+    customer: string;
+    product: string;
+    current_stage: string;
+    worker: string;
+    status: string;
+    priority: string;
+  }[];
+}
+
+export interface AssessmentQueueItem {
+  request_id: string;
+  numeric_id: number;
+  order_type: 'Customization' | 'Fabrication';
+  customer_name: string;
+  customer_email: string;
+  title: string;
+  furniture_type: string;
+  material: string;
+  dimensions: string;
+  color?: string;
+  quantity?: number;
+  description?: string;
+  reference_image?: string;
+  order_date: string;
+  reviewed_at?: string;
+  priority: string;
+  assessment_status: 'PENDING_ASSESSMENT' | 'IN_ASSESSMENT' | 'ASSESSMENT_COMPLETE';
+  order_status: string;
+  is_assessed: boolean;
+}
+
+export interface TechnicalAssessmentData {
+  assessment_id?: number;
+  order_type: string;
+  order_id: number;
+  feasibility: 'FEASIBLE' | 'NOT_FEASIBLE';
+  unfeasibility_reason?: string;
+  required_operations?: string;
+  required_stages: string[];
+  material_requirements?: string;
+  machine_requirements?: string;
+  worker_skill_requirements?: string;
+  labour_hours: number;
+  machine_hours: number;
+  estimated_duration_days: number;
+  estimated_completion_date?: string;
+  material_cost: number;
+  labour_cost: number;
+  machine_cost: number;
+  finishing_cost: number;
+  other_cost: number;
+  total_cost: number;
+  production_notes?: string;
+  technical_notes?: string;
+  assessed_at?: string;
+}
+
+export interface QuotationData {
+  quote_id: number;
+  order_type: string;
+  order_id: number;
+  version: number;
+  is_latest: boolean;
+  status: 'QUOTATION_PENDING' | 'QUOTATION_READY' | 'CUSTOMER_APPROVAL_PENDING' | 'CUSTOMER_APPROVED' | 'CUSTOMER_REJECTED' | 'EXPIRED' | 'PAID';
+  material_cost: number;
+  labour_cost: number;
+  machine_cost: number;
+  finishing_cost: number;
+  assembly_cost: number;
+  service_cost: number;
+  discount: number;
+  tax: number;
+  total_amount: number;
+  estimated_duration?: string;
+  estimated_completion_date?: string;
+  notes?: string;
+  created_at?: string;
+  approved_at?: string;
+}
+
+export interface ProductionStageData {
+  stage_id: number;
+  order_type: string;
+  order_id: number;
+  stage_name: string;
+  sequence_order: number;
+  required_skill?: string;
+  assigned_worker_id?: number;
+  assigned_worker_name?: string;
+  status: 'LOCKED' | 'READY_FOR_ASSIGNMENT' | 'ASSIGNED' | 'IN_PROGRESS' | 'QC_PENDING' | 'REWORK_REQUIRED' | 'COMPLETED';
+  progress_percentage: number;
+  remarks?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+export interface ProductionHistoryItem {
+  history_id: number;
+  stage_name?: string;
+  action: string;
+  worker_name?: string;
+  action_by: string;
+  previous_status?: string;
+  new_status?: string;
+  notes?: string;
+  timestamp: string;
+}
+
+export interface OnsiteJobData {
+  service_id: number;
+  customer_name: string;
+  service_category: string;
+  description: string;
+  address: string;
+  city: string;
+  pincode: string;
+  preferred_date: string;
+  preferred_time: string;
+  status: string;
+  priority: string;
+}
+
+export interface ProductionReportsData {
+  summary: {
+    total_customizations: number;
+    total_fabrications: number;
+    total_inspections: number;
+    pass_rate: number;
+    avg_production_days: number;
+    worker_utilization_rate: number;
+  };
+  stage_breakdown: {
+    stage: string;
+    completed: number;
+    in_progress: number;
+  }[];
+}
+
+// 1. Fetch Production Dashboard Overview Stats & Active Production
+export async function fetchProductionDashboardOverview(): Promise<ProductionOverviewData> {
+  const res = await safeFetchProd('/dashboard/overview');
+  if (!res.ok) throw new Error('Failed to fetch production overview');
+  return await res.json();
+}
+
+// 2. Fetch Assessment Queue (Approved requests only)
+export async function fetchAssessmentQueue(categoryFilter: string = 'ALL', tabFilter: string = 'ALL'): Promise<AssessmentQueueItem[]> {
+  const query = new URLSearchParams({ category_filter: categoryFilter, tab_filter: tabFilter });
+  const res = await safeFetchProd(`/assessment-queue?${query.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch assessment queue');
+  return await res.json();
+}
+
+// 3. Save Technical Assessment
+export async function saveTechnicalAssessment(payload: TechnicalAssessmentData): Promise<any> {
+  const res = await safeFetchProd('/assessments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to save technical assessment');
+  return await res.json();
+}
+
+// 4. Fetch Technical Assessment for Request
+export async function fetchTechnicalAssessment(orderType: string, orderId: number): Promise<TechnicalAssessmentData | null> {
+  const res = await safeFetchProd(`/assessments/${orderType}/${orderId}`);
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+// 5. Generate or Revise Quotation
+export async function generateQuotation(payload: {
+  order_type: string;
+  order_id: number;
+  created_by_id?: number;
+  material_cost: number;
+  labour_cost: number;
+  machine_cost: number;
+  finishing_cost: number;
+  assembly_cost?: number;
+  service_cost?: number;
+  discount?: number;
+  tax?: number;
+  estimated_duration?: string;
+  estimated_completion_date?: string;
+  notes?: string;
+}): Promise<any> {
+  const res = await safeFetchProd('/quotations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to generate quotation');
+  return await res.json();
+}
+
+// 6. Fetch Quotations for Order
+export async function fetchOrderQuotations(orderType: string, orderId: number): Promise<QuotationData[]> {
+  const res = await safeFetchProd(`/quotations/${orderType}/${orderId}`);
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 7. Customer Respond to Quotation (Approve / Reject)
+export async function customerRespondQuotation(quoteId: number, response: 'APPROVE' | 'REJECT', notes?: string): Promise<any> {
+  const res = await safeFetchProd(`/quotations/${quoteId}/customer-response`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ response, notes })
+  });
+  if (!res.ok) throw new Error('Failed to respond to quotation');
+  return await res.json();
+}
+
+// 8. Setup Production Stages
+export async function setupProductionStages(orderType: string, orderId: number, stages: { stage_name: string; sequence_order: number; required_skill?: string }[]): Promise<any> {
+  const res = await safeFetchProd('/stages/setup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order_type: orderType, order_id: orderId, stages })
+  });
+  if (!res.ok) throw new Error('Failed to setup production stages');
+  return await res.json();
+}
+
+// 9. Fetch Production Stages for Order
+export async function fetchOrderProductionStages(orderType: string, orderId: number): Promise<ProductionStageData[]> {
+  const res = await safeFetchProd(`/stages/${orderType}/${orderId}`);
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 10. Fetch Workers Available for Stage (Filtered by Required Skill)
+export async function fetchWorkersAvailableForStage(stageName?: string, requiredSkill?: string): Promise<WorkerData[]> {
+  const query = new URLSearchParams();
+  if (stageName) query.append('stage_name', stageName);
+  if (requiredSkill) query.append('required_skill', requiredSkill);
+
+  const res = await safeFetchProd(`/workers/available-for-stage?${query.toString()}`);
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 11. Assign Worker to Production Stage
+export async function assignStageWorker(stageId: number, workerId: number, notes?: string): Promise<any> {
+  const res = await safeFetchProd('/assign-stage-worker', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stage_id: stageId, worker_id: workerId, notes })
+  });
+  if (!res.ok) throw new Error('Failed to assign worker to stage');
+  return await res.json();
+}
+
+// 12. Fetch Worker Assigned Stage Tasks
+export async function fetchWorkerMyTasks(workerId: number): Promise<any[]> {
+  const res = await safeFetchProd(`/worker/my-tasks?worker_id=${workerId}`);
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 13. Worker Stage Action (START / COMPLETE)
+export async function updateWorkerStageAction(stageId: number, action: 'START' | 'COMPLETE', remarks?: string, photos?: string, progressPercentage: number = 100): Promise<any> {
+  const res = await safeFetchProd(`/worker/stages/${stageId}/action`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, remarks, photos, progress_percentage: progressPercentage })
+  });
+  if (!res.ok) throw new Error('Failed to record worker stage action');
+  return await res.json();
+}
+
+// 14. Log Customer Material Receipt
+export async function receiveCustomerMaterial(payload: {
+  order_type: string;
+  order_id: number;
+  condition?: string;
+  quantity?: number;
+  unit?: string;
+  notes?: string;
+  photos?: string;
+}): Promise<any> {
+  const res = await safeFetchProd('/materials/receive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) throw new Error('Failed to record material receipt');
+  return await res.json();
+}
+
+// 15. Fetch Production Audit Trail / History
+export async function fetchOrderProductionHistory(orderType: string, orderId: number): Promise<ProductionHistoryItem[]> {
+  const res = await safeFetchProd(`/history/${orderType}/${orderId}`);
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 16. Fetch On-Site Jobs
+export async function fetchOnsiteJobsForProduction(): Promise<OnsiteJobData[]> {
+  const res = await safeFetchProd('/onsite-jobs');
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 17. Fetch Production Reports
+export async function fetchProductionReports(): Promise<ProductionReportsData> {
+  const res = await safeFetchProd('/reports');
+  if (!res.ok) throw new Error('Failed to fetch production reports');
+  return await res.json();
+}
+

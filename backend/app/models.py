@@ -574,10 +574,11 @@ class ProductionStage(Base):
     stage_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     order_type = Column(String(50), default="Custom", nullable=False)  # Custom / Fabrication
     order_id = Column(Integer, nullable=False)
-    stage_name = Column(String(100), nullable=False)  # Wood & Carpentry, Upholstery, Finishing, Assembly
+    stage_name = Column(String(100), nullable=False)  # Wood & Carpentry, Cutting, Shaping, Sanding, Finishing, Upholstery, Assembly
     sequence_order = Column(Integer, nullable=False)
+    required_skill = Column(String(100), nullable=True)
     assigned_worker_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
-    status = Column(String(50), default="LOCKED", nullable=False)  # LOCKED, WAITING, IN_PROGRESS, QC_PENDING, REWORK_REQUIRED, COMPLETED
+    status = Column(String(50), default="LOCKED", nullable=False)  # LOCKED, READY_FOR_ASSIGNMENT, ASSIGNED, IN_PROGRESS, QC_PENDING, REWORK_REQUIRED, COMPLETED
     progress_percentage = Column(Integer, default=0, nullable=False)
     remarks = Column(Text, nullable=True)
     started_at = Column(DateTime, nullable=True)
@@ -715,8 +716,68 @@ class QuotationBreakdown(Base):
     discount = Column(Numeric(10, 2), default=0.0, nullable=False)
     tax = Column(Numeric(10, 2), default=0.0, nullable=False)
     total_amount = Column(Numeric(10, 2), nullable=False)
-    status = Column(String(50), default="QUOTED", nullable=False)  # QUOTED, APPROVED, REJECTED, PAID
+    status = Column(String(50), default="QUOTATION_READY", nullable=False)  # QUOTATION_PENDING, QUOTATION_READY, CUSTOMER_APPROVAL_PENDING, CUSTOMER_APPROVED, CUSTOMER_REJECTED, EXPIRED, PAID
+    version = Column(Integer, default=1, nullable=False)
+    is_latest = Column(Boolean, default=True, nullable=False)
+    estimated_duration = Column(String(100), nullable=True)
+    estimated_completion_date = Column(Date, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+
+    created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+class TechnicalAssessment(Base):
+    __tablename__ = "tbl_technical_assessment"
+
+    assessment_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    order_type = Column(String(50), nullable=False)  # Custom / Fabrication / Service
+    order_id = Column(Integer, nullable=False)
+    assessed_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    feasibility = Column(String(50), default="FEASIBLE", nullable=False)  # FEASIBLE / NOT_FEASIBLE
+    unfeasibility_reason = Column(Text, nullable=True)
+    required_operations = Column(Text, nullable=True)
+    required_stages = Column(Text, nullable=True)  # JSON or comma-separated
+    material_requirements = Column(Text, nullable=True)
+    machine_requirements = Column(Text, nullable=True)
+    worker_skill_requirements = Column(Text, nullable=True)
+    labour_hours = Column(Numeric(10, 2), default=0.0, nullable=True)
+    machine_hours = Column(Numeric(10, 2), default=0.0, nullable=True)
+    estimated_duration_days = Column(Numeric(10, 2), default=0.0, nullable=True)
+    estimated_completion_date = Column(Date, nullable=True)
+    material_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    labour_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    machine_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    finishing_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    other_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    total_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    production_notes = Column(Text, nullable=True)
+    technical_notes = Column(Text, nullable=True)
+    assessed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    assessed_by = relationship("User")
+
+
+class ProductionHistory(Base):
+    __tablename__ = "tbl_production_history"
+
+    history_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    order_type = Column(String(50), nullable=False)  # Custom / Fabrication / Service
+    order_id = Column(Integer, nullable=False)
+    stage_name = Column(String(100), nullable=True)
+    worker_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    action_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    action = Column(String(100), nullable=False)
+    previous_status = Column(String(50), nullable=True)
+    new_status = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    worker = relationship("User", foreign_keys=[worker_id])
+    action_by = relationship("User", foreign_keys=[action_by_id])
 
 
 class AIAnalysisLog(Base):
@@ -727,6 +788,7 @@ class AIAnalysisLog(Base):
     input_payload = Column(Text, nullable=False)
     output_result = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
 
 
 

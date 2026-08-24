@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageCheck, AlertCircle, Plus, X, Send, Palette, Ruler, ArrowRight, ArrowLeft, Layers, MessageSquareText, Edit3, Lock, Image, Trash2, FileText, Download, ShoppingCart, UploadCloud } from 'lucide-react';
-import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder, downloadPaymentReceipt } from '../../services/api_production';
+import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder, downloadPaymentReceipt, updateOrderStatus, customerRespondQuotation } from '../../services/api_production';
 import { addToCart } from '../../utils/cartStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 
@@ -1248,20 +1248,59 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                 </div>
               </div>
 
-              <div className="text-left md:text-right bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] shrink-0 space-y-2">
+              <div className="text-left md:text-right bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] shrink-0 space-y-2 max-w-xs">
                 <span className="block text-[11px] font-bold text-[#7A6C5E] uppercase">Estimated Quotation</span>
                 <span className="text-xl font-extrabold text-[#38A132] block">
-                  {activeOrder.estimated_price ? `₹${activeOrder.estimated_price.toLocaleString('en-IN')}` : 'Quote Under Review'}
+                  {activeOrder.estimated_price ? `₹${activeOrder.estimated_price.toLocaleString('en-IN')}` : 'Quote Under Assessment'}
                 </span>
+
                 {activeOrder.estimated_price && activeOrder.estimated_price > 0 && !(activeOrder.payment_status === 'Paid' || activeOrder.order_status === 'Paid') && (
-                  <button
-                    onClick={() => handleAddToCartAndPay(activeOrder)}
-                    className="mt-2 w-full px-3 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                    title="Add custom furniture quote to cart"
-                  >
-                    <ShoppingCart className="w-3.5 h-3.5" />
-                    <span>Add to Cart</span>
-                  </button>
+                  <div>
+                    {activeOrder.order_status === 'Quote Provided' || activeOrder.order_status === 'QUOTATION_READY' ? (
+                      <div className="space-y-2 pt-1 text-left">
+                        <span className="text-[11px] font-extrabold text-amber-800 bg-amber-100 px-2.5 py-1 rounded-md block text-center">
+                          Action Needed: Review & Approve Quotation
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await updateOrderStatus(activeOrder.custom_order_id, 'CUSTOMER_APPROVED');
+                                loadUserCustomOrders();
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                            className="flex-1 py-2 px-3 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-xs text-center"
+                          >
+                            Approve Quote
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await updateOrderStatus(activeOrder.custom_order_id, 'CUSTOMER_REJECTED');
+                                loadUserCustomOrders();
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                            className="py-2 px-3 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-extrabold cursor-pointer text-center"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : activeOrder.order_status === 'CUSTOMER_APPROVED' || activeOrder.order_status === 'Approved' ? (
+                      <button
+                        onClick={() => handleAddToCartAndPay(activeOrder)}
+                        className="mt-2 w-full px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer"
+                        title="Add approved custom furniture quote to cart"
+                      >
+                        <ShoppingCart className="w-4 h-4" />
+                        <span>Add to Cart & Checkout</span>
+                      </button>
+                    ) : null}
+                  </div>
                 )}
               </div>
             </div>

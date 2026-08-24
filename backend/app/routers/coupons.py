@@ -3,7 +3,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def format_ist_datetime(dt: Optional[datetime]) -> str:
+    if not dt:
+        return ""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    ist_dt = dt.astimezone(IST)
+    return ist_dt.strftime("%d %b %Y, %I:%M:%S %p IST")
 
 from app.database import get_db
 from app import models, auth
@@ -162,9 +172,9 @@ def list_coupons(db: Session = Depends(get_db)):
             "couponCode": r.coupon.code if r.coupon else "PROMO",
             "discountPercent": r.coupon.discount_percent if r.coupon else 15,
             "targetUserEmail": r.user_email,
-            "allottedDate": r.redeemed_at.strftime("%d %b %Y, %I:%M %p"),
+            "allottedDate": format_ist_datetime(r.redeemed_at),
             "used": True,
-            "usedDate": r.redeemed_at.strftime("%d %b %Y, %I:%M %p")
+            "usedDate": format_ist_datetime(r.redeemed_at)
         })
 
     for c in coupons:
@@ -176,9 +186,9 @@ def list_coupons(db: Session = Depends(get_db)):
                     "couponCode": c.code,
                     "discountPercent": c.discount_percent,
                     "targetUserEmail": c.target_user_email,
-                    "allottedDate": c.created_at.strftime("%d %b %Y, %I:%M %p"),
+                    "allottedDate": format_ist_datetime(c.created_at),
                     "used": c.current_redemptions > 0,
-                    "usedDate": c.created_at.strftime("%d %b %Y, %I:%M %p") if c.current_redemptions > 0 else None
+                    "usedDate": format_ist_datetime(c.created_at) if c.current_redemptions > 0 else None
                 })
 
     return {"coupons": coupons_list, "allotments": allotments_list}

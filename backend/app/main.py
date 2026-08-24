@@ -79,8 +79,19 @@ def startup_db():
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
 
+                # Production Stage & Quotation Breakdown migrations
+                conn.execute(text("ALTER TABLE tbl_production_stage ADD COLUMN IF NOT EXISTS required_skill VARCHAR(100);"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS version INT DEFAULT 1;"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS is_latest BOOLEAN DEFAULT TRUE;"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS estimated_duration VARCHAR(100);"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS estimated_completion_date DATE;"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS notes TEXT;"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS created_by_id INT;"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;"))
+                conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP;"))
+
                 conn.commit()
-                print("[MIGRATION] Added review metadata and priority columns to requests.")
+                print("[MIGRATION] Added review metadata, production stage skills, and quotation breakdown columns.")
             except Exception as mig_err:
                 print(f"[MIGRATION WARNING] Column migration notice: {mig_err}")
         print("Database tables initialized successfully.")

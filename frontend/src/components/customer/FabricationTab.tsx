@@ -261,17 +261,67 @@ export const FabricationTab: React.FC = () => {
                 )}
               </div>
 
-              <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between">
-                <span className="text-[10px] text-[#9E9082] font-semibold">
-                  {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}
-                </span>
-                {r.estimated_price && r.status === 'QUOTED' && r.payment_status !== 'Paid' && (
-                  <button
-                    onClick={() => handlePayFabrication(r.fabrication_id)}
-                    className="px-4 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-sm"
-                  >
-                    Approve & Pay ₹{r.estimated_price}
-                  </button>
+              <div className="pt-3 border-t border-[#E2D7CB] flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-[#9E9082] font-semibold">
+                    {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}
+                  </span>
+                  <span className="text-[11px] font-extrabold text-[#2C241D]">
+                    {r.payment_status === 'Paid' ? 'Paid ✓' : r.status === 'APPROVED' ? 'Quotation Approved' : r.status === 'QUOTED' ? 'Quotation Ready' : r.status}
+                  </span>
+                </div>
+
+                {r.estimated_price && r.estimated_price > 0 && r.payment_status !== 'Paid' && (
+                  <div>
+                    {r.status === 'QUOTED' || r.status === 'CUSTOMER_APPROVAL_PENDING' ? (
+                      <div className="space-y-2 pt-1">
+                        <div className="text-[11px] font-extrabold text-[#7A6C5E]">Quotation Details: ₹{r.estimated_price.toLocaleString('en-IN')}</div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              try {
+                                await fetch(`/api/fabrication/requests/${r.fabrication_id}/status`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'APPROVED' })
+                                });
+                                fetchFabrications();
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                            className="flex-1 py-2 px-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-sm text-center"
+                          >
+                            Approve Quotation
+                          </button>
+                          <button
+                            onClick={async () => {
+                              try {
+                                await fetch(`/api/fabrication/requests/${r.fabrication_id}/status`, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'REJECTED' })
+                                });
+                                fetchFabrications();
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                            className="py-2 px-3 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-extrabold cursor-pointer text-center"
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </div>
+                    ) : r.status === 'APPROVED' || r.status === 'CUSTOMER_APPROVED' ? (
+                      <button
+                        onClick={() => handlePayFabrication(r.fabrication_id)}
+                        className="w-full py-2.5 px-4 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-md flex items-center justify-center gap-2"
+                      >
+                        <span>Add to Cart & Checkout (₹{r.estimated_price.toLocaleString('en-IN')})</span>
+                      </button>
+                    ) : null}
+                  </div>
                 )}
               </div>
             </div>
