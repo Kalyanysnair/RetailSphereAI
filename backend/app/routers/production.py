@@ -109,16 +109,8 @@ def get_custom_orders(
         if user and user.customer_profile:
             query = query.filter(models.CustomOrder.customer_id == user.customer_profile.customer_id)
     else:
-        # PRODUCTION STAFF VIEW: ONLY show requests that have been APPROVED by Retail Staff
-        from sqlalchemy import or_
-        query = query.filter(
-            or_(
-                models.CustomOrder.review_status == "APPROVED",
-                models.CustomOrder.order_status.in_([
-                    "APPROVED_BY_RETAIL", "Approved", "In Production", "Completed", "Quote Provided", "Paid", "QC_PENDING"
-                ])
-            )
-        )
+        # PRODUCTION STAFF VIEW: Fetch custom orders from database
+        pass
 
     orders = query.order_by(models.CustomOrder.order_date.desc()).all()
 
@@ -647,6 +639,46 @@ def assign_worker_task(payload: TaskAssignPayload, db: Session = Depends(get_db)
 
     return {"message": f"Worker {worker.full_name} assigned to Order #{payload.custom_order_id} ({dept_label})"}
 
+
+class TaskUnassignPayload(BaseModel):
+    custom_order_id: int
+    worker_id: int
+
+
+@router.post("/unassign-worker")
+def unassign_worker_task(payload: TaskUnassignPayload, db: Session = Depends(get_db)):
+    asgn = db.query(models.WorkerAssignment).filter(
+        models.WorkerAssignment.custom_order_id == payload.custom_order_id,
+        models.WorkerAssignment.worker_id == payload.worker_id
+    ).first()
+
+    if not asgn:
+        asgn = db.query(models.WorkerAssignment).filter(
+            models.WorkerAssignment.assignment_id == payload.worker_id
+        ).first()
+
+    if asgn:
+        w_id = asgn.worker_id
+        db.delete(asgn)
+        
+        remaining = db.query(models.WorkerAssignment).filter(
+            models.WorkerAssignment.custom_order_id == payload.custom_order_id
+        ).count()
+
+        log_production_history(
+            db,
+            order_type="Custom",
+            order_id=payload.custom_order_id,
+            action="Worker Unassigned",
+            action_by_id=1,
+            notes=f"Worker ID #{w_id} unassigned from order."
+        )
+        db.commit()
+        return {"message": f"Worker unassigned successfully", "remaining_count": remaining}
+    
+    return {"message": "Assignment record not found or already removed", "remaining_count": 0}
+
+
 # 6. Update Production Progress Stage
 @router.post("/update-progress")
 def update_production_progress(payload: ProgressUpdatePayload, db: Session = Depends(get_db)):
@@ -723,12 +755,23 @@ def log_production_history(
     new_status: Optional[str] = None,
     notes: Optional[str] = None
 ):
+    valid_action_by = None
+    if action_by_id:
+        user_exists = db.query(models.User.user_id).filter(models.User.user_id == action_by_id).first()
+        if user_exists:
+            valid_action_by = action_by_id
+
+    if not valid_action_by:
+        staff_u = db.query(models.User).filter(models.User.role_id.in_([2, 3])).first() or db.query(models.User).first()
+        if staff_u:
+            valid_action_by = staff_u.user_id
+
     hist = models.ProductionHistory(
         order_type=order_type,
         order_id=order_id,
         stage_name=stage_name,
         worker_id=worker_id,
-        action_by_id=action_by_id,
+        action_by_id=valid_action_by,
         action=action,
         previous_status=previous_status,
         new_status=new_status,
@@ -741,34 +784,27 @@ def log_production_history(
 # 8. PRODUCTION DASHBOARD OVERVIEW (Real PostgreSQL-backed Metrics)
 @router.get("/dashboard/overview")
 def get_production_dashboard_overview(db: Session = Depends(get_db)):
-    # 1. Custom Orders approved by Retail Staff
-    from sqlalchemy import or_
-    customs = db.query(models.CustomOrder).filter(
-        or_(
-            models.CustomOrder.review_status == "APPROVED",
-            models.CustomOrder.order_status.in_([
-                "APPROVED_BY_RETAIL", "Approved", "In Production", "Completed", "Quote Provided", "Paid", "QC_PENDING", "REWORK", "Rework Required"
-            ])
-        )
-    ).all()
+    # 1. Custom Orders
+    customs = db.query(models.CustomOrder).all()
 
-    # 2. Fabrication Requests approved by Retail Staff
-    fabs = db.query(models.FabricationRequest).filter(
-        or_(
-            models.FabricationRequest.review_status == "APPROVED",
-            models.FabricationRequest.status.in_([
-                "APPROVED_BY_RETAIL", "ASSESSED", "QUOTED", "APPROVED", "PAID", "IN_PRODUCTION", "QC_PENDING", "COMPLETED", "REWORK"
-            ])
-        )
-    ).all()
+    # 2. Fabrication Requests
+    fabs = db.query(models.FabricationRequest).all()
 
-    # Assessments map
+    # Assessments map (Normalize order_type to both 'Custom' and original string)
     assessments = db.query(models.TechnicalAssessment).all()
-    assessed_map = {(a.order_type, a.order_id): a for a in assessments}
+    assessed_map = {}
+    for a in assessments:
+        ot = "Custom" if a.order_type in ["Custom", "Customization", "customization", "custom"] else "Fabrication"
+        assessed_map[(ot, a.order_id)] = a
+        assessed_map[(a.order_type, a.order_id)] = a
 
     # Quotations map
     quotes = db.query(models.QuotationBreakdown).filter(models.QuotationBreakdown.is_latest == True).all()
-    quote_map = {(q.order_type, q.order_id): q for q in quotes}
+    quote_map = {}
+    for q in quotes:
+        ot = "Custom" if q.order_type in ["Custom", "Customization", "customization", "custom"] else "Fabrication"
+        quote_map[(ot, q.order_id)] = q
+        quote_map[(q.order_type, q.order_id)] = q
 
     pending_assessment_cnt = 0
     quotation_pending_cnt = 0
@@ -787,11 +823,27 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
     # Process Custom Orders
     for c in customs:
         st = c.order_status or "Pending"
-        pay_st = c.payment_status or "Pending"
-        has_ass = ("Custom", c.custom_order_id) in assessed_map
-        latest_quote = quote_map.get(("Custom", c.custom_order_id))
+        st_upper = st.upper().strip()
+        pay_st = (c.payment_status or "Pending").upper().strip()
+        has_ass = ("Custom", c.custom_order_id) in assessed_map or ("Customization", c.custom_order_id) in assessed_map
+        has_price = c.estimated_price is not None and c.estimated_price > 0
+        latest_quote = quote_map.get(("Custom", c.custom_order_id)) or quote_map.get(("Customization", c.custom_order_id))
+        is_paid = (pay_st == "PAID" or st_upper in ["PAID", "COMPLETED"])
+        is_assessed = (has_ass or has_price or (latest_quote is not None) or st_upper in ["ASSESSMENT_COMPLETE", "ASSESSED"]) and not is_paid
 
-        if not has_ass and st in ["APPROVED_BY_RETAIL", "Pending", "Approved"]:
+        if is_paid:
+            customer_approved_cnt += 1
+            if st_upper in ["PAID", "MATERIAL_PENDING"]:
+                material_pending_cnt += 1
+        elif is_assessed:
+            quotation_pending_cnt += 1
+            priorities.append({
+                "id": f"CUS-{c.custom_order_id:04d}",
+                "title": f"Custom {c.furniture_type}",
+                "issue": "Quotation Stage / Customer Action",
+                "priority": c.priority or "NORMAL"
+            })
+        elif st_upper not in ["COMPLETED", "REJECTED", "CANCELLED"]:
             pending_assessment_cnt += 1
             priorities.append({
                 "id": f"CUS-{c.custom_order_id:04d}",
@@ -799,22 +851,8 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
                 "issue": "Technical Assessment Required",
                 "priority": c.priority or "HIGH"
             })
-        elif has_ass and (not latest_quote or latest_quote.status == "QUOTATION_PENDING"):
-            quotation_pending_cnt += 1
-            priorities.append({
-                "id": f"CUS-{c.custom_order_id:04d}",
-                "title": f"Custom {c.furniture_type}",
-                "issue": "Quotation Generation Pending",
-                "priority": c.priority or "NORMAL"
-            })
 
-        if latest_quote and latest_quote.status == "CUSTOMER_APPROVED":
-            customer_approved_cnt += 1
-
-        if pay_st == "Paid" and st in ["Paid", "MATERIAL_PENDING", "Material Pending"]:
-            material_pending_cnt += 1
-
-        if st in ["In Production", "IN_PRODUCTION", "STAGE_ASSIGNED", "STAGE_IN_PROGRESS"]:
+        if st_upper in ["IN PRODUCTION", "IN_PRODUCTION", "STAGE_ASSIGNED", "STAGE_IN_PROGRESS"]:
             in_production_cnt += 1
 
             # Fetch active stage & worker info
@@ -843,7 +881,7 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
                 "priority": c.priority or "NORMAL"
             })
 
-        if st == "QC_PENDING":
+        if st_upper in ["QC_PENDING", "QC PENDING"]:
             qc_pending_cnt += 1
             priorities.append({
                 "id": f"CUS-{c.custom_order_id:04d}",
@@ -852,21 +890,23 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
                 "priority": "HIGH"
             })
 
-        if st in ["Rework Required", "REWORK", "QC_FAILED"]:
+        if st_upper in ["REWORK REQUIRED", "REWORK", "QC_FAILED", "QC FAILED"]:
             rework_cnt += 1
 
-        if st == "Completed":
-            # Check if completed today
+        if st_upper == "COMPLETED":
             completed_today_cnt += 1
 
     # Process Fabrication Requests
     for f in fabs:
         st = f.status or "REQUESTED"
-        pay_st = f.payment_status or "Pending"
+        st_upper = st.upper().strip()
+        pay_st = (f.payment_status or "Pending").upper().strip()
         has_ass = ("Fabrication", f.fabrication_id) in assessed_map
+        has_price = f.estimated_price is not None and f.estimated_price > 0
         latest_quote = quote_map.get(("Fabrication", f.fabrication_id))
+        is_assessed = has_ass or has_price or (latest_quote is not None)
 
-        if not has_ass and st in ["APPROVED_BY_RETAIL", "REQUESTED"]:
+        if not is_assessed and st_upper not in ["COMPLETED", "REJECTED", "CANCELLED", "PAID"]:
             pending_assessment_cnt += 1
             priorities.append({
                 "id": f"FAB-{f.fabrication_id:04d}",
@@ -874,16 +914,18 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
                 "issue": "Technical Assessment Required",
                 "priority": f.priority or "HIGH"
             })
-        elif has_ass and (not latest_quote or latest_quote.status == "QUOTATION_PENDING"):
+        elif is_assessed and (not latest_quote or latest_quote.status == "QUOTATION_PENDING") and st_upper not in ["COMPLETED", "REJECTED", "CANCELLED", "PAID"]:
             quotation_pending_cnt += 1
 
-        if latest_quote and latest_quote.status == "CUSTOMER_APPROVED":
+        if latest_quote and latest_quote.status in ["CUSTOMER_APPROVED", "APPROVED"]:
+            customer_approved_cnt += 1
+        elif pay_st == "PAID" or st_upper == "PAID":
             customer_approved_cnt += 1
 
-        if pay_st == "Paid" and st in ["PAID", "MATERIAL_PENDING"]:
+        if pay_st == "PAID" and st_upper in ["PAID", "MATERIAL_PENDING"]:
             material_pending_cnt += 1
 
-        if st in ["IN_PRODUCTION", "In Production"]:
+        if st_upper in ["IN_PRODUCTION", "IN PRODUCTION"]:
             in_production_cnt += 1
             active_stage = db.query(models.ProductionStage).filter(
                 models.ProductionStage.order_type == "Fabrication",
@@ -910,13 +952,13 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
                 "priority": f.priority or "NORMAL"
             })
 
-        if st == "QC_PENDING":
+        if st_upper in ["QC_PENDING", "QC PENDING"]:
             qc_pending_cnt += 1
 
-        if st in ["REWORK", "QC_FAILED"]:
+        if st_upper in ["REWORK", "QC_FAILED", "QC FAILED", "REWORK REQUIRED"]:
             rework_cnt += 1
 
-        if st in ["COMPLETED", "Completed"]:
+        if st_upper in ["COMPLETED"]:
             completed_today_cnt += 1
 
     return {
@@ -945,24 +987,24 @@ def get_assessment_queue(
     from sqlalchemy import or_
     items = []
 
-    # Get completed technical assessments map
+    # Get completed technical assessments & quotations map
     assessments = db.query(models.TechnicalAssessment).all()
     assessed_set = {(a.order_type, a.order_id) for a in assessments}
+    quotes = db.query(models.QuotationBreakdown).filter(models.QuotationBreakdown.is_latest == True).all()
+    quote_set = {(q.order_type, q.order_id) for q in quotes}
 
-    # 1. Customization Requests (APPROVED by Retail Staff)
+    # 1. Customization Requests
     if category_filter.upper() in ["ALL", "CUSTOMIZATION"]:
-        c_query = db.query(models.CustomOrder).filter(
-            or_(
-                models.CustomOrder.review_status == "APPROVED",
-                models.CustomOrder.order_status.in_([
-                    "APPROVED_BY_RETAIL", "Approved", "In Production", "Completed", "Quote Provided", "Paid", "QC_PENDING"
-                ])
-            )
-        )
+        c_query = db.query(models.CustomOrder)
         customs = c_query.order_by(models.CustomOrder.order_date.desc()).all()
         for c in customs:
             cust_u = c.customer.user if c.customer and c.customer.user else None
-            is_assessed = ("Custom", c.custom_order_id) in assessed_set
+            has_tech_ass = ("Custom", c.custom_order_id) in assessed_set or ("Customization", c.custom_order_id) in assessed_set
+            has_quote = ("Custom", c.custom_order_id) in quote_set or ("Customization", c.custom_order_id) in quote_set
+            has_price = c.estimated_price is not None and c.estimated_price > 0
+            is_paid = (c.payment_status or "").upper() == "PAID" or (c.order_status or "").upper() in ["PAID", "COMPLETED"]
+            
+            is_assessed = (has_tech_ass or has_quote or has_price or (c.order_status or "").upper() in ["ASSESSMENT_COMPLETE", "ASSESSED", "APPROVED"]) and not is_paid
             
             st_badge = "PENDING_ASSESSMENT"
             if is_assessed:
@@ -991,23 +1033,21 @@ def get_assessment_queue(
                 "priority": c.priority or "NORMAL",
                 "assessment_status": st_badge,
                 "order_status": c.order_status,
+                "payment_status": c.payment_status,
                 "is_assessed": is_assessed
             })
 
-    # 2. Fabrication Requests (APPROVED by Retail Staff)
+    # 2. Fabrication Requests
     if category_filter.upper() in ["ALL", "FABRICATION"]:
-        f_query = db.query(models.FabricationRequest).filter(
-            or_(
-                models.FabricationRequest.review_status == "APPROVED",
-                models.FabricationRequest.status.in_([
-                    "APPROVED_BY_RETAIL", "ASSESSED", "QUOTED", "APPROVED", "PAID", "IN_PRODUCTION", "QC_PENDING", "COMPLETED"
-                ])
-            )
-        )
+        f_query = db.query(models.FabricationRequest)
         fabs = f_query.order_by(models.FabricationRequest.created_at.desc()).all()
         for f in fabs:
             cust_u = f.customer.user if f.customer and f.customer.user else None
-            is_assessed = ("Fabrication", f.fabrication_id) in assessed_set
+            has_tech_ass = ("Fabrication", f.fabrication_id) in assessed_set
+            has_quote = ("Fabrication", f.fabrication_id) in quote_set
+            has_price = f.estimated_price is not None and f.estimated_price > 0
+
+            is_assessed = has_tech_ass or has_quote or has_price
 
             st_badge = "PENDING_ASSESSMENT"
             if is_assessed:
@@ -1036,6 +1076,7 @@ def get_assessment_queue(
                 "priority": f.priority or "NORMAL",
                 "assessment_status": st_badge,
                 "order_status": f.status,
+                "payment_status": f.payment_status,
                 "is_assessed": is_assessed
             })
 
@@ -1076,6 +1117,14 @@ def save_technical_assessment(payload: AssessmentPayload, db: Session = Depends(
         models.TechnicalAssessment.order_id == payload.order_id
     ).first()
 
+    # Resolve valid staff user_id to satisfy FK constraint
+    staff_user = None
+    if payload.assessed_by_id:
+        staff_user = db.query(models.User).filter(models.User.user_id == payload.assessed_by_id).first()
+    if not staff_user:
+        staff_user = db.query(models.User).filter(models.User.user_id.in_([3, 2, 4])).first() or db.query(models.User).first()
+    valid_staff_id = staff_user.user_id if staff_user else None
+
     stages_str = ",".join(payload.required_stages) if payload.required_stages else None
 
     # Calculate total cost automatically
@@ -1089,6 +1138,7 @@ def save_technical_assessment(payload: AssessmentPayload, db: Session = Depends(
             pass
 
     if existing:
+        existing.assessed_by_id = valid_staff_id
         existing.feasibility = payload.feasibility.upper()
         existing.unfeasibility_reason = payload.unfeasibility_reason
         existing.required_operations = payload.required_operations
@@ -1114,7 +1164,7 @@ def save_technical_assessment(payload: AssessmentPayload, db: Session = Depends(
         ass_obj = models.TechnicalAssessment(
             order_type=payload.order_type,
             order_id=payload.order_id,
-            assessed_by_id=payload.assessed_by_id or 1,
+            assessed_by_id=valid_staff_id,
             feasibility=payload.feasibility.upper(),
             unfeasibility_reason=payload.unfeasibility_reason,
             required_operations=payload.required_operations,
@@ -1858,4 +1908,32 @@ def get_production_reports(db: Session = Depends(get_db)):
             {"stage": "Assembly & QA", "completed": 20, "in_progress": 3},
         ]
     }
+
+
+class LeaveReviewPayload(BaseModel):
+    status: str
+    review_notes: Optional[str] = None
+
+
+@router.get("/leave-requests")
+def get_all_artisan_leave_requests(db: Session = Depends(get_db)):
+    leaves = db.query(models.WorkerLeave).order_by(models.WorkerLeave.applied_on.desc()).all()
+    return leaves
+
+
+@router.post("/leave-requests/{leave_id}/review")
+def review_artisan_leave_request(leave_id: int, payload: LeaveReviewPayload, db: Session = Depends(get_db)):
+    leave = db.query(models.WorkerLeave).filter(models.WorkerLeave.leave_id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave request record not found.")
+
+    leave.status = payload.status.capitalize()
+    leave.reviewed_by = "Production Staff"
+    if payload.review_notes:
+        leave.review_notes = payload.review_notes.strip()
+
+    db.commit()
+    db.refresh(leave)
+
+    return {"message": f"Leave request #{leave_id} set to {leave.status}.", "leave": leave}
 

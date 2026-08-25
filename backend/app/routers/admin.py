@@ -1596,6 +1596,34 @@ def global_system_search(
     return {"results": results[:20]}
 
 
+class AdminLeaveReviewPayload(BaseModel):
+    status: str
+    review_notes: Optional[str] = None
+
+
+@router.get("/leave-requests")
+def get_admin_leave_requests(db: Session = Depends(get_db)):
+    leaves = db.query(models.WorkerLeave).order_by(models.WorkerLeave.applied_on.desc()).all()
+    return leaves
+
+
+@router.post("/leave-requests/{leave_id}/review")
+def admin_review_leave_request(leave_id: int, payload: AdminLeaveReviewPayload, db: Session = Depends(get_db)):
+    leave = db.query(models.WorkerLeave).filter(models.WorkerLeave.leave_id == leave_id).first()
+    if not leave:
+        raise HTTPException(status_code=404, detail="Leave request record not found.")
+
+    leave.status = payload.status.capitalize()
+    leave.reviewed_by = "System Administrator"
+    if payload.review_notes:
+        leave.review_notes = payload.review_notes.strip()
+
+    db.commit()
+    db.refresh(leave)
+
+    return {"message": f"Leave request #{leave_id} set to {leave.status}.", "leave": leave}
+
+
 
 
 

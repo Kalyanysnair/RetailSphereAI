@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
 import { 
   Users, 
   Package, 
@@ -319,6 +320,31 @@ export const AdminDashboardPage: React.FC = () => {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [adminLeaveRequests, setAdminLeaveRequests] = useState<WorkerLeaveItem[]>([]);
+
+  const loadAdminLeaveRequests = async () => {
+    try {
+      const leaves = await fetchAllLeaveRequests();
+      setAdminLeaveRequests(leaves);
+    } catch (err) {
+      console.error('Failed to load admin leave requests:', err);
+    }
+  };
+
+  const handleAdminReviewLeave = async (leaveId: number, status: 'Approved' | 'Rejected', notes?: string) => {
+    try {
+      await reviewLeaveRequest(leaveId, status, notes, 'System Administrator');
+      await loadAdminLeaveRequests();
+    } catch (err) {
+      console.error('Failed to review leave:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadAdminLeaveRequests();
+    window.addEventListener('leave-requests-updated', loadAdminLeaveRequests);
+    return () => window.removeEventListener('leave-requests-updated', loadAdminLeaveRequests);
+  }, []);
 
   useEffect(() => {
     const loadNotifs = async () => {
@@ -3899,6 +3925,97 @@ export const AdminDashboardPage: React.FC = () => {
                           ))}
                       </tbody>
                     </table>
+                  </div>
+
+                  {/* Artisan Worker Leave Applications & Absence Management Section */}
+                  <div className="pt-6 border-t border-[#EFE7DE] space-y-4">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                      <div>
+                        <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-[#38A132]" />
+                          <span>Artisan Worker Leave Applications & Absence Oversight</span>
+                        </h4>
+                        <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
+                          Review, approve, or reject leave requests submitted by artisan craftsmen. Real-time updates sync across Worker & Production Staff portals.
+                        </p>
+                      </div>
+                      <span className="text-xs font-black text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                        {adminLeaveRequests.filter(l => l.status === 'Pending').length} Pending Review
+                      </span>
+                    </div>
+
+                    {adminLeaveRequests.length === 0 ? (
+                      <div className="p-6 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl bg-white/50">
+                        No worker leave requests currently logged.
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto bg-white/70 rounded-2xl border border-[#E2D7CB] p-2">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
+                              <th className="py-3 px-4">Artisan Worker</th>
+                              <th className="py-3 px-4">Leave Type</th>
+                              <th className="py-3 px-4">Duration & Dates</th>
+                              <th className="py-3 px-4">Reason</th>
+                              <th className="py-3 px-4">Status</th>
+                              <th className="py-3 px-4 text-right">Actions / Review</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#EFE7DE]">
+                            {adminLeaveRequests.map((req) => (
+                              <tr key={req.leave_id} className="hover:bg-[#F5ECE1]/40 transition-colors">
+                                <td className="py-3.5 px-4 font-black text-[#2C241D] whitespace-nowrap">
+                                  👷 {req.worker_name || `Worker #${req.worker_id}`}
+                                </td>
+                                <td className="py-3.5 px-4 font-bold text-[#4A3E32]">
+                                  {req.leave_type}
+                                </td>
+                                <td className="py-3.5 px-4 whitespace-nowrap">
+                                  <span className="font-extrabold text-[#2C241D] block">{req.duration_days} Day{req.duration_days > 1 ? 's' : ''}</span>
+                                  <span className="text-[10px] text-[#7A6C5E] font-mono">{req.start_date} to {req.end_date}</span>
+                                </td>
+                                <td className="py-3.5 px-4 font-medium text-[#4A3E32] max-w-xs">
+                                  {req.reason}
+                                </td>
+                                <td className="py-3.5 px-4 whitespace-nowrap">
+                                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                    req.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                    req.status === 'Rejected' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                                    'bg-amber-100 text-amber-900 border border-amber-300'
+                                  }`}>
+                                    {req.status}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                  {req.status === 'Pending' ? (
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdminReviewLeave(req.leave_id, 'Approved', 'Approved by System Administrator')}
+                                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-extrabold text-[11px] transition-all shadow-xs cursor-pointer"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleAdminReviewLeave(req.leave_id, 'Rejected', 'Rejected by System Administrator')}
+                                        className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-extrabold text-[11px] transition-all shadow-xs cursor-pointer"
+                                      >
+                                        Reject
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[10px] text-[#7A6C5E] font-medium italic">
+                                      Reviewed by {req.reviewed_by || 'Admin'}
+                                    </span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

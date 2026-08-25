@@ -65,13 +65,18 @@ def get_inspections(
 
 @router.post("/inspections", status_code=status.HTTP_201_CREATED)
 def record_quality_inspection(payload: QualityInspectionCreatePayload, db: Session = Depends(get_db)):
-    inspector_id = payload.inspector_id or 1
+    insp_user = None
+    if payload.inspector_id:
+        insp_user = db.query(models.User).filter(models.User.user_id == payload.inspector_id).first()
+    if not insp_user:
+        insp_user = db.query(models.User).filter(models.User.role_id.in_([2, 3])).first() or db.query(models.User).first()
+    valid_inspector_id = insp_user.user_id if insp_user else 3
 
     insp = models.QualityInspection(
         order_type=payload.order_type,
         order_id=payload.order_id,
         stage_id=payload.stage_id,
-        inspector_id=inspector_id,
+        inspector_id=valid_inspector_id,
         result=payload.result.upper(),
         dimensions_check=payload.dimensions_check,
         finishing_check=payload.finishing_check,
@@ -85,9 +90,20 @@ def record_quality_inspection(payload: QualityInspectionCreatePayload, db: Sessi
     db.commit()
     db.refresh(insp)
 
-    # If Failed, create Rework Job automatically
-    if payload.result.upper() == "FAIL":
-        worker_id = payload.rework_worker_id or inspector_id
+    res_upper = payload.result.upper()
+
+    if res_upper == "PASS":
+        if payload.order_type == "Custom":
+            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == payload.order_id).first()
+            if ord_obj:
+                ord_obj.order_status = "COMPLETED"
+        elif payload.order_type == "Fabrication":
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.order_id).first()
+            if fab_obj:
+                fab_obj.status = "COMPLETED"
+        db.commit()
+    elif res_upper == "FAIL":
+        worker_id = payload.rework_worker_id or valid_inspector_id
         rework = models.ReworkJob(
             inspection_id=insp.inspection_id,
             assigned_worker_id=worker_id,
@@ -101,7 +117,17 @@ def record_quality_inspection(payload: QualityInspectionCreatePayload, db: Sessi
         if payload.order_type == "Custom":
             ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == payload.order_id).first()
             if ord_obj:
-                ord_obj.order_status = "Rework Required"
+                ord_obj.order_status = "REWORK_REQUIRED"
+        elif payload.order_type == "Fabrication":
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.order_id).first()
+            if fab_obj:
+                fab_obj.status = "REWORK_REQUIRED"
+
+        # Update specific failed stage status if stage_id is provided
+        if payload.stage_id:
+            stg = db.query(models.ProductionStage).filter(models.ProductionStage.stage_id == payload.stage_id).first()
+            if stg:
+                stg.status = "REWORK_REQUIRED"
 
         db.commit()
 

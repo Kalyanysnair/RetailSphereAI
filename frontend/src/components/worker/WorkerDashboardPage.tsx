@@ -57,26 +57,36 @@ import {
   WorkerOnsiteJobItem
 } from '../../services/api_worker';
 import { getCurrentUser, updateUserProfile, changeFirstPassword, changePasswordUser } from '../../services/api';
+import { applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 import { getMessagesForUser, markAdminMessageRead, markAllAdminMessagesReadForUser, isMessageReadByUser, AdminMessage } from '../../utils/adminMessagesStorage';
 import { getStaffQueries, addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 
 export const WorkerDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+  // User Profile
   const [userProfile, setUserProfile] = useState<any>(null);
 
-  // Operational State
+  // Summary & Workspace State
   const [summaryData, setSummaryData] = useState<WorkerSummaryData | null>(null);
   const [tasksList, setTasksList] = useState<WorkerTaskItem[]>([]);
   const [completedHistory, setCompletedHistory] = useState<WorkerCompletedHistoryItem[]>([]);
   const [onsiteJobsList, setOnsiteJobsList] = useState<WorkerOnsiteJobItem[]>([]);
+  const [leaveApplications, setLeaveApplications] = useState<WorkerLeaveItem[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Tabs & Filters
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'my_tasks' | 'onsite' | 'completed' | 'admin_directives' | 'queries' | 'profile'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'my_tasks' | 'onsite' | 'completed' | 'admin_directives' | 'queries' | 'profile' | 'leave'>('dashboard');
   const [taskStatusFilter, setTaskStatusFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+
+  // Leave Form State
+  const [leaveType, setLeaveType] = useState('Casual Leave');
+  const [leaveStartDate, setLeaveStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [leaveEndDate, setLeaveEndDate] = useState(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+  const [leaveReason, setLeaveReason] = useState('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
 
   // Directives & Queries State
   const [adminDirectives, setAdminDirectives] = useState<AdminMessage[]>([]);
@@ -148,21 +158,46 @@ export const WorkerDashboardPage: React.FC = () => {
       );
       setStaffQueries(userQueries);
 
-      const [summary, tasks, history, onsite] = await Promise.all([
+      const [summary, tasks, history, onsite, leaves] = await Promise.all([
         fetchWorkerSummaryDB(),
         fetchWorkerTasksDB(taskStatusFilter),
         fetchWorkerCompletedHistoryDB(),
-        fetchWorkerOnsiteJobsDB()
+        fetchWorkerOnsiteJobsDB(),
+        fetchMyLeaveApplications()
       ]);
 
       if (summary) setSummaryData(summary);
       setTasksList(tasks || []);
       setCompletedHistory(history || []);
       setOnsiteJobsList(onsite || []);
+      setLeaveApplications(leaves || []);
     } catch (err) {
       console.error('Error loading worker workspace data:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleApplyLeaveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveStartDate || !leaveEndDate || !leaveReason.trim()) return;
+    setIsSubmittingLeave(true);
+    try {
+      const res = await applyWorkerLeave({
+        leave_type: leaveType,
+        start_date: leaveStartDate,
+        end_date: leaveEndDate,
+        reason: leaveReason.trim()
+      });
+      setSuccessNotice(`Leave application submitted successfully! Status: ${res.status}`);
+      setLeaveReason('');
+      const freshLeaves = await fetchMyLeaveApplications();
+      setLeaveApplications(freshLeaves);
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Failed to submit leave application.');
+    } finally {
+      setIsSubmittingLeave(false);
+      setTimeout(() => { setSuccessNotice(null); setErrorNotice(null); }, 4000);
     }
   };
 
@@ -450,17 +485,22 @@ export const WorkerDashboardPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('profile')}
+            onClick={() => setActiveTab('leave')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'profile'
+              activeTab === 'leave'
                 ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
                 : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
             }`}
           >
             <div className="flex items-center gap-2.5">
-              <ShieldCheck className="w-4 h-4" />
-              <span className="text-xs">My Skills & Profile</span>
+              <Calendar className="w-4 h-4" />
+              <span className="text-xs">Leave Requests & Absence</span>
             </div>
+            {leaveApplications.filter(l => l.status === 'Pending').length > 0 && (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                {leaveApplications.filter(l => l.status === 'Pending').length} Pending
+              </span>
+            )}
           </button>
         </nav>
       </aside>
@@ -549,10 +589,11 @@ export const WorkerDashboardPage: React.FC = () => {
                   {activeTab === 'completed' && "My Finished Stages History"}
                   {activeTab === 'admin_directives' && "Admin & Staff Directives"}
                   {activeTab === 'queries' && "Production Staff Communication Desk"}
+                  {activeTab === 'leave' && "Leave Requests & Absence Management"}
                   {activeTab === 'profile' && "Artisan Profile & Skill Capabilities"}
                 </h1>
                 <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                  {activeTab === 'admin_directives' ? 'Official announcements and operational directives sent by System Admin and Production Staff.' : activeTab === 'queries' ? 'Direct communication line to send technical queries or material requests to Production Staff.' : 'Production workshop operational workspace calculated live from PostgreSQL.'}
+                  {activeTab === 'leave' ? 'Submit leave requests for workshop staff & admin review. Leave status is reflected across Production Staff & Admin Dashboards.' : activeTab === 'admin_directives' ? 'Official announcements and operational directives sent by System Admin and Production Staff.' : activeTab === 'queries' ? 'Direct communication line to send technical queries or material requests to Production Staff.' : 'Production workshop operational workspace calculated live from PostgreSQL.'}
                 </p>
               </div>
 
@@ -581,13 +622,13 @@ export const WorkerDashboardPage: React.FC = () => {
                   <div className="absolute right-0 top-full mt-2 w-48 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
                     <button
                       onClick={() => {
-                        setIsProfileModalOpen(true);
+                        setActiveTab('profile');
                         setIsUserMenuOpen(false);
                       }}
                       className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left cursor-pointer"
                     >
                       <User className="w-4 h-4 text-[#48A63E]" />
-                      <span>View Profile</span>
+                      <span>View Profile & Skills</span>
                     </button>
 
                     <button
@@ -1255,50 +1296,170 @@ export const WorkerDashboardPage: React.FC = () => {
 
         {/* TAB 5: WORKER PROFILE & SKILLS */}
         {activeTab === 'profile' && (
-          <div className="max-w-2xl mx-auto bg-white rounded-3xl p-6 sm:p-8 border border-[#E2D7CB] shadow-sm space-y-6">
-            <div className="flex items-center gap-4 border-b border-[#EFE7DE] pb-4">
-              <div className="w-16 h-16 rounded-3xl bg-[#48A63E]/20 text-[#48A63E] font-black text-2xl flex items-center justify-center border-2 border-[#48A63E]">
-                {(userProfile?.full_name || 'W')[0]}
+          <div className="max-w-4xl mx-auto space-y-6">
+            {/* Top Identity Card */}
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E2D7CB] shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-6">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-[#48A63E] to-[#2E8729] text-white font-black text-2xl flex items-center justify-center shadow-md">
+                    {(userProfile?.full_name || 'W')[0]}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-[#2C241D] flex items-center gap-2">
+                      <span>{userProfile?.full_name || 'Worker'}</span>
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        Active Roster
+                      </span>
+                    </h3>
+                    <p className="text-xs font-mono font-bold text-[#7A6C5E] mt-0.5">{userProfile?.email}</p>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <span className="px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] text-[10px] font-black border border-[#48A63E]/30">
+                        Role: Artisan Worker
+                      </span>
+                      {userProfile?.phone && (
+                        <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-900 text-[10px] font-black border border-amber-200 font-mono">
+                          📞 {userProfile.phone}
+                        </span>
+                      )}
+                      {(summaryData?.is_driver || userProfile?.is_driver) && (
+                        <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-black border border-purple-300 flex items-center gap-1">
+                          <Truck className="w-3 h-3 text-purple-700" />
+                          <span>Fleet Driver Eligible</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs font-semibold space-y-1 min-w-[180px]">
+                  <div className="flex justify-between">
+                    <span className="text-[#7A6C5E]">Artisan ID:</span>
+                    <span className="font-mono font-extrabold text-[#2C241D]">ART-#{userProfile?.user_id || 104}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#7A6C5E]">Shift Status:</span>
+                    <span className="font-bold text-emerald-700">Workshop On-Duty</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#7A6C5E]">Completed Jobs:</span>
+                    <span className="font-extrabold text-[#38A132]">{summaryData?.completed_today_count ?? 12} Tasks</span>
+                  </div>
+                </div>
               </div>
-              <div>
-                <h3 className="text-xl font-black text-[#2C241D]">{userProfile?.full_name || 'Worker'}</h3>
-                <p className="text-xs font-mono font-bold text-[#7A6C5E]">{userProfile?.email}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] text-[10px] font-black border border-[#48A63E]/30">
-                    Role: Worker
+
+              {/* Skill Capabilities & Craft Specializations */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-[#48A63E]" />
+                    <span>Artisan Skill Capabilities & Specialization</span>
+                  </h4>
+                  <span className="text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
+                    Verified Competency
                   </span>
-                  {summaryData?.is_driver && (
-                    <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-black border border-purple-300 flex items-center gap-1">
-                      <Truck className="w-3 h-3 text-purple-700" />
-                      <span>Fleet Driver Capable</span>
-                    </span>
-                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                  <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
+                      <span className="font-bold text-[#7A6C5E]">Primary Craft Specialization</span>
+                      <span className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
+                        🪵 {userProfile?.specialization || 'Woodwork & Carpentry'}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Skill Mastery Tags</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          🪚 Precision Joinery
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          ✨ Surface Polishing & PU
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          🔩 Hardware & Fitting
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          📐 Blueprint & Specs Reading
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2.5">
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
+                      <span className="font-bold text-[#7A6C5E]">Fleet Transport & On-Site</span>
+                      <span className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
+                        🚚 {(summaryData?.is_driver || userProfile?.is_driver) ? 'Fleet Van Driver' : 'Workshop Station'}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 pt-1">
+                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Workshop Equipment Proficiency</span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          ⚡ CNC Panel Router
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          🌀 Spray Booth System
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
+                          🗜️ Edge Banding Machine
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <h4 className="font-black text-sm text-[#2C241D]">Assigned Artisan Skills</h4>
-              <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#7A6C5E]">Primary Craft Specialization:</span>
-                  <span className="font-extrabold text-[#2C241D]">{userProfile?.specialization || 'Woodwork & Carpentry'}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-[#7A6C5E]">Driver Capability:</span>
-                  <span className="font-extrabold text-[#2C241D]">{summaryData?.is_driver ? 'Yes (Vehicle Eligible)' : 'No'}</span>
-                </div>
+            {/* Password & Security Card Embedded in Profile View */}
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E2D7CB] shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-[#48A63E]" />
+                  <span>Account Security & Login Password</span>
+                </h4>
+                <span className="text-[10px] font-bold text-[#7A6C5E]">Encrypted Credentials</span>
               </div>
 
-              <div className="pt-4 border-t border-[#EFE7DE]">
-                <button
-                  onClick={() => setIsProfileModalOpen(true)}
-                  className="w-full py-3 rounded-2xl bg-[#2C241D] hover:bg-[#3D3228] text-white font-extrabold text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer"
-                >
-                  <Lock className="w-4 h-4 text-[#48A63E]" />
-                  <span>Update Login Password</span>
-                </button>
-              </div>
+              {passwordNotice && (
+                <div className={`p-3 rounded-xl text-xs font-bold border ${passwordNotice.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-rose-50 text-rose-900 border-rose-300'}`}>
+                  {passwordNotice.text}
+                </div>
+              )}
+
+              <form onSubmit={handlePasswordChangeSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-semibold">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">New Password *</label>
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Confirm New Password *</label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
+                    required
+                  />
+                </div>
+
+                <div className="sm:col-span-2 pt-2 flex justify-end">
+                  <button
+                    type="submit"
+                    className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    <span>Update Account Password</span>
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
@@ -1391,6 +1552,161 @@ export const WorkerDashboardPage: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* TAB 4.5: LEAVE APPLICATION & ABSENCE MANAGEMENT */}
+            {activeTab === 'leave' && (
+              <div className="space-y-6">
+                <div className="ultra-glass-card rounded-3xl p-6 sm:p-8 space-y-6 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
+                    <div>
+                      <h3 className="text-lg font-black text-[#2C241D] flex items-center gap-2">
+                        <Calendar className="w-5 h-5 text-[#38A132]" />
+                        <span>Worker Leave Application & Absence Portal</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
+                        Submit leave requests for workshop staff & admin review. Leave status is reflected across Production Staff & Admin Dashboards.
+                      </p>
+                    </div>
+                    <span className="text-xs font-extrabold text-[#38A132] bg-[#38A132]/10 px-3 py-1 rounded-lg border border-[#38A132]/20 whitespace-nowrap">
+                      Annual Allowance: 14 Days
+                    </span>
+                  </div>
+
+                  {/* Leave Allowance Stat Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
+                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Casual Leave Balance</span>
+                      <div className="text-xl font-black text-[#2C241D]">8 Days Available</div>
+                      <span className="text-[10px] font-bold text-emerald-700">Workshop Approved</span>
+                    </div>
+                    <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
+                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Sick Leave Balance</span>
+                      <div className="text-xl font-black text-[#2C241D]">6 Days Available</div>
+                      <span className="text-[10px] font-bold text-emerald-700">Medical Backup Eligible</span>
+                    </div>
+                    <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
+                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Pending Requests</span>
+                      <div className="text-xl font-black text-amber-700">
+                        {leaveApplications.filter(l => l.status === 'Pending').length} Applications
+                      </div>
+                      <span className="text-[10px] font-bold text-amber-800">Awaiting Staff/Admin Review</span>
+                    </div>
+                  </div>
+
+                  {/* Apply for Leave Form */}
+                  <form onSubmit={handleApplyLeaveSubmit} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-4 shadow-sm">
+                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2 border-b border-[#EFE7DE] pb-2">
+                      <span>Submit New Leave Application</span>
+                    </h4>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-semibold">
+                      <div>
+                        <label className="block font-extrabold text-[#2C241D] mb-1">Leave Type *</label>
+                        <select
+                          value={leaveType}
+                          onChange={(e) => setLeaveType(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                        >
+                          <option value="Casual Leave">🌴 Casual Leave</option>
+                          <option value="Sick Leave">🏥 Sick Leave / Medical</option>
+                          <option value="Emergency Leave">⚡ Emergency Leave</option>
+                          <option value="Annual Leave">📅 Annual Vacation Leave</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block font-extrabold text-[#2C241D] mb-1">Start Date *</label>
+                        <input
+                          type="date"
+                          value={leaveStartDate}
+                          onChange={(e) => setLeaveStartDate(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block font-extrabold text-[#2C241D] mb-1">End Date *</label>
+                        <input
+                          type="date"
+                          value={leaveEndDate}
+                          onChange={(e) => setLeaveEndDate(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-extrabold text-[#2C241D] mb-1">Reason for Leave *</label>
+                      <textarea
+                        rows={2}
+                        value={leaveReason}
+                        onChange={(e) => setLeaveReason(e.target.value)}
+                        placeholder="Provide details for your leave request..."
+                        className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132]"
+                        required
+                      />
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="submit"
+                        disabled={isSubmittingLeave}
+                        className="bg-[#38A132] hover:bg-[#32922D] disabled:opacity-50 px-6 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Calendar className="w-4 h-4" />
+                        <span>{isSubmittingLeave ? 'Submitting...' : 'Submit Leave Request'}</span>
+                      </button>
+                    </div>
+                  </form>
+
+                  {/* Roster of Submitted Applications */}
+                  <div className="space-y-3 pt-2">
+                    <h4 className="font-extrabold text-sm text-[#2C241D]">My Submitted Leave Requests History</h4>
+
+                    {leaveApplications.length === 0 ? (
+                      <div className="p-8 bg-white/60 rounded-2xl border border-dashed border-[#E2D7CB] text-center text-xs text-[#7A6C5E] font-medium">
+                        No leave requests submitted yet.
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5">
+                        {leaveApplications.map((l) => (
+                          <div key={l.leave_id} className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-2xs text-xs">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-black text-[#2C241D]">{l.leave_type}</span>
+                                <span className="px-2.5 py-0.5 rounded-full bg-slate-100 font-extrabold text-[#7A6C5E] text-[10px]">
+                                  {l.duration_days} Day{l.duration_days > 1 ? 's' : ''} ({l.start_date} to {l.end_date})
+                                </span>
+                              </div>
+                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                l.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                l.status === 'Rejected' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                                'bg-amber-100 text-amber-900 border border-amber-300'
+                              }`}>
+                                {l.status}
+                              </span>
+                            </div>
+
+                            <p className="text-[#4A3E32] font-medium">{l.reason}</p>
+
+                            {l.reviewed_by && (
+                              <div className="p-2.5 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-[11px] space-y-0.5">
+                                <span className="font-extrabold text-[#2C241D]">
+                                  Reviewed by {l.reviewed_by}:
+                                </span>
+                                <p className="text-[#7A6C5E] font-medium">{l.review_notes || `Status set to ${l.status}`}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="pt-4 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
               {selectedTaskForDetail.task_status === 'ASSIGNED' && (
@@ -1558,18 +1874,6 @@ export const WorkerDashboardPage: React.FC = () => {
             )}
 
             <form onSubmit={handlePasswordChangeSubmit} className="space-y-3 text-xs font-semibold">
-              {!mustChangePasswordModal && (
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Current Password *</label>
-                  <input
-                    type="password"
-                    value={currentPassword}
-                    onChange={(e) => setCurrentPassword(e.target.value)}
-                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                    required
-                  />
-                </div>
-              )}
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">New Password *</label>
                 <input

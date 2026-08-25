@@ -1,3 +1,5 @@
+import { getAllUserStoredCustomOrders } from './api_production';
+
 const API_HOST = typeof window !== 'undefined' && window.location.hostname === 'localhost' ? '127.0.0.1' : (typeof window !== 'undefined' ? window.location.hostname : '127.0.0.1');
 export const API_BASE_URL = `http://${API_HOST}:8000`;
 
@@ -86,15 +88,73 @@ export async function fetchWorkerSummaryDB(): Promise<WorkerSummaryData | null> 
 }
 
 export async function fetchWorkerTasksDB(statusFilter?: string): Promise<WorkerTaskItem[]> {
+  const userStr = localStorage.getItem('user_profile') || localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  const workerId = user?.user_id || user?.id;
+  const workerName = (user?.full_name || user?.name || user?.username || '').toLowerCase();
+  const workerEmail = (user?.email || '').toLowerCase();
+
   try {
     const url = statusFilter && statusFilter !== 'All'
       ? `${API_BASE_URL}/api/worker/my-tasks?status_filter=${encodeURIComponent(statusFilter)}`
       : `${API_BASE_URL}/api/worker/my-tasks`;
     const res = await fetch(url, { headers: getAuthHeaders() });
-    if (!res.ok) return [];
-    return await res.json();
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    }
   } catch (err) {
     console.error('Error fetching worker tasks from DB:', err);
+  }
+
+  // Fallback: check all stored custom orders for assigned tasks matching this worker
+  try {
+    const allOrders = getAllUserStoredCustomOrders();
+    const tasks: WorkerTaskItem[] = [];
+
+    allOrders.forEach(o => {
+      if (o.assigned_workers && o.assigned_workers.length > 0) {
+        const myAssignments = o.assigned_workers.filter(w =>
+          (workerId && w.worker_id === workerId) ||
+          (workerName && w.worker_name?.toLowerCase().includes(workerName)) ||
+          (workerEmail && w.worker_email?.toLowerCase() === workerEmail)
+        );
+
+        myAssignments.forEach(asgn => {
+          const rawSt = asgn.task_status || 'Assigned';
+          const isDone = rawSt.toLowerCase().includes('completed');
+          const isInProgress = rawSt.toLowerCase().includes('in progress');
+          const mappedSt = isDone ? 'COMPLETED' : isInProgress ? 'IN_PROGRESS' : 'ASSIGNED';
+
+          if (!statusFilter || statusFilter === 'All' || statusFilter.toUpperCase() === mappedSt) {
+            tasks.push({
+              task_id: `asgn-${asgn.assignment_id || Date.now()}`,
+              raw_assignment_id: asgn.assignment_id || Date.now(),
+              order_type: 'Custom',
+              order_id: `ORD-${String(o.custom_order_id).padStart(4, '0')}`,
+              raw_order_id: o.custom_order_id,
+              job_name: `Custom ${o.furniture_type}`,
+              stage_name: asgn.specialization || 'Production Stage',
+              required_skill: asgn.specialization || 'Woodwork & Carpentry',
+              task_status: mappedSt,
+              priority: 'NORMAL',
+              assigned_date: 'Recent',
+              dimensions: o.dimensions,
+              material: o.material,
+              color: o.color,
+              progress_percentage: isDone ? 100 : isInProgress ? 50 : 0,
+              customer_requirements: `${o.furniture_type} - ${o.material} (${o.dimensions})`,
+              reference_image: o.reference_image || ''
+            });
+          }
+        });
+      }
+    });
+
+    return tasks;
+  } catch {
     return [];
   }
 }

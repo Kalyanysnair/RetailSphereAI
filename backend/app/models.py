@@ -359,10 +359,26 @@ class ProductionProgress(Base):
     updated_by = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=False)
     stage = Column(String(100), nullable=False)
     remarks = Column(Text, nullable=True)
-    progress_percentage = Column(Integer, default=0)
-    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-
     custom_order = relationship("CustomOrder", back_populates="progress_updates")
+
+
+class WorkerLeave(Base):
+    __tablename__ = "tbl_worker_leave"
+
+    leave_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    worker_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=False)
+    worker_name = Column(String(100), nullable=True)
+    leave_type = Column(String(50), nullable=False, default="Casual Leave")
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    duration_days = Column(Integer, default=1)
+    reason = Column(Text, nullable=True)
+    status = Column(String(30), default="Pending")
+    applied_on = Column(DateTime, default=datetime.utcnow, nullable=False)
+    reviewed_by = Column(String(100), nullable=True)
+    review_notes = Column(Text, nullable=True)
+
+    worker = relationship("User", foreign_keys=[worker_id])
 
 
 class Payment(Base):

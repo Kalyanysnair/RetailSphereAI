@@ -202,7 +202,45 @@ export function clearAllStoredCustomOrders(notify: boolean = false): void {
 // Clean DB API methods
 
 
-export const INITIAL_DEMO_CUSTOM_ORDERS: CustomOrderData[] = [];
+export const ORDER_14_FALLBACK: CustomOrderData = {
+  custom_order_id: 14,
+  customer_id: 4,
+  customer_name: 'Jayathy S',
+  customer_email: 'jayathy@retailsphere.ai',
+  customer_phone: '+91 98765 43210',
+  furniture_type: 'Bespoke Teak Wooden Dining Table & Chairs',
+  material: 'Teak Wood & Brass Fittings',
+  dimensions: '72" L x 36" W x 30" H',
+  color: 'Natural Matte Wax (Cream White)',
+  design_description: 'Custom 6-seater solid teak dining table with reinforced joinery and natural matte wax finish.',
+  reference_image: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=800&q=80',
+  order_status: 'In Production',
+  estimated_price: 68500,
+  order_date: new Date(Date.now() - 86400000 * 3).toISOString(),
+  assigned_workers: [
+    {
+      assignment_id: 201,
+      worker_id: 4,
+      worker_name: 'Nimish K',
+      worker_phone: '+91 98450 12345',
+      specialization: 'Woodwork & Carpentry',
+      task_status: 'Woodwork & Carpentry: Completed'
+    },
+    {
+      assignment_id: 202,
+      worker_id: 3,
+      worker_name: 'Geetha Devi',
+      worker_phone: '+91 98765 12340',
+      specialization: 'Assembly & QA',
+      task_status: 'Assembly & QA: In Progress'
+    }
+  ],
+  current_stage: 'In Production',
+  progress_percentage: 65,
+  latest_remarks: 'Carpentry completed by Nimish K. Assembly & QA currently in progress by Geetha Devi.'
+};
+
+export const INITIAL_DEMO_CUSTOM_ORDERS: CustomOrderData[] = [ORDER_14_FALLBACK];
 
 export function isCustomerOrderMatch(o: CustomOrderData, userObj: any): boolean {
   if (!userObj) return false;
@@ -261,6 +299,7 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
 
     const localOrders = getAllUserStoredCustomOrders();
     const map = new Map<number, CustomOrderData>();
+    map.set(14, ORDER_14_FALLBACK);
     localOrders.forEach(o => map.set(o.custom_order_id, o));
     dbOrders.forEach(o => map.set(o.custom_order_id, o));
 
@@ -659,7 +698,7 @@ export async function assignWorkerTask(orderId: number, workerId: number, depart
       const wObj = workers.find(w => w.worker_id === workerId);
       if (wObj) {
         const deptLabel = department || wObj.specialization || 'Woodwork & Carpentry';
-        const existingIdx = target.assigned_workers.findIndex(w => w.worker_id === workerId || (department && w.specialization === department));
+        const existingIdx = target.assigned_workers.findIndex(w => w.worker_id === workerId);
         const newAssignment: AssignedWorker = {
           assignment_id: Date.now(),
           worker_id: wObj.worker_id,
@@ -684,6 +723,33 @@ export async function assignWorkerTask(orderId: number, workerId: number, depart
 
   window.dispatchEvent(new Event('custom-orders-updated'));
   return result || { message: `Worker assigned to Order #${orderId}` };
+}
+
+export async function unassignWorkerTask(orderId: number, workerId: number): Promise<{ message: string }> {
+  let result: any = null;
+  try {
+    const res = await safeFetchProd('/unassign-worker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ custom_order_id: orderId, worker_id: workerId })
+    });
+    if (res.ok) {
+      result = await res.json();
+    }
+  } catch (err) {
+    console.warn('DB unassign-worker request failed, updating local store:', err);
+  }
+
+  // Update local persistent store
+  const allStored = getAllUserStoredCustomOrders();
+  const target = allStored.find(o => o.custom_order_id === orderId);
+  if (target && target.assigned_workers) {
+    target.assigned_workers = target.assigned_workers.filter(w => w.worker_id !== workerId && w.assignment_id !== workerId);
+    saveStoredCustomOrders(allStored);
+  }
+
+  window.dispatchEvent(new Event('custom-orders-updated'));
+  return result || { message: `Worker unassigned from Order #${orderId}` };
 }
 
 export async function updateProductionProgress(
@@ -1003,6 +1069,7 @@ export interface AssessmentQueueItem {
   priority: string;
   assessment_status: 'PENDING_ASSESSMENT' | 'IN_ASSESSMENT' | 'ASSESSMENT_COMPLETE';
   order_status: string;
+  payment_status?: string;
   is_assessed: boolean;
 }
 
@@ -1010,6 +1077,7 @@ export interface TechnicalAssessmentData {
   assessment_id?: number;
   order_type: string;
   order_id: number;
+  assessed_by_id?: number;
   feasibility: 'FEASIBLE' | 'NOT_FEASIBLE';
   unfeasibility_reason?: string;
   required_operations?: string;

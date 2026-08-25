@@ -400,6 +400,17 @@ def complete_worker_task(
         )
         db.add(hist)
 
+        # Check if all assignments for this custom order are completed
+        all_asgns = db.query(models.WorkerAssignment).filter(
+            models.WorkerAssignment.custom_order_id == asgn.custom_order_id
+        ).all()
+        if all_asgns and all(a.task_status and "Completed" in a.task_status for a in all_asgns):
+            order = db.query(models.CustomOrder).filter(
+                models.CustomOrder.custom_order_id == asgn.custom_order_id
+            ).first()
+            if order and order.order_status in ["In Production", "Approved", "Paid"]:
+                order.order_status = "Completed"
+
     elif task_id.startswith("stg-"):
         stg_id = int(task_id.replace("stg-", ""))
         stg = db.query(models.ProductionStage).filter(
@@ -602,10 +613,61 @@ def update_onsite_job_status(
     if payload.after_photos:
         job.after_photos = payload.after_photos
 
-    if new_st == "COMPLETED":
+    if new_st in ["COMPLETED", "DONE"]:
         job.completed_at = datetime.utcnow()
         if job.service_request:
             job.service_request.status = "COMPLETED"
 
     db.commit()
     return {"message": f"On-site service job #{job_id} status updated to {new_st}.", "status": new_st}
+
+
+class LeaveApplicationPayload(BaseModel):
+    leave_type: str = "Casual Leave"
+    start_date: date
+    end_date: date
+    reason: str
+
+
+@router.post("/leave-applications")
+def apply_for_leave(
+    payload: LeaveApplicationPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    duration = (payload.end_date - payload.start_date).days + 1
+    if duration < 1:
+        raise HTTPException(status_code=400, detail="End date must be on or after start date.")
+
+    leave = models.WorkerLeave(
+        worker_id=current_user.user_id,
+        worker_name=current_user.full_name,
+        leave_type=payload.leave_type,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        duration_days=duration,
+        reason=payload.reason.strip(),
+        status="Pending",
+        applied_on=datetime.utcnow()
+    )
+    db.add(leave)
+    db.commit()
+    db.refresh(leave)
+
+    return {
+        "message": "Leave application submitted successfully.",
+        "leave_id": leave.leave_id,
+        "status": leave.status
+    }
+
+
+@router.get("/leave-applications")
+def get_my_leave_applications(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    leaves = db.query(models.WorkerLeave).filter(
+        models.WorkerLeave.worker_id == current_user.user_id
+    ).order_by(models.WorkerLeave.applied_on.desc()).all()
+
+    return leaves

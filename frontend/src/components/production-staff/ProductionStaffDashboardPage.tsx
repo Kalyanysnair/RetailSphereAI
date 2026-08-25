@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
 import { MachineryTab } from './MachineryTab';
 import { RawMaterialsTab } from './RawMaterialsTab';
 import { QualityControlTab } from './QualityControlTab';
@@ -60,6 +61,7 @@ import {
   deleteWorker,
   resendWorkerCredentials,
   assignWorkerTask,
+  unassignWorkerTask,
   updateProductionProgress,
   CustomOrderData,
   WorkerData,
@@ -146,8 +148,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const [orders, setOrders] = useState<CustomOrderData[]>([]);
   const [workers, setWorkers] = useState<WorkerData[]>([]);
+  const [leaveRequests, setLeaveRequests] = useState<WorkerLeaveItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'planning' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'planning' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave'>('dashboard');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [approvalFilter, setApprovalFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -174,22 +177,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [assMachineHours, setAssMachineHours] = useState('4');
   const [assDurationDays, setAssDurationDays] = useState('3');
   const [assCompletionDate, setAssCompletionDate] = useState('');
-  const [assMatCost, setAssMatCost] = useState('2500');
-  const [assLabCost, setAssLabCost] = useState('1500');
-  const [assMacCost, setAssMacCost] = useState('600');
-  const [assFinCost, setAssFinCost] = useState('400');
-  const [assOthCost, setAssOthCost] = useState('0');
+  const [assMatCost, setAssMatCost] = useState('18500');
+  const [assLabCost, setAssLabCost] = useState('8500');
+  const [assMacCost, setAssMacCost] = useState('3500');
+  const [assFinCost, setAssFinCost] = useState('2500');
+  const [assFinType, setAssFinType] = useState('Natural Matte Wax (Cream White)');
+  const [assOthCost, setAssOthCost] = useState('2000');
   const [assProdNotes, setAssProdNotes] = useState('High precision moisture checking required before cutting.');
   const [assTechNotes, setAssTechNotes] = useState('');
 
   // 4. Quotation Generation State
   const [selectedQuotationRequest, setSelectedQuotationRequest] = useState<any | null>(null);
   const [orderQuotationsList, setOrderQuotationsList] = useState<QuotationData[]>([]);
-  const [quoteMaterialCost, setQuoteMaterialCost] = useState('2500');
-  const [quoteLabourCost, setQuoteLabourCost] = useState('1500');
-  const [quoteMachineCost, setQuoteMachineCost] = useState('600');
-  const [quoteFinishingCost, setQuoteFinishingCost] = useState('400');
-  const [quoteOtherCost, setQuoteOtherCost] = useState('0');
+  const [quoteMaterialCost, setQuoteMaterialCost] = useState('18500');
+  const [quoteLabourCost, setQuoteLabourCost] = useState('8500');
+  const [quoteMachineCost, setQuoteMachineCost] = useState('3500');
+  const [quoteFinishingCost, setQuoteFinishingCost] = useState('2500');
+  const [quoteOtherCost, setQuoteOtherCost] = useState('2000');
   const [quoteDuration, setQuoteDuration] = useState('3 Working Days');
   const [quoteNotes, setQuoteNotes] = useState('');
 
@@ -293,6 +297,16 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordNotice, setPasswordNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isMaterialReceiptModalOpen, setIsMaterialReceiptModalOpen] = useState(false);
+
+  // Customer Material Receipts Log State
+  const [materialLogs, setMaterialLogs] = useState<any[]>(() => {
+    try {
+      const raw = localStorage.getItem('customer_material_receipts');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Queries State
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
@@ -485,6 +499,31 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const handleOpenAssessment = async (item: AssessmentQueueItem) => {
     setSelectedAssessmentRequest(item);
     const ordType = item.order_type === 'Customization' ? 'Custom' : 'Fabrication';
+
+    // Calculate realistic default cost scale for furniture items
+    const titleLower = (item.title || item.furniture_type || '').toLowerCase();
+    const matLower = (item.material || '').toLowerCase();
+
+    let defaultMat = 18500;
+    let defaultLab = 8500;
+    let defaultMac = 3500;
+    let defaultFin = 2500;
+    let defaultOth = 2000; // Default total ₹35,000
+
+    if (titleLower.includes('sofa') || titleLower.includes('bed') || titleLower.includes('dining') || titleLower.includes('wardrobe') || matLower.includes('marble') || matLower.includes('teak')) {
+      defaultMat = 22000;
+      defaultLab = 9500;
+      defaultMac = 4000;
+      defaultFin = 3000;
+      defaultOth = 2500; // Total ₹41,000
+    } else if (titleLower.includes('desk') || titleLower.includes('console') || titleLower.includes('cabinet') || titleLower.includes('table')) {
+      defaultMat = 17500;
+      defaultLab = 7500;
+      defaultMac = 3000;
+      defaultFin = 2200;
+      defaultOth = 1800; // Total ₹32,000
+    }
+
     try {
       const ass = await fetchTechnicalAssessment(ordType, item.numeric_id);
       if (ass) {
@@ -498,11 +537,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         setAssLabourHours(ass.labour_hours ? ass.labour_hours.toString() : '12');
         setAssMachineHours(ass.machine_hours ? ass.machine_hours.toString() : '4');
         setAssDurationDays(ass.estimated_duration_days ? ass.estimated_duration_days.toString() : '3');
-        setAssMatCost(ass.material_cost ? ass.material_cost.toString() : '2500');
-        setAssLabCost(ass.labour_cost ? ass.labour_cost.toString() : '1500');
-        setAssMacCost(ass.machine_cost ? ass.machine_cost.toString() : '600');
-        setAssFinCost(ass.finishing_cost ? ass.finishing_cost.toString() : '400');
-        setAssOthCost(ass.other_cost ? ass.other_cost.toString() : '0');
+        setAssMatCost(ass.material_cost ? ass.material_cost.toString() : defaultMat.toString());
+        setAssLabCost(ass.labour_cost ? ass.labour_cost.toString() : defaultLab.toString());
+        setAssMacCost(ass.machine_cost ? ass.machine_cost.toString() : defaultMac.toString());
+        setAssFinCost(ass.finishing_cost ? ass.finishing_cost.toString() : defaultFin.toString());
+        setAssOthCost(ass.other_cost ? ass.other_cost.toString() : defaultOth.toString());
         setAssProdNotes(ass.production_notes || '');
         setAssTechNotes(ass.technical_notes || '');
       } else {
@@ -513,19 +552,152 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         setAssMaterialReq(`Material: ${item.material}`);
         setAssMachineReq('CNC Router, Sander');
         setAssSkillReq('Woodwork & Carpentry, Surface Finishing');
-        setAssLabourHours('12');
-        setAssMachineHours('4');
-        setAssDurationDays('3');
-        setAssMatCost('2500');
-        setAssLabCost('1500');
-        setAssMacCost('600');
-        setAssFinCost('400');
-        setAssOthCost('0');
-        setAssProdNotes('Moisture check required before cutting.');
+        setAssLabourHours('16');
+        setAssMachineHours('6');
+        setAssDurationDays('4');
+        setAssMatCost(defaultMat.toString());
+        setAssLabCost(defaultLab.toString());
+        setAssMacCost(defaultMac.toString());
+        setAssFinCost(defaultFin.toString());
+        setAssOthCost(defaultOth.toString());
+        setAssProdNotes('Moisture check & grain alignment required before cutting.');
         setAssTechNotes('');
       }
     } catch (e) {
       console.error('Error opening assessment workspace:', e);
+    }
+  };
+
+  const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
+
+  const handleSaveAssessmentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedAssessmentRequest) return;
+    setIsSubmittingAssessment(true);
+    try {
+      const ordType = selectedAssessmentRequest.order_type === 'Customization' ? 'Custom' : 'Fabrication';
+      const matCost = Number(assMatCost) || 0;
+      const labCost = Number(assLabCost) || 0;
+      const macCost = Number(assMacCost) || 0;
+      const finCost = Number(assFinCost) || 0;
+      const othCost = Number(assOthCost) || 0;
+      const totalCalc = matCost + labCost + macCost + finCost + othCost;
+
+      const payload: TechnicalAssessmentData = {
+        order_type: ordType,
+        order_id: selectedAssessmentRequest.numeric_id,
+        assessed_by_id: userProfile?.user_id || 3,
+        feasibility: assFeasibility,
+        unfeasibility_reason: assUnfeasibilityReason,
+        required_operations: assOperations,
+        required_stages: assStages,
+        material_requirements: assMaterialReq,
+        machine_requirements: assMachineReq,
+        worker_skill_requirements: assSkillReq,
+        labour_hours: Number(assLabourHours) || 0,
+        machine_hours: Number(assMachineHours) || 0,
+        estimated_duration_days: Number(assDurationDays) || 0,
+        material_cost: matCost,
+        labour_cost: labCost,
+        machine_cost: macCost,
+        finishing_cost: finCost,
+        other_cost: othCost,
+        total_cost: totalCalc,
+        production_notes: assFinType ? `Finish Type: ${assFinType}. ${assProdNotes || ''}` : assProdNotes,
+        technical_notes: assTechNotes
+      };
+
+      await saveTechnicalAssessment(payload);
+      if (assFeasibility === 'FEASIBLE') {
+        try {
+          await generateQuotation({
+            order_type: ordType,
+            order_id: selectedAssessmentRequest.numeric_id,
+            created_by_id: userProfile?.user_id || 3,
+            material_cost: matCost,
+            labour_cost: labCost,
+            machine_cost: macCost,
+            finishing_cost: finCost,
+            assembly_cost: othCost,
+            notes: assProdNotes || 'Technical assessment & quotation completed.'
+          });
+        } catch (qErr) {
+          console.warn('Quotation generation warning:', qErr);
+        }
+      }
+      setSelectedAssessmentRequest(null);
+      await Promise.all([
+        loadOverviewData(),
+        loadQueueData(assessmentCategoryFilter, assessmentTabFilter),
+        loadData()
+      ]);
+    } catch (err: any) {
+      console.error('Failed to save technical assessment:', err);
+    } finally {
+      setIsSubmittingAssessment(false);
+    }
+  };
+
+  const [isSubmittingReceipt, setIsSubmittingReceipt] = useState(false);
+
+  const handleMaterialReceiptSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMaterialOrder) return;
+    setIsSubmittingReceipt(true);
+    try {
+      const payload = {
+        order_type: 'Custom',
+        order_id: selectedMaterialOrder.custom_order_id,
+        received_by_id: userProfile?.user_id || 3,
+        condition: matCondition,
+        quantity: Number(matQty) || 1,
+        unit: matUnit,
+        notes: matNotes
+      };
+      await receiveCustomerMaterial(payload);
+
+      const newLog = {
+        log_receipt_id: `REC-CS-${String(Date.now()).slice(-4)}`,
+        client_name: selectedMaterialOrder.customer_name || 'Client',
+        order_id: `ORD-${String(selectedMaterialOrder.custom_order_id).padStart(4, '0')}`,
+        material_details: `${selectedMaterialOrder.furniture_type} - ${matNotes || 'Customer-Supplied Material'}`,
+        quantity_condition: `${matQty} ${matUnit} • ${matCondition}`,
+        status: 'Verified & Sealed',
+        receipt_date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+      };
+      const updatedLogs = [newLog, ...materialLogs];
+      setMaterialLogs(updatedLogs);
+      localStorage.setItem('customer_material_receipts', JSON.stringify(updatedLogs));
+
+      setIsMaterialReceiptModalOpen(false);
+      setSelectedMaterialOrder(null);
+      setMatNotes('');
+      await Promise.all([
+        loadOverviewData(),
+        loadData()
+      ]);
+    } catch (err: any) {
+      console.error('Failed to log material receipt:', err);
+    } finally {
+      setIsSubmittingReceipt(false);
+    }
+  };
+
+  const loadLeaveRequestsData = async () => {
+    try {
+      const leaves = await fetchAllLeaveRequests();
+      setLeaveRequests(leaves);
+    } catch (err) {
+      console.error('Error fetching leave requests:', err);
+    }
+  };
+
+  const handleReviewLeave = async (leaveId: number, status: 'Approved' | 'Rejected', notes?: string) => {
+    try {
+      await reviewLeaveRequest(leaveId, status, notes, 'Production Staff');
+      await loadLeaveRequestsData();
+    } catch (err) {
+      console.error('Failed to review leave request:', err);
     }
   };
 
@@ -542,7 +714,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         loadOverviewData(),
         loadQueueData(),
         loadOnsiteData(),
-        loadReportsData()
+        loadReportsData(),
+        loadLeaveRequestsData()
       ]);
     } catch (err) {
       console.error('Error loading production data:', err);
@@ -556,9 +729,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadQueries();
     loadData();
     window.addEventListener('custom-orders-updated', loadData);
+    window.addEventListener('leave-requests-updated', loadLeaveRequestsData);
     window.addEventListener('storage', loadData);
     return () => {
       window.removeEventListener('custom-orders-updated', loadData);
+      window.removeEventListener('leave-requests-updated', loadLeaveRequestsData);
       window.removeEventListener('storage', loadData);
     };
   }, []);
@@ -799,6 +974,17 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     setSuccessNotice(`Technician assigned to ${selectedDepartment} for Order #${selectedOrderForWorker.custom_order_id}.`);
     setTimeout(() => setSuccessNotice(null), 5000);
     loadData();
+  };
+
+  const handleUnassignWorker = async (orderId: number, workerId: number, workerName: string) => {
+    try {
+      await unassignWorkerTask(orderId, workerId);
+      setSuccessNotice(`Removed ${workerName} from Order #${orderId}.`);
+      setTimeout(() => setSuccessNotice(null), 4000);
+      await Promise.all([loadOverviewData(), loadData()]);
+    } catch (err) {
+      console.error('Failed to unassign worker:', err);
+    }
   };
 
   const handleDirectAssignSubmit = async (e: React.FormEvent) => {
@@ -1051,28 +1237,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
           <button
             onClick={() => setActiveTab('assessment_queue')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'assessment_queue' || activeTab === 'approvals'
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations'
               ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
               : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
               }`}
           >
             <div className="flex items-center gap-2.5">
               <FileText className="w-4 h-4 flex-shrink-0" />
-              <span className="text-xs whitespace-nowrap">Assessment Queue</span>
+              <span className="text-xs whitespace-nowrap">Assessment & Quotation</span>
             </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('quotations')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'quotations'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <DollarSign className="w-4 h-4" />
-              <span className="text-xs">Quotations Hub</span>
-            </div>
+            {((overviewData?.metrics?.pending_assessment || 0) + (overviewData?.metrics?.quotation_pending || 0)) > 0 ? (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-600 text-white">
+                {(overviewData?.metrics?.pending_assessment || 0) + (overviewData?.metrics?.quotation_pending || 0)}
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -1086,6 +1264,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Layers className="w-4 h-4" />
               <span className="text-xs">Production Planning</span>
             </div>
+            {overviewData?.metrics?.customer_approved ? (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-600 text-white">
+                {overviewData.metrics.customer_approved}
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -1099,6 +1282,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Clock className="w-4 h-4" />
               <span className="text-xs">Active Production</span>
             </div>
+            {overviewData?.metrics?.in_production ? (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-indigo-600 text-white">
+                {overviewData.metrics.in_production}
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -1115,6 +1303,24 @@ export const ProductionStaffDashboardPage: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('leave')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'leave'
+              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+              }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <Clock className="w-4 h-4" />
+              <span className="text-xs">Worker Leave Requests</span>
+            </div>
+            {leaveRequests.filter(l => l.status === 'Pending').length > 0 && (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white">
+                {leaveRequests.filter(l => l.status === 'Pending').length}
+              </span>
+            )}
+          </button>
+
+          <button
             onClick={() => setActiveTab('materials')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'materials' || activeTab === 'raw_materials'
               ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
@@ -1125,6 +1331,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <PackageCheck className="w-4 h-4" />
               <span className="text-xs">Materials & Stocks</span>
             </div>
+            {overviewData?.metrics?.material_pending ? (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-700 text-white">
+                {overviewData.metrics.material_pending}
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -1139,7 +1350,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <span className="text-xs">Quality & Rework</span>
             </div>
             {overviewData?.metrics?.qc_pending ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-blue-600 text-white">
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-purple-600 text-white">
                 {overviewData.metrics.qc_pending}
               </span>
             ) : null}
@@ -1156,6 +1367,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <Check className="w-4 h-4" />
               <span className="text-xs">Completed Jobs</span>
             </div>
+            {overviewData?.metrics?.completed_today ? (
+              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-teal-600 text-white">
+                {overviewData.metrics.completed_today}
+              </span>
+            ) : null}
           </button>
 
           <button
@@ -1377,8 +1593,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <div>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
                   {(activeTab === 'dashboard') && 'Production Dashboard Overview'}
-                  {(activeTab === 'assessment_queue' || activeTab === 'approvals') && 'Technical Assessment Queue'}
-                  {activeTab === 'quotations' && 'Quotations & Pricing Hub'}
+                  {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Assessment & Quotation Workspace'}
                   {activeTab === 'planning' && 'Production Planning & Stage Setup'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Active Production & Stage Assignments'}
                   {activeTab === 'workers' && 'Artisan Technicians Directory'}
@@ -1395,8 +1610,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </h1>
                 <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                   {activeTab === 'dashboard' && 'Real-time manufacturing metrics, shop floor priorities, and active build progress.'}
-                  {(activeTab === 'assessment_queue' || activeTab === 'approvals') && 'Review customization & fabrication requests approved by Retail Staff, check technical feasibility, and estimate costs.'}
-                  {activeTab === 'quotations' && 'View, generate, and manage multi-version technical quotations sent to customers.'}
+                  {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Review Retail Staff-approved customer requests, evaluate technical feasibility, estimate manufacturing costs, and publish official customer quotations.'}
                   {activeTab === 'planning' && 'Setup stage sequences and log customer-owned raw material receipts before starting production.'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Track stage-by-stage build progression and assign technicians based on required stage skills.'}
                   {activeTab === 'workers' && 'Manage workshop craftsmen, specializations, availability, and active build task loads.'}
@@ -1754,7 +1968,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="py-3 px-3 text-[11px]">
-                                  {ord.assigned_workers && ord.assigned_workers.length > 0 ? ord.assigned_workers[0].worker_name : 'Master Craftsman'}
+                                  {ord.assigned_workers && ord.assigned_workers.length > 0 ? ord.assigned_workers.map(w => w.worker_name).join(', ') : 'Master Craftsman'}
                                 </td>
                                 <td className="py-3 px-3 text-right">
                                   <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-300">
@@ -1829,8 +2043,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 1: Custom Orders Management */}
-            {activeTab === 'orders' && (
+            {/* TAB 1: Custom Orders & Active Production Management */}
+            {(activeTab === 'orders' || activeTab === 'active_production' || activeTab === 'assignments') && (
               <div className="space-y-4">
                 {/* Search & Filter Header Bar */}
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
@@ -2036,10 +2250,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-extrabold text-[#7A6C5E] mr-1">Status Filter:</span>
                     {[
-                      { key: 'ALL', label: 'All Statuses' },
+                      { key: 'ALL', label: 'All Requests' },
                       { key: 'PENDING_ASSESSMENT', label: 'Pending Assessment' },
-                      { key: 'IN_ASSESSMENT', label: 'In Progress' },
-                      { key: 'ASSESSMENT_COMPLETE', label: 'Assessed' }
+                      { key: 'ASSESSMENT_COMPLETE', label: 'Assessed & Quotation Ready' }
                     ].map(st => (
                       <button
                         key={st.key}
@@ -2063,7 +2276,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   const displayedQueue = assessmentQueue.filter(item => {
                     if (assessmentCategoryFilter === 'CUSTOMIZATION' && item.order_type !== 'Customization') return false;
                     if (assessmentCategoryFilter === 'FABRICATION' && item.order_type !== 'Fabrication') return false;
-                    if (assessmentTabFilter !== 'ALL' && item.assessment_status !== assessmentTabFilter) return false;
+                    const isPaid = item.order_status === 'Paid' || (item.payment_status || '').toLowerCase() === 'paid';
+                    if (isPaid) return false;
+                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && (item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE')) return false;
+                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && (!item.is_assessed && item.assessment_status !== 'ASSESSMENT_COMPLETE')) return false;
                     return true;
                   });
 
@@ -2076,7 +2292,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         <div>
                           <h3 className="text-base font-extrabold text-[#2C241D]">No Requests Found Matching Filter</h3>
                           <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                            No approved requests matching category "{assessmentCategoryFilter}" and status "{assessmentTabFilter}". Try selecting "All Requests".
+                            No retail-approved customer requests match category "{assessmentCategoryFilter}" and filter "{assessmentTabFilter}".
                           </p>
                         </div>
                       </div>
@@ -2093,9 +2309,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 {item.request_id}
                               </span>
                               <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
-                                item.priority === 'HIGH' || item.priority === 'URGENT' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                                item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
+                                  ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                  : item.priority === 'HIGH' || item.priority === 'URGENT'
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                    : 'bg-amber-100 text-amber-800 border border-amber-300'
                               }`}>
-                                {item.priority} PRIORITY
+                                {item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE' ? 'QUOTATION READY' : `${item.priority} PRIORITY`}
                               </span>
                             </div>
 
@@ -2122,15 +2342,17 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             </div>
                           </div>
 
-                          <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between gap-3">
+                          <div className="pt-3 border-t border-[#E2D7CB] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                             <span className="text-[10px] text-[#9E9082] font-semibold">
                               Submitted: {new Date(item.order_date).toLocaleDateString()}
                             </span>
                             <button
                               onClick={() => handleOpenAssessment(item)}
-                              className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold transition-all shadow-sm cursor-pointer"
+                              className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
                             >
-                              Assess & Quote →
+                              <DollarSign className="w-4 h-4 flex-shrink-0" />
+                              <span>Assess & Prepare Quote</span>
+                              <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
                             </button>
                           </div>
                         </div>
@@ -2141,44 +2363,198 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* QUOTATIONS HUB VIEW (activeTab === 'quotations') */}
-            {activeTab === 'quotations' && (
-              <div className="space-y-6 relative z-10">
-                <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                  <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-[#38A132] flex items-center justify-center mx-auto shadow-sm border border-emerald-200">
-                    <DollarSign className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-extrabold text-[#2C241D]">No Technical Quotations Generated Yet</h3>
-                    <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                      Quotations will appear here once technical assessments are conducted for approved customer requests. Select an item in the Assessment Queue to generate pricing.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setActiveTab('assessment_queue')}
-                    className="px-4 py-2.5 bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-md inline-flex items-center gap-2"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>Go to Assessment Queue →</span>
-                  </button>
-                </div>
-              </div>
-            )}
-
             {/* PRODUCTION PLANNING VIEW (activeTab === 'planning') */}
             {activeTab === 'planning' && (
               <div className="space-y-6 relative z-10">
-                <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                  <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-sm border border-blue-200">
-                    <Layers className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-extrabold text-[#2C241D]">No Orders Pending Production Planning</h3>
-                    <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                      Orders with approved quotations and verified customer payments will appear here for stage sequence definition and material receipts.
-                    </p>
-                  </div>
-                </div>
+                {(() => {
+                  const planningOrders = orders.filter(isPaidCustomOrder);
+
+                  if (planningOrders.length === 0) {
+                    return (
+                      <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
+                        <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-sm border border-blue-200">
+                          <Layers className="w-8 h-8" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-extrabold text-[#2C241D]">No Orders Pending Production Planning</h3>
+                          <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
+                            Orders with approved quotations and verified customer payments will appear here for stage sequence definition and material receipts.
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                      {planningOrders.map(ord => {
+                        const reqStages = getRequiredProductionStages(ord.furniture_type, ord.material, ord.design_description);
+                        return (
+                          <div key={ord.custom_order_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm space-y-4 flex flex-col justify-between transition-all">
+                            <div className="space-y-3">
+                              <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                                <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
+                                  CUS-{ord.custom_order_id.toString().padStart(4, '0')}
+                                </span>
+                                <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? 'PAID & APPROVED' : (ord.order_status || 'APPROVED')}
+                                </span>
+                              </div>
+
+                              <div>
+                                <h4 className="text-sm font-extrabold text-[#2C241D]">{ord.furniture_type}</h4>
+                                <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5">Customer: {ord.customer_name}</p>
+                              </div>
+
+                              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
+                                <div className="flex justify-between">
+                                  <span className="text-[#7A6C5E]">Dimensions:</span>
+                                  <span className="font-bold text-[#2C241D]">{ord.dimensions || 'Standard Specs'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-[#7A6C5E]">Material:</span>
+                                  <span className="font-bold text-[#2C241D]">{ord.material}</span>
+                                </div>
+                                {ord.color && (
+                                  <div className="flex justify-between">
+                                    <span className="text-[#7A6C5E]">Finish/Color:</span>
+                                    <span className="font-bold text-[#38A132]">{ord.color}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Assigned Worker Status Banner */}
+                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                <div className="bg-[#EBF7EB] p-2.5 rounded-2xl border border-[#38A132]/30 space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-extrabold text-[#2E8729] uppercase tracking-wider flex items-center gap-1">
+                                      <UserCheck className="w-3.5 h-3.5" />
+                                      <span>Assigned Artisan ({ord.assigned_workers.length}):</span>
+                                    </span>
+                                    <span className="text-[9px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
+                                      Active Task
+                                    </span>
+                                  </div>
+                                  <div className="space-y-1.5 pt-0.5">
+                                    {ord.assigned_workers.map((w, idx) => {
+                                      const isDone = w.task_status?.toLowerCase().includes('completed');
+                                      return (
+                                        <div
+                                          key={idx}
+                                          className={`p-2 px-3 rounded-xl border text-xs shadow-2xs flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap ${
+                                            isDone ? 'bg-emerald-50/90 border-emerald-300 text-emerald-900' : 'bg-white border-[#38A132]/30 text-[#2C241D]'
+                                          }`}
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap">
+                                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isDone ? 'bg-emerald-600' : 'bg-[#38A132] animate-pulse'}`}></span>
+                                            <span className="font-extrabold text-[#2C241D] whitespace-nowrap">👷 {w.worker_name}</span>
+                                            {w.specialization && (
+                                              <span className="text-[10px] text-[#7A6C5E] font-medium truncate max-w-[150px] sm:max-w-none">
+                                                ({w.specialization})
+                                              </span>
+                                            )}
+                                          </div>
+
+                                          <div className="flex items-center gap-2 flex-shrink-0 ml-auto sm:ml-0">
+                                            {isDone ? (
+                                              <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs whitespace-nowrap">
+                                                <CheckCircle2 className="w-3 h-3 text-white" />
+                                                <span>Completed</span>
+                                              </span>
+                                            ) : (
+                                              w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono font-bold whitespace-nowrap">📞 {w.worker_phone}</span>
+                                            )}
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleUnassignWorker(ord.custom_order_id, w.worker_id, w.worker_name);
+                                              }}
+                                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer flex-shrink-0"
+                                              title={`Remove ${w.worker_name} from Order #${ord.custom_order_id}`}
+                                            >
+                                              <X className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200 text-[11px] font-semibold text-amber-800 flex items-center gap-1.5">
+                                  <User className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                                  <span>No artisan assigned yet — pending worker assignment</span>
+                                </div>
+                              )}
+
+                              <div className="space-y-1 pt-1">
+                                <span className="text-[11px] font-extrabold text-[#7A6C5E]">Production Pipeline Stages:</span>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {reqStages.map(s => {
+                                    const asgnForStage = ord.assigned_workers?.find(w => 
+                                      w.specialization?.toLowerCase().includes(s.label.toLowerCase()) ||
+                                      s.label.toLowerCase().includes(w.specialization?.toLowerCase() || '') ||
+                                      w.task_status?.toLowerCase().includes(s.label.toLowerCase())
+                                    );
+                                    const isCompleted = asgnForStage?.task_status?.toLowerCase().includes('completed') || ord.order_status === 'Completed';
+
+                                    return (
+                                      <span
+                                        key={s.key}
+                                        className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 whitespace-nowrap transition-all ${
+                                          isCompleted
+                                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-2xs font-extrabold'
+                                            : 'bg-white border-[#E2D7CB] text-[#2C241D]'
+                                        }`}
+                                      >
+                                        <span>{s.icon} {s.label}</span>
+                                        {isCompleted && (
+                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 ml-0.5" />
+                                        )}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between gap-2">
+                              <button
+                                onClick={() => {
+                                  setSelectedMaterialOrder(ord);
+                                  setIsMaterialReceiptModalOpen(true);
+                                }}
+                                className="px-3 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#F3EDE5] border border-[#E2D7CB] text-[#5C4E42] text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1"
+                              >
+                                <PackageCheck className="w-3.5 h-3.5 text-amber-700" />
+                                <span>Log Receipt</span>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedOrderForWorker(ord);
+                                }}
+                                className="px-3 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold transition-all shadow-sm cursor-pointer flex items-center gap-1"
+                              >
+                                {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                  <>
+                                    <UserCheck className="w-3.5 h-3.5" />
+                                    <span>Reassign Worker →</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <UserPlus className="w-3.5 h-3.5" />
+                                    <span>Assign Worker →</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -2417,6 +2793,139 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
+            {/* WORKER LEAVE REQUESTS & ABSENCE ROSTER VIEW (activeTab === 'leave') */}
+            {activeTab === 'leave' && (
+              <div className="space-y-6 relative z-10">
+                {/* Leave Overview Stat Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Pending Approvals</span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                    </div>
+                    <div className="text-2xl font-black text-amber-700">
+                      {leaveRequests.filter(l => l.status === 'Pending').length} Applications
+                    </div>
+                    <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">
+                      Requires Production Review
+                    </span>
+                  </div>
+
+                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Approved Leave Roster</span>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    </div>
+                    <div className="text-2xl font-black text-emerald-800">
+                      {leaveRequests.filter(l => l.status === 'Approved').length} Artisans
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
+                      Schedule Substituted
+                    </span>
+                  </div>
+
+                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Total Requests Logged</span>
+                      <FileText className="w-4 h-4 text-blue-600" />
+                    </div>
+                    <div className="text-2xl font-black text-[#2C241D]">{leaveRequests.length} Total</div>
+                    <span className="text-[10px] font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">
+                      Synchronized with Worker Portal
+                    </span>
+                  </div>
+                </div>
+
+                {/* Main Leave Applications Table */}
+                <div className="ultra-glass-card rounded-3xl p-6 shadow-xl border border-[#E2D7CB] bg-white/80 space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
+                    <div>
+                      <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                        <Clock className="w-5 h-5 text-[#38A132]" />
+                        <span>Artisan Leave Requests & Absence Review</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
+                        Approve or reject leave applications submitted by workshop craftsmen. Status is instantly reflected across Worker and Admin portals.
+                      </p>
+                    </div>
+                  </div>
+
+                  {leaveRequests.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl">
+                      No artisan leave requests currently submitted.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
+                            <th className="py-3 px-4 rounded-l-xl">Artisan Worker</th>
+                            <th className="py-3 px-4">Leave Type</th>
+                            <th className="py-3 px-4">Duration & Dates</th>
+                            <th className="py-3 px-4">Reason</th>
+                            <th className="py-3 px-4">Status</th>
+                            <th className="py-3 px-4 rounded-r-xl text-right">Actions / Review</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE]">
+                          {leaveRequests.map((req) => (
+                            <tr key={req.leave_id} className="hover:bg-[#F5ECE1]/40 transition-colors">
+                              <td className="py-3.5 px-4 font-black text-[#2C241D] whitespace-nowrap">
+                                👷 {req.worker_name || `Worker #${req.worker_id}`}
+                              </td>
+                              <td className="py-3.5 px-4 font-bold text-[#4A3E32]">
+                                {req.leave_type}
+                              </td>
+                              <td className="py-3.5 px-4 whitespace-nowrap">
+                                <span className="font-extrabold text-[#2C241D] block">{req.duration_days} Day{req.duration_days > 1 ? 's' : ''}</span>
+                                <span className="text-[10px] text-[#7A6C5E] font-mono">{req.start_date} to {req.end_date}</span>
+                              </td>
+                              <td className="py-3.5 px-4 font-medium text-[#4A3E32] max-w-xs">
+                                {req.reason}
+                              </td>
+                              <td className="py-3.5 px-4 whitespace-nowrap">
+                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                  req.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                  req.status === 'Rejected' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                                  'bg-amber-100 text-amber-900 border border-amber-300'
+                                }`}>
+                                  {req.status}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                {req.status === 'Pending' ? (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleReviewLeave(req.leave_id, 'Approved', 'Approved by Production Staff')}
+                                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-extrabold text-[11px] transition-all shadow-xs cursor-pointer"
+                                    >
+                                      Approve
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleReviewLeave(req.leave_id, 'Rejected', 'Rejected by Production Staff due to tight build schedule')}
+                                      className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-extrabold text-[11px] transition-all shadow-xs cursor-pointer"
+                                    >
+                                      Reject
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-[#7A6C5E] font-medium italic">
+                                    Reviewed by {req.reviewed_by || 'Staff'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* RAW MATERIALS & CUSTOMER STOCK LOG VIEW (activeTab === 'materials' || activeTab === 'raw_materials') */}
             {(activeTab === 'materials' || activeTab === 'raw_materials') && (
               <div className="space-y-6 relative z-10">
@@ -2449,7 +2958,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Customer-Supplied Stock</span>
                       <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
                     </div>
-                    <div className="text-2xl font-black text-[#2C241D]">6 Verified Logs</div>
+                    <div className="text-2xl font-black text-[#2C241D]">
+                      {materialLogs.length} Verified Log{materialLogs.length === 1 ? '' : 's'}
+                    </div>
                     <span className="text-[10px] font-bold text-[#15803D] bg-[#E6F4EA] px-2 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
                       Client Timber & Fabrics
                     </span>
@@ -2467,24 +2978,71 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Main Glass Workspace & Empty State */}
-                <div className="bg-white/80 backdrop-blur-md rounded-3xl p-10 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                  <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center mx-auto shadow-sm border border-amber-200">
-                    <PackageCheck className="w-8 h-8" />
+                {/* Raw Manufacturing Materials Stock Grid */}
+                <RawMaterialsTab />
+
+                {/* Customer-Supplied Material Stock Logs & Verification Table */}
+                <div className="ultra-glass-card rounded-3xl p-6 shadow-xl border border-[#E2D7CB] bg-white/80 space-y-4">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
+                    <div>
+                      <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                        <PackageCheck className="w-5 h-5 text-amber-700" />
+                        <span>Customer-Supplied Material Stock Logs & Receipt Verification</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
+                        Logged customer-supplied raw materials (wood timber, custom fabrics, brass fittings) with initial condition, photos, and verification.
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setIsMaterialReceiptModalOpen(true)}
+                      className="px-4 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-md inline-flex items-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Log Customer Material Receipt</span>
+                    </button>
                   </div>
-                  <div>
-                    <h3 className="text-base font-extrabold text-[#2C241D]">No Customer Material Stock Logged</h3>
-                    <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                      Log customer-supplied materials (wood timber, custom fabrics, brass fittings) with initial condition, photos, and receipt verification for custom furniture orders.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setIsMaterialReceiptModalOpen(true)}
-                    className="px-4 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-md inline-flex items-center gap-2"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Log Customer Material Receipt</span>
-                  </button>
+
+                  {materialLogs.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl space-y-1.5">
+                      <p className="font-extrabold text-sm text-[#2C241D]">No Customer Material Receipts Logged Yet</p>
+                      <p className="text-[11px] text-[#7A6C5E] max-w-md mx-auto">
+                        Log customer-supplied materials (wood timber, custom fabrics, brass fittings) with condition inspection, photos, and receipt verification.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
+                            <th className="py-3 px-4 rounded-l-xl">Log Receipt #</th>
+                            <th className="py-3 px-4">Client Name</th>
+                            <th className="py-3 px-4">Order ID</th>
+                            <th className="py-3 px-4">Material Details</th>
+                            <th className="py-3 px-4">Quantity / Condition</th>
+                            <th className="py-3 px-4">Verification Status</th>
+                            <th className="py-3 px-4 rounded-r-xl text-right">Receipt Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE]">
+                          {materialLogs.map((log: any, idx: number) => (
+                            <tr key={idx} className="hover:bg-[#F5ECE1]/40 transition-colors">
+                              <td className="py-3.5 px-4 font-mono font-extrabold text-[#38A132]">{log.log_receipt_id}</td>
+                              <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{log.client_name}</td>
+                              <td className="py-3.5 px-4 font-mono text-xs font-bold text-amber-800">{log.order_id}</td>
+                              <td className="py-3.5 px-4 font-medium text-[#4A3E32]">{log.material_details}</td>
+                              <td className="py-3.5 px-4 font-bold text-[#2C241D]">{log.quantity_condition}</td>
+                              <td className="py-3.5 px-4">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  {log.status}
+                                </span>
+                              </td>
+                              <td className="py-3.5 px-4 text-right font-mono text-[11px] text-[#7A6C5E]">{log.receipt_date}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -2509,17 +3067,92 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* COMPLETED JOBS VIEW (activeTab === 'completed') */}
             {activeTab === 'completed' && (
               <div className="space-y-6 relative z-10">
-                <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                  <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mx-auto shadow-sm border border-teal-200">
-                    <CheckCircle2 className="w-8 h-8" />
+                {orders.filter(o => o.order_status === 'Completed' || (o.assigned_workers && o.assigned_workers.length > 0 && o.assigned_workers.every(w => w.task_status && w.task_status.includes('Completed')))).length > 0 ? (
+                  <div className="space-y-4">
+                    {orders
+                      .filter(o => o.order_status === 'Completed' || (o.assigned_workers && o.assigned_workers.length > 0 && o.assigned_workers.every(w => w.task_status && w.task_status.includes('Completed'))))
+                      .map((ord) => (
+                        <div
+                          key={ord.custom_order_id}
+                          className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-emerald-300/80 bg-emerald-50/40 backdrop-blur-xl text-[#2C241D] space-y-4"
+                        >
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-emerald-200 pb-3">
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
+                                ORDER #{ord.custom_order_id}
+                              </span>
+                              <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Worker Production Completed</span>
+                              </span>
+                            </div>
+                            {ord.estimated_price && ord.estimated_price > 0 && (
+                              <div className="text-base font-black text-[#38A132] bg-white px-3.5 py-1 rounded-xl border border-[#38A132]/20">
+                                ₹{ord.estimated_price.toLocaleString('en-IN')}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-3">
+                            <h3 className="text-xl font-black text-[#2C241D] tracking-tight flex items-center gap-2">
+                              <span>{ord.furniture_type}</span>
+                              <span className="text-xs font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200">
+                                Ready for Retail Fulfillment Handover
+                              </span>
+                            </h3>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/70 p-3.5 rounded-2xl border border-emerald-200 text-xs shadow-inner">
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Material</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
+                                <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                              </div>
+                            </div>
+
+                            {/* Completed Artisans Roster */}
+                            {ord.assigned_workers && ord.assigned_workers.length > 0 && (
+                              <div className="bg-white p-3 rounded-2xl border border-emerald-200 text-xs space-y-1">
+                                <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
+                                  Completed Artisans & Department Stages:
+                                </span>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {ord.assigned_workers.map((w, idx) => (
+                                    <span key={idx} className="font-extrabold text-emerald-900 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-300 text-xs flex items-center gap-1.5">
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>👷 {w.worker_name} ({w.specialization || w.task_status})</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                   </div>
-                  <div>
-                    <h3 className="text-base font-extrabold text-[#2C241D]">No Completed Production Jobs Yet</h3>
-                    <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                      Furniture orders that complete all manufacturing stages and pass quality assurance will be listed here for formal handover to Retail Staff fulfillment.
-                    </p>
+                ) : (
+                  <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
+                    <div className="w-14 h-14 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mx-auto shadow-sm border border-teal-200">
+                      <CheckCircle2 className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h3 className="text-base font-extrabold text-[#2C241D]">No Completed Production Jobs Yet</h3>
+                      <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
+                        Furniture orders that complete all manufacturing stages and pass quality assurance will be listed here for formal handover to Retail Staff fulfillment.
+                      </p>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
             )}
 
@@ -3124,49 +3757,45 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                {workers.filter((w) => {
-                  // Department filter
-                  if (workerDeptFilter !== 'All') {
-                    const spec = (w.specialization || '').toLowerCase();
-                    const targetFilter = workerDeptFilter.toLowerCase();
-                    if (targetFilter.includes('wood') && !spec.includes('wood') && !spec.includes('carpen')) return false;
-                    if (targetFilter.includes('upholster') && !spec.includes('upholster')) return false;
-                    if (targetFilter.includes('assembl') && !spec.includes('assembl') && !spec.includes('finish')) return false;
+                {(() => {
+                  const filteredWorkers = workers.filter((w) => {
+                    // Department filter
+                    if (workerDeptFilter !== 'All') {
+                      const spec = (w.specialization || '').toLowerCase();
+                      const targetFilter = workerDeptFilter.toLowerCase();
+                      if (targetFilter.includes('wood') && !spec.includes('wood') && !spec.includes('carpen')) return false;
+                      if (targetFilter.includes('upholster') && !spec.includes('upholster')) return false;
+                      if (targetFilter.includes('assembl') && !spec.includes('assembl') && !spec.includes('finish')) return false;
+                    }
+
+                    // Search query
+                    if (!searchQuery.trim()) return true;
+                    const q = searchQuery.toLowerCase();
+                    return (
+                      w.full_name.toLowerCase().includes(q) ||
+                      w.email.toLowerCase().includes(q) ||
+                      (w.specialization && w.specialization.toLowerCase().includes(q)) ||
+                      (w.phone && w.phone.toLowerCase().includes(q))
+                    );
+                  });
+
+                  if (filteredWorkers.length === 0) {
+                    return (
+                      <div className="py-12 px-4 text-center bg-white rounded-3xl border border-[#E2D7CB] space-y-3">
+                        <div className="w-14 h-14 rounded-2xl bg-[#F5ECE1] text-[#8C7C6D] flex items-center justify-center mx-auto shadow-xs">
+                          <Users className="w-7 h-7" />
+                        </div>
+                        <h4 className="font-extrabold text-base text-[#2C241D]">No workers match filter</h4>
+                        <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto font-medium">
+                          No artisan technicians found matching department "{workerDeptFilter}". Try selecting another department filter or add a worker.
+                        </p>
+                      </div>
+                    );
                   }
 
-                  // Search query
-                  if (!searchQuery.trim()) return true;
-                  const q = searchQuery.toLowerCase();
                   return (
-                    w.full_name.toLowerCase().includes(q) ||
-                    w.email.toLowerCase().includes(q) ||
-                    (w.specialization && w.specialization.toLowerCase().includes(q)) ||
-                    (w.phone && w.phone.toLowerCase().includes(q))
-                  );
-                }).length === 0 ? (
-                  <div className="py-12 px-4 text-center bg-white rounded-3xl border border-[#E2D7CB] space-y-3">
-                    <div className="w-14 h-14 rounded-2xl bg-[#F5ECE1] text-[#8C7C6D] flex items-center justify-center mx-auto shadow-xs">
-                      <Users className="w-7 h-7" />
-                    </div>
-                    <h4 className="font-extrabold text-base text-[#2C241D]">No workers match filter</h4>
-                    <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto font-medium">
-                      No artisan technicians found matching department "{workerDeptFilter}". Try selecting another department filter or add a worker.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {workers
-                      .filter((w) => {
-                        if (!searchQuery.trim()) return true;
-                        const q = searchQuery.toLowerCase();
-                        return (
-                          w.full_name.toLowerCase().includes(q) ||
-                          w.email.toLowerCase().includes(q) ||
-                          (w.specialization && w.specialization.toLowerCase().includes(q)) ||
-                          (w.phone && w.phone.toLowerCase().includes(q))
-                        );
-                      })
-                      .map((worker) => (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredWorkers.map((worker) => (
                         <div key={worker.worker_id} className="bg-white p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3 relative group">
                           {/* Card Action Buttons: Edit, Toggle Status & Delete */}
                           <div className="absolute top-4 right-4 flex items-center gap-1">
@@ -3243,8 +3872,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           </div>
                         </div>
                       ))}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -4315,6 +4945,43 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Currently Assigned Artisans with Removal Option */}
+            {selectedOrderForWorker.assigned_workers && selectedOrderForWorker.assigned_workers.length > 0 && (
+              <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">
+                  Currently Assigned Artisans ({selectedOrderForWorker.assigned_workers.length}):
+                </span>
+                <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                  {selectedOrderForWorker.assigned_workers.map((w, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white p-2 px-3 rounded-xl border border-[#E2D7CB] text-xs shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-[#38A132] animate-pulse"></span>
+                        <span className="font-extrabold text-[#2C241D]">👷 {w.worker_name}</span>
+                        {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          await handleUnassignWorker(selectedOrderForWorker.custom_order_id, w.worker_id, w.worker_name);
+                          setSelectedOrderForWorker(prev => {
+                            if (!prev) return null;
+                            return {
+                              ...prev,
+                              assigned_workers: (prev.assigned_workers || []).filter(item => item.worker_id !== w.worker_id)
+                            };
+                          });
+                        }}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-extrabold text-[10px] rounded-lg border border-rose-200 flex items-center gap-1 transition-all cursor-pointer"
+                      >
+                        <Trash2 className="w-3 h-3 text-rose-600" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="space-y-4 text-xs">
               <div>
                 <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Production Department Stage</label>
@@ -4747,6 +5414,367 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
                 >
                   Create & Activate Provision
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* TECHNICAL ASSESSMENT & PRICING ESTIMATION MODAL */}
+      {selectedAssessmentRequest && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-3xl shadow-2xl border-2 border-[#D8CCBD] space-y-5 animate-fadeIn max-h-[90vh] overflow-y-auto text-[#2C241D]">
+            <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#48A63E]/15 text-[#48A63E] flex items-center justify-center font-bold">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#1A140E]">Technical Assessment & Pricing Estimation</h3>
+                  <p className="text-xs font-semibold text-[#7A6C5E]">
+                    Request <span className="font-mono text-[#48A63E]">{selectedAssessmentRequest.request_id}</span> • Customer: {selectedAssessmentRequest.customer_name}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedAssessmentRequest(null)}
+                className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Request Summary Banner */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+              <div className="flex justify-between items-center border-b border-[#EFE7DE] pb-2">
+                <span className="font-black text-sm text-[#2C241D]">{selectedAssessmentRequest.title}</span>
+                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                  selectedAssessmentRequest.priority === 'HIGH' || selectedAssessmentRequest.priority === 'URGENT' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {selectedAssessmentRequest.priority} PRIORITY
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[#5C4E42] font-semibold">
+                <div><span className="text-[#7A6C5E]">Dimensions:</span> {selectedAssessmentRequest.dimensions}</div>
+                <div><span className="text-[#7A6C5E]">Material:</span> {selectedAssessmentRequest.material}</div>
+                {selectedAssessmentRequest.color && (
+                  <div><span className="text-[#7A6C5E]">Color/Finish:</span> <span className="text-[#38A132]">{selectedAssessmentRequest.color}</span></div>
+                )}
+              </div>
+              {selectedAssessmentRequest.description && (
+                <p className="text-[11px] text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] italic">
+                  "{selectedAssessmentRequest.description}"
+                </p>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveAssessmentSubmit} className="space-y-4 text-xs font-semibold">
+              {/* Feasibility Selection */}
+              <div className="space-y-2 bg-white p-4 rounded-2xl border border-[#E2D7CB]">
+                <label className="block font-extrabold text-[#2C241D] text-xs">Technical Feasibility Check</label>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="feasibility"
+                      value="FEASIBLE"
+                      checked={assFeasibility === 'FEASIBLE'}
+                      onChange={() => setAssFeasibility('FEASIBLE')}
+                      className="accent-[#48A63E]"
+                    />
+                    <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                      ✓ Feasible & Buildable
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="feasibility"
+                      value="NOT_FEASIBLE"
+                      checked={assFeasibility === 'NOT_FEASIBLE'}
+                      onChange={() => setAssFeasibility('NOT_FEASIBLE')}
+                      className="accent-rose-600"
+                    />
+                    <span className="text-xs font-bold text-rose-800 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+                      ✗ Not Feasible
+                    </span>
+                  </label>
+                </div>
+                {assFeasibility === 'NOT_FEASIBLE' && (
+                  <input
+                    type="text"
+                    placeholder="Reason why request is unfeasible..."
+                    value={assUnfeasibilityReason}
+                    onChange={(e) => setAssUnfeasibilityReason(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-rose-300 rounded-xl text-xs mt-2 focus:outline-none"
+                    required
+                  />
+                )}
+              </div>
+
+              {/* Manufacturing Operations & Duration */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-white p-4 rounded-2xl border border-[#E2D7CB]">
+                <div>
+                  <label className="block font-extrabold text-[#7A6C5E] mb-1">Required Operations</label>
+                  <input
+                    type="text"
+                    value={assOperations}
+                    onChange={(e) => setAssOperations(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#E2D7CB] rounded-xl text-xs focus:outline-none focus:border-[#48A63E]"
+                    placeholder="e.g. Cutting, Shaping, Sanding, Polishing"
+                  />
+                </div>
+                <div>
+                  <label className="block font-extrabold text-[#7A6C5E] mb-1">Material Requirements</label>
+                  <input
+                    type="text"
+                    value={assMaterialReq}
+                    onChange={(e) => setAssMaterialReq(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#E2D7CB] rounded-xl text-xs focus:outline-none focus:border-[#48A63E]"
+                    placeholder="e.g. Teak Timber Planks 150x50mm"
+                  />
+                </div>
+                <div>
+                  <label className="block font-extrabold text-[#7A6C5E] mb-1">Labour Hours</label>
+                  <input
+                    type="number"
+                    value={assLabourHours}
+                    onChange={(e) => setAssLabourHours(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#E2D7CB] rounded-xl text-xs focus:outline-none focus:border-[#48A63E]"
+                  />
+                </div>
+                <div>
+                  <label className="block font-extrabold text-[#7A6C5E] mb-1">Estimated Duration (Days)</label>
+                  <input
+                    type="number"
+                    value={assDurationDays}
+                    onChange={(e) => setAssDurationDays(e.target.value)}
+                    className="w-full px-3 py-2 border border-[#E2D7CB] rounded-xl text-xs focus:outline-none focus:border-[#48A63E]"
+                  />
+                </div>
+              </div>
+
+              {/* Cost Breakdown & Estimated Amount */}
+              <div className="bg-[#FAF7F2] p-4 rounded-2xl border-2 border-[#E2D7CB] space-y-3">
+                <h4 className="font-extrabold text-xs text-[#2C241D] uppercase tracking-wider flex items-center justify-between">
+                  <span>Pricing & Cost Estimation Breakdown</span>
+                  <span className="text-[#38A132] font-black text-sm">
+                    Calculated Total: ₹{((Number(assMatCost)||0) + (Number(assLabCost)||0) + (Number(assMacCost)||0) + (Number(assFinCost)||0) + (Number(assOthCost)||0)).toLocaleString('en-IN')}
+                  </span>
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#7A6C5E]">Material (₹)</label>
+                    <input
+                      type="number"
+                      value={assMatCost}
+                      onChange={(e) => setAssMatCost(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#7A6C5E]">Labour (₹)</label>
+                    <input
+                      type="number"
+                      value={assLabCost}
+                      onChange={(e) => setAssLabCost(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#7A6C5E]">Machine (₹)</label>
+                    <input
+                      type="number"
+                      value={assMacCost}
+                      onChange={(e) => setAssMacCost(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="block text-[10px] font-bold text-[#7A6C5E]">Finishing (₹)</label>
+                    <input
+                      type="number"
+                      value={assFinCost}
+                      onChange={(e) => setAssFinCost(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    />
+                    <select
+                      value={assFinType}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setAssFinType(val);
+                        if (val.includes('PU High Gloss')) setAssFinCost('3500');
+                        else if (val.includes('Italian Satin')) setAssFinCost('4000');
+                        else if (val.includes('Natural Matte Wax')) setAssFinCost('2500');
+                        else if (val.includes('Walnut Dark Grain')) setAssFinCost('2800');
+                        else if (val.includes('Oiled & Hand-Rubbed')) setAssFinCost('2200');
+                        else if (val.includes('Powder Coated')) setAssFinCost('3000');
+                        else if (val.includes('Raw Sanded')) setAssFinCost('0');
+                      }}
+                      className="w-full text-[10px] py-1 px-1 bg-white border border-[#E2D7CB] rounded-lg font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E] cursor-pointer"
+                      title="Select Finishing Coating Type"
+                    >
+                      <option value="Natural Matte Wax (Cream White)">🌿 Natural Matte Wax</option>
+                      <option value="PU High Gloss Clear Coat">✨ PU High Gloss Clear</option>
+                      <option value="Italian Satin Polyurethane Lacquer">🛋️ Italian Satin Lacquer</option>
+                      <option value="Walnut Dark Grain Stain & Varnish">🪵 Walnut Dark Stain</option>
+                      <option value="Oiled & Hand-Rubbed Organic Polish">🪔 Oiled Organic Polish</option>
+                      <option value="Powder Coated Matte Finish">⚡ Powder Coated Finish</option>
+                      <option value="Custom Fabric Protectant / Nano-Coat">🧵 Fabric Nano-Protect</option>
+                      <option value="Raw Sanded & Unfinished">🪵 Raw Sanded Only</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-[#7A6C5E]">Overhead (₹)</label>
+                    <input
+                      type="number"
+                      value={assOthCost}
+                      onChange={(e) => setAssOthCost(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E]"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#7A6C5E] mb-1">Production Notes & Instructions</label>
+                <textarea
+                  value={assProdNotes}
+                  onChange={(e) => setAssProdNotes(e.target.value)}
+                  rows={2}
+                  className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white text-xs focus:outline-none focus:border-[#48A63E]"
+                  placeholder="Special instructions for artisans, quality tolerances..."
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedAssessmentRequest(null)}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAssessment}
+                  className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <DollarSign className="w-4 h-4" />
+                  <span>{isSubmittingAssessment ? 'Publishing Quotation...' : 'Submit Assessment & Publish Customer Quotation →'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: LOG RAW MATERIAL RECEIPT */}
+      {isMaterialReceiptModalOpen && selectedMaterialOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn text-[#2C241D]">
+            <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <PackageCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#1A140E]">Log Raw Material Receipt</h3>
+                  <p className="text-xs font-semibold text-[#7A6C5E]">
+                    Order <span className="font-mono text-[#48A63E]">CUS-{selectedMaterialOrder.custom_order_id?.toString().padStart(4, '0')}</span> • {selectedMaterialOrder.furniture_type}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setIsMaterialReceiptModalOpen(false);
+                  setSelectedMaterialOrder(null);
+                }}
+                className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Item Details Banner */}
+            <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
+              <div className="flex justify-between font-bold text-[#2C241D]">
+                <span>Material: {selectedMaterialOrder.material || 'Solid Wood / Fabric'}</span>
+                <span>Qty Req: 1 Unit</span>
+              </div>
+              <p className="text-[11px] text-[#7A6C5E] font-medium">Customer: {selectedMaterialOrder.customer_name || 'Valued Customer'}</p>
+            </div>
+
+            <form onSubmit={handleMaterialReceiptSubmit} className="space-y-3 text-xs font-semibold">
+              <div>
+                <label className="block font-extrabold text-[#7A6C5E] mb-1">Received Material Quality & Condition</label>
+                <select
+                  value={matCondition}
+                  onChange={(e) => setMatCondition(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold focus:outline-none focus:border-[#48A63E]"
+                >
+                  <option value="Good">✓ Good Condition (Verified & Inspected)</option>
+                  <option value="Minor Defects">⚠️ Minor Defects / Scratches Noted</option>
+                  <option value="Requires Drying/Treatment">🪵 Needs Kiln Drying / Moisture Treatment</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#7A6C5E] mb-1">Received Quantity</label>
+                  <input
+                    type="number"
+                    value={matQty}
+                    onChange={(e) => setMatQty(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold focus:outline-none focus:border-[#48A63E]"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block font-extrabold text-[#7A6C5E] mb-1">Unit of Measure</label>
+                  <select
+                    value={matUnit}
+                    onChange={(e) => setMatUnit(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold focus:outline-none focus:border-[#48A63E]"
+                  >
+                    <option value="pieces">Pieces / Planks</option>
+                    <option value="sqft">Sq. Feet (Fabric/Leather)</option>
+                    <option value="kg">Kilograms (Hardwood)</option>
+                    <option value="sets">Complete Sets</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#7A6C5E] mb-1">Inspection & Warehouse Receipt Notes</label>
+                <textarea
+                  value={matNotes}
+                  onChange={(e) => setMatNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Note timber moisture level, grain pattern, delivery batch reference..."
+                  className="w-full p-3 bg-white border border-[#E2D7CB] rounded-xl text-xs focus:outline-none focus:border-[#48A63E]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMaterialReceiptModalOpen(false);
+                    setSelectedMaterialOrder(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingReceipt}
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <PackageCheck className="w-4 h-4" />
+                  <span>{isSubmittingReceipt ? 'Recording Receipt...' : 'Confirm Raw Material Receipt'}</span>
                 </button>
               </div>
             </form>
