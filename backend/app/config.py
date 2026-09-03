@@ -1,5 +1,12 @@
 import os
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
+
+# Locate and load backend/.env explicitly
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+env_path = os.path.join(backend_dir, ".env")
+if os.path.exists(env_path):
+    load_dotenv(env_path)
 
 class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/retailsphere_db")
@@ -16,8 +23,9 @@ class Settings(BaseSettings):
     EMAILS_FROM_NAME: str = os.getenv("EMAILS_FROM_NAME", "RetailSphere Support")
 
     model_config = {
-        "env_file": ".env",
+        "env_file": env_path,
         "extra": "ignore"
     }
 
 settings = Settings()
+

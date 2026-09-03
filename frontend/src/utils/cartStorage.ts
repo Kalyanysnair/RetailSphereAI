@@ -98,6 +98,42 @@ export function clearCart(): void {
   saveCartItems([]);
 }
 
+const DIRECT_CHECKOUT_KEY = 'retailsphere_direct_checkout_item';
+
+export function setDirectCheckoutItem(product: { id: string; name: string; material?: string; price: number; imageUrl?: string; quantity?: number }): void {
+  try {
+    const item: CartItem = {
+      id: product.id,
+      name: product.name,
+      material: product.material || 'Premium Finish',
+      price: product.price,
+      quantity: product.quantity || 1,
+      imageUrl: product.imageUrl || '',
+    };
+    sessionStorage.setItem(DIRECT_CHECKOUT_KEY, JSON.stringify(item));
+    window.dispatchEvent(new Event('cart-updated'));
+  } catch (e) {
+    console.error('Failed to set direct checkout item:', e);
+  }
+}
+
+export function getDirectCheckoutItem(): CartItem | null {
+  try {
+    const raw = sessionStorage.getItem(DIRECT_CHECKOUT_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return null;
+}
+
+export function clearDirectCheckoutItem(): void {
+  try {
+    sessionStorage.removeItem(DIRECT_CHECKOUT_KEY);
+    window.dispatchEvent(new Event('cart-updated'));
+  } catch {}
+}
+
 export function getCartCount(): number {
   const current = getCartItems();
   return current.reduce((acc, item) => acc + item.quantity, 0);

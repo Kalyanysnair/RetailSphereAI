@@ -2,14 +2,21 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageCheck, AlertCircle, Plus, X, Send, Palette, Ruler, ArrowRight, ArrowLeft, Layers, MessageSquareText, Edit3, Lock, Image, Trash2, FileText, Download, ShoppingCart, UploadCloud } from 'lucide-react';
 import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder, downloadPaymentReceipt, updateOrderStatus, customerRespondQuotation } from '../../services/api_production';
-import { addToCart } from '../../utils/cartStorage';
+import { addToCart, setDirectCheckoutItem } from '../../utils/cartStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 
 // Category Definitions & Aspect Specs
+interface ItemTypeSpec {
+  name: string;
+  desc: string;
+  img: string;
+}
+
 interface CategorySpec {
   id: string;
   name: string;
-  types: string[];
+  duoImages: [string, string];
+  types: ItemTypeSpec[];
   materials: string[];
   fabricsOrFinishes: string[];
   aspects: {
@@ -23,7 +30,37 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'sofas',
     name: 'Sofas & Seating',
-    types: ['Custom 3-Seater Sofa', 'L-Shape Sectional', 'Lounge Armchair', 'Modular Sofa', 'Recliner Chair'],
+    duoImages: [
+      'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80',
+      'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=300&q=80',
+    ],
+    types: [
+      {
+        name: 'Custom 3-Seater Sofa',
+        desc: 'Custom 3-Seater Sofa - Depth/Width Options available',
+        img: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'L-Shape Sectional',
+        desc: 'Modular corner layout with optional chaise lounger',
+        img: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Lounge Armchair',
+        desc: 'Lounge Armchair - Depth/Width Options available',
+        img: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Modular Sofa',
+        desc: 'Flexible interlocking seating blocks with plush cushions',
+        img: 'https://images.unsplash.com/photo-1550581190-9c1c48d21d6c?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Recliner Chair',
+        desc: 'Recliner Chair - Options available',
+        img: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=200&q=80',
+      },
+    ],
     materials: ['Premium Teak Wood', 'Sheesham Rosewood', 'Dark Walnut', 'Natural Oak', 'Brushed Stainless Steel'],
     fabricsOrFinishes: ['Cream Bouclé', 'Emerald Green Velvet', 'Terracotta Microfiber', 'Tan Italian Leather', 'Charcoal Linen'],
     aspects: [
@@ -47,7 +84,32 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'dining',
     name: 'Dining Tables & Chairs',
-    types: ['Dining Table', 'Complete Dining Set with Chairs', 'Dining Bench', 'Kitchen Counter Island'],
+    duoImages: [
+      'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=300&q=80',
+      'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=300&q=80',
+    ],
+    types: [
+      {
+        name: 'Dining Table',
+        desc: 'Solid wood or marble tabletop with custom leg geometry',
+        img: 'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Complete Dining Set with Chairs',
+        desc: 'Matching table and upholstered handcrafted dining chairs',
+        img: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Dining Bench',
+        desc: 'Live-edge timber bench for casual seating',
+        img: 'https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Kitchen Counter Island',
+        desc: 'Multi-functional prep counter with integrated bar seating',
+        img: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=200&q=80',
+      },
+    ],
     materials: ['Solid Teak Planks', 'Sheesham Wood', 'Italian Carrara Marble', 'Walnut Slab', 'Smoked Tempered Glass'],
     fabricsOrFinishes: ['Natural Matte Wax', 'High Gloss Lacquer', 'Dark Vintage Walnut Polish', 'Raw Organic Oil'],
     aspects: [
@@ -71,7 +133,32 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'beds',
     name: 'Beds & Sanctuary',
-    types: ['Platform Bed Frame', 'Canopy Four-Poster Bed', 'Hydraulic Storage Bed', 'Daybed'],
+    duoImages: [
+      'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=300&q=80',
+      'https://images.unsplash.com/photo-1540518614846-7ede433c5173?auto=format&fit=crop&w=300&q=80',
+    ],
+    types: [
+      {
+        name: 'Platform Bed Frame',
+        desc: 'Low-profile minimalist solid wood platform',
+        img: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Canopy Four-Poster Bed',
+        desc: 'Architectural wooden canopy frame with draped linen option',
+        img: 'https://images.unsplash.com/photo-1540518614846-7ede433c5173?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Hydraulic Storage Bed',
+        desc: 'Gas-lift underbed compartment for ample linen storage',
+        img: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Daybed',
+        desc: 'Versatile lounger bed frame for guest rooms & lounges',
+        img: 'https://images.unsplash.com/photo-1616046229478-9901c5536a45?auto=format&fit=crop&w=200&q=80',
+      },
+    ],
     materials: ['Solid Teak Wood', 'Sheesham Rosewood', 'Dark Walnut', 'Natural Oak Frame'],
     fabricsOrFinishes: ['Cream Bouclé Upholstery', 'Emerald Velvet Headboard', 'Washed Organic Linen', 'Raw Wood Finish'],
     aspects: [
@@ -95,7 +182,32 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'storage',
     name: 'Storage & Cabinets',
-    types: ['TV Media Console', 'Sideboard Credenza', 'Bookcase Display Cabinet', 'Full Modular Wardrobe'],
+    duoImages: [
+      'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=300&q=80',
+      'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=300&q=80',
+    ],
+    types: [
+      {
+        name: 'TV Media Console',
+        desc: 'Low-slung console with acoustic fluted doors & cable routing',
+        img: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Sideboard Credenza',
+        desc: 'Dining room credenza with drawers & brass handles',
+        img: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Bookcase Display Cabinet',
+        desc: 'Tall shelving unit with warm LED backlighting',
+        img: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Full Modular Wardrobe',
+        desc: 'Custom closet system with internal organizer drawers',
+        img: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=200&q=80',
+      },
+    ],
     materials: ['Solid Teak Wood', 'Sheesham Wood', 'Walnut & Brass', 'Oak & Tempered Glass'],
     fabricsOrFinishes: ['Natural Satin Wax', 'Smoked Espresso Stain', 'Matte Black Wood Grain', 'Clear Lacquer'],
     aspects: [
@@ -114,7 +226,32 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'workspace',
     name: 'Desks & Workstations',
-    types: ['Executive L-Desk', 'Standing Electric Lift Desk', 'Writing Desk', 'Floating Wall Desk'],
+    duoImages: [
+      'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=300&q=80',
+      'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=300&q=80',
+    ],
+    types: [
+      {
+        name: 'Executive L-Desk',
+        desc: 'Spacious L-shaped timber workstation with modesty panel',
+        img: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Standing Electric Lift Desk',
+        desc: 'Height-adjustable solid wood desk with digital presets',
+        img: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Writing Desk',
+        desc: 'Compact desk with slim stationery drawers',
+        img: 'https://images.unsplash.com/photo-1515378791036-0648a3ef77b2?auto=format&fit=crop&w=200&q=80',
+      },
+      {
+        name: 'Floating Wall Desk',
+        desc: 'Space-saving wall-mounted timber desk',
+        img: 'https://images.unsplash.com/photo-1507652313519-d4e9174996dd?auto=format&fit=crop&w=200&q=80',
+      },
+    ],
     materials: ['Solid Teak Slab', 'Walnut & Steel', 'Oak Timber', 'Rosewood Executive'],
     fabricsOrFinishes: ['Matte Wood Finish', 'Dark Vintage Walnut', 'Natural Honey Oil'],
     aspects: [
@@ -160,14 +297,14 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
   const handleAddToCartAndPay = (order: CustomOrderData) => {
     if (!order.estimated_price) return;
-    addToCart({
+    setDirectCheckoutItem({
       id: `custom-order-${order.custom_order_id}`,
       name: `Custom ${order.furniture_type} (Order #${order.custom_order_id})`,
       material: `Material: ${order.material} | Shade: ${order.color}`,
       price: order.estimated_price,
       imageUrl: order.reference_image ? parseReferenceImages(order.reference_image)[0] || undefined : undefined
     });
-    navigate('/cart');
+    navigate('/cart?direct=true');
   };
 
   // New & Edit Customization Order Inline Form State
@@ -220,15 +357,23 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
     }, 50);
   };
 
+  const handleCloseAndRedirectToShop = () => {
+    setIsFormOpen(false);
+    setEditingOrderId(null);
+    const event = new CustomEvent('change-customer-tab', { detail: 'shop' });
+    window.dispatchEvent(event);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // Selected Customization Options State
   const [selectedCategory, setSelectedCategory] = useState<CategorySpec>(CATEGORY_SPECS[0]);
-  const [furnitureType, setFurnitureType] = useState(CATEGORY_SPECS[0].types[0]);
-  const [material, setMaterial] = useState(CATEGORY_SPECS[0].materials[0]);
+  const [furnitureType, setFurnitureType] = useState<string>(CATEGORY_SPECS[0].types[0].name);
+  const [material, setMaterial] = useState<string>(CATEGORY_SPECS[0].materials[0]);
   const [customMaterialInput, setCustomMaterialInput] = useState('');
-  const [fabricOrFinish, setFabricOrFinish] = useState(CATEGORY_SPECS[0].fabricsOrFinishes[0]);
+  const [fabricOrFinish, setFabricOrFinish] = useState<string>(CATEGORY_SPECS[0].fabricsOrFinishes[0]);
   const [selectedColor, setSelectedColor] = useState('Cream White');
   const [customColorInput, setCustomColorInput] = useState('');
-  const [customPickerHex, setCustomPickerHex] = useState('#38A132');
+  const [customPickerHex, setCustomPickerHex] = useState('#48A63E');
   const [aspectSelections, setAspectSelections] = useState<Record<string, string>>({});
   const [referenceImageUrls, setReferenceImageUrls] = useState<string[]>(['']);
   const [isDragging, setIsDragging] = useState(false);
@@ -328,7 +473,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   // Handle Category Change
   const handleCategorySelect = (cat: CategorySpec) => {
     setSelectedCategory(cat);
-    setFurnitureType(cat.types[0]);
+    setFurnitureType(cat.types[0]?.name || '');
     setMaterial(cat.materials[0]);
     setFabricOrFinish(cat.fabricsOrFinishes[0]);
     const initialAspects: Record<string, string> = {};
@@ -534,40 +679,15 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
   return (
     <div className="space-y-8 text-[#2C241D]">
-      {/* INLINE EXPANDABLE CUSTOMIZATION FORM (PAGE DOCUMENT FLOW) */}
+      {/* INLINE EXPANDABLE CUSTOMIZATION FORM (PAGE DOCUMENT FLOW MATCHING USER TARGET DESIGN IMAGE) */}
       {isFormOpen && (
-        <div id="custom-order-form" className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-[2rem] p-6 sm:p-8 shadow-2xl relative overflow-hidden space-y-6 text-[#2C241D] animate-fadeIn scroll-mt-24">
-          <div className="glass-sheen" aria-hidden="true" />
-
-          {/* Form Header */}
-          <div className="relative z-10 flex items-start justify-between border-b border-[#EFE7DE] pb-4">
-            <div>
-              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-[#38A132] bg-[#38A132]/10 px-3 py-1 rounded-full border border-[#38A132]/30">
-                <Sliders className="w-3.5 h-3.5 text-[#38A132]" /> Bespoke Custom Furniture Studio
-              </div>
-              <h2 className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                {editingOrderId ? `Edit Specifications for Order #${editingOrderId}` : 'Configure Your Custom Furniture Specifications'}
-              </h2>
-              <p className="text-xs text-[#6B5C4D] font-medium">
-                Step {modalStep} of 3 • {modalStep === 1 ? 'Category & Item Type' : modalStep === 2 ? 'Materials, Fabrics & Specs' : 'Dimensions & Special Requirements'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setIsFormOpen(false);
-                setEditingOrderId(null);
-              }}
-              className="p-2.5 rounded-xl text-[#9E9082] hover:text-[#2C241D] hover:bg-[#F5ECE1] border border-[#E2D7CB] transition-colors cursor-pointer"
-              title="Close Form"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+        <div id="custom-order-form" className="relative bg-[#FAF6F0] border-4 border-[#B89768] rounded-[2.2rem] shadow-2xl overflow-hidden text-[#2C241D] animate-fadeIn scroll-mt-24">
+          {/* Gold Frame Outer Trim Effect */}
+          <div className="absolute inset-0 border border-[#E6C994]/40 rounded-[2.1rem] pointer-events-none z-20" />
 
           {orderSuccess ? (
-            <div className="relative z-10 py-10 text-center space-y-3">
-              <div className="w-16 h-16 rounded-full bg-[#38A132]/15 border border-[#38A132]/40 text-[#38A132] mx-auto flex items-center justify-center animate-bounce">
+            <div className="relative z-10 py-16 text-center space-y-3 bg-[#FAF8F5]">
+              <div className="w-16 h-16 rounded-full bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] mx-auto flex items-center justify-center animate-bounce">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
               <h3 className="text-xl font-extrabold text-[#2C241D]">
@@ -578,507 +698,546 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               </p>
             </div>
           ) : (
-            <form onSubmit={handleCreateOrUpdateCustomOrder} className="relative z-10 space-y-6 text-xs">
-              {/* STEP 1: CATEGORY & ITEM TYPE */}
-              {modalStep === 1 && (
-                <div className="space-y-5 animate-fadeIn">
+            <form onSubmit={handleCreateOrUpdateCustomOrder} className="relative z-10 flex flex-col lg:flex-row min-h-[620px]">
+              {/* Left Main Studio Panel (White Marble Texture) */}
+              <div className="flex-1 p-6 sm:p-8 space-y-6 bg-gradient-to-br from-[#FAF8F5] via-[#F6F1EA] to-[#EEE8DF] bg-[radial-gradient(#E8DFD3_1px,transparent_1px)] [background-size:20px_20px] relative z-10">
+                {/* Studio Header */}
+                <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4">
                   <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <Layers className="w-4 h-4 text-[#38A132]" />
-                      Select Furniture Category
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {CATEGORY_SPECS.map((cat) => (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => handleCategorySelect(cat)}
-                          className={`p-3.5 rounded-2xl border font-bold text-left transition-all cursor-pointer ${
-                            selectedCategory.id === cat.id
-                              ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs ring-1 ring-[#38A132]'
-                              : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
-                          }`}
-                        >
-                          {cat.name}
-                        </button>
-                      ))}
-                    </div>
+                    <h1 className="font-serif italic text-2xl sm:text-3xl text-[#9C7A4B] font-normal tracking-wide">
+                      Bespoke Custom Furniture Studio
+                    </h1>
+                    <h2 className="font-serif text-xl sm:text-2xl font-normal text-[#2C241D] tracking-tight mt-1">
+                      {editingOrderId ? `Edit Specifications for Order #${editingOrderId}` : 'Configure Your Custom Furniture Specifications'}
+                    </h2>
+                    <p className="text-xs text-[#6E6458] font-medium mt-0.5">
+                      Step {modalStep} of 3 • {modalStep === 1 ? 'Select Category & Specific Item Type' : modalStep === 2 ? 'Select Timber, Color Palette & Specifications' : 'Define Dimensions & Special Custom Requirements'}
+                    </p>
                   </div>
+                  <div className="flex items-center gap-2">
+                    {modalStep > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => handleStepChange((modalStep - 1) as any)}
+                        className="px-3 py-1.5 rounded-xl bg-white/90 border border-[#D6C9B9] hover:bg-white text-[#2C241D] text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1.5"
+                      >
+                        <ArrowLeft className="w-4 h-4 text-[#48A63E]" />
+                        <span>Back</span>
+                      </button>
+                    )}
 
-                  <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 text-xs">
-                      Select Specific Product / Item Type
-                    </label>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                      {selectedCategory.types.map((type) => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => setFurnitureType(type)}
-                          className={`p-3.5 rounded-2xl border font-bold text-left transition-all cursor-pointer ${
-                            furnitureType === type
-                              ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs'
-                              : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
-                          }`}
-                        >
-                          {type}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="pt-3 flex justify-end">
                     <button
                       type="button"
-                      onClick={() => handleStepChange(2)}
-                      className="py-3 px-6 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl flex items-center gap-2 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer"
+                      onClick={handleCloseAndRedirectToShop}
+                      className="p-2 rounded-xl bg-white/80 border border-[#D6C9B9] hover:bg-white text-[#6E6458] hover:text-[#1C1814] transition-colors cursor-pointer shadow-2xs"
+                      title="Close Studio"
                     >
-                      <span>Next: Materials & Specs</span>
-                      <ArrowRight className="w-4 h-4" />
+                      <X className="w-5 h-5" />
                     </button>
                   </div>
                 </div>
-              )}
 
-              {/* STEP 2: MATERIALS, FABRICS & CATEGORY ASPECTS */}
-              {modalStep === 2 && (
-                <div className="space-y-5 animate-fadeIn">
-                  <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <Sliders className="w-4 h-4 text-[#38A132]" />
-                      Primary Timber / Structural Material
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {[...selectedCategory.materials, 'Other'].map((mat) => (
-                        <button
-                          key={mat}
-                          type="button"
-                          onClick={() => setMaterial(mat)}
-                          className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer ${
-                            material === mat
-                              ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs'
-                              : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
-                          }`}
-                        >
-                          {mat === 'Other' ? '✨ Other Material' : mat}
-                        </button>
-                      ))}
-                    </div>
-                    {material === 'Other' && (
-                      <div className="mt-2.5 animate-fadeIn">
-                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">
-                          Specify Your Custom Structural Material:
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Italian Carrara Gold Marble, Reclaimed Oak Timber, Brass Frame..."
-                          value={customMaterialInput}
-                          onChange={(e) => setCustomMaterialInput(e.target.value)}
-                          required={material === 'Other'}
-                          className="w-full px-3.5 py-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                        />
+                {/* 3-Step Wizard Stepper Bar */}
+                <div className="flex items-center w-full bg-[#EBE4D8] rounded-xl overflow-hidden border border-[#D6C9B9] p-1 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setModalStep(1)}
+                    className={`flex-1 py-2 px-3 text-center cursor-pointer transition-all rounded-lg ${
+                      modalStep === 1
+                        ? 'bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495] font-extrabold shadow-2xs'
+                        : 'text-[#6E6458] hover:text-[#1C1814]'
+                    }`}
+                  >
+                    1: Category
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalStep(2)}
+                    className={`flex-1 py-2 px-3 text-center cursor-pointer transition-all rounded-lg ${
+                      modalStep === 2
+                        ? 'bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495] font-extrabold shadow-2xs'
+                        : 'text-[#6E6458] hover:text-[#1C1814]'
+                    }`}
+                  >
+                    2: Materials
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setModalStep(3)}
+                    className={`flex-1 py-2 px-3 text-center cursor-pointer transition-all rounded-lg ${
+                      modalStep === 3
+                        ? 'bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495] font-extrabold shadow-2xs'
+                        : 'text-[#6E6458] hover:text-[#1C1814]'
+                    }`}
+                  >
+                    3: Review
+                  </button>
+                </div>
+
+                {/* STEP 1: CATEGORY & DUAL IMAGE CARDS & ITEM SPECIFIC CARDS */}
+                {modalStep === 1 && (
+                  <div className="space-y-6 animate-fadeIn">
+                    {/* Select Furniture Category */}
+                    <div>
+                      <h3 className="text-[11px] font-extrabold text-[#7A6C5E] mb-2 uppercase tracking-wider">
+                        Select Furniture Category
+                      </h3>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                        {CATEGORY_SPECS.map((cat) => {
+                          const isSelected = selectedCategory.id === cat.id;
+                          return (
+                            <div
+                              key={cat.id}
+                              onClick={() => handleCategorySelect(cat)}
+                              className={`relative p-2 rounded-xl border cursor-pointer transition-all flex flex-col justify-between h-28 ${
+                                isSelected
+                                  ? 'bg-white border-2 border-[#48A63E] ring-2 ring-[#48A63E]/20 shadow-xs'
+                                  : 'bg-white/70 border-[#D6C9B9] hover:bg-white hover:shadow-2xs'
+                              }`}
+                            >
+                              {isSelected && (
+                                <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#48A63E] text-white flex items-center justify-center z-10 shadow-2xs">
+                                  <CheckCircle2 className="w-3 h-3 fill-white text-[#48A63E]" />
+                                </div>
+                              )}
+                              <div className="grid grid-cols-2 gap-1 h-16 rounded-lg overflow-hidden bg-[#F4ECE1]">
+                                <img src={cat.duoImages[0]} alt={cat.name} className="w-full h-full object-cover" />
+                                <img src={cat.duoImages[1]} alt={cat.name} className="w-full h-full object-cover" />
+                              </div>
+                              <span className="text-[10px] font-extrabold text-[#1C1814] leading-tight text-center line-clamp-1 mt-1">
+                                {cat.name}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
+                    </div>
+
+                    {/* Select Specific Product / Item Type */}
+                    <div>
+                      <h3 className="text-[11px] font-extrabold text-[#7A6C5E] mb-2 uppercase tracking-wider">
+                        Select Specific Product / Item Type
+                      </h3>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {selectedCategory.types.map((typeObj) => {
+                          const isSelected = furnitureType === typeObj.name;
+                          return (
+                            <div
+                              key={typeObj.name}
+                              onClick={() => setFurnitureType(typeObj.name)}
+                              className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-2.5 ${
+                                isSelected
+                                  ? 'bg-[#EFE8DC] border border-[#B89768] shadow-2xs ring-1 ring-[#B89768]/50'
+                                  : 'bg-white/90 border-[#D6C9B9] hover:bg-white'
+                              }`}
+                            >
+                              <div className="flex items-start gap-2.5 min-w-0">
+                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0 ${
+                                  isSelected ? 'border-[#2D6338] bg-[#2D6338] text-white' : 'border-[#C8BCAC] bg-white'
+                                }`}>
+                                  {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                                </div>
+                                <div className="min-w-0">
+                                  <h4 className="text-[11px] font-extrabold text-[#1C1814] truncate">{typeObj.name}</h4>
+                                  <p className="text-[10px] text-[#6E6458] font-medium truncate mt-0.5">{typeObj.desc}</p>
+                                </div>
+                              </div>
+                              <img src={typeObj.img} alt={typeObj.name} className="w-12 h-10 rounded-lg object-cover border border-[#D6C9B9] shrink-0" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
+                )}
 
-                  {/* COLOR & POLISH SELECTION WITH VISUAL PALETTE & INTERACTIVE COLOR PICKER */}
-                  <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <Palette className="w-4 h-4 text-[#38A132]" />
-                      Color & Polish Shade Selection (Visual Palette & Color Picker)
-                    </label>
+                {/* STEP 2: MATERIALS, FABRICS & CATEGORY ASPECTS */}
+                {modalStep === 2 && (
+                  <div className="space-y-4 animate-fadeIn">
+                    {/* Primary Timber / Structural Material */}
+                    <div>
+                      <label className="block font-extrabold text-[#7A6C5E] mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                        <Sliders className="w-3.5 h-3.5 text-[#48A63E]" />
+                        Primary Timber / Structural Material
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[...selectedCategory.materials, 'Other'].map((mat) => (
+                          <button
+                            key={mat}
+                            type="button"
+                            onClick={() => setMaterial(mat)}
+                            className={`px-3.5 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer truncate ${
+                              material === mat
+                                ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
+                                : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                            }`}
+                          >
+                            {mat === 'Other' ? '✨ Other Material' : mat}
+                          </button>
+                        ))}
+                      </div>
+                      {material === 'Other' && (
+                        <div className="mt-2 animate-fadeIn">
+                          <label className="block text-[10px] font-extrabold text-[#7A6C5E] mb-1">
+                            Specify Your Custom Structural Material:
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Italian Carrara Gold Marble, Reclaimed Oak Timber, Brass Frame..."
+                            value={customMaterialInput}
+                            onChange={(e) => setCustomMaterialInput(e.target.value)}
+                            required={material === 'Other'}
+                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                          />
+                        </div>
+                      )}
+                    </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {[
-                        { name: 'Cream White', hex: '#FDFBF7' },
-                        { name: 'Emerald Green', hex: '#0B4F37' },
-                        { name: 'Terracotta Orange', hex: '#C85A32' },
-                        { name: 'Charcoal Grey', hex: '#2F3337' },
-                        { name: 'Navy Blue', hex: '#1E293B' },
-                        { name: 'Natural Teak Wax', hex: '#A87948' },
-                        { name: 'Dark Walnut Polish', hex: '#4A3525' },
-                        { name: 'Gold / Brass Accent', hex: '#D4AF37' },
-                        { name: 'Custom Color Picker', hex: 'CUSTOM_PICKER' }
-                      ].map((swatch) => {
-                        const isSelected = selectedColor === swatch.name;
-                        if (swatch.hex === 'CUSTOM_PICKER') {
+                    {/* COLOR & POLISH SELECTION */}
+                    <div>
+                      <label className="block font-extrabold text-[#7A6C5E] mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                        <Palette className="w-3.5 h-3.5 text-[#48A63E]" />
+                        Color & Polish Shade Selection
+                      </label>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {[
+                          { name: 'Cream White', hex: '#FDFBF7' },
+                          { name: 'Emerald Green', hex: '#0B4F37' },
+                          { name: 'Terracotta Orange', hex: '#C85A32' },
+                          { name: 'Charcoal Grey', hex: '#2F3337' },
+                          { name: 'Navy Blue', hex: '#1E293B' },
+                          { name: 'Natural Teak Wax', hex: '#A87948' },
+                          { name: 'Dark Walnut Polish', hex: '#4A3525' },
+                          { name: 'Gold / Brass Accent', hex: '#D4AF37' },
+                          { name: 'Custom Color Picker', hex: 'CUSTOM_PICKER' }
+                        ].map((swatch) => {
+                          const isSelected = selectedColor === swatch.name;
+                          if (swatch.hex === 'CUSTOM_PICKER') {
+                            return (
+                              <button
+                                key={swatch.name}
+                                type="button"
+                                onClick={() => setSelectedColor(swatch.name)}
+                                className={`px-3 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
+                                  isSelected
+                                    ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
+                                    : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                                }`}
+                              >
+                                <div className="w-4 h-4 rounded-full border border-dashed border-[#48A63E] flex items-center justify-center text-[9px] shrink-0 font-mono">
+                                  🎨
+                                </div>
+                                <span className="truncate">Custom Color</span>
+                              </button>
+                            );
+                          }
+
                           return (
                             <button
                               key={swatch.name}
                               type="button"
                               onClick={() => setSelectedColor(swatch.name)}
-                              className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer flex items-center gap-2.5 ${
+                              className={`px-3 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
                                 isSelected
-                                  ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs ring-1 ring-[#38A132]'
-                                  : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
+                                  ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
+                                  : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
                               }`}
                             >
-                              <div className="w-5 h-5 rounded-full border border-dashed border-[#38A132] flex items-center justify-center text-[10px] shrink-0 font-mono">
-                                🎨
-                              </div>
-                              <span className="text-xs truncate">Custom Color Picker</span>
+                              <span
+                                className="w-3.5 h-3.5 rounded-full inline-block border border-black/20 shadow-2xs shrink-0"
+                                style={{ backgroundColor: swatch.hex }}
+                              />
+                              <span className="truncate">{swatch.name}</span>
                             </button>
                           );
-                        }
+                        })}
+                      </div>
 
-                        return (
-                          <button
-                            key={swatch.name}
-                            type="button"
-                            onClick={() => setSelectedColor(swatch.name)}
-                            className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer flex items-center gap-2.5 ${
-                              isSelected
-                                ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs ring-1 ring-[#38A132]'
-                                : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
-                            }`}
-                          >
-                            <span
-                              className="w-4 h-4 rounded-full inline-block border border-black/20 shadow-2xs shrink-0"
-                              style={{ backgroundColor: swatch.hex }}
-                            />
-                            <span className="text-xs truncate">{swatch.name}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                      {(selectedColor === 'Custom Color Picker' || selectedColor === 'Other') && (
+                        <div className="mt-2.5 p-3.5 bg-white border border-[#E2D7CB] rounded-xl space-y-2.5 animate-fadeIn shadow-xs">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <div>
+                              <label className="block text-[10px] font-extrabold text-[#7A6C5E] mb-1">
+                                Pick Color Hex:
+                              </label>
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={customPickerHex}
+                                  onChange={(e) => setCustomPickerHex(e.target.value)}
+                                  className="w-8 h-8 rounded-lg border border-[#E2D7CB] cursor-pointer bg-transparent p-0.5"
+                                />
+                                <span className="font-mono text-[11px] font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2 py-1 rounded-md border border-[#E2D7CB]">
+                                  {customPickerHex.toUpperCase()}
+                                </span>
+                              </div>
+                            </div>
 
-                    {/* INTERACTIVE COLOR PICKER & CUSTOM COLOR NAME INPUT */}
-                    {(selectedColor === 'Custom Color Picker' || selectedColor === 'Other') && (
-                      <div className="mt-3 p-4 bg-white border border-[#E2D7CB] rounded-2xl space-y-3 animate-fadeIn shadow-xs">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <div>
-                            <label className="block text-[11px] font-extrabold text-[#7A6C5E] mb-1">
-                              Pick Color Hex:
-                            </label>
-                            <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-[180px]">
+                              <label className="block text-[10px] font-extrabold text-[#7A6C5E] mb-1">
+                                Custom Color / Shade Name:
+                              </label>
                               <input
-                                type="color"
-                                value={customPickerHex}
-                                onChange={(e) => setCustomPickerHex(e.target.value)}
-                                className="w-10 h-10 rounded-xl border border-[#E2D7CB] cursor-pointer bg-transparent p-0.5"
+                                type="text"
+                                placeholder="e.g. Sage Green, Dusty Rose Velvet..."
+                                value={customColorInput}
+                                onChange={(e) => setCustomColorInput(e.target.value)}
+                                className="w-full px-3 py-1.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-lg font-bold text-xs focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
                               />
-                              <span className="font-mono text-xs font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1.5 rounded-lg border border-[#E2D7CB]">
-                                {customPickerHex.toUpperCase()}
-                              </span>
                             </div>
                           </div>
-
-                          <div className="flex-1 min-w-[200px]">
-                            <label className="block text-[11px] font-extrabold text-[#7A6C5E] mb-1">
-                              Custom Color / Shade Name:
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="e.g. Sage Green, Dusty Rose Velvet, Royal Burgundy..."
-                              value={customColorInput}
-                              onChange={(e) => setCustomColorInput(e.target.value)}
-                              className="w-full px-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                            />
-                          </div>
                         </div>
-
-                        {/* Visual Live Swatch Preview */}
-                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] flex items-center gap-3">
-                          <div
-                            className="w-8 h-8 rounded-xl border border-black/20 shadow-xs shrink-0"
-                            style={{ backgroundColor: customPickerHex }}
-                          />
-                          <div className="text-xs space-y-0.5">
-                            <span className="font-extrabold text-[#2C241D] block">
-                              Selected Color Preview: {customColorInput.trim() || 'Custom Shade'}
-                            </span>
-                            <span className="text-[11px] text-[#48A63E] font-extrabold font-mono block">
-                              HEX Code: {customPickerHex.toUpperCase()}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <Sliders className="w-4 h-4 text-[#38A132]" />
-                      Upholstery Fabric / Texture Finish
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      {selectedCategory.fabricsOrFinishes.map((fab) => (
-                        <button
-                          key={fab}
-                          type="button"
-                          onClick={() => setFabricOrFinish(fab)}
-                          className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer ${
-                            fabricOrFinish === fab
-                              ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs'
-                              : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
-                          }`}
-                        >
-                          {fab}
-                        </button>
-                      ))}
+                      )}
                     </div>
-                  </div>
 
-                  {/* DYNAMIC CATEGORY ASPECTS */}
-                  {selectedCategory.aspects.map((asp) => (
-                    <div key={asp.key}>
-                      <label className="block font-extrabold text-[#5C4E42] mb-2 text-xs">
-                        {asp.label}
+                    {/* Upholstery Fabric / Texture Finish */}
+                    <div>
+                      <label className="block font-extrabold text-[#7A6C5E] mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
+                        <Sliders className="w-3.5 h-3.5 text-[#48A63E]" />
+                        Upholstery Fabric / Texture Finish
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                        {asp.options.map((opt) => (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {selectedCategory.fabricsOrFinishes.map((fab) => (
                           <button
-                            key={opt}
+                            key={fab}
                             type="button"
-                            onClick={() => handleAspectChange(asp.key, opt)}
-                            className={`p-3 rounded-2xl border font-bold text-left transition-all cursor-pointer ${
-                              aspectSelections[asp.key] === opt
-                                ? 'bg-[#38A132]/15 border-[#38A132] text-[#2C241D] shadow-xs'
-                                : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F4ECE1]'
+                            onClick={() => setFabricOrFinish(fab)}
+                            className={`px-3.5 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer truncate ${
+                              fabricOrFinish === fab
+                                ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
+                                : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
                             }`}
                           >
-                            {opt}
+                            {fab}
                           </button>
                         ))}
                       </div>
                     </div>
-                  ))}
 
-                  <div className="pt-3 flex items-center justify-between">
-                    <button
-                      type="button"
-                      onClick={() => handleStepChange(1)}
-                      className="py-2.5 px-5 bg-[#FAF7F2] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-bold border border-[#E2D7CB] rounded-xl flex items-center gap-2 cursor-pointer"
-                    >
-                      <ArrowLeft className="w-4 h-4" />
-                      <span>Back</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleStepChange(3)}
-                      className="py-3 px-6 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl flex items-center gap-2 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer"
-                    >
-                      <span>Next: Dimensions & Requirements</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
+                    {/* DYNAMIC CATEGORY ASPECTS */}
+                    {selectedCategory.aspects.map((asp) => (
+                      <div key={asp.key}>
+                        <label className="block font-extrabold text-[#7A6C5E] mb-1.5 text-[11px] uppercase tracking-wider">
+                          {asp.label}
+                        </label>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          {asp.options.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => handleAspectChange(asp.key, opt)}
+                              className={`px-3.5 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer truncate ${
+                                aspectSelections[asp.key] === opt
+                                  ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
+                                  : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                              }`}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* STEP 3: DIMENSIONS & TEXT AREA FOR SPECIAL REQUIREMENTS */}
-              {modalStep === 3 && (
-                <div className="space-y-5 animate-fadeIn">
-                  <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <Ruler className="w-4 h-4 text-[#38A132]" />
-                      Exact Custom Dimensions & Measurements
-                    </label>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Length (cm)</label>
-                        <input
-                          type="number"
-                          value={lengthCm}
-                          onChange={(e) => setLengthCm(e.target.value)}
-                          required
-                          className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Width / Depth (cm)</label>
-                        <input
-                          type="number"
-                          value={widthCm}
-                          onChange={(e) => setWidthCm(e.target.value)}
-                          required
-                          className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Height (cm)</label>
-                        <input
-                          type="number"
-                          value={heightCm}
-                          onChange={(e) => setHeightCm(e.target.value)}
-                          required
-                          className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* REFERENCE DESIGN IMAGES PROVISION (OPTIONAL MULTI-IMAGE & DRAG-AND-DROP) */}
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <label className="font-extrabold text-[#5C4E42] flex items-center gap-1.5 text-xs">
-                        <Image className="w-4 h-4 text-[#38A132]" />
-                        Reference Design Images (Optional - Drag & drop photos or paste URLs)
+                {/* STEP 3: DIMENSIONS & TEXT AREA FOR SPECIAL REQUIREMENTS */}
+                {modalStep === 3 && (
+                  <div className="space-y-5 animate-fadeIn">
+                    <div>
+                      <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
+                        <Ruler className="w-4 h-4 text-[#48A63E]" />
+                        Exact Custom Dimensions & Measurements
                       </label>
-                      <button
-                        type="button"
-                        onClick={() => setReferenceImageUrls((prev) => [...prev, ''])}
-                        className="text-xs font-extrabold text-[#38A132] hover:text-[#32922D] flex items-center gap-1 cursor-pointer bg-[#38A132]/10 px-2.5 py-1 rounded-xl border border-[#38A132]/30"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>Add URL Link</span>
-                      </button>
-                    </div>
-
-                    {/* DRAG AND DROP ZONE */}
-                    <div
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                      onClick={() => document.getElementById('reference-file-input')?.click()}
-                      className={`border-2 border-dashed rounded-2xl p-5 sm:p-6 text-center cursor-pointer transition-all ${
-                        isDragging
-                          ? 'border-[#38A132] bg-[#38A132]/15 shadow-md shadow-[#38A132]/20 scale-[1.01]'
-                          : 'border-[#38A132]/40 hover:border-[#38A132] bg-[#38A132]/5 hover:bg-[#38A132]/10'
-                      }`}
-                    >
-                      <input
-                        id="reference-file-input"
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        onChange={handleFileInputChange}
-                        className="hidden"
-                      />
-                      <div className="flex flex-col items-center justify-center space-y-2">
-                        <div className="w-12 h-12 rounded-2xl bg-[#38A132]/10 border border-[#38A132]/30 text-[#38A132] flex items-center justify-center">
-                          <UploadCloud className="w-6 h-6 animate-pulse" />
+                      <div className="grid grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Length (cm)</label>
+                          <input
+                            type="number"
+                            value={lengthCm}
+                            onChange={(e) => setLengthCm(e.target.value)}
+                            required
+                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                          />
                         </div>
                         <div>
-                          <p className="text-xs font-extrabold text-[#2C241D]">
-                            Drag & drop reference design images here, or <span className="text-[#38A132] underline">browse device files</span>
-                          </p>
-                          <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
-                            Supports PNG, JPG, JPEG, WEBP, GIF, SVG (Select multiple files at once)
-                          </p>
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Width / Depth (cm)</label>
+                          <input
+                            type="number"
+                            value={widthCm}
+                            onChange={(e) => setWidthCm(e.target.value)}
+                            required
+                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Height (cm)</label>
+                          <input
+                            type="number"
+                            value={heightCm}
+                            onChange={(e) => setHeightCm(e.target.value)}
+                            required
+                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                          />
                         </div>
                       </div>
                     </div>
 
-                    {/* IMAGE URL INPUTS & PREVIEW CARDS */}
-                    <div className="space-y-3">
-                      {referenceImageUrls.map((url, idx) => {
-                        const isBase64 = url.trim().startsWith('data:image/');
-                        return (
-                          <div key={idx} className="space-y-2">
-                            {/* Hide text input box for uploaded Base64 files */}
-                            {!isBase64 && (
-                              <div className="flex items-center gap-2">
-                                <input
-                                  type="url"
-                                  value={url}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    setReferenceImageUrls((prev) => {
-                                      const next = [...prev];
-                                      next[idx] = val;
-                                      return next;
-                                    });
-                                  }}
-                                  placeholder={`Paste reference photo URL ${idx + 1} (Unsplash, Pinterest, Instagram, drive link)...`}
-                                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                                />
-                                {referenceImageUrls.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setReferenceImageUrls((prev) => prev.filter((_, i) => i !== idx))
-                                    }
-                                    className="p-2.5 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer"
-                                    title="Remove image"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </div>
-                            )}
+                    {/* REFERENCE DESIGN IMAGES PROVISION */}
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <label className="font-extrabold text-[#5C4E42] flex items-center gap-1.5 text-xs">
+                          <Image className="w-4 h-4 text-[#48A63E]" />
+                          Reference Design Images (Optional)
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setReferenceImageUrls((prev) => [...prev, ''])}
+                          className="text-xs font-extrabold text-[#48A63E] hover:text-[#3D9134] flex items-center gap-1 cursor-pointer bg-[#48A63E]/10 px-2.5 py-1 rounded-xl border border-[#48A63E]/30"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Link</span>
+                        </button>
+                      </div>
 
-                            {/* Live Image Preview Card */}
-                            {url.trim() !== '' && (
-                              <div className="p-3 bg-white border border-[#E2D7CB] rounded-2xl flex items-center justify-between gap-3 animate-fadeIn shadow-xs">
-                                <div className="flex items-center gap-3 overflow-hidden">
-                                  <img
-                                    src={url.trim()}
-                                    alt={`Reference Preview ${idx + 1}`}
-                                    className="w-14 h-14 rounded-xl object-cover border border-[#EFE7DE] flex-shrink-0"
-                                    onError={(e) => {
-                                      (e.target as HTMLElement).style.display = 'none';
-                                    }}
-                                  />
-                                  <div className="text-xs font-semibold space-y-0.5 min-w-0 flex-1 truncate">
-                                    <span className="text-[#38A132] font-extrabold flex items-center gap-1">
-                                      <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                                      {isBase64 ? `Uploaded Reference Photo #${idx + 1}` : `Reference Link #${idx + 1}`}
-                                    </span>
-                                    {!isBase64 && (
-                                      <p className="text-[11px] text-[#7A6C5E] truncate">{url.trim()}</p>
-                                    )}
-                                  </div>
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setReferenceImageUrls((prev) => prev.filter((_, i) => i !== idx))
-                                  }
-                                  className="p-2 text-rose-600 hover:bg-rose-50 rounded-xl border border-rose-200 transition-colors cursor-pointer shrink-0"
-                                  title="Remove reference image"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            )}
+                      {/* DRAG AND DROP ZONE */}
+                      <div
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => document.getElementById('reference-file-input')?.click()}
+                        className={`border-2 border-dashed rounded-2xl p-5 sm:p-6 text-center cursor-pointer transition-all ${
+                          isDragging
+                            ? 'border-[#48A63E] bg-[#48A63E]/15 shadow-md shadow-[#48A63E]/20 scale-[1.01]'
+                            : 'border-[#48A63E]/40 hover:border-[#48A63E] bg-white/70 hover:bg-white'
+                        }`}
+                      >
+                        <input
+                          id="reference-file-input"
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={handleFileInputChange}
+                          className="hidden"
+                        />
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <div className="w-12 h-12 rounded-2xl bg-[#48A63E]/10 border border-[#48A63E]/30 text-[#48A63E] flex items-center justify-center">
+                            <UploadCloud className="w-6 h-6 animate-pulse" />
                           </div>
-                        );
-                      })}
+                          <div>
+                            <p className="text-xs font-extrabold text-[#2C241D]">
+                              Drag & drop reference design images here, or <span className="text-[#48A63E] underline">browse device files</span>
+                            </p>
+                            <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
+                              Supports PNG, JPG, JPEG, WEBP
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
+                        <MessageSquareText className="w-4 h-4 text-[#48A63E]" />
+                        Additional Requirements & Special Customization Details
+                      </label>
+                      <textarea
+                        rows={4}
+                        value={customNotes}
+                        onChange={(e) => setCustomNotes(e.target.value)}
+                        placeholder="Write all specific needs here: e.g. Stain-resistant upholstery, custom carving on legs, robot vacuum clearance..."
+                        className="w-full px-4 py-3 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Wood-Veneer Panel: Summary & Price Range Estimator (Matching Target Design Image) */}
+              <div className="w-full lg:w-72 bg-[#ECE3D5] border-l border-[#D6C9B9] p-5 space-y-4 flex flex-col justify-between flex-shrink-0 rounded-r-[1.8rem]">
+                <div className="space-y-4">
+                  {/* Spec Summary Card */}
+                  <div className="bg-white/90 backdrop-blur-xs border border-[#D6C9B9] rounded-2xl p-4 space-y-2 shadow-2xs">
+                    <h4 className="font-extrabold text-sm text-[#1C1814] tracking-tight">
+                      {furnitureType || 'Custom 3-Seater Sofa'}
+                    </h4>
+                    <p className="text-[11px] text-[#6E6458] font-medium leading-snug">
+                      Configure Custom Furniture Specifications
+                    </p>
+                    <div className="pt-2 border-t border-[#EAE0D4] space-y-1 text-xs font-bold text-[#2C241D]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[#6E6458]">Category:</span>
+                        <span className="truncate max-w-[120px]">{selectedCategory.name}</span>
+                      </div>
+                      {material && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-[#6E6458]">Material:</span>
+                          <span className="truncate max-w-[120px]">{material}</span>
+                        </div>
+                      )}
+                      {selectedColor && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-[#6E6458]">Color:</span>
+                          <span className="truncate max-w-[120px]">{selectedColor}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                      <MessageSquareText className="w-4 h-4 text-[#38A132]" />
-                      Additional Requirements & Special Customization Details
-                    </label>
-                    <textarea
-                      rows={4}
-                      value={customNotes}
-                      onChange={(e) => setCustomNotes(e.target.value)}
-                      placeholder="Write all specific needs here: e.g. Stain-resistant upholstery for pets, custom carving on table legs, specific robot vacuum clearance height, or floor plan layout notes..."
-                      className="w-full px-4 py-3 text-xs sm:text-sm bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132] focus:ring-1 focus:ring-[#38A132]"
-                    />
+                  {/* Price Estimator Card */}
+                  <div className="bg-white/90 backdrop-blur-xs border border-[#D6C9B9] rounded-2xl p-4 space-y-1 shadow-2xs">
+                    <span className="text-[11px] font-extrabold text-[#6E6458] block uppercase tracking-wider">
+                      Estimated Price Range
+                    </span>
+                    <div className="text-lg font-mono font-black text-[#2D6338]">
+                      ₹45,000 - ₹1,20,000
+                    </div>
                   </div>
+                </div>
 
-                  <div className="pt-3 flex items-center justify-between">
+                {/* Actions */}
+                <div className="space-y-2">
+                  {modalStep > 1 && (
                     <button
                       type="button"
-                      onClick={() => handleStepChange(2)}
-                      className="py-2.5 px-5 bg-[#FAF7F2] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-bold border border-[#E2D7CB] rounded-xl flex items-center gap-2 cursor-pointer"
+                      onClick={() => handleStepChange((modalStep - 1) as any)}
+                      className="w-full py-2.5 bg-white/90 hover:bg-white border border-[#C8BCAC] text-[#2C241D] text-xs font-extrabold rounded-full transition-all cursor-pointer shadow-2xs flex items-center justify-center gap-2"
                     >
-                      <ArrowLeft className="w-4 h-4" />
-                      <span>Back</span>
+                      <ArrowLeft className="w-4 h-4 text-[#48A63E]" />
+                      <span>Back to Step {modalStep - 1}</span>
                     </button>
+                  )}
 
+                  <button
+                    type="button"
+                    onClick={handleCloseAndRedirectToShop}
+                    className="w-full py-2.5 bg-white hover:bg-[#FAF7F2] border border-[#C8BCAC] text-[#2C241D] text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-2xs"
+                  >
+                    Save for Later
+                  </button>
+
+                  {modalStep < 3 ? (
+                    <button
+                      type="button"
+                      onClick={() => handleStepChange((modalStep + 1) as any)}
+                      className="w-full py-3 bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-black rounded-full shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+                    >
+                      <span>Next: {modalStep === 1 ? 'Materials & Specs' : 'Review & Submit'}</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </button>
+                  ) : (
                     <button
                       type="submit"
                       disabled={submittingOrder}
-                      className="py-3.5 px-8 bg-[#38A132] hover:bg-[#32922D] text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-2 disabled:opacity-60 cursor-pointer"
+                      className="w-full py-3 bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-black rounded-full shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60"
                     >
-                      {submittingOrder ? (
-                        <span>Saving Changes...</span>
-                      ) : (
-                        <>
-                          <Send className="w-4 h-4" />
-                          <span>{editingOrderId ? 'Update Specifications' : 'Submit Custom Build Order'}</span>
-                        </>
-                      )}
+                      <Send className="w-4 h-4" />
+                      <span>{submittingOrder ? 'Submitting...' : (editingOrderId ? 'Update Specifications' : 'Submit Custom Request')}</span>
                     </button>
-                  </div>
+                  )}
                 </div>
-              )}
+              </div>
             </form>
           )}
         </div>

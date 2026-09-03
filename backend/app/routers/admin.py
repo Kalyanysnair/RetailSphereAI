@@ -231,6 +231,43 @@ def list_staff(db: Session = Depends(get_db)):
     for u in users:
         raw_role = u.role.role_name if u.role else "Retail Staff"
         role_name = "Artisan Worker" if raw_role in ["Worker", "Artisan Worker"] else raw_role
+        
+        # Workload & availability calculations
+        active_requests_count = 0
+        active_jobs_count = 0
+        active_tasks_count = 0
+        completed_tasks_count = 0
+        avail_status = "AVAILABLE"
+
+        if raw_role == "Retail Staff":
+            active_requests_count = (
+                db.query(models.CustomOrder).filter(models.CustomOrder.reviewed_by_id == u.user_id, models.CustomOrder.review_status.in_(["NEW", "UNDER_REVIEW", "MORE_INFO_REQUESTED"])).count() +
+                db.query(models.FabricationRequest).filter(models.FabricationRequest.reviewed_by_id == u.user_id, models.FabricationRequest.review_status.in_(["NEW", "UNDER_REVIEW", "MORE_INFO_REQUESTED"])).count() +
+                db.query(models.ServiceRequest).filter(models.ServiceRequest.reviewed_by_id == u.user_id, models.ServiceRequest.review_status.in_(["NEW", "UNDER_REVIEW", "MORE_INFO_REQUESTED"])).count()
+            )
+        elif raw_role == "Production Staff":
+            active_jobs_count = db.query(models.CustomOrder).filter(
+                models.CustomOrder.production_staff_id == u.user_id,
+                models.CustomOrder.order_status.in_(["Approved", "In Production", "QC_Pending"])
+            ).count()
+        elif raw_role in ["Worker", "Artisan Worker"]:
+            active_tasks_count = db.query(models.ProductionStage).filter(
+                models.ProductionStage.assigned_worker_id == u.user_id,
+                models.ProductionStage.status.in_(["ASSIGNED", "IN_PROGRESS"])
+            ).count()
+            completed_tasks_count = db.query(models.ProductionStage).filter(
+                models.ProductionStage.assigned_worker_id == u.user_id,
+                models.ProductionStage.status == "COMPLETED"
+            ).count()
+
+            avail_row = db.query(models.WorkerAvailability).filter(models.WorkerAvailability.worker_id == u.user_id).first()
+            if avail_row:
+                avail_status = avail_row.status
+
+            on_leave = db.query(models.WorkerLeave).filter(models.WorkerLeave.worker_id == u.user_id, models.WorkerLeave.status == "Approved").first()
+            if on_leave:
+                avail_status = "ON_LEAVE"
+
         result.append({
             "id": f"st-{u.user_id}",
             "user_id": u.user_id,
@@ -238,9 +275,15 @@ def list_staff(db: Session = Depends(get_db)):
             "email": u.email,
             "phone": u.phone or "+91 98765 43210",
             "role": role_name,
+            "raw_role": raw_role,
             "skill": u.specialization or ("Woodwork & Carpentry" if role_name == "Artisan Worker" else None),
             "is_driver": bool(u.is_driver),
             "status": "Active" if u.status else "Inactive",
+            "availability_status": avail_status,
+            "active_requests_count": active_requests_count,
+            "active_jobs_count": active_jobs_count,
+            "active_tasks_count": active_tasks_count,
+            "completed_tasks_count": completed_tasks_count,
             "dateAdded": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent"
         })
     return result
@@ -1622,6 +1665,26 @@ def admin_review_leave_request(leave_id: int, payload: AdminLeaveReviewPayload, 
     db.refresh(leave)
 
     return {"message": f"Leave request #{leave_id} set to {leave.status}.", "leave": leave}
+
+
+@router.get("/export-database-excel")
+def export_database_excel_endpoint():
+    """
+    READ-ONLY Database Export Endpoint for Inspection and Documentation.
+    Exports all current PostgreSQL/SQLite database tables and records into an Excel (.xlsx) file.
+    Completely read-only operation: No data is inserted, updated, or deleted.
+    """
+    from fastapi.responses import Response
+    from export_database_excel import generate_database_excel_bytes
+
+    excel_bytes = generate_database_excel_bytes()
+    filename = "RetailSphere_Database_Export.xlsx"
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
 
 
 

@@ -58,6 +58,10 @@ def startup_db():
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS specialization VARCHAR(100);"))
                 conn.execute(text("ALTER TABLE tbl_product ADD COLUMN IF NOT EXISTS available_colors TEXT;"))
                 
+                # Readymade Order completion & staff assignment columns
+                conn.execute(text("ALTER TABLE tbl_readymade_order ADD COLUMN IF NOT EXISTS completion_status VARCHAR(100);"))
+                conn.execute(text("ALTER TABLE tbl_readymade_order ADD COLUMN IF NOT EXISTS retail_staff_id INT;"))
+                
                 # Custom Order review & priority columns
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
@@ -102,7 +106,7 @@ def startup_db():
 
 import os
 from fastapi.staticfiles import StaticFiles
-from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff, fleet, worker_ops
+from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff, fleet, worker_ops, reviews
 
 # Mount static uploads directory
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
@@ -125,6 +129,7 @@ app.include_router(fulfillment.router)
 app.include_router(retail_staff.router)
 app.include_router(fleet.router)
 app.include_router(worker_ops.router)
+app.include_router(reviews.router)
 
 @app.get("/")
 def read_root():

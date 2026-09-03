@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X, Sliders } from 'lucide-react';
+import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X, Sliders, Zap } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import {
   CartItem,
   getCartItems,
   updateCartQuantity,
   removeFromCart,
-  clearCart
+  clearCart,
+  getDirectCheckoutItem,
+  setDirectCheckoutItem,
+  clearDirectCheckoutItem
 } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
 import { openRazorpayCheckout } from '../../services/razorpay';
@@ -85,6 +88,15 @@ const renderCartItemMaterialBadges = (materialStr?: string) => {
 export const CartPage: React.FC = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<CartItem[]>(() => getCartItems());
+  const [directCheckoutItem, setDirectCheckoutItemState] = useState<CartItem | null>(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.get('direct') === 'true' ? getDirectCheckoutItem() : null;
+  });
+  const [isDirectCheckoutMode, setIsDirectCheckoutMode] = useState<boolean>(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    return searchParams.get('direct') === 'true' && Boolean(getDirectCheckoutItem());
+  });
+
   const [isOrderPlaced, setIsOrderPlaced] = useState(false);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [lastPaymentId, setLastPaymentId] = useState<string>('');
@@ -92,8 +104,23 @@ export const CartPage: React.FC = () => {
   const [wishlistCount, setWishlistCount] = useState(0);
 
   useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const isDirect = searchParams.get('direct') === 'true';
+    if (!isDirect) {
+      clearDirectCheckoutItem();
+      setDirectCheckoutItemState(null);
+      setIsDirectCheckoutMode(false);
+    } else if (getDirectCheckoutItem()) {
+      setDirectCheckoutItemState(getDirectCheckoutItem());
+      setIsDirectCheckoutMode(true);
+    }
+
     const handleCartUpdate = () => {
       setItems(getCartItems());
+      const currentSearchParams = new URLSearchParams(window.location.search);
+      if (currentSearchParams.get('direct') === 'true') {
+        setDirectCheckoutItemState(getDirectCheckoutItem());
+      }
     };
     setWishlistCount(getWishlistItems().length);
 
@@ -105,14 +132,32 @@ export const CartPage: React.FC = () => {
     };
   }, []);
 
+  const fullCartItems = items;
+  const activeItems = (isDirectCheckoutMode && directCheckoutItem) ? [directCheckoutItem] : fullCartItems;
+
   const handleUpdateQuantity = (id: string, delta: number) => {
-    const updated = updateCartQuantity(id, delta);
-    setItems(updated);
+    if (isDirectCheckoutMode && directCheckoutItem) {
+      const newQty = directCheckoutItem.quantity + delta;
+      if (newQty > 0) {
+        const updated = { ...directCheckoutItem, quantity: newQty };
+        setDirectCheckoutItem(updated);
+        setDirectCheckoutItemState(updated);
+      }
+    } else {
+      const updated = updateCartQuantity(id, delta);
+      setItems(updated);
+    }
   };
 
   const handleRemoveItem = (id: string) => {
-    const updated = removeFromCart(id);
-    setItems(updated);
+    if (isDirectCheckoutMode && directCheckoutItem && (directCheckoutItem.id === id || directCheckoutItem.name === id)) {
+      clearDirectCheckoutItem();
+      setDirectCheckoutItemState(null);
+      setIsDirectCheckoutMode(false);
+    } else {
+      const updated = removeFromCart(id);
+      setItems(updated);
+    }
   };
 
   const [promoCodeInput, setPromoCodeInput] = useState('');
@@ -172,20 +217,20 @@ export const CartPage: React.FC = () => {
     setPromoMessage(null);
   };
 
-  const subtotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+  const subtotal = activeItems.reduce((acc, item) => acc + item.price * item.quantity, 0);
   const rawShipping = (subtotal > 50000 || subtotal === 0) ? 0 : 2500;
   const pricing = calculateOrderPricing(subtotal, appliedDiscount, rawShipping);
   const discountAmount = pricing.discountAmount;
   const shippingFee = pricing.shippingFee;
   const grandTotal = pricing.grandTotal;
-  const totalItemCount = items.reduce((acc, item) => acc + item.quantity, 0);
+  const totalItemCount = activeItems.reduce((acc, item) => acc + item.quantity, 0);
 
   const processOrderCompletion = async (paymentId: string) => {
     setLastPaymentId(paymentId);
     setPaymentError(null);
 
     // Update custom orders status in PostgreSQL database
-    for (const item of items) {
+    for (const item of activeItems) {
       if (item.id.startsWith('custom-')) {
         const numericId = parseInt(item.id.replace('custom-', ''), 10);
         if (!isNaN(numericId)) {
@@ -224,7 +269,7 @@ export const CartPage: React.FC = () => {
       orderStatus: 'Order Placed',
       paymentStatus: 'Paid',
       paymentId: paymentId,
-      items: items.map(i => ({
+      items: activeItems.map(i => ({
         id: i.id,
         name: i.name,
         price: i.price,
@@ -232,7 +277,17 @@ export const CartPage: React.FC = () => {
         imageUrl: i.imageUrl
       }))
     });
-    clearCart();
+
+    if (isDirectCheckoutMode && directCheckoutItem) {
+      removeFromCart(directCheckoutItem.id);
+      removeFromCart(directCheckoutItem.name);
+      clearDirectCheckoutItem();
+      setDirectCheckoutItemState(null);
+      setIsDirectCheckoutMode(false);
+    } else {
+      clearCart();
+    }
+
     setIsProcessingPayment(false);
     setIsOrderPlaced(true);
   };
@@ -304,7 +359,7 @@ export const CartPage: React.FC = () => {
                   <span>Back to Store Catalog</span>
                 </button>
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-3">
-                  <span>Shopping Cart</span>
+                  <span>{isDirectCheckoutMode && directCheckoutItem ? 'Direct Product Checkout' : 'Shopping Cart'}</span>
                   <span className="text-xs font-extrabold text-[#2C241D] bg-white/90 border border-[#E6DDD3] px-3 py-1 rounded-full shadow-xs">
                     {totalItemCount} {totalItemCount === 1 ? 'item' : 'items'}
                   </span>
@@ -318,6 +373,37 @@ export const CartPage: React.FC = () => {
                 + Add more furniture
               </Link>
             </div>
+
+            {/* Direct Checkout Active Banner */}
+            {isDirectCheckoutMode && directCheckoutItem && (
+              <div className="relative z-10 bg-gradient-to-r from-[#2B6E25] via-[#38A132] to-[#2B6E25] text-white p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-lg border border-emerald-400/40 animate-fadeIn my-1">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-white/20 text-amber-300 flex items-center justify-center font-extrabold text-base shadow-xs backdrop-blur-xs">
+                    ⚡
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black tracking-wider uppercase text-amber-300 flex items-center gap-1.5">
+                      <span>Direct Product Checkout Active</span>
+                    </h4>
+                    <p className="text-xs text-white/95 font-medium mt-0.5">
+                      Purchasing <strong className="text-white font-extrabold underline underline-offset-2 decoration-amber-300/60">{directCheckoutItem.name}</strong> only. Other items in your cart remain safely saved.
+                    </p>
+                  </div>
+                </div>
+                {fullCartItems.length > 0 && (
+                  <button
+                    onClick={() => {
+                      clearDirectCheckoutItem();
+                      setDirectCheckoutItemState(null);
+                      setIsDirectCheckoutMode(false);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-white/20 hover:bg-white/30 text-white text-xs font-extrabold border border-white/30 transition-all cursor-pointer shadow-sm hover:scale-102 active:scale-98"
+                  >
+                    View Full Cart ({fullCartItems.reduce((acc, i) => acc + i.quantity, 0)} items) →
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Payment Failure / Cancellation Alert */}
             {paymentError && (
@@ -371,7 +457,7 @@ export const CartPage: React.FC = () => {
                   </button>
                 </div>
               </div>
-            ) : items.length === 0 ? (
+            ) : activeItems.length === 0 ? (
               /* Empty Cart State */
               <div className="relative z-10 ultra-glass-card rounded-3xl p-12 text-center space-y-4 shadow-md my-6">
                 <div className="w-16 h-16 bg-[#F5ECE1] text-[#9E9082] rounded-full flex items-center justify-center mx-auto border border-[#E2D7CB]">
@@ -395,7 +481,7 @@ export const CartPage: React.FC = () => {
               <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-8">
                 {/* Cart Items List (2 cols) */}
                 <div className="lg:col-span-2 space-y-4">
-                  {items.map((item) => {
+                  {activeItems.map((item) => {
                     const parsedImgs = parseReferenceImages(item.imageUrl || '');
                     const thumbUrl = parsedImgs.length > 0
                       ? parsedImgs[0]

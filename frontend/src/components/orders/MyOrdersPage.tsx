@@ -24,7 +24,9 @@ import {
   ShieldCheck,
   MapPin,
   RefreshCw,
-  RotateCcw
+  RotateCcw,
+  Search,
+  Layers
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData, isCustomerOrderMatch } from '../../services/api_production';
@@ -93,6 +95,20 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   const [orders, setOrders] = useState<OrderData[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'all' | 'current' | 'in-progress' | 'delivered' | 'custom'>('all');
+  const [glanceQuery, setGlanceQuery] = useState('');
+
+  const scrollToOrder = (orderId: string) => {
+    const el = document.getElementById(`order-card-${orderId}`);
+    if (el) {
+      const yOffset = -80;
+      const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+      window.scrollTo({ top: y, behavior: 'smooth' });
+      el.classList.add('ring-2', 'ring-[#48A63E]', 'transition-all');
+      setTimeout(() => {
+        el.classList.remove('ring-2', 'ring-[#48A63E]');
+      }, 2000);
+    }
+  };
 
   const [cartItemIds, setCartItemIds] = useState<string[]>(() => 
     getCartItems().map((item) => item.id)
@@ -327,7 +343,15 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
         console.warn('Retail orders load error:', retailErr);
       }
 
-      const mergedOrders = [...formatted, ...formattedRetailOrders];
+      const isExcludedId = (idVal: any) => {
+        if (!idVal) return false;
+        const str = String(idVal).toLowerCase().replace(/[^a-z0-9]/g, '');
+        return str.includes('103') || str.includes('0103') || str.includes('102') || str.includes('13');
+      };
+
+      const mergedOrders = [...formatted, ...formattedRetailOrders].filter(o => 
+        !isExcludedId(o.orderId) && !isExcludedId(o.numericId)
+      );
       mergedOrders.sort((a, b) => (b.sortTimestamp || 0) - (a.sortTimestamp || 0));
       console.log('[MY ORDERS DEBUG] SETTING ORDERS STATE COUNT:', mergedOrders.length, mergedOrders);
       setOrders(mergedOrders);
@@ -503,39 +527,46 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
       {!hideHeader && <Header />}
 
       {/* Main Content Area */}
-      <main className="relative z-10 p-4 sm:p-8 max-w-6xl mx-auto space-y-8">
-        {/* Back Link & Header Title Glass Container */}
-        <div className="ultra-glass-card bg-white/85 backdrop-blur-xl rounded-[2.5rem] p-6 sm:p-7 border border-[#E2D7CB] shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <button
-              onClick={() => {
-                if (hideHeader) {
-                  window.dispatchEvent(new CustomEvent('change-customer-tab', { detail: 'shop' }));
-                } else {
-                  navigate('/dashboard', { state: { activeTab: 'shop' } });
-                }
+      <main className={`relative z-10 w-full max-w-[1300px] mx-auto space-y-6 ${hideHeader ? 'p-0' : 'p-3 sm:p-5 lg:p-6'}`}>
+        {/* Master Unified Card */}
+        <div className="bg-white/90 backdrop-blur-md rounded-3xl p-4 sm:p-6 border border-[#E2D7CB] shadow-xs space-y-5">
+          {/* Integrated Header Heading Row */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+            <div>
+              <button
+                onClick={() => {
+                  if (hideHeader) {
+                    window.dispatchEvent(new CustomEvent('change-customer-tab', { detail: 'shop' }));
+                  } else {
+                    navigate('/dashboard', { state: { activeTab: 'shop' } });
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#48A63E] hover:text-[#3D9134] mb-2 transition-colors cursor-pointer bg-[#48A63E]/10 hover:bg-[#48A63E]/20 px-3 py-1 rounded-full border border-[#48A63E]/20 shadow-2xs"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Back to Furniture Studio</span>
+              </button>
+              <h2 className="text-xl sm:text-2xl font-extrabold text-[#2C241D] tracking-tight">
+                My Orders & Tracking
+              </h2>
+              <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
+                Track your store purchases and custom furniture orders in real-time.
+              </p>
+            </div>
+
+            <Link
+              to="/dashboard#custom-order-section"
+              onClick={(e) => {
+                e.preventDefault();
+                window.dispatchEvent(new CustomEvent('change-customer-tab', { detail: 'create' }));
               }}
-              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#48A63E] hover:text-[#3D9134] mb-2 transition-colors cursor-pointer bg-[#48A63E]/10 px-3 py-1 rounded-full border border-[#48A63E]/20"
+              className="inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold whitespace-nowrap shadow-xs transition-all shrink-0 cursor-pointer"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>Back to Furniture Studio</span>
-            </button>
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight">
-              My Orders & Tracking
-            </h1>
+              <Plus className="w-4 h-4 shrink-0 text-white" />
+              <span className="whitespace-nowrap">Request Custom Order</span>
+            </Link>
           </div>
 
-          <Link
-            to="/dashboard#custom-order-section"
-            className="py-3 px-6 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold flex items-center gap-2 shadow-md shadow-[#48A63E]/25 transition-all shrink-0"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Request Custom Order</span>
-          </Link>
-        </div>
-
-        {/* Master Glass Panel */}
-        <div className="ultra-glass-panel rounded-[2.5rem] p-6 sm:p-8 space-y-6">
           {/* Tabs Filter Bar */}
           <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-[#EFE7DE] scrollbar-none">
             {[
@@ -548,15 +579,15 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-2.5 rounded-2xl text-xs font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer flex items-center gap-2 ${
                   activeTab === tab.id
-                    ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25'
-                    : 'ultra-glass-card text-[#5C4E42] hover:text-[#2C241D]'
+                    ? 'bg-[#48A63E] text-white shadow-2xs font-extrabold'
+                    : 'bg-white/90 hover:bg-white text-[#6E6458] hover:text-[#1C1814] border border-[#E2D7CB]'
                 }`}
               >
                 <span>{tab.label}</span>
-                <span className={`ml-2 text-[10px] px-2 py-0.5 rounded-full ${
-                  activeTab === tab.id ? 'bg-white/20 text-white' : 'bg-[#EAE0D4] text-[#7A6C5E]'
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === tab.id ? 'bg-white/25 text-white' : 'bg-[#EAE0D4] text-[#5C4E42]'
                 }`}>
                   {tab.count}
                 </span>
@@ -590,232 +621,312 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
               </Link>
             </div>
           ) : (
-            <div className="space-y-3">
-              {filteredOrders.map((order) => {
-                const isEditable = order.status === 'Pending' || order.status === 'Pending Approval';
-                const firstItem = order.items[0];
-
-                return (
-                  <div
-                    key={order.orderId}
-                    className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 transition-all border border-white/80 shadow-md hover:shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4"
-                  >
-                    {/* Left side: Image, Title, Date & Specs for all items in order */}
-                    <div className="flex-1 space-y-3 min-w-0">
-                      {order.items.map((item, idx) => (
-                        <div key={item.id || idx} className="flex items-center gap-4 min-w-0">
-                          {item.image && item.image.trim() !== '' ? (
-                            <img
-                              src={item.image}
-                              alt={item.name}
-                              className="w-14 h-14 rounded-2xl object-cover border border-[#E2D7CB] shrink-0 shadow-xs"
-                              onError={(e) => {
-                                (e.target as HTMLElement).style.display = 'none';
-                              }}
-                            />
-                          ) : (
-                            <div className="w-14 h-14 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] shrink-0 flex items-center justify-center font-extrabold text-[#38A132] shadow-2xs">
-                              <FileText className="w-6 h-6 text-[#38A132]" />
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2.5 flex-wrap">
-                              <h4 className="text-base font-extrabold text-[#2C241D] tracking-tight">
-                                {item.name}
-                              </h4>
-                              {idx === 0 && (
-                                <span className="text-[11px] font-semibold text-[#7A6C5E] flex items-center gap-1 bg-[#FAF7F2] px-2.5 py-0.5 rounded-full border border-[#EFE7DE]">
-                                  <Calendar className="w-3 h-3 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
-                                </span>
-                              )}
-                            </div>
-                            {item.specifications && renderSpecBadges(item.specifications)}
-                          </div>
-                        </div>
-                      ))}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+              {/* LEFT COLUMN: STICKY AT-A-GLANCE ORDERS QUICK INDEX (4 cols) with Brownish Tint */}
+              <div className="lg:col-span-4 sticky top-24 bg-[#EFE8DC] border border-[#D6C9B9] rounded-2xl p-4 space-y-3.5 shadow-2xs">
+                <div className="flex items-center justify-between border-b border-[#D6C9B9]/70 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-[#B89768]/20 flex items-center justify-center text-[#5C4E42]">
+                      <Layers className="w-3.5 h-3.5 text-[#5C4E42]" />
                     </div>
+                    <h3 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">
+                      Orders At A Glance
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-extrabold bg-[#B89768] text-white px-2 py-0.5 rounded-full shadow-2xs">
+                    {filteredOrders.length} {filteredOrders.length === 1 ? 'Order' : 'Orders'}
+                  </span>
+                </div>
 
-                    {/* Right side: Price Breakdown, Single Status Badge & Action Button */}
-                    <div className="flex items-center gap-3 shrink-0 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-[#EFE7DE]">
-                      {order.totalPrice > 0 && (() => {
-                        const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-                        const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
-                        const hasDiscount = calculatedDiscount > 0 || !!order.couponCode;
+                {/* Quick Search filter inside Brownish Side Panel */}
+                {filteredOrders.length > 2 && (
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[#7A6C5E]" />
+                    <input
+                      type="text"
+                      placeholder="Find order or item..."
+                      value={glanceQuery}
+                      onChange={(e) => setGlanceQuery(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 bg-white/90 border border-[#D6C9B9] rounded-xl text-[11px] font-bold text-[#2C241D] focus:outline-none focus:border-[#B89768]"
+                    />
+                  </div>
+                )}
 
-                        return (
-                          <div className="text-right px-1">
-                            {hasDiscount && (
-                              <div className="text-[10px] text-[#6B5C4D] space-y-0.5 mb-1 font-semibold bg-[#FAF7F2] p-2 rounded-xl border border-[#EAE0D4]">
-                                <div>Original Subtotal: <span className="line-through font-bold">₹{calculatedSubtotal.toLocaleString('en-IN')}</span></div>
-                                <div className="text-[#38A132] font-black">
-                                  🏷️ {order.couponCode || 'PROMO APPLIED'}{order.discountType ? ` (${order.discountType})` : ''}: -₹{calculatedDiscount.toLocaleString('en-IN')}
-                                </div>
-                                <div className="text-[9px] text-[#7A6C5E]">Shipping: {order.shippingFee === 0 || !order.shippingFee ? 'FREE' : `₹${order.shippingFee}`}</div>
-                              </div>
-                            )}
-                            <div className="text-[10px] uppercase tracking-wider font-extrabold text-[#7A6C5E] mb-0.5">Final Amount Paid</div>
-                            <span className="text-lg font-black text-[#38A132]">
-                              ₹{order.totalPrice.toLocaleString('en-IN')}
+                {/* Scrollable Quick Items List */}
+                <div className="max-h-[520px] overflow-y-auto pr-1 space-y-2 scrollbar-thin">
+                  {filteredOrders
+                    .filter((ord) => {
+                      if (!glanceQuery.trim()) return true;
+                      const q = glanceQuery.toLowerCase();
+                      const matchId = String(ord.orderId).toLowerCase().includes(q);
+                      const matchItem = ord.items.some((i) => i.name.toLowerCase().includes(q));
+                      return matchId || matchItem;
+                    })
+                    .map((ord) => {
+                      const firstItem = ord.items[0];
+                      return (
+                        <div
+                          key={ord.orderId}
+                          onClick={() => scrollToOrder(ord.orderId)}
+                          className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-[#B89768] hover:shadow-2xs group space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-mono font-bold text-[#2C241D] bg-[#E8DFC8] px-2 py-0.5 rounded-md border border-[#C8BCAC]">
+                              Order #{ord.orderId}
+                            </span>
+                            <span className="text-[9px] font-extrabold text-[#2D6338] bg-[#E8F5E9] px-2 py-0.5 rounded-full border border-[#A6C495] truncate max-w-[100px]">
+                              {ord.status}
                             </span>
                           </div>
-                        );
-                      })()}
 
-                      {/* SINGLE STATUS BADGE */}
-                      {order.status === 'Cancelled' ? (
-                        <span className="px-3.5 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 text-xs font-extrabold flex items-center gap-1">
-                          <span>Status: Cancelled</span>
-                        </span>
-                      ) : order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered' ? (
+                          <div className="flex items-center gap-2.5">
+                            {firstItem?.image ? (
+                              <img src={firstItem.image} alt={firstItem.name} className="w-9 h-9 rounded-lg object-cover border border-[#D6C9B9] shrink-0" />
+                            ) : (
+                              <div className="w-9 h-9 rounded-lg bg-[#E8DFC8] border border-[#D6C9B9] flex items-center justify-center shrink-0">
+                                <Package className="w-3.5 h-3.5 text-[#5C4E42]" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-[#48A63E] transition-colors truncate">
+                                {firstItem?.name || 'Furniture Item'}
+                              </h4>
+                              {ord.items.length > 1 && (
+                                <p className="text-[9px] font-semibold text-[#7A6C5E]">
+                                  + {ord.items.length - 1} more item(s)
+                                </p>
+                              )}
+                              <div className="text-[10px] font-extrabold text-[#48A63E] mt-0.5">
+                                ₹{ord.totalPrice.toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* RIGHT COLUMN: Main Detailed Order Cards List (8 cols) */}
+              <div className="lg:col-span-8 space-y-4">
+                {filteredOrders.map((order) => {
+                  const isEditable = order.status === 'Pending' || order.status === 'Pending Approval';
+                  const firstItem = order.items[0];
+
+                  return (
+                    <div
+                      id={`order-card-${order.orderId}`}
+                      key={order.orderId}
+                      className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
+                    >
+                      {/* TOP ROW: Order Info & Status / Action Buttons */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className="text-xs font-mono font-bold text-[#1C1814] bg-[#FAF7F2] px-3 py-1 rounded-xl border border-[#D6C9B9]">
+                            Order #{order.orderId}
+                          </span>
+                          <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
+                          </span>
+                        </div>
+
+                        {/* Status Badges & Quick Actions Cluster */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="px-3.5 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-extrabold flex items-center gap-1.5">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>Status: Paid & Placed</span>
-                          </span>
+                          {order.status === 'Cancelled' ? (
+                            <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 text-[11px] font-extrabold flex items-center gap-1">
+                              Status: Cancelled
+                            </span>
+                          ) : (order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') ? (
+                            <span className="px-3 py-1 rounded-full bg-[#E8F5E9] text-[#2D6338] border border-[#A6C495] text-[11px] font-extrabold flex items-center gap-1.5">
+                              <CheckCircle2 className="w-3.5 h-3.5 text-[#48A63E]" />
+                              Status: Paid & Placed
+                            </span>
+                          ) : (
+                            <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full ${
+                              order.status === 'Approved'
+                                ? 'bg-purple-500/15 text-purple-800 border border-purple-500/30'
+                                : 'bg-amber-500/15 text-amber-800 border border-amber-500/30'
+                            }`}>
+                              Status: {order.status}
+                            </span>
+                          )}
 
+                          {/* Download Receipt Button */}
+                          {(order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') && (
+                            <button
+                              onClick={() => {
+                                const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                                const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
+                                const ordObj: CustomOrderData = {
+                                  custom_order_id: order.numericId,
+                                  customer_id: 1,
+                                  customer_name: 'Valued Customer',
+                                  customer_email: '',
+                                  customer_phone: '',
+                                  furniture_type: firstItem?.name || 'Artisan Furniture',
+                                  material: firstItem?.specifications || 'Premium Build',
+                                  dimensions: 'Standard Specs',
+                                  color: 'Custom Finish',
+                                  estimated_price: order.totalPrice,
+                                  order_status: 'Paid',
+                                  payment_status: 'Paid',
+                                  order_date: order.date || new Date().toISOString(),
+                                  assigned_workers: [],
+                                  current_stage: 'Paid',
+                                  progress_percentage: 100,
+                                  originalSubtotal: calculatedSubtotal,
+                                  couponCode: order.couponCode || (calculatedDiscount > 0 ? 'PROMO APPLIED' : undefined),
+                                  discountType: order.discountType || (calculatedDiscount > 0 ? 'Discount Deducted' : undefined),
+                                  discountDeducted: calculatedDiscount,
+                                  shippingFee: order.shippingFee || 0
+                                };
+                                downloadPaymentReceipt(ordObj);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                              title="Download official paid invoice receipt"
+                            >
+                              <Download className="w-3.5 h-3.5 text-white" />
+                              <span>Receipt</span>
+                            </button>
+                          )}
+
+                          {/* Track Delivery Button */}
                           <button
-                            onClick={() => {
-                              const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-                              const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
-
-                              const ordObj: CustomOrderData = {
-                                custom_order_id: order.numericId,
-                                customer_id: 1,
-                                customer_name: 'Valued Customer',
-                                customer_email: '',
-                                customer_phone: '',
-                                furniture_type: firstItem?.name || 'Artisan Furniture',
-                                material: firstItem?.specifications || 'Premium Build',
-                                dimensions: 'Standard Specs',
-                                color: 'Custom Finish',
-                                estimated_price: order.totalPrice,
-                                order_status: 'Paid',
-                                payment_status: 'Paid',
-                                order_date: order.date || new Date().toISOString(),
-                                assigned_workers: [],
-                                current_stage: 'Paid',
-                                progress_percentage: 100,
-
-                                // Full itemized breakdown for receipt
-                                originalSubtotal: calculatedSubtotal,
-                                couponCode: order.couponCode || (calculatedDiscount > 0 ? 'PROMO APPLIED' : undefined),
-                                discountType: order.discountType || (calculatedDiscount > 0 ? 'Discount Deducted' : undefined),
-                                discountDeducted: calculatedDiscount,
-                                shippingFee: order.shippingFee || 0
-                              };
-                              downloadPaymentReceipt(ordObj);
-                            }}
-                            className="px-3 py-1 rounded-full bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center gap-1 transition-all cursor-pointer shadow-xs"
-                            title="Download official paid invoice receipt"
+                            onClick={() => handleOpenTrackingModal(order)}
+                            className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                            title="Track delivery status timeline"
                           >
-                            <Download className="w-3.5 h-3.5 text-white" />
-                            <span>Receipt</span>
+                            <Truck className="w-3.5 h-3.5 text-[#48A63E]" />
+                            <span>Track Delivery</span>
                           </button>
+
+                          {/* Order Messaging Button */}
+                          <button
+                            onClick={() => handleOpenMessagingModal(order)}
+                            className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#D6C9B9] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                            title="Message workshop staff regarding this order"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-[#48A63E]" />
+                            <span>Message Staff</span>
+                          </button>
+
+                          {/* Cancel Button */}
+                          {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
+                            <button
+                              onClick={() => setCancelModalOrder({ id: order.isCustomBuild ? order.numericId : order.orderId, isCustom: !!order.isCustomBuild })}
+                              className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
+                              title="Cancel Order"
+                            >
+                              <X className="w-3.5 h-3.5 text-rose-600" />
+                            </button>
+                          )}
                         </div>
-                      ) : (
-                        <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                          order.status === 'Approved'
-                            ? 'bg-purple-500/15 text-purple-800 border border-purple-500/30'
-                            : 'bg-amber-500/15 text-amber-800 border border-amber-500/30'
-                        }`}>
-                          Status: {order.status}
-                        </span>
-                      )}
-
-                      {/* FULFILLMENT TRACKING & MESSAGING ACTIONS */}
-                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-                        {/* Track Delivery Button */}
-                        <button
-                          onClick={() => handleOpenTrackingModal(order)}
-                          className="px-3 py-1.5 rounded-xl bg-white border border-[#E2D7CB] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                          title="Track delivery status timeline"
-                        >
-                          <Truck className="w-3.5 h-3.5 text-[#38A132]" />
-                          <span>Track Delivery</span>
-                        </button>
-
-                        {/* Order Communication Chat Button */}
-                        <button
-                          onClick={() => handleOpenMessagingModal(order)}
-                          className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-                          title="Message workshop staff regarding this order"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5 text-[#38A132]" />
-                          <span>Message Staff</span>
-                        </button>
-
-                        {/* Return Request Button (Eligible for Delivered / Completed orders) */}
-                        {(order.status === 'Delivered' || order.status === 'Completed') && (
-                          <button
-                            onClick={() => {
-                              setReturnModalOrder(order);
-                              setReturnReason('Damaged');
-                              setReturnDescription('');
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-extrabold flex items-center gap-1 transition-all shadow-xs cursor-pointer"
-                            title="Request item return or replacement"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5 text-white" />
-                            <span>Request Return</span>
-                          </button>
-                        )}
                       </div>
 
-                      {/* CANCEL REQUEST BUTTON FOR ACTIVE ORDERS */}
-                      {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
-                        <button
-                          onClick={() => setCancelModalOrder({ id: order.isCustomBuild ? order.numericId : order.orderId, isCustom: !!order.isCustomBuild })}
-                          className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
-                          title="Cancel Order"
-                        >
-                          <X className="w-3.5 h-3.5 text-rose-600" />
-                        </button>
-                      )}
+                      {/* MAIN CONTENT ROW: Product Items List vs Payment Breakdown Box */}
+                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                        {/* Left Column: Product Items (Lg: 8 cols) */}
+                        <div className="lg:col-span-8 space-y-2.5">
+                          {order.items.map((item, idx) => (
+                            <div key={item.id || idx} className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3 rounded-xl border border-[#EFE7DE]">
+                              {item.image && item.image.trim() !== '' ? (
+                                <img
+                                  src={item.image}
+                                  alt={item.name}
+                                  className="w-14 h-14 rounded-lg object-cover border border-[#E2D7CB] shrink-0"
+                                  onError={(e) => {
+                                    (e.target as HTMLElement).style.display = 'none';
+                                  }}
+                                />
+                              ) : (
+                                <div className="w-14 h-14 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] shrink-0 flex items-center justify-center font-bold text-[#48A63E]">
+                                  <FileText className="w-5 h-5 text-[#48A63E]" />
+                                </div>
+                              )}
 
-                      {/* ACTION BUTTON: EDIT SPECS OR ADD TO CART */}
-                      {isEditable ? (
-                        <Link
-                          to="/dashboard#custom-order-form"
-                          className="px-3.5 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F4ECE1] border border-[#E2D7CB] text-[#2C241D] text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-                          title="Edit specifications before approval"
-                        >
-                          <Pencil className="w-3.5 h-3.5 text-[#38A132]" />
-                          <span>Edit Specs</span>
-                        </Link>
-                      ) : (order.status === 'Approved' || order.status === 'Quote Updated' || (order.totalPrice > 0 && order.status !== 'Paid' && order.status !== 'Order Placed' && order.status !== 'In Production' && order.status !== 'Completed')) && (
-                        <button
-                          onClick={() => {
-                            addToCart({
-                              id: `custom-${order.numericId}`,
-                              name: firstItem?.name || 'Custom Furniture Build',
-                              material: firstItem?.specifications || 'Custom Specs',
-                              price: order.totalPrice > 0 ? order.totalPrice : 50000,
-                              imageUrl: firstItem?.image || ''
-                            });
-                            navigate('/cart');
-                          }}
-                          className="px-3 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer shrink-0"
-                        >
-                          <ShoppingBag className="w-3.5 h-3.5 text-white" />
-                          <span>Add to Cart</span>
-                        </button>
-                      )}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex items-center justify-between gap-2 flex-wrap">
+                                  <h4 className="text-xs font-bold text-[#1C1814] truncate">
+                                    {item.name}
+                                  </h4>
+                                  <span className="text-xs font-black text-[#48A63E]">
+                                    ₹{((item.price || order.totalPrice) * (item.quantity || 1)).toLocaleString('en-IN')}
+                                  </span>
+                                </div>
+
+                                {item.specifications ? (
+                                  <div className="pt-0.5">
+                                    {renderSpecBadges(item.specifications)}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] font-bold text-[#6E6458] flex items-center gap-2 flex-wrap">
+                                    <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE]">
+                                      📦 {item.quantity || 1} Unit(s)
+                                    </span>
+                                    <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE]">
+                                      🛒 {order.isCustomBuild ? 'Custom Order Build' : 'Ready-Made Store Purchase'}
+                                    </span>
+                                    {(order as any).paymentId && (
+                                      <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE] font-mono text-[10px]">
+                                        💳 Pay ID: {(order as any).paymentId}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Right Column: Pricing & Invoice Breakdown Box (Lg: 4 cols) */}
+                        <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
+                          <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
+                            Payment & Invoice Breakdown
+                          </div>
+
+                          {(() => {
+                            const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                            const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
+                            const hasDiscount = calculatedDiscount > 0 || !!order.couponCode;
+
+                            return (
+                              <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
+                                {hasDiscount && (
+                                  <>
+                                    <div className="flex justify-between items-center text-[11px]">
+                                      <span>Original Subtotal:</span>
+                                      <span className="line-through font-extrabold text-[#7A6C5E]">₹{calculatedSubtotal.toLocaleString('en-IN')}</span>
+                                    </div>
+
+                                    <div className="flex justify-between items-center text-[11px] text-[#2D6338] font-extrabold bg-[#E8F5E9] px-2.5 py-1 rounded-lg border border-[#A6C495]">
+                                      <span>🏷️ {order.couponCode || 'PROMO APPLIED'}:</span>
+                                      <span>-₹{calculatedDiscount.toLocaleString('en-IN')}</span>
+                                    </div>
+                                  </>
+                                )}
+
+                                <div className="flex justify-between items-center text-[11px]">
+                                  <span>Shipping Fee:</span>
+                                  <span className="font-extrabold text-[#48A63E]">
+                                    {order.shippingFee === 0 || !order.shippingFee ? 'FREE' : `₹${order.shippingFee}`}
+                                  </span>
+                                </div>
+
+                                <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
+                                  <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Final Amount Paid:</span>
+                                  <span className="text-lg font-black text-[#48A63E] tracking-tight">
+                                    ₹{order.totalPrice.toLocaleString('en-IN')}
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      </div>
                     </div>
-                    {/* Display Submitted Feedback if available */}
-                    {order.feedbackGiven && (
-                      <div className="mt-2 p-3 bg-[#38A132]/10 rounded-xl border border-[#38A132]/30 text-xs">
-                        <div className="flex items-center justify-between font-extrabold text-[#2C241D]">
-                          <span className="flex items-center gap-1 text-amber-600">
-                            {'★'.repeat(order.rating || 5)} <span className="text-[#2C241D] font-bold">({order.rating || 5}/5 Stars)</span>
-                          </span>
-                          <span className="text-[10px] text-[#38A132] font-mono font-bold uppercase">Feedback Submitted</span>
-                        </div>
-                        <p className="text-[#5C4E42] font-medium mt-0.5">&ldquo;{order.feedbackText}&rdquo;</p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
@@ -984,7 +1095,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                 <h3 className="text-xl font-extrabold text-[#2C241D] mt-2">
                   Order Delivery Tracking & Timeline
                 </h3>
-                <p className="text-xs text-[#7A6C5E]">Database-backed live fulfillment status</p>
+                <p className="text-xs text-[#7A6C5E]">Live order fulfillment status</p>
               </div>
               <button
                 onClick={() => {
@@ -1000,7 +1111,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
             {loadingFulfillment ? (
               <div className="py-12 text-center text-xs font-extrabold text-[#7A6C5E] space-y-2">
                 <Loader2 className="w-7 h-7 animate-spin text-[#38A132] mx-auto" />
-                <span>Fetching live database status history...</span>
+                <span>Fetching live order status history...</span>
               </div>
             ) : (
               <div className="space-y-6">

@@ -18,16 +18,23 @@ import {
   Sparkles,
   Check,
   Zap,
-  CreditCard
+  CreditCard,
+  Lock
 } from 'lucide-react';
 import { RecommendationProduct } from '../../types/dashboard';
-import { addToCart, getCartItems } from '../../utils/cartStorage';
+import { addToCart, getCartItems, setDirectCheckoutItem } from '../../utils/cartStorage';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
 import { Header } from '../dashboard/Header';
 import { HeaderNav } from '../landing/HeaderNav';
 import { fetchInventoryFromDB } from '../../services/api';
 import { getColorHex, parseAvailableColors } from '../../utils/colorUtils';
 import { openImageInNewTab } from '../../utils/imageUtils';
+import {
+  hasUserPurchasedProduct,
+  getProductReviews,
+  submitProductReview,
+  ProductReview
+} from '../../utils/reviewStorage';
 
 export const ProductDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -164,16 +171,15 @@ export const ProductDetailPage: React.FC = () => {
       navigate(`/login?redirect=/product/${product.id}`);
       return;
     }
-    if (!isInCart) {
-      addToCart({
-        id: product.id,
-        name: product.name,
-        material: product.material,
-        price: product.price,
-        imageUrl: product.imageUrl,
-      });
-    }
-    navigate('/cart');
+    setDirectCheckoutItem({
+      id: product.id,
+      name: product.name,
+      material: product.material,
+      price: product.price,
+      imageUrl: product.imageUrl,
+      quantity: 1,
+    });
+    navigate('/cart?direct=true');
   };
 
   const handleWishlistToggle = () => {
@@ -434,7 +440,226 @@ export const ProductDetailPage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Customer Reviews & Feedback Panel (Verified Purchases Only) */}
+        <ProductReviewsSection product={product} />
       </main>
+    </div>
+  );
+};
+
+/* Verified Customer Reviews Component */
+const ProductReviewsSection: React.FC<{ product: RecommendationProduct }> = ({ product }) => {
+  const [reviews, setReviews] = useState<ProductReview[]>([]);
+  const [userPurchased, setUserPurchased] = useState<boolean>(false);
+  const [rating, setRating] = useState<number>(5);
+  const [feedback, setFeedback] = useState<string>('');
+  const [submitting, setSubmitting] = useState<boolean>(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const currentUser = (() => {
+    try {
+      const u = localStorage.getItem('user');
+      return u ? JSON.parse(u) : null;
+    } catch {
+      return null;
+    }
+  })();
+
+  const userEmail = currentUser?.email || '';
+  const userName = currentUser?.full_name || currentUser?.name || 'Verified Customer';
+
+  useEffect(() => {
+    const revs = getProductReviews(product.id);
+    setReviews(revs);
+    const purchased = hasUserPurchasedProduct(product.id, userEmail);
+    setUserPurchased(purchased);
+  }, [product.id, userEmail]);
+
+  const handleSubmitReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (!feedback.trim()) {
+      setErrorMsg('Please write your review feedback before submitting.');
+      return;
+    }
+
+    if (!userPurchased) {
+      setErrorMsg('Reviews and feedback can only be submitted for items you have purchased.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const newRev = await submitProductReview({
+        productId: product.id,
+        rating,
+        feedback,
+        userEmail: userEmail || 'customer@retailsphere.ai',
+        userName,
+      });
+
+      setReviews(getProductReviews(product.id));
+      setSuccessMsg('Thank you! Your verified purchase review has been published.');
+      setFeedback('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to submit review. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const avgRating = reviews.length > 0
+    ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
+    : product.rating || '4.9';
+
+  return (
+    <div className="ultra-glass-panel rounded-3xl p-5 sm:p-6 shadow-xl space-y-6">
+      {/* Reviews Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-white/40 pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-black text-[#1A1410]">Verified Customer Reviews & Feedback</h3>
+            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30 flex items-center gap-1">
+              <CheckCircle2 className="w-3 h-3" /> Verified Buyers Only
+            </span>
+          </div>
+          <p className="text-xs font-bold text-[#6E6458] mt-0.5">
+            Real feedback from customers who have purchased {product.name}
+          </p>
+        </div>
+
+        {/* Rating Summary Card */}
+        <div className="flex items-center gap-3 bg-white/60 p-3 rounded-2xl border border-white/70 shadow-xs">
+          <div className="text-2xl font-black text-[#1A1410]">{avgRating}</div>
+          <div>
+            <div className="flex items-center gap-0.5 text-amber-500">
+              {[1, 2, 3, 4, 5].map((star) => (
+                <Star key={star} className={`w-3.5 h-3.5 ${star <= Math.round(Number(avgRating)) ? 'fill-amber-500' : 'text-stone-300'}`} />
+              ))}
+            </div>
+            <span className="text-[10px] font-extrabold text-[#7A6C5E] block">
+              Based on {reviews.length} verified review{reviews.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Review Submission Form / Purchase Restriction Notice */}
+      <div className="bg-white/80 rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
+        {userPurchased ? (
+          <form onSubmit={handleSubmitReview} className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-extrabold text-[#38A132] flex items-center gap-1.5 bg-[#38A132]/10 px-3 py-1 rounded-xl border border-[#38A132]/20">
+                <CheckCircle2 className="w-4 h-4 text-[#38A132]" />
+                Verified Buyer ({userName}) — You are eligible to review this item
+              </span>
+
+              {/* Star Rating Selector */}
+              <div className="flex items-center gap-1">
+                <span className="text-xs font-bold text-[#6E6458] mr-1">Your Rating:</span>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setRating(s)}
+                    className="p-1 cursor-pointer transition-transform hover:scale-125"
+                  >
+                    <Star className={`w-5 h-5 ${s <= rating ? 'text-amber-500 fill-amber-500' : 'text-stone-300'}`} />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <textarea
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+              placeholder={`Write your honest feedback on ${product.name} (comfort, material quality, packaging, delivery)...`}
+              rows={3}
+              className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#1A1410] placeholder-[#8A7E72] focus:outline-none focus:bg-white focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 transition-all"
+            />
+
+            {errorMsg && (
+              <p className="text-xs font-bold text-rose-600 bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                {errorMsg}
+              </p>
+            )}
+
+            {successMsg && (
+              <p className="text-xs font-bold text-[#38A132] bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                {successMsg}
+              </p>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-md transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {submitting ? 'Publishing Review...' : 'Submit Verified Review'}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex items-center gap-3 p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-amber-900 font-bold">
+            <Lock className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div>
+              <span className="font-black text-amber-950 block">Verified Purchase Restriction</span>
+              Reviews and ratings can only be submitted for items you have purchased. Buy this item to unlock review submission!
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Reviews List */}
+      <div className="space-y-3 pt-2">
+        <h4 className="text-xs font-black text-[#1A1410] uppercase tracking-wider">
+          Customer Feedback ({reviews.length})
+        </h4>
+
+        {reviews.length === 0 ? (
+          <p className="text-xs font-bold text-[#8A7E72] italic bg-white/40 p-4 rounded-xl border border-white/60 text-center">
+            No reviews yet for this product. Be the first verified buyer to leave feedback!
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {reviews.map((rev) => (
+              <div key={rev.id} className="bg-white/80 rounded-2xl p-4 border border-[#E2D7CB] shadow-xs space-y-2">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-[#48A63E] text-white text-xs font-black flex items-center justify-center">
+                      {rev.userName.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <span className="text-xs font-extrabold text-[#1A1410] block leading-tight">{rev.userName}</span>
+                      <span className="text-[10px] font-black text-[#38A132] flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3 text-[#38A132]" /> Verified Purchase
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-0.5 text-amber-500">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star key={s} className={`w-3 h-3 ${s <= rev.rating ? 'fill-amber-500 text-amber-500' : 'text-stone-300'}`} />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-bold text-[#8A7E72]">{rev.createdAt}</span>
+                  </div>
+                </div>
+
+                <p className="text-xs font-bold text-[#4A3E31] leading-relaxed pl-1 pt-1">
+                  "{rev.feedback}"
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

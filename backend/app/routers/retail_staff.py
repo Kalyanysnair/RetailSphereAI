@@ -115,30 +115,39 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
         })
 
     # Check urgent readymade orders to pack
-    urgent_orders = [o for o in all_readymade if (o.order_status or "").lower() in ["order placed", "processing"]][:5]
+    urgent_orders = [o for o in all_readymade if (o.order_status or "").lower() in ["order placed", "processing", "pending", "paid", "paid & placed"]]
     for o in urgent_orders:
+        cust_name = o.customer_name
+        if not cust_name and o.customer_id:
+            c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
+            if c and c.user:
+                cust_name = c.user.full_name
         priority_items.append({
-            "id": f"ORD-{o.order_id:04d}",
+            "id": f"RET-{o.order_id:06d}",
             "type": "Retail Order",
-            "customer_name": o.customer_name or "Valued Customer",
-            "title": f"Order #{o.order_id}",
-            "status": o.order_status or "Pending",
+            "customer_name": cust_name or "Valued Customer",
+            "title": f"Store Order #{o.order_id}",
+            "status": o.order_status or "Order Placed",
             "priority": "HIGH",
             "action": "Ready for Packing"
         })
 
-    # Recent Activity (Mock dynamic log from latest events)
+    # Recent Activity (Live log from real customer order events)
     recent_activity = []
-    latest_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_date.desc()).limit(3).all()
+    latest_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_date.desc()).all()
     for o in latest_orders:
-        cust_n = o.customer_name or 'Customer'
+        cust_n = o.customer_name
+        if not cust_n and o.customer_id:
+            c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
+            if c and c.user:
+                cust_n = c.user.full_name
         recent_activity.append({
             "time": o.order_date.isoformat() if o.order_date else None,
-            "text": f"New Retail Order ORD-{o.order_id:04d} placed by {cust_n}",
+            "text": f"New Store Order RET-{o.order_id:06d} placed by {cust_n or 'Valued Customer'}",
             "category": "Retail Order"
         })
 
-    latest_customs = db.query(models.CustomOrder).order_by(models.CustomOrder.order_date.desc()).limit(3).all()
+    latest_customs = db.query(models.CustomOrder).order_by(models.CustomOrder.order_date.desc()).all()
     for c in latest_customs:
         cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
         recent_activity.append({
@@ -161,8 +170,8 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "new_fabrication": new_fabrications,
             "new_onsite_requests": new_services
         },
-        "priority_items": priority_items[:10],
-        "recent_activity": recent_activity[:10]
+        "priority_items": priority_items,
+        "recent_activity": recent_activity
     }
 
 
@@ -171,9 +180,17 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
 def get_unified_request_inbox(
     category_filter: Optional[str] = "ALL",  # ALL, CUSTOMIZATION, FABRICATION, ON-SITE SERVICES
     status_filter: Optional[str] = "ALL",    # ALL, NEW, UNDER_REVIEW, MORE_INFO_REQUESTED, APPROVED, REJECTED
+    staff_id: Optional[int] = None,          # Filter by specific assigned Retail Staff member
+    unassigned_only: Optional[bool] = False, # Filter unassigned requests
     db: Session = Depends(get_db)
 ):
     items = []
+
+    def get_staff_name(u_id):
+        if not u_id:
+            return "Unassigned"
+        st = db.query(models.User).filter(models.User.user_id == u_id).first()
+        return st.full_name if st else "Unassigned"
 
     # 1. Customization Requests
     if category_filter.upper() in ["ALL", "CUSTOMIZATION"]:
@@ -184,6 +201,8 @@ def get_unified_request_inbox(
             else:
                 q_cust = q_cust.filter(models.CustomOrder.review_status == status_filter.upper())
         
+        # Return all customization requests matching status filter
+
         customs = q_cust.order_by(models.CustomOrder.order_date.desc()).all()
         for c in customs:
             cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
@@ -205,7 +224,9 @@ def get_unified_request_inbox(
                 "review_status": c.review_status or "NEW",
                 "order_status": c.order_status,
                 "priority": c.priority or "NORMAL",
-                "review_notes": c.review_notes
+                "review_notes": c.review_notes,
+                "reviewed_by_id": c.reviewed_by_id,
+                "reviewed_by_name": get_staff_name(c.reviewed_by_id)
             })
 
     # 2. Fabrication Requests
@@ -238,7 +259,9 @@ def get_unified_request_inbox(
                 "review_status": f.review_status or "NEW",
                 "order_status": f.status,
                 "priority": f.priority or "NORMAL",
-                "review_notes": f.review_notes
+                "review_notes": f.review_notes,
+                "reviewed_by_id": f.reviewed_by_id,
+                "reviewed_by_name": get_staff_name(f.reviewed_by_id)
             })
 
     # 3. On-Site Service Requests
@@ -249,7 +272,7 @@ def get_unified_request_inbox(
                 q_srv = q_srv.filter(models.ServiceRequest.review_status == "MORE_INFO_REQUESTED")
             else:
                 q_srv = q_srv.filter(models.ServiceRequest.review_status == status_filter.upper())
-        
+
         srvs = q_srv.order_by(models.ServiceRequest.created_at.desc()).all()
         for s in srvs:
             cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
@@ -271,7 +294,48 @@ def get_unified_request_inbox(
                 "review_status": s.review_status or "NEW",
                 "order_status": s.status,
                 "priority": s.priority or "NORMAL",
-                "review_notes": s.review_notes
+                "review_notes": s.review_notes,
+                "reviewed_by_id": s.reviewed_by_id,
+                "reviewed_by_name": get_staff_name(s.reviewed_by_id)
+            })
+
+    # 4. Ready-Made Store Orders
+    if category_filter.upper() in ["ALL", "RETAIL_ORDERS", "STORE_PURCHASES", "READYMADE"]:
+        q_ord = db.query(models.ReadymadeOrder)
+        ords = q_ord.order_by(models.ReadymadeOrder.order_date.desc()).all()
+        for o in ords:
+            cust_name = o.customer_name
+            cust_email = o.customer_email
+            if (not cust_name or not cust_email) and o.customer_id:
+                c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
+                if c and c.user:
+                    cust_name = cust_name or c.user.full_name
+                    cust_email = cust_email or c.user.email
+
+            first_item = o.items[0] if o.items else None
+            title_str = first_item.product_name if first_item else f"Store Order #{o.order_id}"
+            img_url = first_item.image_url if first_item else None
+
+            items.append({
+                "request_id": f"RET-{o.order_id:06d}",
+                "numeric_id": o.order_id,
+                "type": "RETAIL_ORDER",
+                "customer_name": cust_name or "Valued Customer",
+                "customer_email": cust_email or "customer@retailsphere.com",
+                "title": title_str,
+                "material": "Store Inventory Item",
+                "dimensions": f"{len(o.items)} Item(s)",
+                "quantity": sum(i.quantity for i in o.items) if o.items else 1,
+                "description": f"Paid & Placed Retail Store Purchase. Payment ID: {o.payment_id or 'N/A'}",
+                "reference_image": img_url,
+                "estimated_price": float(o.total_amount) if o.total_amount else None,
+                "date": o.order_date.isoformat() if o.order_date else None,
+                "review_status": "APPROVED" if o.payment_status == "Paid" else "NEW",
+                "order_status": o.order_status or "Order Placed",
+                "priority": "HIGH" if o.order_status in ["Order Placed", "Pending"] else "NORMAL",
+                "review_notes": f"Payment Status: {o.payment_status}",
+                "reviewed_by_id": o.retail_staff_id,
+                "reviewed_by_name": get_staff_name(o.retail_staff_id)
             })
 
     # Sort all combined items by date descending
@@ -467,4 +531,124 @@ def post_request_message(request_type: str, request_id: int, payload: PostReques
         "message": "Request message sent successfully",
         "message_id": new_msg.message_id,
         "created_at": new_msg.created_at.isoformat()
+    }
+
+
+# 7. GET /api/retail-staff/workload-recommendations
+@router.get("/workload-recommendations")
+def get_retail_staff_workload_recommendations(db: Session = Depends(get_db)):
+    retail_role = db.query(models.Role).filter(models.Role.role_name == "Retail Staff").first()
+    if not retail_role:
+        return []
+
+    staff_users = db.query(models.User).filter(models.User.role_id == retail_role.role_id, models.User.status == True).all()
+
+    workloads = []
+    min_load = 999999
+    best_staff_id = None
+
+    for staff in staff_users:
+        custom_cnt = db.query(models.CustomOrder).filter(
+            models.CustomOrder.reviewed_by_id == staff.user_id,
+            or_(
+                models.CustomOrder.review_status.in_(["NEW", "UNDER_REVIEW", "MORE_INFO_REQUESTED"]),
+                models.CustomOrder.review_status.is_(None)
+            )
+        ).count()
+
+        fab_cnt = db.query(models.FabricationRequest).filter(
+            models.FabricationRequest.reviewed_by_id == staff.user_id,
+            or_(
+                models.FabricationRequest.review_status.in_(["NEW", "UNDER_REVIEW", "MORE_INFO_REQUESTED"]),
+                models.FabricationRequest.review_status.is_(None)
+            )
+        ).count()
+
+        srv_cnt = db.query(models.ServiceRequest).filter(
+            models.ServiceRequest.reviewed_by_id == staff.user_id,
+            or_(
+                models.ServiceRequest.review_status.in_(["NEW", "UNDER_REVIEW", "MORE_INFO_REQUESTED"]),
+                models.ServiceRequest.review_status.is_(None)
+            )
+        ).count()
+
+        total_active = custom_cnt + fab_cnt + srv_cnt
+        if total_active < min_load:
+            min_load = total_active
+            best_staff_id = staff.user_id
+
+        workloads.append({
+            "staff_id": staff.user_id,
+            "full_name": staff.full_name,
+            "email": staff.email,
+            "phone": staff.phone,
+            "active_request_count": total_active,
+            "assigned_customizations": custom_cnt,
+            "assigned_fabrications": fab_cnt,
+            "assigned_services": srv_cnt,
+            "is_recommended": False
+        })
+
+    for w in workloads:
+        if w["staff_id"] == best_staff_id:
+            w["is_recommended"] = True
+            w["recommendation_reason"] = f"Lowest active request workload ({w['active_request_count']} active items)"
+
+    return workloads
+
+
+# 8. POST /api/retail-staff/assign-request
+class RequestAssignPayload(BaseModel):
+    request_type: str  # CUSTOMIZATION, FABRICATION, ON-SITE SERVICES
+    request_id: int
+    staff_id: int
+
+@router.post("/assign-request")
+def assign_request_to_retail_staff(payload: RequestAssignPayload, db: Session = Depends(get_db)):
+    staff = db.query(models.User).filter(models.User.user_id == payload.staff_id).first()
+    if not staff:
+        raise HTTPException(status_code=404, detail="Retail staff member not found")
+
+    req_type = payload.request_type.upper().strip()
+    if req_type == "CUSTOMIZATION":
+        item = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == payload.request_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Custom order not found")
+        item.reviewed_by_id = payload.staff_id
+        if not item.review_status or item.review_status == "NEW":
+            item.review_status = "UNDER_REVIEW"
+    elif req_type == "FABRICATION":
+        item = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.request_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Fabrication request not found")
+        item.reviewed_by_id = payload.staff_id
+        if not item.review_status or item.review_status == "NEW":
+            item.review_status = "UNDER_REVIEW"
+    elif req_type in ["ON-SITE SERVICES", "SERVICES"]:
+        item = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == payload.request_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail="Service request not found")
+        item.reviewed_by_id = payload.staff_id
+        if not item.review_status or item.review_status == "NEW":
+            item.review_status = "UNDER_REVIEW"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid request type")
+
+    # Add audit entry in ProductionHistory
+    history_entry = models.ProductionHistory(
+        order_type=req_type,
+        order_id=payload.request_id,
+        action_by_id=payload.staff_id,
+        action="RETAIL_STAFF_ASSIGNED",
+        new_status="UNDER_REVIEW",
+        notes=f"Request assigned to Retail Staff member {staff.full_name} ({staff.email})",
+        timestamp=datetime.utcnow()
+    )
+    db.add(history_entry)
+    db.commit()
+
+    return {
+        "message": f"Request {payload.request_type} #{payload.request_id} assigned to Retail Staff {staff.full_name}",
+        "assigned_staff_id": staff.user_id,
+        "assigned_staff_name": staff.full_name
     }

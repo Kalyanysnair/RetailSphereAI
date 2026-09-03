@@ -284,7 +284,7 @@ export const CustomerContactSection: React.FC = () => {
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3.5 bg-[#48A63E] hover:bg-[#3d9134] text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+              className="w-full py-3.5 bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs sm:text-sm font-extrabold rounded-full shadow-md shadow-[#48A63E]/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 active:scale-95 cursor-pointer"
             >
               {submitting ? (
                 <>

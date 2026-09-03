@@ -13,6 +13,7 @@ import {
   PackageCheck,
   Gift
 } from 'lucide-react';
+import { clearUserSession } from '../../utils/sessionUtils';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Logo } from '../common/Logo';
 
@@ -63,10 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   ];
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    window.dispatchEvent(new Event('cart-updated'));
-    window.dispatchEvent(new Event('wishlist-updated'));
+    clearUserSession();
     navigate('/login');
   };
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { clearUserSession } from '../../utils/sessionUtils';
 import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
 import { 
   Users, 
@@ -101,6 +102,7 @@ import {
   performGlobalSearchDB,
   toggleUserStatusDB,
   updateUserDB,
+  exportDatabaseExcel,
   AdminDashboardSummary,
   RevenueAnalyticsData,
   ProductionBottleneckItem,
@@ -258,6 +260,21 @@ export const AdminDashboardPage: React.FC = () => {
   >('overview');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
+  const handleExportDatabaseExcel = async () => {
+    setIsExportingExcel(true);
+    try {
+      await exportDatabaseExcel();
+      setSuccessBanner('PostgreSQL database export (.xlsx) generated successfully!');
+      setTimeout(() => setSuccessBanner(null), 5000);
+    } catch (err: any) {
+      setStaffFormError(err.message || 'Failed to generate Excel database export.');
+      setTimeout(() => setStaffFormError(null), 5000);
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
 
   // Fleet Management State
   const [fleetSummaryData, setFleetSummaryData] = useState<FleetSummary | null>(null);
@@ -436,8 +453,7 @@ export const AdminDashboardPage: React.FC = () => {
   }, []);
 
   const handleSignOut = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
+    clearUserSession();
     navigate('/login');
   };
 
@@ -548,9 +564,15 @@ export const AdminDashboardPage: React.FC = () => {
               phone: u.phone || '+91 98765 43210',
               role: roleName,
               skill: u.skill || u.specialization || (roleName === 'Artisan Worker' ? 'Woodwork & Carpentry' : undefined),
+              is_driver: u.is_driver,
               status: u.status === false || u.status === 'Inactive' ? 'Inactive' : 'Active',
+              availability_status: u.availability_status || 'AVAILABLE',
+              active_requests_count: u.active_requests_count || 0,
+              active_jobs_count: u.active_jobs_count || 0,
+              active_tasks_count: u.active_tasks_count || 0,
+              completed_tasks_count: u.completed_tasks_count || 0,
               dateAdded: u.dateAdded || (u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN') : 'Recent')
-            });
+            } as any);
           }
         }
       }
@@ -1356,7 +1378,7 @@ export const AdminDashboardPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              ${ordersRowsHTML || '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #7A6C5E;">No orders recorded in database.</td></tr>'}
+              ${ordersRowsHTML || '<tr><td colspan="5" style="text-align: center; padding: 20px; color: #7A6C5E;">No orders recorded.</td></tr>'}
             </tbody>
           </table>
 
@@ -2193,7 +2215,7 @@ export const AdminDashboardPage: React.FC = () => {
           >
             <div className="flex items-center gap-3">
               <ShoppingBag className="w-4 h-4" />
-              <span className="text-xs">Orders & Live Pipeline</span>
+              <span className="text-xs">Orders & Requests</span>
             </div>
           </button>
 
@@ -2446,7 +2468,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'products' && 'Retail Product Management'}
                     {activeTab === 'inventory' && 'Stock & Raw Materials Control'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
-                    {activeTab === 'orders' && 'Customer Orders & Live Pipeline'}
+                    {activeTab === 'orders' && 'Customer Orders & Requests'}
                     {activeTab === 'custom_orders' && 'Bespoke Customization & Customer Requests'}
                     {activeTab === 'production' && 'Production Control & Stage Bottlenecks'}
                     {activeTab === 'alerts' && 'Needs Attention & Operational Alerts'}
@@ -2509,6 +2531,17 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     )}
                   </div>
+
+                  {/* Export DB Excel Button */}
+                  <button
+                    onClick={handleExportDatabaseExcel}
+                    disabled={isExportingExcel}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                    title="Export all PostgreSQL database tables and actual records to an Excel (.xlsx) workbook for inspection"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>{isExportingExcel ? 'Exporting...' : 'Export DB (.xlsx)'}</span>
+                  </button>
 
                   {/* Notification Bell Dropdown */}
                   <div className="relative">

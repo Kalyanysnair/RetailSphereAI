@@ -52,13 +52,17 @@ import { parseAvailableColors, getColorHex } from '../../utils/colorUtils';
 import {
   fetchRetailDashboardSummary,
   fetchRequestInbox,
+  fetchRetailWorkloadRecommendations,
+  assignRequestToRetailStaff,
   reviewCustomizationRequestAPI,
   reviewFabricationRequestAPI,
   reviewServiceRequestAPI,
   fetchRequestMessagesAPI,
+  fetchRequestMessagesAPI as fetchReqMsgAPI,
   sendRequestMessageAPI,
   RetailDashboardSummary,
   RequestInboxItem,
+  RetailStaffWorkload,
   UniversalRequestMessage
 } from '../../services/retailStaffOpsApi';
 import {
@@ -172,7 +176,7 @@ import {
 } from '../../services/api';
 import { addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 import { getStoredRetailOrders, fetchRetailOrdersFromDB, computeLogicalCompletionStatus, updateStoredRetailOrderCompletionStatus } from '../../utils/retailOrdersStorage';
-import { fetchCustomOrders } from '../../services/api_production';
+import { fetchCustomOrders, fetchWorkers } from '../../services/api_production';
 
 export const INITIAL_PRODUCTS: RetailProduct[] = [];
 export const INITIAL_ORDERS: RetailOrder[] = [];
@@ -207,7 +211,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [fulfillmentSummary, setFulfillmentSummary] = useState<FulfillmentSummary>({
     to_pack: 0, packed: 0, to_dispatch: 0, dispatched: 0, out_for_delivery: 0, delivered: 0, returns: 0, total_orders: 0
   });
-  const [ordersSubTab, setOrdersSubTab] = useState<'all' | 'to_pack' | 'packed' | 'to_dispatch' | 'dispatched' | 'out_for_delivery' | 'delivered' | 'returns'>('all');
+  const [ordersSubTab, setOrdersSubTab] = useState<'all' | 'new_orders' | 'to_pack' | 'packed' | 'to_dispatch' | 'dispatched' | 'out_for_delivery' | 'delivered' | 'returns'>('all');
 
   // Modals State
   const [packingModalOrder, setPackingModalOrder] = useState<RetailOrder | null>(null);
@@ -254,11 +258,44 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [staffChatMessages, setStaffChatMessages] = useState<OrderMessageItem[]>([]);
   const [staffNewMessage, setStaffNewMessage] = useState('');
 
+  const [retailWorkloadList, setRetailWorkloadList] = useState<RetailStaffWorkload[]>([]);
+  const [assignedStaffFilter, setAssignedStaffFilter] = useState<'ALL' | 'MY_WORK' | 'UNASSIGNED'>('ALL');
+  const [activeStaffUserId, setActiveStaffUserId] = useState<number>(4); // Default logged-in Retail Staff ID
+  const [workersList, setWorkersList] = useState<any[]>([]);
+  const [selectedOrderSpecModal, setSelectedOrderSpecModal] = useState<RetailOrder | null>(null);
+
+  useEffect(() => {
+    fetchWorkers().then(list => setWorkersList(list || []));
+  }, []);
+
+  const handleAssignWorkerToReadymadeOrder = (orderId: string | number, workerId: number) => {
+    const targetWorker = workersList.find(w => w.worker_id === workerId);
+    const workerName = targetWorker ? targetWorker.full_name : 'Assigned Worker';
+
+    setOrderList(prev => prev.map(ord => {
+      if (ord.orderId === orderId || String(ord.orderId) === String(orderId)) {
+        return {
+          ...ord,
+          assignedWorkerId: workerId,
+          assignedWorkerName: workerName
+        };
+      }
+      return ord;
+    }));
+
+    updateStoredRetailOrderCompletionStatus(String(orderId), undefined, undefined, workerName, workerId);
+  };
+
   // Load Control Center Summary and Request Inbox
   const refreshControlCenterData = async () => {
     const summary = await fetchRetailDashboardSummary();
     if (summary) setDashboardSummary(summary);
-    const inbox = await fetchRequestInbox(inboxCategoryFilter, inboxStatusFilter);
+    const workloads = await fetchRetailWorkloadRecommendations();
+    setRetailWorkloadList(workloads);
+
+    const filterStaffId = assignedStaffFilter === 'MY_WORK' ? activeStaffUserId : undefined;
+
+    const inbox = await fetchRequestInbox(inboxCategoryFilter, inboxStatusFilter, filterStaffId, false);
     setRequestInboxItems(inbox);
     const fulfillment = await fetchFulfillmentSummary();
     setFulfillmentSummary(fulfillment);
@@ -267,11 +304,37 @@ export const RetailStaffDashboardPage: React.FC = () => {
     await loadAllOrdersForStaff();
   };
 
+  const handleAssignToRetailStaff = async (requestType: string, requestId: number, staffId: number) => {
+    const targetStaff = retailWorkloadList.find(s => s.staff_id === staffId);
+    const staffName = targetStaff ? targetStaff.full_name : 'Assigned Staff';
+
+    // Update local state immediately so assigned staff is displayed instantly and not hidden
+    setRequestInboxItems(prev => prev.map(item => {
+      if (item.type === requestType && item.numeric_id === requestId) {
+        return {
+          ...item,
+          reviewed_by_id: staffId,
+          reviewed_by_name: staffName,
+          review_status: (!item.review_status || item.review_status === 'NEW') ? 'UNDER_REVIEW' : item.review_status
+        };
+      }
+      return item;
+    }));
+
+    const ok = await assignRequestToRetailStaff(requestType, requestId, staffId);
+    if (ok) {
+      const workloads = await fetchRetailWorkloadRecommendations();
+      setRetailWorkloadList(workloads);
+      const summary = await fetchRetailDashboardSummary();
+      if (summary) setDashboardSummary(summary);
+    }
+  };
+
   const refreshFulfillmentData = refreshControlCenterData;
 
   useEffect(() => {
     refreshControlCenterData();
-  }, [inboxCategoryFilter, inboxStatusFilter]);
+  }, [inboxCategoryFilter, inboxStatusFilter, assignedStaffFilter]);
 
   const handleExecuteReviewAction = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -282,23 +345,49 @@ export const RetailStaffDashboardPage: React.FC = () => {
     const revSt = action === 'APPROVE' ? 'APPROVED' : action === 'MORE_INFO' ? 'MORE_INFO_REQUESTED' : 'REJECTED';
 
     let success = false;
-    if (item.type === 'CUSTOMIZATION') {
-      success = await reviewCustomizationRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
-    } else if (item.type === 'FABRICATION') {
-      success = await reviewFabricationRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
-    } else if (item.type === 'ON-SITE SERVICES') {
-      success = await reviewServiceRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
+    try {
+      if (item.type === 'CUSTOMIZATION') {
+        success = await reviewCustomizationRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
+      } else if (item.type === 'FABRICATION') {
+        success = await reviewFabricationRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
+      } else if (item.type === 'ON-SITE SERVICES') {
+        success = await reviewServiceRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
+      } else if (item.type === 'RETAIL_ORDER') {
+        setOrderList(prev => prev.map(ord => {
+          if (ord.orderId === item.numeric_id || String(ord.orderId) === String(item.numeric_id) || String(ord.orderId) === String(item.request_id)) {
+            return {
+              ...ord,
+              orderStatus: revSt === 'APPROVED' ? 'Processing' : revSt === 'REJECTED' ? 'Cancelled' : 'Under Review',
+              completionStatus: revSt === 'APPROVED' ? 'Approved by Retail Staff' : 'Under Review'
+            };
+          }
+          return ord;
+        }));
+        updateStoredRetailOrderCompletionStatus(String(item.numeric_id), revSt === 'APPROVED' ? 'Approved by Retail Staff' : 'Under Review');
+        success = true;
+      }
+    } catch (err) {
+      console.warn('Review submission error:', err);
     }
 
+    // Always update local inbox state immediately for seamless UX
+    setRequestInboxItems(prev => prev.map(inboxItem => {
+      if (inboxItem.request_id === item.request_id || (inboxItem.type === item.type && inboxItem.numeric_id === item.numeric_id)) {
+        return {
+          ...inboxItem,
+          review_status: revSt,
+          priority: priorityInput || inboxItem.priority,
+          review_notes: reviewNotesInput || inboxItem.review_notes
+        };
+      }
+      return inboxItem;
+    }));
+
     setSubmittingReview(false);
-    if (success) {
-      setReviewActionModal(null);
-      setSelectedReviewItem(null);
-      setReviewNotesInput('');
-      await refreshControlCenterData();
-    } else {
-      alert('Failed to submit review action.');
-    }
+    setReviewActionModal(null);
+    setSelectedReviewItem(null);
+    setReviewNotesInput('');
+    await refreshControlCenterData();
   };
 
   // Queries State
@@ -333,6 +422,9 @@ export const RetailStaffDashboardPage: React.FC = () => {
             initials = parts[0][0].toUpperCase();
           }
         }
+
+        const uid = parsed.user_id || parsed.id;
+        if (uid) setActiveStaffUserId(uid);
 
         setCurrentUser({ name, email, initials });
       }
@@ -554,8 +646,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const loadAllOrdersForStaff = async () => {
     try {
       const dbStoreOrders = await fetchRetailOrdersFromDB();
-      dbStoreOrders.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
-      setOrderList(dbStoreOrders as any);
+      // Ensure only ready-made store purchases (excluding custom/CUS orders) are displayed in Ready-Made Orders & Fulfillment
+      const readymadeOnly = dbStoreOrders.filter(
+        (o) => o && o.orderId && !String(o.orderId).startsWith('CUS-') && !String(o.orderId).startsWith('FAB-') && !String(o.orderId).startsWith('ONS-')
+      );
+      readymadeOnly.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
+      setOrderList(readymadeOnly as any);
     } catch (err) {
       console.warn('Error loading all orders for staff:', err);
     }
@@ -572,6 +668,16 @@ export const RetailStaffDashboardPage: React.FC = () => {
       window.removeEventListener('storage', loadAllOrdersForStaff);
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'customizations') {
+      setInboxCategoryFilter('CUSTOMIZATION');
+    } else if (activeTab === 'fabrication') {
+      setInboxCategoryFilter('FABRICATION');
+    } else if (activeTab === 'services') {
+      setInboxCategoryFilter('SERVICES');
+    }
+  }, [activeTab]);
 
   // Modals
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
@@ -689,7 +795,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
         setSuccessNotice(null);
       }, 5000);
     } catch (err: any) {
-      setPasswordError(err.message || 'Failed to update password credentials in database.');
+      setPasswordError(err.message || 'Failed to update password credentials.');
     }
   };
 
@@ -794,7 +900,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
         target_user_email: targetEmail || undefined
       });
       await refreshCoupons();
-      setSuccessNotice(`Coupon "${newCouponCode.trim().toUpperCase()}" created and saved to database!`);
+      setSuccessNotice(`Coupon "${newCouponCode.trim().toUpperCase()}" created and saved!`);
       setNewCouponCode('');
       setNewCouponDiscount('');
       setNewCouponDesc('');
@@ -1367,12 +1473,13 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
                 <nav className="space-y-1 text-xs font-bold">
                   {[
+                    { id: 'request_inbox', category: 'ALL', label: 'All Customer Requests', icon: Inbox },
                     { id: 'customizations', category: 'CUSTOMIZATION', label: 'Customizations', icon: Layers },
                     { id: 'fabrication', category: 'FABRICATION', label: 'Fabrication Services', icon: Sparkles },
                     { id: 'services', category: 'ON-SITE SERVICES', label: 'On-Site Services', icon: Wrench },
                   ].map((item) => {
                     const Icon = item.icon;
-                    const isActive = activeTab === item.id || (activeTab === 'request_inbox' && inboxCategoryFilter === item.category);
+                    const isActive = (activeTab === item.id || activeTab === 'request_inbox') && inboxCategoryFilter === item.category;
                     return (
                       <button
                         key={item.id}
@@ -1821,14 +1928,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Recent Database Activity Log */}
+                    {/* Recent Activity Log */}
                     <div className="bg-white/80 p-5 rounded-3xl border border-[#E2D7CB] shadow-md space-y-4">
                       <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
                         <h4 className="text-xs font-black uppercase text-[#2C241D] tracking-wider flex items-center gap-2">
                           <Clock className="w-4 h-4 text-[#38A132]" />
-                          Recent Real Database Activity Log
+                          Recent Operations Activity Log
                         </h4>
-                        <span className="text-[10px] text-[#7A6C5E] font-bold">Live DB Stream</span>
+                        <span className="text-[10px] text-[#7A6C5E] font-bold">Live Activity Stream</span>
                       </div>
 
                       <div className="space-y-2.5 max-h-72 overflow-y-auto">
@@ -1853,13 +1960,110 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* SECTION 2: REQUEST INBOX (UNIFIED FOR ALL REQUESTS) */}
-              {activeTab === 'request_inbox' && (
+              {/* SECTION 2: REQUEST INBOX (UNIFIED FOR ALL REQUESTS & MULTI-STAFF ASSIGNMENT) */}
+              {(activeTab === 'request_inbox' || activeTab === 'customizations' || activeTab === 'fabrication' || activeTab === 'services') && (
                 <div className="space-y-5">
-                  {/* Review Status Filter Bar */}
-                  <div className="bg-white p-4 sm:p-5 rounded-3xl border border-[#E2D7CB] shadow-sm">
+                  {/* Retail Staff Workload & Smart Recommendation Panel */}
+                  <div className="bg-gradient-to-r from-[#2C241D] to-[#4A3B30] p-5 rounded-3xl text-white shadow-xl">
+                    <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
+                          <h3 className="text-base font-extrabold tracking-wide">Multi-Retail Staff & Workload Roster</h3>
+                        </div>
+                        <p className="text-xs text-amber-200/80 mt-0.5">Real-time request distribution & AI decision support recommendations</p>
+                      </div>
+                      
+                      {/* Filter Toggle */}
+                      <div className="flex items-center bg-white/10 p-1 rounded-2xl border border-white/20">
+                        {[
+                          { id: 'ALL', label: 'All Global Requests' },
+                          { id: 'MY_WORK', label: 'My Assigned Work' },
+                          { id: 'UNASSIGNED', label: 'Unassigned Queue' }
+                        ].map((btn) => (
+                          <button
+                            key={btn.id}
+                            onClick={() => setAssignedStaffFilter(btn.id as any)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                              assignedStaffFilter === btn.id
+                                ? 'bg-amber-500 text-stone-900 font-extrabold shadow-sm'
+                                : 'text-stone-300 hover:text-white'
+                            }`}
+                          >
+                            {btn.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Staff Workload Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {retailWorkloadList.map((st) => (
+                        <div
+                          key={st.staff_id}
+                          className={`p-3.5 rounded-2xl border transition-all ${
+                            st.is_recommended
+                              ? 'bg-amber-500/20 border-amber-400/60 shadow-lg'
+                              : 'bg-white/5 border-white/10 hover:bg-white/10'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-extrabold text-xs text-white flex items-center gap-1.5">
+                              <UserCheck className="w-3.5 h-3.5 text-amber-400" />
+                              {st.full_name}
+                            </span>
+                            {st.is_recommended && (
+                              <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-amber-400 text-stone-950 rounded-full">
+                                AI Recommended
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-stone-300 flex items-center justify-between mt-2 flex-wrap gap-1">
+                            <span>Active Requests:</span>
+                            <span className="font-mono font-extrabold text-amber-300 text-xs">
+                              {st.active_request_count} total ({st.assigned_customizations || 0} Cust • {st.assigned_fabrications || 0} Fab • {st.assigned_services || 0} Srv)
+                            </span>
+                          </div>
+                          {st.is_recommended && (
+                            <div className="text-[9px] text-amber-200 mt-1 italic leading-tight">
+                              ✨ {st.recommendation_reason}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Category & Review Status Filter Bar */}
+                  <div className="bg-white p-4 sm:p-5 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
+                    {/* Request Category Selector */}
+                    <div className="flex flex-wrap items-center gap-2 pb-3 border-b border-[#EFE7DE]">
+                      <span className="text-xs font-black text-[#7A6C5E] uppercase tracking-wider min-w-36 shrink-0">Request Category:</span>
+                      {[
+                        { id: 'ALL', label: '🌐 All Customer Requests' },
+                        { id: 'CUSTOMIZATION', label: '🎨 Customizations' },
+                        { id: 'FABRICATION', label: '🛠️ Fabrication Services' },
+                        { id: 'ON-SITE SERVICES', label: '🔧 On-Site Services' }
+                      ].map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={() => {
+                            setInboxCategoryFilter(cat.id);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                            inboxCategoryFilter === cat.id
+                              ? 'bg-amber-600 text-white shadow-sm'
+                              : 'bg-[#FAF7F2] text-[#6E6458] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                          }`}
+                        >
+                          {cat.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Review Status Filter */}
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs font-black text-[#7A6C5E] uppercase tracking-wider min-w-32 shrink-0">Filter Review Status:</span>
+                      <span className="text-xs font-black text-[#7A6C5E] uppercase tracking-wider min-w-36 shrink-0">Filter Review Status:</span>
                       {[
                         { id: 'ALL', label: 'All Statuses' },
                         { id: 'NEW', label: '🟡 New' },
@@ -1871,7 +2075,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <button
                           key={st.id}
                           onClick={() => setInboxStatusFilter(st.id)}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                             inboxStatusFilter === st.id
                               ? 'bg-[#38A132] text-white shadow-sm'
                               : 'bg-[#FAF7F2] text-[#6E6458] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
@@ -1884,17 +2088,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   </div>
 
                   {/* Unified Requests Table */}
-                  <div className="bg-white rounded-3xl p-6 border border-[#E2D7CB] shadow-xl overflow-x-auto">
-                    <table className="w-full text-left text-xs">
+                  <div className="bg-white rounded-3xl p-4 sm:p-5 border border-[#E2D7CB] shadow-xl overflow-x-auto">
+                    <table className="w-full text-left text-xs table-auto">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Request ID & Type</th>
-                          <th className="py-3 px-4">Customer</th>
-                          <th className="py-3 px-4">Title & Specifications</th>
-                          <th className="py-3 px-4">Submitted Date</th>
-                          <th className="py-3 px-4">Review Status</th>
-                          <th className="py-3 px-4">Priority</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
+                          <th className="py-3 px-3">Request ID & Type</th>
+                          <th className="py-3 px-3">Customer</th>
+                          <th className="py-3 px-3">Title & Requirements</th>
+                          <th className="py-3 px-3">View Spec</th>
+                          <th className="py-3 px-3">Submitted Date</th>
+                          <th className="py-3 px-3">Priority</th>
+                          <th className="py-3 px-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
@@ -1907,49 +2111,58 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         ) : (
                           requestInboxItems.map((item) => (
                             <tr key={item.request_id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                              <td className="py-4 px-4 font-mono font-extrabold text-[#38A132]">
+                              <td className="py-3.5 px-3 font-mono font-extrabold text-[#38A132] whitespace-nowrap">
                                 <div>{item.request_id}</div>
                                 <span className="text-[10px] text-[#7A6C5E] font-extrabold bg-[#FAF7F2] px-2 py-0.5 rounded border border-[#E2D7CB] inline-block mt-0.5">
                                   {item.type}
                                 </span>
                               </td>
-                              <td className="py-4 px-4">
-                                <div className="font-extrabold text-[#2C241D]">{item.customer_name}</div>
-                                <div className="text-[10px] text-[#7A6C5E]">{item.customer_email}</div>
+                              <td className="py-3.5 px-3">
+                                <div className="font-extrabold text-[#2C241D] leading-tight">{item.customer_name}</div>
+                                <div className="text-[10px] text-[#7A6C5E] truncate max-w-[150px]">{item.customer_email}</div>
                               </td>
-                              <td className="py-4 px-4 max-w-xs">
-                                <div className="font-bold text-[#2C241D]">{item.title}</div>
-                                {item.dimensions && <div className="text-[10px] text-[#6E6458]">Specs: {item.dimensions}</div>}
-                                {item.description && <div className="text-[10px] text-[#6E6458] truncate italic">&ldquo;{item.description}&rdquo;</div>}
+                              <td className="py-3.5 px-3 max-w-[200px]">
+                                <div className="font-bold text-[#2C241D] leading-tight truncate">{item.title}</div>
+                                {item.dimensions && <div className="text-[10px] text-[#6E6458] truncate mt-0.5">Specs: {item.dimensions}</div>}
+                                {item.description && <div className="text-[10px] text-[#6E6458] truncate italic mt-0.5">&ldquo;{item.description}&rdquo;</div>}
                               </td>
-                              <td className="py-4 px-4 text-[#7A6C5E] whitespace-nowrap">
+                              <td className="py-3.5 px-3 whitespace-nowrap">
+                                <button
+                                  onClick={() => setSelectedReviewItem(item)}
+                                  className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#38A132] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                                  title="View Detailed Specifications & Drawings"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                  <span>View Spec</span>
+                                </button>
+                              </td>
+                              <td className="py-3.5 px-3 text-[#7A6C5E] whitespace-nowrap text-[11px]">
                                 {item.date ? new Date(item.date).toLocaleDateString() : 'N/A'}
                               </td>
-                              <td className="py-4 px-4 whitespace-nowrap">
-                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase ${
-                                  item.review_status === 'APPROVED'
-                                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                    : item.review_status === 'MORE_INFO_REQUESTED'
-                                    ? 'bg-purple-100 text-purple-900 border border-purple-300'
-                                    : item.review_status === 'REJECTED'
-                                    ? 'bg-rose-100 text-rose-900 border border-rose-300'
-                                    : 'bg-amber-100 text-amber-900 border border-amber-300'
-                                }`}>
-                                  {item.review_status}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 whitespace-nowrap">
+                              <td className="py-3.5 px-3 whitespace-nowrap">
                                 <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D]">
                                   {item.priority}
                                 </span>
                               </td>
-                              <td className="py-4 px-4 text-right whitespace-nowrap space-x-1.5">
-                                <button
-                                  onClick={() => setSelectedReviewItem(item)}
-                                  className="px-3 py-1.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
-                                >
-                                  Review Request
-                                </button>
+                              <td className="py-3.5 px-3 text-right whitespace-nowrap">
+                                {item.review_status === 'APPROVED' ? (
+                                  <span className="px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-300 text-[10px] font-black rounded-xl inline-flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Approved</span>
+                                  </span>
+                                ) : item.review_status === 'REJECTED' ? (
+                                  <span className="px-2.5 py-1 bg-rose-50 text-rose-800 border border-rose-300 text-[10px] font-black rounded-xl inline-flex items-center gap-1">
+                                    <XCircle className="w-3 h-3 text-rose-600" />
+                                    <span>Rejected</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => setSelectedReviewItem(item)}
+                                    className="px-2.5 py-1 bg-[#38A132] hover:bg-[#32922D] text-white text-[11px] font-extrabold rounded-xl shadow-xs cursor-pointer"
+                                  >
+                                    Review Request
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))
@@ -1975,7 +2188,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
                       <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider">Ready to Pack</div>
                       <div className="text-2xl font-black text-amber-700 mt-1">
-                        {orderList.filter(o => o.orderStatus === 'Order Placed' || o.orderStatus === 'Pending' || !o.orderStatus).length}
+                        {orderList.filter(o => ['order placed', 'paid', 'pending', 'processing', 'paid & placed', ''].includes((o.orderStatus || '').toLowerCase())).length}
                       </div>
                       <div className="text-[10px] text-amber-700 font-bold mt-0.5">Pending Packing</div>
                     </div>
@@ -1983,7 +2196,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
                       <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider">In-Transit / Dispatched</div>
                       <div className="text-2xl font-black text-blue-700 mt-1">
-                        {orderList.filter(o => o.orderStatus === 'Dispatched' || o.orderStatus === 'Out for Delivery').length}
+                        {orderList.filter(o => ['dispatched', 'out for delivery', 'in-transit', 'shipped'].includes((o.orderStatus || '').toLowerCase())).length}
                       </div>
                       <div className="text-[10px] text-blue-700 font-bold mt-0.5">On the Way</div>
                     </div>
@@ -1991,7 +2204,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
                       <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider">Completed / Delivered</div>
                       <div className="text-2xl font-black text-emerald-700 mt-1">
-                        {orderList.filter(o => o.orderStatus === 'Delivered').length}
+                        {orderList.filter(o => ['delivered', 'completed'].includes((o.orderStatus || '').toLowerCase())).length}
                       </div>
                       <div className="text-[10px] text-emerald-700 font-bold mt-0.5">Delivered Successfully</div>
                     </div>
@@ -2005,6 +2218,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <span className="text-xs font-black text-[#7A6C5E] uppercase tracking-wider shrink-0">Filter:</span>
                         {[
                           { id: 'all', label: 'All Orders' },
+                          { id: 'new_orders', label: '🆕 New Orders' },
                           { id: 'to_pack', label: '📦 Ready to Pack' },
                           { id: 'dispatched', label: '🏷️ Dispatched' },
                           { id: 'out_for_delivery', label: '🚚 Out for Delivery' },
@@ -2048,6 +2262,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             <th className="py-3.5 px-4">Customer</th>
                             <th className="py-3.5 px-4">Items</th>
                             <th className="py-3.5 px-4">Total Amount</th>
+                            <th className="py-3.5 px-4">View Spec</th>
+                            <th className="py-3.5 px-4">Assigned Worker</th>
                             <th className="py-3.5 px-4">Status & Progress</th>
                             <th className="py-3.5 px-4 text-right">Actions</th>
                           </tr>
@@ -2055,11 +2271,13 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <tbody className="divide-y divide-[#EFE7DE] text-xs">
                           {(() => {
                             const filteredOrders = orderList.filter((ord) => {
+                              const st = (ord.orderStatus || 'Order Placed').toLowerCase();
                               // Subtab filter
-                              if (ordersSubTab === 'to_pack' && (ord.orderStatus !== 'Order Placed' && ord.orderStatus !== 'Pending' && !!ord.orderStatus)) return false;
-                              if (ordersSubTab === 'dispatched' && ord.orderStatus !== 'Dispatched') return false;
-                              if (ordersSubTab === 'out_for_delivery' && ord.orderStatus !== 'Out for Delivery') return false;
-                              if (ordersSubTab === 'delivered' && ord.orderStatus !== 'Delivered') return false;
+                              if (ordersSubTab === 'new_orders' && !['order placed', 'paid', 'pending', 'processing', 'paid & placed'].includes(st)) return false;
+                              if (ordersSubTab === 'to_pack' && !['order placed', 'paid', 'pending', 'processing', 'packing', 'paid & placed'].includes(st)) return false;
+                              if (ordersSubTab === 'dispatched' && !['dispatched', 'shipped', 'in-transit'].includes(st)) return false;
+                              if (ordersSubTab === 'out_for_delivery' && !['out for delivery', 'out_for_delivery'].includes(st)) return false;
+                              if (ordersSubTab === 'delivered' && !['delivered', 'completed'].includes(st)) return false;
 
                               // Search query filter
                               if (searchQuery.trim()) {
@@ -2076,7 +2294,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             if (filteredOrders.length === 0) {
                               return (
                                 <tr>
-                                  <td colSpan={6} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
+                                  <td colSpan={8} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
                                     No readymade store orders found matching criteria.
                                   </td>
                                 </tr>
@@ -2109,12 +2327,15 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     <div className="flex items-center gap-2">
                                       {ord.items && ord.items.length > 0 && (
                                         <img
-                                          src={ord.items[0].image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60'}
+                                          src={ord.items[0].imageUrl || ord.items[0].image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60'}
                                           alt={ord.items[0].name}
                                           className="w-8 h-8 rounded-lg object-cover border border-[#E2D7CB] shrink-0"
+                                          onError={(e) => {
+                                            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60';
+                                          }}
                                         />
                                       )}
-                                      <div>
+                                      <div className="flex-1 min-w-0">
                                         <div className="font-extrabold text-[#2C241D] text-xs truncate max-w-44">
                                           {ord.items?.[0]?.name || 'Readymade Furniture Item'}
                                         </div>
@@ -2133,6 +2354,46 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     }`}>
                                       {ord.paymentStatus || 'Paid'}
                                     </span>
+                                  </td>
+
+                                  {/* View Spec (Separate Column) */}
+                                  <td className="py-4 px-4 whitespace-nowrap">
+                                    <button
+                                      onClick={() => setSelectedOrderSpecModal(ord)}
+                                      className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#38A132] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                                      title="View Readymade Order Specs & Items Breakdown"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                      <span>View Spec</span>
+                                    </button>
+                                  </td>
+
+                                  {/* Assigned Worker */}
+                                  <td className="py-4 px-4 whitespace-nowrap">
+                                    <div className="flex flex-col items-start gap-1">
+                                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${
+                                        ord.assignedWorkerName || ord.assignedWorkerId
+                                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
+                                          : 'bg-amber-50 text-amber-900 border-amber-200'
+                                      }`}>
+                                        👤 {ord.assignedWorkerName || 'Unassigned Worker'}
+                                      </span>
+                                      <select
+                                        onChange={(e) => {
+                                          const val = Number(e.target.value);
+                                          if (val) handleAssignWorkerToReadymadeOrder(ord.orderId, val);
+                                        }}
+                                        value={ord.assignedWorkerId || ''}
+                                        className="text-[10px] bg-[#FAF7F2] border border-[#E2D7CB] rounded-md px-1 py-0.5 font-bold text-[#2C241D] cursor-pointer max-w-[135px]"
+                                      >
+                                        <option value="" disabled>Assign Worker...</option>
+                                        {workersList.map((w) => (
+                                          <option key={w.worker_id} value={w.worker_id}>
+                                            {w.full_name} ({w.specialization || 'Worker'})
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
                                   </td>
 
                                   {/* Status & Progress */}
@@ -2155,33 +2416,70 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                                   {/* Actions */}
                                   <td className="py-4 px-4 text-right whitespace-nowrap">
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button
-                                        onClick={() => setPackingModalOrder(ord)}
-                                        className="px-2.5 py-1.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer flex items-center gap-1"
-                                        title="5-Point Quality Packing Checklist"
-                                      >
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-[#38A132]" />
-                                        <span>Pack</span>
-                                      </button>
+                                    {(() => {
+                                      const currentSt = (ord.orderStatus || 'Order Placed').trim();
+                                      const isOrderPlacedOrPending = ['Order Placed', 'ORDER_PLACED', 'Pending', 'Ready to Pack', 'READY_TO_PACK', ''].includes(currentSt);
+                                      const isPacked = ['Packed', 'PACKED', 'PACKED_PENDING_DISPATCH'].includes(currentSt);
+                                      const isDispatched = ['Dispatched', 'DISPATCHED'].includes(currentSt);
+                                      const isOutForDelivery = ['Out for Delivery', 'OUT_FOR_DELIVERY'].includes(currentSt);
+                                      const isDelivered = ['Delivered', 'DELIVERED', 'Completed'].includes(currentSt);
 
-                                      <button
-                                        onClick={() => setDispatchModalOrder(ord)}
-                                        className="px-2.5 py-1.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer flex items-center gap-1"
-                                        title="Assign Carrier & Tracking Number"
-                                      >
-                                        <Truck className="w-3.5 h-3.5 text-blue-600" />
-                                        <span>Dispatch</span>
-                                      </button>
+                                      // Pack button: Enabled for Order Placed / Pending / Ready to Pack
+                                      const canPack = isOrderPlacedOrPending && !isPacked && !isDispatched && !isOutForDelivery && !isDelivered;
 
-                                      <button
-                                        onClick={() => handleOpenEditOrder(ord)}
-                                        className="px-2.5 py-1.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer flex items-center gap-1"
-                                      >
-                                        <Edit className="w-3.5 h-3.5" />
-                                        <span>Edit</span>
-                                      </button>
-                                    </div>
+                                      // Dispatch / Delivery button: Disabled for Order Placed/Ready to Pack/Delivered
+                                      const canDispatch = isPacked || isDispatched || isOutForDelivery;
+                                      let dispatchBtnText = "Dispatch";
+                                      if (isDispatched) dispatchBtnText = "Update Delivery";
+                                      if (isOutForDelivery) dispatchBtnText = "Mark Delivered";
+
+                                      return (
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          <button
+                                            disabled={!canPack}
+                                            onClick={() => setPackingModalOrder(ord)}
+                                            className={`px-2.5 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs flex items-center gap-1 ${
+                                              canPack
+                                                ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
+                                                : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
+                                            }`}
+                                            title={canPack ? "5-Point Quality Packing Checklist" : "Packing completed or not applicable"}
+                                          >
+                                            <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#38A132]' : 'text-stone-400'}`} />
+                                            <span>Pack</span>
+                                          </button>
+
+                                          <button
+                                            disabled={!canDispatch}
+                                            onClick={() => {
+                                              if (isOutForDelivery || isDispatched) {
+                                                setDeliveryStatusModalOrder(ord);
+                                                setDeliveryStatusVal(isOutForDelivery ? 'Delivered' : 'Out for Delivery');
+                                              } else {
+                                                setDispatchModalOrder(ord);
+                                              }
+                                            }}
+                                            className={`px-2.5 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs flex items-center gap-1 ${
+                                              canDispatch
+                                                ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
+                                                : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
+                                            }`}
+                                            title={canDispatch ? dispatchBtnText : "Order must be Packed before Dispatch"}
+                                          >
+                                            <Truck className={`w-3.5 h-3.5 ${canDispatch ? 'text-blue-600' : 'text-stone-400'}`} />
+                                            <span>{dispatchBtnText}</span>
+                                          </button>
+
+                                          <button
+                                            onClick={() => handleOpenEditOrder(ord)}
+                                            className="px-2.5 py-1.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer flex items-center gap-1"
+                                          >
+                                            <Edit className="w-3.5 h-3.5" />
+                                            <span>Edit</span>
+                                          </button>
+                                        </div>
+                                      );
+                                    })()}
                                   </td>
                                 </tr>
                               );
@@ -2208,7 +2506,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="max-w-md mx-auto space-y-1">
                         <h4 className="text-base font-black text-[#2C241D]">No Active Return Requests or Cancellations</h4>
                         <p className="text-xs text-[#7A6C5E] font-medium leading-relaxed">
-                          There are currently no pending customer return requests or eligible order cancellations in the database requiring staff review.
+                          There are currently no pending customer return requests or eligible order cancellations in the system requiring staff review.
                         </p>
                       </div>
                       <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-extrabold text-emerald-800">
@@ -2782,7 +3080,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               <p className="font-extrabold text-sm text-[#2C241D]">No Products Available</p>
                               <p className="text-xs text-[#7A6C5E] mt-1">
                                 {isLoadingProducts
-                                  ? 'Fetching live catalog from PostgreSQL database...'
+                                  ? 'Fetching live store catalog...'
                                   : 'No products matched your current filter criteria.'}
                               </p>
                             </td>
@@ -2969,7 +3267,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <span>Order Fulfillment & Delivery Management Center</span>
                       </h2>
                       <p className="text-xs text-[#7A6C5E] font-medium">
-                        Complete database-backed packing, dispatch, delivery tracking, customer chat & return management
+                        Complete live packing, dispatch, delivery tracking, customer chat & return management
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
@@ -4315,7 +4613,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-lg font-extrabold text-[#2C241D]">Restock Inventory Quantity</h3>
-                  <p className="text-[11px] font-bold text-[#6B5C4D]">Specify restock units to add to database</p>
+                  <p className="text-[11px] font-bold text-[#6B5C4D]">Specify restock units to add to store inventory</p>
                 </div>
               </div>
               <button
@@ -5583,36 +5881,60 @@ export const RetailStaffDashboardPage: React.FC = () => {
               )}
             </div>
 
-            {/* Action Selection Buttons */}
-            <div className="space-y-3 pt-2">
-              <h4 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider">Retail Staff Decision Actions</h4>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'APPROVE' })}
-                  className="p-4 bg-[#38A132] hover:bg-[#32922D] text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
-                >
-                  <div className="text-base">✅ APPROVE</div>
-                  <div className="text-[10px] font-normal opacity-90">Send to Production Staff for Technical Assessment</div>
-                </button>
-
-                <button
-                  onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'MORE_INFO' })}
-                  className="p-4 bg-purple-700 hover:bg-purple-800 text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
-                >
-                  <div className="text-base">❓ REQUEST INFO</div>
-                  <div className="text-[10px] font-normal opacity-90">Ask customer for dimension or spec clarification</div>
-                </button>
-
-                <button
-                  onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'REJECT' })}
-                  className="p-4 bg-rose-700 hover:bg-rose-800 text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
-                >
-                  <div className="text-base">❌ REJECT</div>
-                  <div className="text-[10px] font-normal opacity-90">Decline request and notify customer</div>
-                </button>
+            {/* Action Selection Buttons / Status Banner */}
+            {selectedReviewItem.review_status === 'APPROVED' ? (
+              <div className="p-4 bg-emerald-50 border-2 border-emerald-300 text-emerald-900 rounded-2xl flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <div>
+                    <div className="font-extrabold text-xs">Request Approved & Forwarded</div>
+                    <div className="text-[10px] text-emerald-800 font-medium">This request has been approved by Retail Staff and forwarded to Production Staff.</div>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 bg-emerald-600 text-white font-black text-[10px] rounded-xl uppercase shrink-0">Approved</span>
               </div>
-            </div>
+            ) : selectedReviewItem.review_status === 'REJECTED' ? (
+              <div className="p-4 bg-rose-50 border-2 border-rose-300 text-rose-900 rounded-2xl flex items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <XCircle className="w-5 h-5 text-rose-600 shrink-0" />
+                  <div>
+                    <div className="font-extrabold text-xs">Request Rejected</div>
+                    <div className="text-[10px] text-rose-800 font-medium">This request was declined by Retail Staff.</div>
+                  </div>
+                </div>
+                <span className="px-2.5 py-1 bg-rose-600 text-white font-black text-[10px] rounded-xl uppercase shrink-0">Rejected</span>
+              </div>
+            ) : (
+              <div className="space-y-3 pt-2">
+                <h4 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider">Retail Staff Decision Actions</h4>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'APPROVE' })}
+                    className="p-4 bg-[#38A132] hover:bg-[#32922D] text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
+                  >
+                    <div className="text-base">✅ APPROVE</div>
+                    <div className="text-[10px] font-normal opacity-90">Send to Production Staff for Technical Assessment</div>
+                  </button>
+
+                  <button
+                    onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'MORE_INFO' })}
+                    className="p-4 bg-purple-700 hover:bg-purple-800 text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
+                  >
+                    <div className="text-base">❓ REQUEST INFO</div>
+                    <div className="text-[10px] font-normal opacity-90">Ask customer for dimension or spec clarification</div>
+                  </button>
+
+                  <button
+                    onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'REJECT' })}
+                    className="p-4 bg-rose-700 hover:bg-rose-800 text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
+                  >
+                    <div className="text-base">❌ REJECT</div>
+                    <div className="text-[10px] font-normal opacity-90">Decline request and notify customer</div>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -5698,6 +6020,95 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: READYMADE ORDER SPECIFICATIONS MODAL */}
+      {selectedOrderSpecModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/75 backdrop-blur-md">
+          <div className="bg-[#FAF7F2] text-[#2C241D] rounded-[2.5rem] p-6 sm:p-8 w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl border-2 border-[#E2D7CB] space-y-5 animate-fadeIn overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4 shrink-0">
+              <div>
+                <span className="font-mono text-xs font-black text-[#38A132] bg-[#38A132]/10 px-2.5 py-0.5 rounded border border-[#38A132]/20">
+                  #{selectedOrderSpecModal.orderId} • READYMADE STORE ORDER
+                </span>
+                <h3 className="text-xl font-extrabold text-[#2C241D] mt-1">
+                  Order Specifications & Details
+                </h3>
+                <p className="text-xs text-[#7A6C5E] font-medium">Customer: {selectedOrderSpecModal.customerName || selectedOrderSpecModal.user_name || 'Valued Customer'}</p>
+              </div>
+              <button
+                onClick={() => setSelectedOrderSpecModal(null)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full bg-[#EAE0D4] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Specifications Body */}
+            <div className="space-y-4 text-xs">
+              {/* Customer & Payment Meta */}
+              <div className="grid grid-cols-2 gap-3 bg-white p-4 rounded-2xl border border-[#E2D7CB]">
+                <div>
+                  <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Customer Email</span>
+                  <span className="font-extrabold text-[#2C241D]">{selectedOrderSpecModal.customerEmail || 'N/A'}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Payment Status</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black inline-block mt-0.5 ${
+                    selectedOrderSpecModal.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900'
+                  }`}>
+                    {selectedOrderSpecModal.paymentStatus || 'Paid'}
+                  </span>
+                </div>
+                <div>
+                  <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Total Amount</span>
+                  <span className="font-black text-[#38A132] text-sm">₹{Number(selectedOrderSpecModal.totalPrice || selectedOrderSpecModal.totalAmount || 0).toLocaleString('en-IN')}</span>
+                </div>
+                <div>
+                  <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Assigned Worker</span>
+                  <span className="font-extrabold text-[#2C241D]">👤 {selectedOrderSpecModal.assignedWorkerName || 'Unassigned Worker'}</span>
+                </div>
+                <div className="col-span-2">
+                  <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Delivery Address</span>
+                  <span className="font-medium text-[#2C241D]">{selectedOrderSpecModal.delivery_address || selectedOrderSpecModal.address || 'Standard Delivery Address'}</span>
+                </div>
+              </div>
+
+              {/* Item Specs List */}
+              <div>
+                <h4 className="font-extrabold text-[#7A6C5E] text-[10px] uppercase tracking-wider mb-2">Itemized Product Specifications</h4>
+                <div className="space-y-2">
+                  {(selectedOrderSpecModal.items || []).map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-3 bg-white p-3 rounded-2xl border border-[#E2D7CB]">
+                      <img
+                        src={item.imageUrl || item.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60'}
+                        alt={item.name}
+                        className="w-12 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="font-extrabold text-[#2C241D] truncate">{item.name}</div>
+                        <div className="text-[10px] text-[#7A6C5E] font-medium">Quantity: {item.quantity || 1} • Unit Price: ₹{Number(item.price || 0).toLocaleString('en-IN')}</div>
+                      </div>
+                      <div className="font-black text-[#38A132] text-xs">
+                        ₹{Number((item.price || 0) * (item.quantity || 1)).toLocaleString('en-IN')}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-[#E2D7CB] flex justify-end">
+              <button
+                onClick={() => setSelectedOrderSpecModal(null)}
+                className="px-5 py-2 bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
+              >
+                Close Specifications
+              </button>
+            </div>
           </div>
         </div>
       )}

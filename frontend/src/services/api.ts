@@ -4,22 +4,30 @@ const BASE_URL = `/api`;
 async function safeFetch(urlPath: string, options?: RequestInit): Promise<Response> {
   const cleanPath = urlPath.startsWith('/') ? urlPath : `/${urlPath}`;
 
+  const token = localStorage.getItem('access_token');
+  const headers = {
+    ...(options?.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
+  const reqOptions: RequestInit = {
+    ...options,
+    headers
+  };
+
   // 1. First try relative URL `/api${cleanPath}` (uses Vite dev proxy seamlessly)
   const relativeUrl = `/api${cleanPath}`;
   try {
-    const res = await fetch(relativeUrl, options);
+    const res = await fetch(relativeUrl, reqOptions);
     return res;
   } catch (relativeErr) {
     // 2. Fallback to direct IPv4 backend URL if proxy is bypassed
     const directUrl127 = `http://127.0.0.1:8000/api${cleanPath}`;
     try {
-      const newOptions = options ? { ...options } : undefined;
-      return await fetch(directUrl127, newOptions);
+      return await fetch(directUrl127, reqOptions);
     } catch (directErr) {
       const directUrlLocal = `http://localhost:8000/api${cleanPath}`;
       try {
-        const newOptions2 = options ? { ...options } : undefined;
-        return await fetch(directUrlLocal, newOptions2);
+        return await fetch(directUrlLocal, reqOptions);
       } catch (lastErr) {
         throw lastErr || directErr || relativeErr;
       }

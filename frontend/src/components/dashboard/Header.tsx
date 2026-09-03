@@ -3,6 +3,7 @@ import { ShoppingBag, Heart, LogOut, Plus, User, Package, ChevronDown, Bell, Tag
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { getCartCount } from '../../utils/cartStorage';
 import { getWishlistCount } from '../../utils/wishlistStorage';
+import { clearUserSession } from '../../utils/sessionUtils';
 import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
 import { Logo } from '../common/Logo';
 
@@ -191,11 +192,11 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
     .toUpperCase() || 'US';
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    window.dispatchEvent(new Event('cart-updated'));
-    window.dispatchEvent(new Event('wishlist-updated'));
-    navigate('/login');
+    clearUserSession();
+    setUserProfile(null);
+    window.dispatchEvent(new Event('user-logged-in'));
+    window.dispatchEvent(new Event('storage'));
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -205,14 +206,12 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
     >
 
 
-      <div className="max-w-7xl mx-auto h-16 rounded-full bg-white/95 backdrop-blur-2xl border-2 border-[#E4DCD0] shadow-[0_8px_30px_rgb(0,0,0,0.06)] px-6 sm:px-8 flex items-center justify-between transition-all gap-4">
-
-
-        {/* Simple Clean Logo */}
+      <div className="max-w-7xl mx-auto h-16 rounded-full bg-[#FAF8F5]/95 backdrop-blur-2xl border border-[#E2D7CB] shadow-[0_4px_20px_rgba(44,36,29,0.06)] px-5 sm:px-8 flex items-center justify-between transition-all gap-4">
+        {/* RetailSphere AI Brand Logo */}
         <Logo to="/dashboard" size="md" />
 
         {/* Center Navigation Links (SHOP, CREATE, FABRICATE, SERVICES, MY ACTIVITY, ASSISTANT) */}
-        <nav className="hidden md:flex items-center gap-6 text-[11px] font-extrabold tracking-wider text-[#6B5C4D]">
+        <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-[11px] font-black tracking-widest text-[#5C5042]">
           {navTabs.map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -225,13 +224,13 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                     navigate('/dashboard', { state: { activeTab: tab.id } });
                   }
                 }}
-                className={`transition-all relative py-1 px-1 cursor-pointer font-extrabold ${
-                  isActive ? 'text-[#48A63E]' : 'hover:text-[#2C241D]'
+                className={`transition-all relative py-1 px-0.5 cursor-pointer font-black ${
+                  isActive ? 'text-[#48A63E]' : 'hover:text-[#1C1814]'
                 }`}
               >
                 <span>{tab.name}</span>
                 <span
-                  className={`absolute bottom-0 left-0 h-[2px] bg-[#48A63E] transition-all duration-300 ${
+                  className={`absolute -bottom-1 left-0 h-[2px] bg-[#48A63E] transition-all duration-300 ${
                     isActive ? 'w-full' : 'w-0 group-hover:w-full'
                   }`}
                 />
@@ -241,31 +240,18 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
         </nav>
 
         {/* Right Logged-In Customer Actions */}
-        <div className="flex items-center gap-3 flex-shrink-0">
-          {/* Wishlist */}
-          <Link
-            to="/wishlist"
-            className="relative p-2.5 rounded-full bg-[#F5ECE1]/80 hover:bg-[#EAE0D4] border border-[#E2D7CB] text-[#2C241D] transition-all block"
-            title="Saved Wishlist"
-          >
-            <Heart className="w-4 h-4 text-rose-600 fill-rose-600/20" />
-            {activeWishlistCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-extrabold flex items-center justify-center border border-white shadow-sm leading-none">
-                {activeWishlistCount}
-              </span>
-            )}
-          </Link>
+        <div className="flex items-center gap-2.5 flex-shrink-0">
 
           {/* Notifications Bell with Popover */}
           <div className="relative" ref={notifRef}>
             <button
               onClick={() => setIsNotifOpen(!isNotifOpen)}
-              className="relative p-2.5 rounded-full bg-[#F5ECE1]/80 hover:bg-[#EAE0D4] border border-[#E2D7CB] text-[#2C241D] transition-all block cursor-pointer"
+              className="relative w-9 h-9 rounded-full bg-[#F2ECE1] hover:bg-[#E6DDD0] border border-[#E2D7CB] text-[#2C241D] transition-all flex items-center justify-center shadow-2xs cursor-pointer"
               title="Notifications & Coupons"
             >
               <Bell className="w-4 h-4 text-[#2C241D]" />
               {unreadNotifCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#48A63E] text-white text-[10px] font-extrabold flex items-center justify-center border border-white shadow-sm leading-none animate-pulse">
+                <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#387A46] text-white text-[9px] font-black flex items-center justify-center border border-white shadow-xs leading-none animate-pulse">
                   {unreadNotifCount}
                 </span>
               )}
@@ -275,7 +261,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
               <div className="absolute right-0 mt-2.5 w-72 sm:w-80 bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-2xl p-4 shadow-2xl space-y-3 z-[100] animate-fadeIn">
                 <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
                   <h4 className="font-extrabold text-xs text-[#2C241D]">Dashboard Notifications</h4>
-                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-bold text-[#387A46] bg-[#387A46]/10 px-2 py-0.5 rounded-md">
                     {userNotifs.length} Received
                   </span>
                 </div>
@@ -291,14 +277,14 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                     userNotifs.map((n) => (
                       <div key={n.id} className="p-3 rounded-xl bg-white border border-[#E2D7CB] space-y-1.5 shadow-xs">
                         <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-[10px] uppercase tracking-wider text-[#48A63E] flex items-center gap-1">
-                            <Tag className="w-3 h-3 text-[#48A63E]" /> Exclusive Coupon
+                          <span className="font-extrabold text-[10px] uppercase tracking-wider text-[#387A46] flex items-center gap-1">
+                            <Tag className="w-3 h-3 text-[#387A46]" /> Exclusive Coupon
                           </span>
                           <span className="text-[9px] font-mono text-[#8C7C6D]">{n.createdDate}</span>
                         </div>
                         <p className="text-xs font-bold text-[#2C241D] leading-snug">{n.message}</p>
                         <div className="pt-1 flex items-center justify-between">
-                          <span className="font-mono font-extrabold text-xs text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">
+                          <span className="font-mono font-extrabold text-xs text-[#387A46] bg-[#387A46]/10 px-2 py-0.5 rounded-md border border-[#387A46]/20">
                             {n.couponCode}
                           </span>
                           <button
@@ -307,7 +293,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                               setCopiedCode(n.couponCode);
                               setTimeout(() => setCopiedCode(null), 2500);
                             }}
-                            className={`text-[10px] font-extrabold transition-colors ${copiedCode === n.couponCode ? 'text-[#38A132] font-black' : 'text-[#48A63E] hover:underline'}`}
+                            className={`text-[10px] font-extrabold transition-colors ${copiedCode === n.couponCode ? 'text-[#387A46] font-black' : 'text-[#387A46] hover:underline'}`}
                           >
                             {copiedCode === n.couponCode ? 'Copied! ✓' : 'Copy Code'}
                           </button>
@@ -320,35 +306,48 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
             )}
           </div>
 
-          {/* Cart */}
+          {/* Wishlist Button */}
+          <Link
+            to="/wishlist"
+            className="relative w-9 h-9 rounded-full bg-[#F2ECE1] hover:bg-[#E6DDD0] border border-[#E2D7CB] text-[#2C241D] transition-all flex items-center justify-center shadow-2xs"
+            title="Saved Wishlist"
+          >
+            <Heart className="w-4 h-4 text-[#2C241D]" />
+            {activeWishlistCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#48A63E] text-white text-[9px] font-black flex items-center justify-center border border-white shadow-xs leading-none">
+                {activeWishlistCount}
+              </span>
+            )}
+          </Link>
+
+          {/* Cart Button */}
           <Link
             to="/cart"
-            className="relative p-2.5 rounded-full bg-[#F5ECE1]/80 hover:bg-[#EAE0D4] border border-[#E2D7CB] text-[#2C241D] transition-all block"
+            className="relative w-9 h-9 rounded-full bg-[#F2ECE1] hover:bg-[#E6DDD0] border border-[#E2D7CB] text-[#2C241D] transition-all flex items-center justify-center shadow-2xs"
             title="Shopping Cart"
           >
             <ShoppingBag className="w-4 h-4 text-[#2C241D]" />
             {activeCartCount > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#48A63E] text-white text-[10px] font-extrabold flex items-center justify-center border border-white shadow-sm leading-none">
+              <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-[#48A63E] text-white text-[9px] font-black flex items-center justify-center border border-white shadow-xs leading-none">
                 {activeCartCount}
               </span>
             )}
           </Link>
 
-
-          {/* User Profile Section with Dropdown Menu */}
-          <div className="relative pl-2 border-l border-[#E6DDD3]" ref={dropdownRef}>
+          {/* User Profile Pill Button with Dropdown Menu */}
+          <div className="relative pl-1 border-l border-[#E2D7CB]" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="flex items-center gap-2 hover:opacity-90 transition-opacity p-1 rounded-full hover:bg-[#F5ECE1]/60 cursor-pointer"
+              className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#F2ECE1] hover:bg-[#E6DDD0] border border-[#E2D7CB] transition-all cursor-pointer shadow-2xs"
               title="User Account Menu"
             >
-              <div className="w-8 h-8 rounded-full bg-[#38A132] text-white font-extrabold text-xs flex items-center justify-center shadow-md shadow-[#38A132]/20">
+              <div className="w-7 h-7 rounded-full bg-[#48A63E] text-white font-black text-[11px] flex items-center justify-center shadow-xs">
                 {userInitials}
               </div>
-              <span className="hidden xl:block font-extrabold text-xs text-[#2C241D] max-w-[110px] truncate" title={userName}>
+              <span className="hidden sm:block font-black text-xs text-[#2C241D] max-w-[120px] truncate uppercase tracking-wider">
                 {userName}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 text-[#7A6C5E] hidden xl:block" />
+              <ChevronDown className="w-3.5 h-3.5 text-[#5C5042]" />
             </button>
 
             {/* Dropdown Menu - High Visibility & Solid Contrast */}
@@ -359,7 +358,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                   onClick={() => setIsDropdownOpen(false)}
                   className="flex items-center gap-3 px-3 py-2.5 text-xs font-extrabold text-[#1F1812] hover:bg-[#EAE0D4] rounded-xl transition-all"
                 >
-                  <User className="w-4 h-4 text-[#38A132]" />
+                  <User className="w-4 h-4 text-[#48A63E]" />
                   <span>View Profile</span>
                 </Link>
 
@@ -368,7 +367,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                   onClick={() => setIsDropdownOpen(false)}
                   className="flex items-center gap-3 px-3 py-2.5 text-xs font-extrabold text-[#1F1812] hover:bg-[#EAE0D4] rounded-xl transition-all"
                 >
-                  <Package className="w-4 h-4 text-[#38A132]" />
+                  <Package className="w-4 h-4 text-[#48A63E]" />
                   <span>My Orders & Tracking</span>
                 </Link>
 

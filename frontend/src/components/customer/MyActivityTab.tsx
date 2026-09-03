@@ -21,55 +21,55 @@ export const MyActivityTab: React.FC<MyActivityTabProps> = ({ initialSubTab = 'c
           onClick={() => setActiveSubTab('custom')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'custom'
-              ? 'bg-[#2C241D] text-white shadow-md'
+              ? 'bg-[#48A63E] text-white shadow-md'
               : 'text-[#7A6C5E] hover:bg-[#FAF7F2] hover:text-[#2C241D]'
           }`}
         >
-          <Layers className="w-4 h-4 text-[#48A63E]" /> Custom Furniture Requests
+          <Layers className={`w-4 h-4 ${activeSubTab === 'custom' ? 'text-white' : 'text-[#48A63E]'}`} /> Custom Furniture Requests
         </button>
 
         <button
           onClick={() => setActiveSubTab('orders')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'orders'
-              ? 'bg-[#2C241D] text-white shadow-md'
+              ? 'bg-[#48A63E] text-white shadow-md'
               : 'text-[#7A6C5E] hover:bg-[#FAF7F2] hover:text-[#2C241D]'
           }`}
         >
-          <Package className="w-4 h-4 text-[#48A63E]" /> E-Commerce Orders
+          <Package className={`w-4 h-4 ${activeSubTab === 'orders' ? 'text-white' : 'text-[#48A63E]'}`} /> E-Commerce Orders
         </button>
 
         <button
           onClick={() => setActiveSubTab('fabrication')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'fabrication'
-              ? 'bg-[#2C241D] text-white shadow-md'
+              ? 'bg-[#48A63E] text-white shadow-md'
               : 'text-[#7A6C5E] hover:bg-[#FAF7F2] hover:text-[#2C241D]'
           }`}
         >
-          <Scissors className="w-4 h-4 text-[#48A63E]" /> Fabrication Requests
+          <Scissors className={`w-4 h-4 ${activeSubTab === 'fabrication' ? 'text-white' : 'text-[#48A63E]'}`} /> Fabrication Requests
         </button>
 
         <button
           onClick={() => setActiveSubTab('services')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'services'
-              ? 'bg-[#2C241D] text-white shadow-md'
+              ? 'bg-[#48A63E] text-white shadow-md'
               : 'text-[#7A6C5E] hover:bg-[#FAF7F2] hover:text-[#2C241D]'
           }`}
         >
-          <Wrench className="w-4 h-4 text-[#48A63E]" /> Service Bookings
+          <Wrench className={`w-4 h-4 ${activeSubTab === 'services' ? 'text-white' : 'text-[#48A63E]'}`} /> Service Bookings
         </button>
 
         <button
           onClick={() => setActiveSubTab('materials')}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
             activeSubTab === 'materials'
-              ? 'bg-[#2C241D] text-white shadow-md'
+              ? 'bg-[#48A63E] text-white shadow-md'
               : 'text-[#7A6C5E] hover:bg-[#FAF7F2] hover:text-[#2C241D]'
           }`}
         >
-          <Layers className="w-4 h-4 text-[#48A63E]" /> My Wood & Materials
+          <Layers className={`w-4 h-4 ${activeSubTab === 'materials' ? 'text-white' : 'text-[#48A63E]'}`} /> My Wood & Materials
         </button>
       </div>
 

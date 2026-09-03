@@ -18,9 +18,9 @@ export const QuickActionsFab: React.FC<QuickActionsFabProps> = ({ onSelectTab })
               onSelectTab('assistant');
               setIsOpen(false);
             }}
-            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
           >
-            <Bot className="w-4 h-4 text-[#48A63E]" />
+            <Bot className="w-4 h-4 text-white" />
             <span>AI Furniture Assistant</span>
           </button>
 
@@ -29,9 +29,9 @@ export const QuickActionsFab: React.FC<QuickActionsFabProps> = ({ onSelectTab })
               onSelectTab('create');
               setIsOpen(false);
             }}
-            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
           >
-            <Plus className="w-4 h-4 text-[#48A63E]" />
+            <Plus className="w-4 h-4 text-white" />
             <span>Custom Furniture Studio</span>
           </button>
 
@@ -40,9 +40,9 @@ export const QuickActionsFab: React.FC<QuickActionsFabProps> = ({ onSelectTab })
               onSelectTab('fabricate');
               setIsOpen(false);
             }}
-            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
           >
-            <Scissors className="w-4 h-4 text-[#48A63E]" />
+            <Scissors className="w-4 h-4 text-white" />
             <span>2D Cutting Optimizer</span>
           </button>
 
@@ -51,9 +51,9 @@ export const QuickActionsFab: React.FC<QuickActionsFabProps> = ({ onSelectTab })
               onSelectTab('services');
               setIsOpen(false);
             }}
-            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
+            className="flex items-center gap-2.5 px-4 py-2.5 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-xl border border-white/20 transition-all hover:scale-105 cursor-pointer whitespace-nowrap"
           >
-            <Wrench className="w-4 h-4 text-[#48A63E]" />
+            <Wrench className="w-4 h-4 text-white" />
             <span>Book Skilled Service Visit</span>
           </button>
         </div>

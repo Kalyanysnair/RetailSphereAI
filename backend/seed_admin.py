@@ -23,13 +23,16 @@ def seed_admin_user():
         else:
             print(f"[SEED NOTICE] 'Admin' role already exists with ID: {admin_role.role_id}")
 
-        # 2. Ensure 'Customer', 'Retail Staff', 'Production Staff' roles exist
-        for r_name in ["Customer", "Retail Staff", "Production Staff"]:
+        # 2. Ensure 'Customer', 'Retail Staff', 'Production Staff', 'Worker' roles exist
+        roles = {}
+        for r_name in ["Admin", "Customer", "Retail Staff", "Production Staff", "Worker"]:
             r = db.query(models.Role).filter(models.Role.role_name == r_name).first()
             if not r:
                 r = models.Role(role_name=r_name)
                 db.add(r)
                 db.commit()
+                db.refresh(r)
+            roles[r_name] = r
 
         # 3. Create or update 'admin' user
         admin_username = "admin"
@@ -46,15 +49,15 @@ def seed_admin_user():
         if existing_user:
             existing_user.full_name = admin_username
             existing_user.email = admin_email
-            existing_user.role_id = admin_role.role_id
+            existing_user.role_id = roles["Admin"].role_id
             existing_user.password = hashed_password
             existing_user.status = True
             db.commit()
             db.refresh(existing_user)
-            print(f"[SEED SUCCESS] Updated existing Admin user ID {existing_user.user_id} (Username: 'admin', Password: 'admin@123')")
+            print(f"[SEED SUCCESS] Updated existing Admin user ID {existing_user.user_id}")
         else:
             new_admin = models.User(
-                role_id=admin_role.role_id,
+                role_id=roles["Admin"].role_id,
                 full_name=admin_username,
                 email=admin_email,
                 phone=admin_phone,
@@ -64,10 +67,78 @@ def seed_admin_user():
             db.add(new_admin)
             db.commit()
             db.refresh(new_admin)
-            print(f"[SEED SUCCESS] Created new Admin user ID {new_admin.user_id} (Username: 'admin', Password: 'admin@123')")
+            print(f"[SEED SUCCESS] Created new Admin user ID {new_admin.user_id}")
 
-        # 4. Ensure demo customer accounts exist
-        customer_role = db.query(models.Role).filter(models.Role.role_name == "Customer").first()
+        # 4. Seed Retail Staff (No dummy retail staff seeded; actual staff registered in DB)
+
+        # 5. Seed Multiple Production Staff Supervisors
+        prod_staff_list = [
+            ("Production Supervisor A", "production.staff@retailsphere.com", "+919800000011"),
+            ("Production Supervisor B", "supervisor.b@retailsphere.com", "+919800000012"),
+            ("Production Supervisor C", "supervisor.c@retailsphere.com", "+919800000013"),
+        ]
+        for name, email, phone in prod_staff_list:
+            u = db.query(models.User).filter(models.User.email == email).first()
+            if not u:
+                u = models.User(
+                    role_id=roles["Production Staff"].role_id,
+                    full_name=name,
+                    email=email,
+                    phone=phone,
+                    password=auth.get_password_hash("staff123"),
+                    status=True
+                )
+                db.add(u)
+                db.commit()
+                print(f"[SEED SUCCESS] Created Production Supervisor account: {email}")
+
+        # 6. Seed Skilled Workers
+        workers_list = [
+            ("Arun", "arun.worker@retailsphere.com", "+919845012341", "Woodwork & Carpentry", False),
+            ("Nimish K", "nimish.worker@retailsphere.com", "+919845012342", "Woodwork & Carpentry", False),
+            ("Suresh", "suresh.worker@retailsphere.com", "+919845012343", "Upholstery", False),
+            ("Geetha Devi", "geetha.worker@retailsphere.com", "+919845012344", "Assembly & QA", False),
+            ("Ajith", "ajith.worker@retailsphere.com", "+919845012345", "Assembly & QA", False),
+            ("Rahul", "rahul.driver@retailsphere.com", "+919845012346", "On-Site Installation", True),
+        ]
+        for name, email, phone, spec, is_drv in workers_list:
+            w_u = db.query(models.User).filter(models.User.email == email).first()
+            if not w_u:
+                w_u = models.User(
+                    role_id=roles["Worker"].role_id,
+                    full_name=name,
+                    email=email,
+                    phone=phone,
+                    password=auth.get_password_hash("worker123"),
+                    specialization=spec,
+                    is_driver=is_drv,
+                    status=True
+                )
+                db.add(w_u)
+                db.commit()
+                db.refresh(w_u)
+
+                # Add worker availability row
+                w_avail = db.query(models.WorkerAvailability).filter(models.WorkerAvailability.worker_id == w_u.user_id).first()
+                if not w_avail:
+                    db.add(models.WorkerAvailability(
+                        worker_id=w_u.user_id,
+                        status="AVAILABLE",
+                        active_jobs_count=0
+                    ))
+
+                # Add worker skill row
+                w_skill = db.query(models.WorkerSkill).filter(models.WorkerSkill.worker_id == w_u.user_id).first()
+                if not w_skill:
+                    db.add(models.WorkerSkill(
+                        worker_id=w_u.user_id,
+                        skill_name=spec,
+                        proficiency_level="Expert"
+                    ))
+                db.commit()
+                print(f"[SEED SUCCESS] Created Worker account: {email} ({spec})")
+
+        # 7. Ensure demo customer accounts exist
         demo_customers = [
             ("Kalyany Nikunjam", "kalyany.nikunjam@gmail.com", "+919778237180"),
             ("Kalyany S Nair", "kalyanys2004@gmail.com", "+919778237181"),
@@ -76,7 +147,7 @@ def seed_admin_user():
             cust_u = db.query(models.User).filter(models.User.email == c_email).first()
             if not cust_u:
                 cust_u = models.User(
-                    role_id=customer_role.role_id if customer_role else 2,
+                    role_id=roles["Customer"].role_id,
                     full_name=c_name,
                     email=c_email,
                     phone=c_phone,

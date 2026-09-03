@@ -55,17 +55,52 @@ async function safeFetchOrders(path: string, options?: RequestInit): Promise<Res
 
 const STORAGE_KEY = 'retail_orders_list';
 
+function isExcludedOrderId(idVal: any): boolean {
+  if (!idVal) return false;
+  const str = String(idVal).toLowerCase().replace(/[^a-z0-9]/g, '');
+  return str === '103' || str === '0103';
+}
+
 export function getStoredRetailOrders(): RetailOrder[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    // Filter out old legacy combined mock payment ID pay_Kangaroby902
-    return parsed.filter((o: any) => o.paymentId !== 'pay_Kangaroby902' && o.payment_id !== 'pay_Kangaroby902');
-  } catch (err) {
-    return [];
-  }
+  const allOrders: RetailOrder[] = [];
+  const keys = [
+    'retail_orders_list',
+    'retailsphere_completed_orders',
+    'retailsphere_orders',
+    'retailsphere_order_history',
+    'retailsphere_retail_orders_v1'
+  ];
+
+  keys.forEach((key) => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const cleaned = parsed.filter((o: any) => !isExcludedOrderId(o?.orderId) && !isExcludedOrderId(o?.id));
+          allOrders.push(...cleaned);
+        } else if (parsed && typeof parsed === 'object' && (parsed.orderId || parsed.id)) {
+          if (!isExcludedOrderId(parsed.orderId) && !isExcludedOrderId(parsed.id)) {
+            allOrders.push(parsed);
+          }
+        }
+      }
+    } catch (err) { }
+  });
+
+  const validOrders = allOrders.filter(
+    (o: any) => o && (o.orderId || (o as any).id) && !isExcludedOrderId(o.orderId) && !isExcludedOrderId((o as any).id) && o.paymentId !== 'pay_Kangaroby902' && o.payment_id !== 'pay_Kangaroby902'
+  );
+
+  const orderMap = new Map<string, RetailOrder>();
+  validOrders.forEach((o: any) => {
+    const idKey = String(o.orderId || o.id);
+    if (!isExcludedOrderId(idKey)) {
+      orderMap.set(idKey, o);
+    }
+  });
+
+  return Array.from(orderMap.values());
 }
 
 export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
@@ -73,15 +108,20 @@ export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
     const res = await safeFetchOrders('/admin/orders');
     if (res.ok) {
       const dbOrders: RetailOrder[] = await res.json();
-      if (Array.isArray(dbOrders) && dbOrders.length > 0) {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(dbOrders));
-        return dbOrders;
+      if (Array.isArray(dbOrders)) {
+        const orderMap = new Map<string, RetailOrder>();
+        dbOrders.forEach((o) => {
+          if (o && o.orderId && !isExcludedOrderId(o.orderId)) orderMap.set(String(o.orderId), o);
+        });
+        const combined = Array.from(orderMap.values());
+        combined.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return combined;
       }
     }
   } catch (err) {
-    console.warn('Could not fetch DB orders, fallback to local storage:', err);
+    console.warn('Could not fetch DB orders:', err);
   }
-  return getStoredRetailOrders();
+  return [];
 }
 
 export async function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderId' | 'orderDate'>): Promise<RetailOrder> {
@@ -302,30 +342,34 @@ export function computeLogicalCompletionStatus(order: {
 
 export function updateStoredRetailOrderCompletionStatus(
   orderId: string,
-  newCompletionStatus: string,
-  newCompletionPercentage?: number
+  newCompletionStatus?: string,
+  newCompletionPercentage?: number,
+  assignedWorkerName?: string,
+  assignedWorkerId?: number
 ): boolean {
   try {
     const existing = getStoredRetailOrders();
     const target = existing.find(o => o.orderId === orderId);
     if (target) {
-      target.completionStatus = newCompletionStatus;
-      if (newCompletionPercentage !== undefined) {
-        target.completionPercentage = newCompletionPercentage;
-      }
+      if (newCompletionStatus !== undefined) target.completionStatus = newCompletionStatus;
+      if (newCompletionPercentage !== undefined) target.completionPercentage = newCompletionPercentage;
+      if (assignedWorkerName !== undefined) target.assignedWorkerName = assignedWorkerName;
+      if (assignedWorkerId !== undefined) target.assignedWorkerId = assignedWorkerId;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
       window.dispatchEvent(new Event('retail-orders-updated'));
     }
 
-    safeFetchOrders(`/admin/orders/${orderId}/completion-status`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        completion_status: newCompletionStatus,
-        order_status: target?.orderStatus,
-        payment_status: target?.paymentStatus
-      })
-    }).catch((err) => console.warn('Completion status sync error:', err));
+    if (newCompletionStatus !== undefined) {
+      safeFetchOrders(`/admin/orders/${orderId}/completion-status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          completion_status: newCompletionStatus,
+          order_status: target?.orderStatus,
+          payment_status: target?.paymentStatus
+        })
+      }).catch((err) => console.warn('Completion status sync error:', err));
+    }
 
     return true;
   } catch (err) {

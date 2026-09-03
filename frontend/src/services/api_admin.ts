@@ -211,3 +211,21 @@ export const updateUserDB = async (userId: number, payload: {
   }
   return await res.json();
 };
+
+export const exportDatabaseExcel = async (): Promise<void> => {
+  const res = await fetch(`${API_BASE_URL}/api/admin/export-database-excel`, {
+    headers: getAuthHeaders()
+  });
+  if (!res.ok) {
+    throw new Error('Failed to export database Excel file');
+  }
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `RetailSphere_Database_Export_${new Date().toISOString().slice(0, 10)}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+};

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { clearUserSession } from '../../utils/sessionUtils';
 import {
   Wrench,
   Clock,
@@ -136,16 +137,25 @@ export const WorkerDashboardPage: React.FC = () => {
   const loadWorkerWorkspaceData = async () => {
     setLoading(true);
     try {
+      const token = localStorage.getItem('access_token');
+      if (!token) {
+        navigate('/login', { replace: true });
+        return;
+      }
+
       const currentUser = await getCurrentUser();
-      let email = 'worker@retailsphere.ai';
-      let role = 'Worker';
-      if (currentUser) {
-        setUserProfile(currentUser);
-        email = currentUser.email || email;
-        role = (currentUser as any).role || role;
-        if ((currentUser as any).must_change_password) {
-          setMustChangePasswordModal(true);
-        }
+      if (!currentUser) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('user');
+        navigate('/login', { replace: true });
+        return;
+      }
+
+      setUserProfile(currentUser);
+      const email = currentUser.email || 'worker@retailsphere.ai';
+      const role = (currentUser as any).role || 'Worker';
+      if ((currentUser as any).must_change_password) {
+        setMustChangePasswordModal(true);
       }
 
       // Load Broadcast Directives and Staff Communication Queries
@@ -207,7 +217,7 @@ export const WorkerDashboardPage: React.FC = () => {
     setIsSubmittingQuery(true);
     try {
       const newQ = addStaffQuery({
-        staffName: userProfile?.full_name || summaryData?.worker_name || 'Artisan Worker',
+        staffName: userProfile?.full_name || summaryData?.worker_name || 'Worker',
         staffEmail: userProfile?.email || 'worker@retailsphere.ai',
         category: queryCategory as any,
         subject: querySubject.trim(),
@@ -361,11 +371,7 @@ export const WorkerDashboardPage: React.FC = () => {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('token_type');
-    localStorage.removeItem('user_role');
-    localStorage.removeItem('user_profile');
-    localStorage.removeItem('user');
+    clearUserSession();
     navigate('/login');
   };
 
@@ -605,7 +611,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   title="Click for profile and sign out options"
                 >
                   <div className="w-7 h-7 rounded-xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center flex-shrink-0 shadow-md">
-                    {(userProfile?.full_name || summaryData?.worker_name || 'Artisan Worker')
+                    {(userProfile?.full_name || summaryData?.worker_name || 'Worker')
                       .split(' ')
                       .map((n: string) => n[0])
                       .join('')
@@ -613,7 +619,7 @@ export const WorkerDashboardPage: React.FC = () => {
                       .toUpperCase()}
                   </div>
                   <span className="text-xs font-extrabold text-[#2C241D]">
-                    {userProfile?.full_name || summaryData?.worker_name || 'Artisan Worker'}
+                    {userProfile?.full_name || summaryData?.worker_name || 'Worker'}
                   </span>
                   <ChevronDown className={`w-3.5 h-3.5 text-[#6B5C4D] transition-transform ${isUserMenuOpen ? 'rotate-180 text-[#48A63E]' : ''}`} />
                 </button>
@@ -1314,7 +1320,7 @@ export const WorkerDashboardPage: React.FC = () => {
                     <p className="text-xs font-mono font-bold text-[#7A6C5E] mt-0.5">{userProfile?.email}</p>
                     <div className="flex items-center gap-2 mt-2 flex-wrap">
                       <span className="px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] text-[10px] font-black border border-[#48A63E]/30">
-                        Role: Artisan Worker
+                        Role: {userProfile?.role || 'Worker'}
                       </span>
                       {userProfile?.phone && (
                         <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-900 text-[10px] font-black border border-amber-200 font-mono">

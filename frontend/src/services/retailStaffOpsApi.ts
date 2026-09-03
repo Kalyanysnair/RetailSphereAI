@@ -47,11 +47,26 @@ export interface RequestInboxItem {
   order_status?: string;
   priority: string;
   review_notes?: string;
+  reviewed_by_id?: number;
+  reviewed_by_name?: string;
   address?: string;
   city?: string;
   pincode?: string;
   preferred_date?: string;
   preferred_time?: string;
+}
+
+export interface RetailStaffWorkload {
+  staff_id: number;
+  full_name: string;
+  email: string;
+  phone?: string;
+  active_request_count: number;
+  assigned_customizations: number;
+  assigned_fabrications: number;
+  assigned_services: number;
+  is_recommended: boolean;
+  recommendation_reason?: string;
 }
 
 export interface UniversalRequestMessage {
@@ -81,13 +96,19 @@ export async function fetchRetailDashboardSummary(): Promise<RetailDashboardSumm
 // 2. Fetch Request Inbox
 export async function fetchRequestInbox(
   categoryFilter: string = 'ALL',
-  statusFilter: string = 'ALL'
+  statusFilter: string = 'ALL',
+  staffId?: number,
+  unassignedOnly?: boolean
 ): Promise<RequestInboxItem[]> {
   try {
-    const query = new URLSearchParams({
+    const params: Record<string, string> = {
       category_filter: categoryFilter,
       status_filter: statusFilter,
-    });
+    };
+    if (staffId) params['staff_id'] = String(staffId);
+    if (unassignedOnly) params['unassigned_only'] = 'true';
+
+    const query = new URLSearchParams(params);
     const res = await fetch(`/api/retail-staff/request-inbox?${query.toString()}`);
     if (res.ok) {
       return await res.json();
@@ -96,6 +117,42 @@ export async function fetchRequestInbox(
     console.warn('Error fetching request inbox:', err);
   }
   return [];
+}
+
+// 2b. Fetch Retail Staff Workload Recommendations
+export async function fetchRetailWorkloadRecommendations(): Promise<RetailStaffWorkload[]> {
+  try {
+    const res = await fetch('/api/retail-staff/workload-recommendations');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Error fetching retail workload recommendations:', err);
+  }
+  return [];
+}
+
+// 2c. Assign Request to Retail Staff Member
+export async function assignRequestToRetailStaff(
+  requestType: string,
+  requestId: number,
+  staffId: number
+): Promise<boolean> {
+  try {
+    const res = await fetch('/api/retail-staff/assign-request', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        request_type: requestType,
+        request_id: requestId,
+        staff_id: staffId,
+      }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Error assigning request to retail staff:', err);
+    return false;
+  }
 }
 
 // 3. Review Customization Request

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Heart, ShoppingBag, Eye, Sparkles, Check } from 'lucide-react';
+import { Star, Heart, ShoppingBag, Eye, Sparkles, Check, X } from 'lucide-react';
 import { RecommendationProduct } from '../../types/dashboard';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
@@ -132,9 +132,9 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
             return (
               <div
                 key={product.id}
-                className="group relative bg-white border-2 border-[#D6C9B9] hover:border-[#48A63E] rounded-3xl overflow-hidden shadow-md hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between"
+                className="group relative bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#48A63E] rounded-3xl overflow-hidden shadow-xs hover:shadow-xl transition-all duration-300 hover:-translate-y-1 flex flex-col justify-between"
               >
-                {/* Image Container (70% height aspect ratio) */}
+                {/* Image Container */}
                 <div
                   onClick={() => navigate(`/product/${product.id}`)}
                   className="relative aspect-[4/3] w-full overflow-hidden bg-[#F4ECE1] cursor-pointer"
@@ -145,23 +145,17 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
 
-                  {/* AI Match Badge */}
-                  <span className="absolute top-2.5 left-2.5 bg-[#1A1410] text-white text-[10px] font-extrabold px-2.5 py-1 rounded-full border border-white/20 flex items-center gap-1 shadow-md">
-                    <Sparkles className="w-3 h-3 text-[#48A63E]" />
-                    <span>{aiScore}% AI Match</span>
-                  </span>
-
-                  {/* Wishlist Button */}
+                  {/* Wishlist Icon Button overlay */}
                   {isLoggedIn && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleWishlistClick(product);
                       }}
-                      className={`absolute top-2.5 right-2.5 p-2 rounded-full backdrop-blur-md transition-all shadow-sm ${
+                      className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full backdrop-blur-md transition-all shadow-2xs flex items-center justify-center ${
                         isWishlisted
                           ? 'bg-rose-600 text-white shadow-rose-600/30'
-                          : 'bg-white/95 text-[#1A1410] hover:text-[#48A63E] border border-[#D6C9B9]'
+                          : 'bg-white/90 text-[#2C241D] hover:text-[#48A63E] border border-[#D6C9B9]'
                       }`}
                       title={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
                     >
@@ -176,7 +170,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                         e.stopPropagation();
                         setQuickViewProduct(product);
                       }}
-                      className="w-full py-2 bg-white hover:bg-[#FAF7F2] text-[#1A1410] font-extrabold text-xs rounded-xl shadow-lg border border-[#D6C9B9] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      className="w-full py-2 bg-white/95 hover:bg-[#FAF7F2] text-[#2C241D] font-extrabold text-xs rounded-full shadow-lg border border-[#D6C9B9] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                     >
                       <Eye className="w-3.5 h-3.5 text-[#48A63E]" />
                       <span>Quick View</span>
@@ -185,48 +179,61 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 </div>
 
                 {/* Content Card Info */}
-                <div className="p-4 flex-1 flex flex-col justify-between space-y-2 bg-white">
+                <div className="p-4 flex-1 flex flex-col justify-between space-y-2.5 bg-[#FAF8F5]">
                   <div>
-                    <div className="flex items-center justify-between text-[10px] font-extrabold text-[#6B5C4D] mb-1">
-                      <span className="uppercase tracking-wider text-[#48A63E] font-mono">{product.category || 'Luxury'}</span>
-                      <span className="bg-[#FAF7F2] border border-[#D6C9B9] px-2 py-0.5 rounded-md text-[#1A1410]">{product.material}</span>
+                    <div className="flex items-center justify-between text-[10px] font-black tracking-wider uppercase mb-1 text-[#6E6458]">
+                      <span>{product.category ? product.category.replace(/-/g, ' ') : 'CATEGORY'}</span>
+                      <div className="flex items-center gap-1 font-extrabold text-[#2C241D]">
+                        <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                        <span>{product.rating}</span>
+                      </div>
                     </div>
 
                     <h3
                       onClick={() => navigate(`/product/${product.id}`)}
-                      className="text-xs sm:text-sm font-extrabold text-[#1A1410] tracking-tight line-clamp-1 group-hover:text-[#48A63E] transition-colors cursor-pointer"
+                      className="text-xs sm:text-sm font-extrabold text-[#1C1814] tracking-tight line-clamp-1 group-hover:text-[#48A63E] transition-colors cursor-pointer"
                     >
                       {product.name}
                     </h3>
                     
-                    <div className="flex items-center gap-1 mt-1 text-[11px] font-bold text-[#7A6C5E]">
-                      <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                      <span>{product.rating}</span>
-                      <span className="text-[#9E9082]">({product.reviewCount || 12})</span>
-                    </div>
+                    <p className="text-[11px] font-semibold text-[#6E6458] truncate mt-0.5">
+                      {product.material || 'Italian Velvet & Teak'}
+                    </p>
                   </div>
 
                   {/* Pricing & Add to Cart Action */}
-                  <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between gap-1">
+                  <div className="pt-2 border-t border-[#EAE0D4] flex items-center justify-between gap-1">
                     <div>
-                      <div className="text-sm sm:text-base font-extrabold text-[#2C241D] tracking-tight">
+                      <div className="text-sm sm:text-base font-extrabold text-[#1C1814] tracking-tight">
                         ₹{product.price.toLocaleString('en-IN')}
                       </div>
-
                       {product.originalPrice && (
-                        <div className="text-[10px] text-[#9E9082] line-through -mt-1 font-semibold">
+                        <div className="text-[10px] text-[#9E9082] line-through -mt-0.5 font-semibold">
                           ₹{product.originalPrice.toLocaleString('en-IN')}
                         </div>
                       )}
                     </div>
 
-                    <button
-                      onClick={() => handleCartClick(product)}
-                      className="px-3 py-2 rounded-xl text-[11px] font-extrabold bg-[#48A63E] hover:bg-[#3D9134] text-white shadow-sm transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap"
-                    >
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>{isCartAdded ? 'In Cart' : 'Add'}</span>
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleWishlistClick(product);
+                        }}
+                        className={`text-[11px] font-extrabold hover:underline transition-colors ${
+                          isWishlisted ? 'text-rose-600' : 'text-[#6E6458] hover:text-[#1C1814]'
+                        }`}
+                      >
+                        Wishlist
+                      </button>
+                      <button
+                        onClick={() => handleCartClick(product)}
+                        className={`px-4 py-1.5 rounded-full text-[11px] font-extrabold text-white shadow-2xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap bg-[#48A63E] hover:bg-[#3D9134]`}
+                      >
+                        <ShoppingBag className="w-3.5 h-3.5" />
+                        <span>{isCartAdded ? 'In Cart' : 'Add to Cart'}</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -245,7 +252,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 <h3 className="text-lg font-extrabold text-[#2C241D]">{quickViewProduct.name}</h3>
               </div>
               <button onClick={() => setQuickViewProduct(null)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
             
@@ -265,7 +272,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 }}
                 className="flex-1 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2"
               >
-                <ShoppingBag className="w-4 h-4" /> Add to Cart
+                <ShoppingBag className="w-4 h-4" /> {cartIds.includes(quickViewProduct.id) ? 'Go to Cart' : 'Add to Cart'}
               </button>
               <button
                 onClick={() => {

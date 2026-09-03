@@ -4,22 +4,30 @@ const BASE_URL = `/api/production`;
 async function safeFetchProd(endpoint: string, options?: RequestInit): Promise<Response> {
   const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
+  const token = localStorage.getItem('access_token');
+  const headers = {
+    ...(options?.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
+  const reqOptions: RequestInit = {
+    ...options,
+    headers
+  };
+
   // 1. First try relative URL `/api/production${cleanPath}` (uses Vite dev proxy seamlessly)
   const relativeUrl = `/api/production${cleanPath}`;
   try {
-    const res = await fetch(relativeUrl, options);
+    const res = await fetch(relativeUrl, reqOptions);
     return res;
   } catch (relativeErr) {
     // 2. Fallback to direct IPv4 backend URL if proxy is bypassed
     const directUrl127 = `http://127.0.0.1:8000/api/production${cleanPath}`;
     try {
-      const newOptions = options ? { ...options } : undefined;
-      return await fetch(directUrl127, newOptions);
+      return await fetch(directUrl127, reqOptions);
     } catch (directErr) {
       const directUrlLocal = `http://localhost:8000/api/production${cleanPath}`;
       try {
-        const newOptions2 = options ? { ...options } : undefined;
-        return await fetch(directUrlLocal, newOptions2);
+        return await fetch(directUrlLocal, reqOptions);
       } catch (lastErr) {
         throw lastErr || directErr || relativeErr;
       }
@@ -53,6 +61,8 @@ export interface CustomOrderData {
   order_status: 'Pending' | 'Approved' | 'Rejected' | 'In Production' | 'Completed' | string;
   order_date: string;
   assigned_workers: AssignedWorker[];
+  production_staff_id?: number;
+  production_staff_name?: string;
   current_stage: string;
   progress_percentage: number;
   latest_remarks?: string;
@@ -77,10 +87,26 @@ export interface WorkerData {
   email: string;
   phone: string;
   specialization?: string;
-  status: boolean;
+  status: boolean | string;
+  availability_status?: string;
+  active_tasks_count?: number;
+  is_recommended?: boolean;
+  recommendation_reason?: string;
   generated_password?: string;
   email_sent?: boolean;
   email_error?: string;
+}
+
+export interface ProductionSupervisorWorkload {
+  supervisor_id: number;
+  full_name: string;
+  email: string;
+  phone?: string;
+  active_jobs_count: number;
+  assessments_count: number;
+  total_active_load: number;
+  is_recommended: boolean;
+  recommendation_reason?: string;
 }
 
 export interface ProgressTimelineItem {
@@ -137,22 +163,10 @@ export const getStoredCustomOrders = (): CustomOrderData[] => {
 
 export const getAllUserStoredCustomOrders = (): CustomOrderData[] => {
   try {
-    const allOrders: CustomOrderData[] = [];
+    // Purge legacy storage keys to ensure state strictly mirrors Database
     const keys = Object.keys(localStorage).filter(k => k.startsWith(BASE_CUSTOM_KEY));
-    keys.forEach(k => {
-      const raw = localStorage.getItem(k);
-      if (raw) {
-        try {
-          const parsed: CustomOrderData[] = JSON.parse(raw);
-          allOrders.push(...parsed);
-        } catch { }
-      }
-    });
-
-    // Deduplicate by custom_order_id and filter out removed orders (102, 13)
-    const map = new Map<number, CustomOrderData>();
-    allOrders.filter(o => o.custom_order_id !== 102 && o.custom_order_id !== 13).forEach(o => map.set(o.custom_order_id, o));
-    return Array.from(map.values());
+    keys.forEach(k => localStorage.removeItem(k));
+    return [];
   } catch {
     return [];
   }
@@ -161,7 +175,8 @@ export const getAllUserStoredCustomOrders = (): CustomOrderData[] => {
 export const saveStoredCustomOrders = (orders: CustomOrderData[]) => {
   try {
     const key = getUserCustomKey();
-    const filtered = orders.filter(o => o.custom_order_id !== 13 && o.custom_order_id !== 102);
+    const excludedIds = [103, 102, 13, 28, 101, 14];
+    const filtered = orders.filter(o => !excludedIds.includes(o.custom_order_id));
     localStorage.setItem(key, JSON.stringify(filtered));
   } catch (e) {
     console.warn('Failed to persist custom orders to localStorage:', e);
@@ -240,34 +255,32 @@ export const ORDER_14_FALLBACK: CustomOrderData = {
   latest_remarks: 'Carpentry completed by Nimish K. Assembly & QA currently in progress by Geetha Devi.'
 };
 
-export const INITIAL_DEMO_CUSTOM_ORDERS: CustomOrderData[] = [ORDER_14_FALLBACK];
+export const INITIAL_DEMO_CUSTOM_ORDERS: CustomOrderData[] = [];
 
 export function isCustomerOrderMatch(o: CustomOrderData, userObj: any): boolean {
   if (!userObj) return false;
 
   const sEmail = (userObj?.email || userObj?.customer_email || localStorage.getItem('user_email') || '').toLowerCase().trim();
-  const sUserId = userObj?.id || userObj?.user_id || userObj?.customer_id;
-  const sName = (userObj?.full_name || userObj?.username || userObj?.name || '').toLowerCase().trim();
+  const sUserId = userObj?.id || userObj?.user_id;
+  const sCustomerId = userObj?.customer?.customer_id || userObj?.customer_id;
 
   const oEmail = (o.customer_email || '').toLowerCase().trim();
   const oCustId = o.customer_id;
-  const oName = (o.customer_name || '').toLowerCase().trim();
 
-  // 1. Exact Match by Customer ID / User ID
+  // 1. Strict Match by Customer ID
+  if (sCustomerId && oCustId && Number(oCustId) === Number(sCustomerId)) return true;
+
+  // 2. Strict Match by User ID
   if (sUserId && oCustId && Number(oCustId) === Number(sUserId)) return true;
 
-  // 2. Exact Match by Email (if email is non-empty)
-  if (sEmail && oEmail && sEmail === oEmail && !sEmail.includes('example.com')) return true;
-
-  // 3. Exact Match by Full Name (excluding generic fallback strings)
-  const genericNames = ['customer', 'valued customer', 'user', 'guest', 'bespoke customer'];
-  if (sName && oName && sName === oName && !genericNames.includes(sName)) return true;
+  // 3. Strict Match by Exact Email
+  if (sEmail && oEmail && sEmail === oEmail) return true;
 
   return false;
 }
 
 // API Methods with Fallback to Persisted Data
-export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false, workerId?: number): Promise<CustomOrderData[]> {
+export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean = false, workerId?: number, productionStaffId?: number): Promise<CustomOrderData[]> {
   try {
     const rawUser = localStorage.getItem('user') || localStorage.getItem('user_profile');
     const userObj = rawUser ? JSON.parse(rawUser) : null;
@@ -275,6 +288,7 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
     const queryParams = new URLSearchParams();
     if (statusFilter && statusFilter !== 'All') queryParams.append('status_filter', statusFilter);
     if (workerId) queryParams.append('worker_id', String(workerId));
+    if (productionStaffId) queryParams.append('production_staff_id', String(productionStaffId));
 
     if (!isStaff && !workerId && userObj) {
       const uEmail = userObj.email || userObj.customer_email || localStorage.getItem('user_email');
@@ -294,16 +308,20 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
         }
       }
     } catch {
-      // Backend request fallback to local persistent store
+      // Backend request failure fallback
     }
 
-    const localOrders = getAllUserStoredCustomOrders();
+    // Purge legacy localStorage custom order keys so state strictly mirrors PostgreSQL/SQLite DB
+    try {
+      const keys = Object.keys(localStorage).filter(k => k.startsWith(BASE_CUSTOM_KEY));
+      keys.forEach(k => localStorage.removeItem(k));
+    } catch {}
+
     const map = new Map<number, CustomOrderData>();
-    map.set(14, ORDER_14_FALLBACK);
-    localOrders.forEach(o => map.set(o.custom_order_id, o));
     dbOrders.forEach(o => map.set(o.custom_order_id, o));
 
-    const allCandidateOrders = Array.from(map.values()).filter(o => o.custom_order_id !== 102);
+    const excludedIds = [103, 102, 13, 28, 101, 14];
+    const allCandidateOrders = Array.from(map.values()).filter(o => !excludedIds.includes(o.custom_order_id));
 
     if (isStaff || workerId) {
       return (!statusFilter || statusFilter === 'All')
@@ -853,7 +871,7 @@ export async function submitCustomOrderRequest(
   const cleanRefImg = referenceImage && referenceImage.trim() ? referenceImage.trim() : undefined;
 
   const uEmail = (userObj?.email || userObj?.customer_email || localStorage.getItem('user_email') || '').toLowerCase().trim();
-  const uId = userObj?.customer_id || userObj?.user_id || userObj?.id || (uEmail ? Math.abs(uEmail.split('').reduce((a: number, b: string) => ((a << 5) - a) + b.charCodeAt(0), 0)) : null);
+  const uId = userObj?.customer?.customer_id || userObj?.customer_id || userObj?.user_id || userObj?.id || (uEmail ? Math.abs(uEmail.split('').reduce((a: number, b: string) => ((a << 5) - a) + b.charCodeAt(0), 0)) : null);
   const uName = userObj?.full_name || userObj?.username || userObj?.name || (uEmail ? uEmail.split('@')[0] : 'Customer');
 
   const payload = {
@@ -1183,17 +1201,41 @@ export interface ProductionReportsData {
 
 // 1. Fetch Production Dashboard Overview Stats & Active Production
 export async function fetchProductionDashboardOverview(): Promise<ProductionOverviewData> {
-  const res = await safeFetchProd('/dashboard/overview');
-  if (!res.ok) throw new Error('Failed to fetch production overview');
-  return await res.json();
+  try {
+    const res = await safeFetchProd('/dashboard/overview');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch {}
+  return {
+    metrics: {
+      pending_assessment: 0,
+      quotation_pending: 0,
+      customer_approved: 0,
+      material_pending: 0,
+      in_production: 0,
+      qc_pending: 0,
+      rework: 0,
+      completed_today: 0,
+    },
+    priorities: [],
+    active_production: []
+  };
 }
 
 // 2. Fetch Assessment Queue (Approved requests only)
 export async function fetchAssessmentQueue(categoryFilter: string = 'ALL', tabFilter: string = 'ALL'): Promise<AssessmentQueueItem[]> {
-  const query = new URLSearchParams({ category_filter: categoryFilter, tab_filter: tabFilter });
-  const res = await safeFetchProd(`/assessment-queue?${query.toString()}`);
-  if (!res.ok) throw new Error('Failed to fetch assessment queue');
-  return await res.json();
+  try {
+    const query = new URLSearchParams({ category_filter: categoryFilter, tab_filter: tabFilter });
+    const res = await safeFetchProd(`/assessment-queue?${query.toString()}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data)) return data;
+    }
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 // 3. Save Technical Assessment
@@ -1356,3 +1398,24 @@ export async function fetchProductionReports(): Promise<ProductionReportsData> {
   return await res.json();
 }
 
+// 18. Fetch Supervisor Workloads
+export async function fetchSupervisorWorkload(): Promise<ProductionSupervisorWorkload[]> {
+  const res = await safeFetchProd('/supervisor-workload');
+  if (!res.ok) return [];
+  return await res.json();
+}
+
+// 19. Assign Production Supervisor to Custom Order
+export async function assignProductionSupervisor(orderId: number, supervisorId: number): Promise<boolean> {
+  try {
+    const res = await safeFetchProd(`/custom-orders/${orderId}/assign-supervisor`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ supervisor_id: supervisorId })
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('Error assigning supervisor:', err);
+    return false;
+  }
+}

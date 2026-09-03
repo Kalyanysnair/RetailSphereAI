@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
+import { clearUserSession } from '../../utils/sessionUtils';
 import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
 import { MachineryTab } from './MachineryTab';
 import { RawMaterialsTab } from './RawMaterialsTab';
 import { QualityControlTab } from './QualityControlTab';
 import { ProductionAiSuiteTab } from './ProductionAiSuiteTab';
 import {
+  LayoutDashboard,
   Wrench,
   PackageCheck,
   Clock,
@@ -80,6 +82,8 @@ import {
   fetchOrderProductionHistory,
   fetchOnsiteJobsForProduction,
   fetchProductionReports,
+  fetchSupervisorWorkload,
+  assignProductionSupervisor,
   ProductionOverviewData,
   AssessmentQueueItem,
   TechnicalAssessmentData,
@@ -87,7 +91,8 @@ import {
   ProductionStageData,
   ProductionHistoryItem,
   OnsiteJobData,
-  ProductionReportsData
+  ProductionReportsData,
+  ProductionSupervisorWorkload
 } from '../../services/api_production';
 import {
   fetchQueriesFromDB,
@@ -197,13 +202,18 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [quoteDuration, setQuoteDuration] = useState('3 Working Days');
   const [quoteNotes, setQuoteNotes] = useState('');
 
-  // 5. Stage-by-Stage Worker Assignment State
+  // 5. Stage-by-Stage Worker Assignment & Multi-Supervisor State
   const [stageAssignOrder, setStageAssignOrder] = useState<any | null>(null);
   const [stageAssignList, setStageAssignList] = useState<ProductionStageData[]>([]);
   const [selectedStageToAssign, setSelectedStageToAssign] = useState<ProductionStageData | null>(null);
   const [availableSkillWorkers, setAvailableSkillWorkers] = useState<WorkerData[]>([]);
   const [selectedSkillWorkerId, setSelectedSkillWorkerId] = useState<number | ''>('');
   const [stageAssignNotes, setStageAssignNotes] = useState('');
+
+  const [supervisorWorkloadList, setSupervisorWorkloadList] = useState<ProductionSupervisorWorkload[]>([]);
+  const [assignedSupervisorFilter, setAssignedSupervisorFilter] = useState<'ALL' | 'MY_OVERSEEN'>('ALL');
+  const [currentSupervisorId] = useState<number>(3); // Default to Supervisor A (id: 3)
+  const [recommendedWorkerForStage, setRecommendedWorkerForStage] = useState<WorkerData | null>(null);
 
   // 6. Material Receipt State
   const [selectedMaterialOrder, setSelectedMaterialOrder] = useState<any | null>(null);
@@ -238,6 +248,196 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [assignFormNotes, setAssignFormNotes] = useState<string>('');
   const [workerDeptFilter, setWorkerDeptFilter] = useState<'All' | 'Woodwork & Carpentry' | 'Upholstery' | 'Assembly'>('All');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('Woodwork & Carpentry');
+
+  // Feature 1: Fabrication Details State
+  const [fabricationJobs, setFabricationJobs] = useState<any[]>([
+    {
+      fabrication_id: 'FAB-2026-001',
+      order_id: 'REQ-8041',
+      product_name: 'Royal Teak 8-Seater Dining Table',
+      product_thumbnail: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?w=300&auto=format&fit=crop&q=60',
+      quantity: '2 Units',
+      material_required: 'Grade-A Teak Wood, Brass Inlay Hardware',
+      assigned_team: 'Joinery Team Alpha',
+      priority: 'High',
+      expected_completion_date: '05 Sep 2026',
+      status: 'In Progress',
+      progress_percentage: 65
+    },
+    {
+      fabrication_id: 'FAB-2026-002',
+      order_id: '#CUS-104',
+      product_name: 'Chesterfield Velvet Armchair & Ottoman',
+      product_thumbnail: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=300&auto=format&fit=crop&q=60',
+      quantity: '4 Units',
+      material_required: 'Italian Royal Blue Velvet, High-Density Latex Foam',
+      assigned_team: 'Upholstery Crew Beta',
+      priority: 'Medium',
+      expected_completion_date: '09 Sep 2026',
+      status: 'Quality Check',
+      progress_percentage: 90
+    },
+    {
+      fabrication_id: 'FAB-2026-003',
+      order_id: 'REQ-7910',
+      product_name: 'Modular Executive Office Console Desk',
+      product_thumbnail: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=300&auto=format&fit=crop&q=60',
+      quantity: '1 Suite',
+      material_required: 'Walnut Veneer, Matte Powder-Coated Steel Frame',
+      assigned_team: 'Metal & Wood Hybrid Crew',
+      priority: 'High',
+      expected_completion_date: '03 Sep 2026',
+      status: 'Pending',
+      progress_percentage: 15
+    },
+    {
+      fabrication_id: 'FAB-2026-004',
+      order_id: '#ORD-992',
+      product_name: 'Acoustic Slatted Timber Wall Panels',
+      product_thumbnail: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300&auto=format&fit=crop&q=60',
+      quantity: '12 Panels',
+      material_required: 'White Oak Slats, Sound-Dampening Felt Backing',
+      assigned_team: 'Paneling & Surface Team',
+      priority: 'Low',
+      expected_completion_date: '14 Sep 2026',
+      status: 'In Progress',
+      progress_percentage: 40
+    },
+    {
+      fabrication_id: 'FAB-2026-005',
+      order_id: 'REQ-8105',
+      product_name: 'Bespoke Marble-Top Buffet Credenza',
+      product_thumbnail: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=300&auto=format&fit=crop&q=60',
+      quantity: '1 Unit',
+      material_required: 'Carrara White Marble, Solid Oak Base, Soft-Close Hinges',
+      assigned_team: 'Master Carving & Finish Team',
+      priority: 'High',
+      expected_completion_date: '01 Sep 2026',
+      status: 'Completed',
+      progress_percentage: 100
+    }
+  ]);
+  const [fabSearchQuery, setFabSearchQuery] = useState('');
+  const [fabStatusFilter, setFabStatusFilter] = useState('All');
+  const [selectedFabJobModal, setSelectedFabJobModal] = useState<any | null>(null);
+
+  // Feature 2: Approved On-Site Requests State
+  const [approvedOnsiteRequests, setApprovedOnsiteRequests] = useState<any[]>([
+    {
+      request_id: 'OSR-2026-801',
+      store_name: 'RetailSphere Flagship Store - Downtown',
+      store_location: '742 Evergreen Plaza, Central Business District',
+      product_name: 'Interactive Teak Kiosk & Display Counters',
+      requested_quantity: '3 Units',
+      request_date: '20 Aug 2026',
+      required_installation_date: '06 Sep 2026',
+      priority: 'High',
+      assigned_production_team: 'On-Site Assembly Crew #1',
+      production_status: 'Approved & Ready',
+      store_contact: 'Marcus Vance (Store Manager) - +1 (555) 234-8901',
+      special_instructions: 'Night installation preferred (after 9 PM store closing). Cable conduits required in base frame.'
+    },
+    {
+      request_id: 'OSR-2026-802',
+      store_name: 'Westside Furniture Experience Hub',
+      store_location: '1200 Galleria Mall, West Bay District',
+      product_name: 'Custom LED Backlit Acoustic Feature Wall',
+      requested_quantity: '1 Suite (8 Panels)',
+      request_date: '24 Aug 2026',
+      required_installation_date: '10 Sep 2026',
+      priority: 'Medium',
+      assigned_production_team: 'Joinery & Fitting Team B',
+      production_status: 'In Production',
+      store_contact: 'Elena Rostova (Retail Operations) - +1 (555) 876-5432',
+      special_instructions: 'Integrate 24V LED strip channels with dimmable driver module.'
+    },
+    {
+      request_id: 'OSR-2026-803',
+      store_name: 'Metropolis Design Studio & Outlet',
+      store_location: '88 Tech Park Boulevard, North Sector',
+      product_name: 'Luxury Quartz-Top Reception Desk & Branding Wall',
+      requested_quantity: '1 Set',
+      request_date: '26 Aug 2026',
+      required_installation_date: '15 Sep 2026',
+      priority: 'High',
+      assigned_production_team: 'Millwork Production Crew',
+      production_status: 'Approved & Ready',
+      store_contact: 'David Kim (Brand Director) - +1 (555) 432-1098',
+      special_instructions: 'Modular split assembly needed to fit through standard 36-inch store entry doors.'
+    },
+    {
+      request_id: 'OSR-2026-804',
+      store_name: 'Grand Avenue Flagship Emporium',
+      store_location: '500 Grand Avenue, Financial District',
+      product_name: 'Brass-Trimmed Velvet VIP Lounge Seating Units',
+      requested_quantity: '6 Units',
+      request_date: '18 Aug 2026',
+      required_installation_date: '04 Sep 2026',
+      priority: 'Medium',
+      assigned_production_team: 'Upholstery & Site Fitting Crew',
+      production_status: 'Ready for Dispatch',
+      store_contact: 'Sophia Martinez (Floor Lead) - +1 (555) 654-3210',
+      special_instructions: 'Stain-resistant nano-coat applied. Includes gold-brushed steel base clips.'
+    }
+  ]);
+  const [onsiteSearchQuery, setOnsiteSearchQuery] = useState('');
+  const [onsiteStatusFilter, setOnsiteStatusFilter] = useState('All');
+  const [selectedOnsiteRequestModal, setSelectedOnsiteRequestModal] = useState<any | null>(null);
+
+  const handleMarkOnsiteInProduction = (reqId: string) => {
+    setApprovedOnsiteRequests(prev => prev.map(item => {
+      if (item.request_id === reqId) {
+        return { ...item, production_status: 'In Production' };
+      }
+      return item;
+    }));
+    setSuccessNotice(`On-Site Request ${reqId} marked as 'In Production'. Shop floor work scheduled.`);
+    setTimeout(() => setSuccessNotice(null), 5000);
+  };
+
+  const handleMarkOnsiteReadyForDispatch = (reqId: string) => {
+    setApprovedOnsiteRequests(prev => prev.map(item => {
+      if (item.request_id === reqId) {
+        return { ...item, production_status: 'Ready for Dispatch' };
+      }
+      return item;
+    }));
+    setSuccessNotice(`On-Site Request ${reqId} marked as 'Ready for Dispatch'. Transferred to dispatch log.`);
+    setTimeout(() => setSuccessNotice(null), 5000);
+  };
+
+  const filteredFabJobs = React.useMemo(() => {
+    return fabricationJobs.filter((job) => {
+      const matchesSearch =
+        !fabSearchQuery ||
+        job.product_name.toLowerCase().includes(fabSearchQuery.toLowerCase()) ||
+        job.fabrication_id.toLowerCase().includes(fabSearchQuery.toLowerCase()) ||
+        job.order_id.toLowerCase().includes(fabSearchQuery.toLowerCase()) ||
+        job.material_required.toLowerCase().includes(fabSearchQuery.toLowerCase()) ||
+        job.assigned_team.toLowerCase().includes(fabSearchQuery.toLowerCase());
+
+      const matchesStatus =
+        fabStatusFilter === 'All' || job.status.toLowerCase() === fabStatusFilter.toLowerCase();
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [fabricationJobs, fabSearchQuery, fabStatusFilter]);
+
+  const filteredOnsiteRequests = React.useMemo(() => {
+    return approvedOnsiteRequests.filter((req) => {
+      const matchesSearch =
+        !onsiteSearchQuery ||
+        req.store_name.toLowerCase().includes(onsiteSearchQuery.toLowerCase()) ||
+        req.request_id.toLowerCase().includes(onsiteSearchQuery.toLowerCase()) ||
+        req.product_name.toLowerCase().includes(onsiteSearchQuery.toLowerCase()) ||
+        req.assigned_production_team.toLowerCase().includes(onsiteSearchQuery.toLowerCase());
+
+      const matchesStatus =
+        onsiteStatusFilter === 'All' || req.production_status.toLowerCase() === onsiteStatusFilter.toLowerCase();
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [approvedOnsiteRequests, onsiteSearchQuery, onsiteStatusFilter]);
 
   const getRequiredProductionStages = (furnitureType?: string, material?: string, designDesc?: string) => {
     const typeStr = (furnitureType || '').toLowerCase();
@@ -466,16 +666,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const loadQueueData = async (catFilt: string = assessmentCategoryFilter, tabFilt: string = assessmentTabFilter) => {
     try {
       const q = await fetchAssessmentQueue(catFilt, tabFilt);
-      setAssessmentQueue(q);
+      setAssessmentQueue(q || []);
     } catch (err) {
-      console.error('Error fetching queue:', err);
+      console.error('Error fetching assessment queue:', err);
     }
   };
 
   useEffect(() => {
-    if (activeTab === 'assessment_queue' || activeTab === 'approvals') {
-      loadQueueData(assessmentCategoryFilter, assessmentTabFilter);
-    }
+    loadOverviewData();
+    loadQueueData(assessmentCategoryFilter, assessmentTabFilter);
   }, [assessmentCategoryFilter, assessmentTabFilter, activeTab]);
 
   const loadOnsiteData = async () => {
@@ -701,11 +900,30 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     }
   };
 
+  const loadSupervisorWorkloadData = async () => {
+    try {
+      const workloads = await fetchSupervisorWorkload();
+      setSupervisorWorkloadList(workloads);
+    } catch (err) {
+      console.error('Error fetching supervisor workloads:', err);
+    }
+  };
+
+  const handleAssignSupervisorToCustomOrder = async (orderId: number, supervisorId: number) => {
+    const ok = await assignProductionSupervisor(orderId, supervisorId);
+    if (ok) {
+      setSuccessNotice(`Production Supervisor assigned to Order #${orderId}`);
+      setTimeout(() => setSuccessNotice(null), 4000);
+      await loadData();
+    }
+  };
+
   const loadData = async () => {
     setIsLoading(true);
     try {
+      const supFilterId = assignedSupervisorFilter === 'MY_OVERSEEN' ? currentSupervisorId : undefined;
       const [orderList, workerList] = await Promise.all([
-        fetchCustomOrders('All', true),
+        fetchCustomOrders('All', true, undefined, supFilterId),
         fetchWorkers()
       ]);
       setOrders(orderList);
@@ -715,7 +933,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         loadQueueData(),
         loadOnsiteData(),
         loadReportsData(),
-        loadLeaveRequestsData()
+        loadLeaveRequestsData(),
+        loadSupervisorWorkloadData()
       ]);
     } catch (err) {
       console.error('Error loading production data:', err);
@@ -736,13 +955,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       window.removeEventListener('leave-requests-updated', loadLeaveRequestsData);
       window.removeEventListener('storage', loadData);
     };
-  }, []);
+  }, [assignedSupervisorFilter]);
 
   const unreadNotifCount = notifications.filter(n => n.unread).length;
 
   const handleLogout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
+    clearUserSession();
     navigate('/login');
   };
 
@@ -968,6 +1186,27 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleAssignWorkerSubmit = async () => {
     if (!selectedOrderForWorker || !selectedWorkerId) return;
+    const workerObj = workers.find(w => w.worker_id === selectedWorkerId);
+    const workerName = workerObj ? workerObj.full_name : 'Artisan Worker';
+
+    setOrders(prev => prev.map(ord => {
+      if (ord.custom_order_id === selectedOrderForWorker.custom_order_id) {
+        const existing = ord.assigned_workers || [];
+        const updated = [...existing.filter(w => w.worker_id !== selectedWorkerId), {
+          assignment_id: Date.now(),
+          worker_id: selectedWorkerId,
+          worker_name: workerName,
+          task_status: `${selectedDepartment || 'Production'}: Assigned`
+        }];
+        return {
+          ...ord,
+          assigned_workers: updated,
+          order_status: ord.order_status === 'Approved' ? 'In Production' : ord.order_status
+        };
+      }
+      return ord;
+    }));
+
     await assignWorkerTask(selectedOrderForWorker.custom_order_id, selectedWorkerId, selectedDepartment);
     setSelectedOrderForWorker(null);
     setSelectedWorkerId(null);
@@ -978,6 +1217,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleUnassignWorker = async (orderId: number, workerId: number, workerName: string) => {
     try {
+      setOrders(prev => prev.map(ord => {
+        if (ord.custom_order_id === orderId) {
+          const updated = (ord.assigned_workers || []).filter(w => w.worker_id !== workerId && w.assignment_id !== workerId);
+          return { ...ord, assigned_workers: updated };
+        }
+        return ord;
+      }));
+
       await unassignWorkerTask(orderId, workerId);
       setSuccessNotice(`Removed ${workerName} from Order #${orderId}.`);
       setTimeout(() => setSuccessNotice(null), 4000);
@@ -990,8 +1237,30 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const handleDirectAssignSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignFormOrderId || !assignFormWorkerId) return;
-    await assignWorkerTask(Number(assignFormOrderId), Number(assignFormWorkerId), assignFormDepartment);
-    const targetW = workers.find(w => w.worker_id === Number(assignFormWorkerId));
+    const orderIdNum = Number(assignFormOrderId);
+    const workerIdNum = Number(assignFormWorkerId);
+    const targetW = workers.find(w => w.worker_id === workerIdNum);
+    const workerName = targetW ? targetW.full_name : 'Artisan Worker';
+
+    setOrders(prev => prev.map(ord => {
+      if (ord.custom_order_id === orderIdNum) {
+        const existing = ord.assigned_workers || [];
+        const updated = [...existing.filter(w => w.worker_id !== workerIdNum), {
+          assignment_id: Date.now(),
+          worker_id: workerIdNum,
+          worker_name: workerName,
+          task_status: `${assignFormDepartment || 'Production'}: Assigned`
+        }];
+        return {
+          ...ord,
+          assigned_workers: updated,
+          order_status: ord.order_status === 'Approved' ? 'In Production' : ord.order_status
+        };
+      }
+      return ord;
+    }));
+
+    await assignWorkerTask(orderIdNum, workerIdNum, assignFormDepartment);
     setAssignFormOrderId('');
     setAssignFormWorkerId('');
     setAssignFormNotes('');
@@ -1207,269 +1476,230 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       />
       <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
 
-      {/* LEFT SIDEBAR NAVIGATION PANEL */}
-      <aside className="w-72 flex-shrink-0 min-h-screen hidden md:block border-r border-[#D8CCBD] bg-[#E5DCD0]/80 backdrop-blur-xl p-6 space-y-8 relative z-20 shadow-sm">
-        {/* Logo */}
-        <div className="space-y-1">
-          <h2 className="text-2xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-1.5">
-            <span>RetailSphere</span>
-            <span className="text-[#38A132]">AI</span>
-          </h2>
-          <span className="text-[11px] font-extrabold text-[#38A132] uppercase tracking-[0.2em] block font-mono">
-            PRODUCTION STAFF PORTAL
-          </span>
+      {/* LEFT SIDEBAR (Matching Retail Staff Portal Visual Style, Fonts, and Subheadings) */}
+      <aside className="w-72 ultra-glass-panel border-r border-[#E2D7CB] hidden md:flex flex-col justify-between p-6 shadow-xl sticky top-0 h-screen min-h-screen z-20 flex-shrink-0">
+        <div className="space-y-8">
+          {/* Brand Logo */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Link to="/dashboard" className="font-extrabold text-[#2C241D] text-lg tracking-tight block hover:opacity-90 transition-opacity">
+                RetailSphere <span className="text-[#48A63E]">AI</span>
+              </Link>
+              <span className="text-[10px] font-extrabold text-[#48A63E] uppercase tracking-widest block font-mono -mt-0.5">
+                Production Staff Portal
+              </span>
+            </div>
+          </div>
+
+          {/* Sidebar Scrollable Nav List */}
+          <div className="overflow-y-auto max-h-[calc(100vh-140px)] pr-1 space-y-5 scrollbar-none">
+            {/* Category 1: Workshop Control Center */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Workshop Control Center
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+                  {
+                    id: 'assessment_queue',
+                    label: 'Assessment & Quotation',
+                    icon: FileText,
+                    badge: ((overviewData?.metrics?.pending_assessment || 0) + (overviewData?.metrics?.quotation_pending || 0)),
+                    badgeColor: 'bg-amber-600'
+                  },
+                  {
+                    id: 'planning',
+                    label: 'Production Planning',
+                    icon: Layers,
+                    badge: overviewData?.metrics?.customer_approved,
+                    badgeColor: 'bg-emerald-600'
+                  },
+                  {
+                    id: 'active_production',
+                    label: 'Active Production',
+                    icon: Clock,
+                    badge: overviewData?.metrics?.in_production,
+                    badgeColor: 'bg-indigo-600'
+                  },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id ||
+                    (item.id === 'assessment_queue' && (activeTab === 'approvals' || activeTab === 'quotations')) ||
+                    (item.id === 'active_production' && (activeTab === 'orders' || activeTab === 'assignments'));
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-600'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Category 2: Artisan & Work Force */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Artisan & Work Force
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  { id: 'workers', label: 'Workers Directory', icon: Users },
+                  {
+                    id: 'leave',
+                    label: 'Worker Leave Requests',
+                    icon: Clock,
+                    badge: leaveRequests.filter(l => l.status === 'Pending').length,
+                    badgeColor: 'bg-amber-500'
+                  },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-500'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Category 3: Material & Quality Management */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Material & Quality Management
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  {
+                    id: 'materials',
+                    label: 'Materials & Stocks',
+                    icon: PackageCheck,
+                    badge: overviewData?.metrics?.material_pending,
+                    badgeColor: 'bg-amber-700'
+                  },
+                  {
+                    id: 'quality',
+                    label: 'Quality & Rework',
+                    icon: CheckCircle2,
+                    badge: overviewData?.metrics?.qc_pending,
+                    badgeColor: 'bg-purple-600'
+                  },
+                  {
+                    id: 'completed',
+                    label: 'Completed Jobs',
+                    icon: Check,
+                    badge: overviewData?.metrics?.completed_today,
+                    badgeColor: 'bg-teal-600'
+                  },
+                  { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id || (item.id === 'materials' && activeTab === 'raw_materials');
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-700'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Category 4: Intelligence & Administration */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Intelligence & Administration
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  { id: 'reports', label: 'Reports & Analytics', icon: FileText },
+                  { id: 'machines', label: 'Machinery Manager', icon: Sliders },
+                  { id: 'ai_insights', label: 'AI Production Suite', icon: Sparkles },
+                  { id: 'queries', label: 'Queries & Support', icon: MessageSquare },
+                  { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
+                  {
+                    id: 'admin_messages',
+                    label: 'Admin Directives',
+                    icon: Mail,
+                    badge: unreadAdminMsgsCount,
+                    badgeColor: 'bg-amber-500 animate-pulse'
+                  },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-500'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
         </div>
-
-        {/* Sidebar Navigation */}
-        <nav className="space-y-1.5 text-xs font-extrabold overflow-y-auto max-h-[calc(100vh-140px)] pr-1">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'dashboard'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Sliders className="w-4 h-4" />
-              <span className="text-xs">Dashboard Overview</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('assessment_queue')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <FileText className="w-4 h-4 flex-shrink-0" />
-              <span className="text-xs whitespace-nowrap">Assessment & Quotation</span>
-            </div>
-            {((overviewData?.metrics?.pending_assessment || 0) + (overviewData?.metrics?.quotation_pending || 0)) > 0 ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-600 text-white">
-                {(overviewData?.metrics?.pending_assessment || 0) + (overviewData?.metrics?.quotation_pending || 0)}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('planning')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'planning'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Layers className="w-4 h-4" />
-              <span className="text-xs">Production Planning</span>
-            </div>
-            {overviewData?.metrics?.customer_approved ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-emerald-600 text-white">
-                {overviewData.metrics.customer_approved}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('active_production')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Active Production</span>
-            </div>
-            {overviewData?.metrics?.in_production ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-indigo-600 text-white">
-                {overviewData.metrics.in_production}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('workers')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'workers'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Users className="w-4 h-4" />
-              <span className="text-xs">Workers Directory</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('leave')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'leave'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">Worker Leave Requests</span>
-            </div>
-            {leaveRequests.filter(l => l.status === 'Pending').length > 0 && (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white">
-                {leaveRequests.filter(l => l.status === 'Pending').length}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('materials')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'materials' || activeTab === 'raw_materials'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <PackageCheck className="w-4 h-4" />
-              <span className="text-xs">Materials & Stocks</span>
-            </div>
-            {overviewData?.metrics?.material_pending ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-700 text-white">
-                {overviewData.metrics.material_pending}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('quality')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'quality'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="text-xs">Quality & Rework</span>
-            </div>
-            {overviewData?.metrics?.qc_pending ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-purple-600 text-white">
-                {overviewData.metrics.qc_pending}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('completed')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'completed'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Check className="w-4 h-4" />
-              <span className="text-xs">Completed Jobs</span>
-            </div>
-            {overviewData?.metrics?.completed_today ? (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-teal-600 text-white">
-                {overviewData.metrics.completed_today}
-              </span>
-            ) : null}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('onsite')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'onsite'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Sparkles className="w-4 h-4" />
-              <span className="text-xs">On-Site Jobs</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('reports')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'reports'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <FileText className="w-4 h-4" />
-              <span className="text-xs">Reports & Analytics</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('machines')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'machines'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Sliders className="w-4 h-4" />
-              <span className="text-xs">Machinery</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('ai_insights')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'ai_insights'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Sparkles className="w-4 h-4" />
-              <span className="text-xs">AI Suite</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('queries')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'queries'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <MessageSquare className="w-4 h-4" />
-              <span className="text-xs">Queries & Support</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('coupons')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'coupons'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Tag className="w-4 h-4" />
-              <span className="text-xs">Coupons & Offers</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('admin_messages')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${activeTab === 'admin_messages'
-              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-              : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-              }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Mail className="w-4 h-4" />
-              <span className="text-xs">Admin Directives</span>
-            </div>
-            {unreadAdminMsgsCount > 0 && (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white animate-pulse">
-                {unreadAdminMsgsCount}
-              </span>
-            )}
-          </button>
-        </nav>
       </aside>
 
       {/* RIGHT MAIN CONTENT AREA */}
@@ -1983,6 +2213,344 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* ---------------------------------------------------- */}
+                {/* FEATURE 1: FABRICATION DETAILS SECTION */}
+                {/* ---------------------------------------------------- */}
+                <div id="fabrication-details-section" className="bg-white/80 backdrop-blur-md rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
+                  {/* Section Header */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E2D7CB] pb-4">
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-xl bg-amber-500/10 text-amber-800 border border-amber-500/20">
+                          <Layers className="w-5 h-5 text-amber-800" />
+                        </div>
+                        <h3 className="text-base font-black text-[#2C241D]">Fabrication Details</h3>
+                        <span className="px-2.5 py-0.5 text-xs font-black rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                          {filteredFabJobs.length} {filteredFabJobs.length === 1 ? 'Job' : 'Jobs'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
+                        Production-ready fabrication jobs, material allocations, team assignments, and real-time build progress.
+                      </p>
+                    </div>
+
+                    {/* Search & Filter controls */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Search Input */}
+                      <div className="relative min-w-[200px] flex-1 sm:flex-none">
+                        <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search job, ID, material..."
+                          value={fabSearchQuery}
+                          onChange={(e) => setFabSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-8 py-1.5 rounded-xl border border-[#E2D7CB] bg-white text-xs font-extrabold text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
+                        />
+                        {fabSearchQuery && (
+                          <button onClick={() => setFabSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C7C6D] hover:text-[#2C241D]">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Status Filter Tabs */}
+                      <div className="flex items-center gap-1 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB] text-[11px] font-extrabold flex-wrap sm:flex-nowrap">
+                        {['All', 'Pending', 'In Progress', 'Quality Check', 'Completed'].map((st) => (
+                          <button
+                            key={st}
+                            onClick={() => setFabStatusFilter(st)}
+                            className={`px-2.5 py-1 rounded-lg transition-all ${
+                              fabStatusFilter === st
+                                ? 'bg-[#48A63E] text-white shadow-xs'
+                                : 'text-[#6B5C4D] hover:text-[#2C241D] hover:bg-white/60'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Jobs Cards Grid */}
+                  {filteredFabJobs.length === 0 ? (
+                    <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-2">
+                      <Layers className="w-8 h-8 text-[#A09080] mx-auto" />
+                      <p className="font-extrabold text-sm text-[#2C241D]">No Fabrication Jobs Found</p>
+                      <p className="text-xs text-[#7A6C5E]">No production-ready orders match the selected search query or status filter.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredFabJobs.map((job) => {
+                        let statusBadgeClass = 'bg-amber-100 text-amber-900 border-amber-300';
+                        if (job.status === 'In Progress') statusBadgeClass = 'bg-indigo-100 text-indigo-900 border-indigo-300';
+                        if (job.status === 'Quality Check') statusBadgeClass = 'bg-purple-100 text-purple-900 border-purple-300';
+                        if (job.status === 'Completed') statusBadgeClass = 'bg-emerald-100 text-emerald-900 border-emerald-300';
+
+                        let priorityClass = 'bg-rose-100 text-rose-800 border-rose-300';
+                        if (job.priority === 'Medium') priorityClass = 'bg-amber-100 text-amber-800 border-amber-300';
+                        if (job.priority === 'Low') priorityClass = 'bg-blue-100 text-blue-800 border-blue-300';
+
+                        return (
+                          <div
+                            key={job.fabrication_id}
+                            onClick={() => setSelectedFabJobModal(job)}
+                            className="group bg-white rounded-2xl p-4 border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-[#48A63E]/60 transition-all space-y-3 cursor-pointer flex flex-col justify-between"
+                          >
+                            <div className="space-y-3">
+                              {/* Header Row */}
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
+                                    {job.fabrication_id}
+                                  </span>
+                                  <span className="font-mono text-[11px] font-extrabold text-[#7A6C5E] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
+                                    {job.order_id}
+                                  </span>
+                                </div>
+                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border uppercase ${priorityClass}`}>
+                                  {job.priority} Priority
+                                </span>
+                              </div>
+
+                              {/* Product Info Row with Thumbnail */}
+                              <div className="flex items-start gap-3">
+                                {job.product_thumbnail ? (
+                                  <img
+                                    src={job.product_thumbnail}
+                                    alt={job.product_name}
+                                    className="w-14 h-14 rounded-xl object-cover border border-[#E2D7CB] shrink-0 group-hover:scale-105 transition-transform"
+                                  />
+                                ) : (
+                                  <div className="w-14 h-14 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                                    <Wrench className="w-6 h-6 text-amber-700" />
+                                  </div>
+                                )}
+
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="font-black text-sm text-[#2C241D] truncate leading-tight group-hover:text-[#48A63E] transition-colors">
+                                    {job.product_name}
+                                  </h4>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <span className="text-[11px] font-bold text-[#6B5C4D] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
+                                      Qty: {job.quantity}
+                                    </span>
+                                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${statusBadgeClass}`}>
+                                      {job.status}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Details List */}
+                              <div className="space-y-1.5 pt-2 border-t border-[#EFE7DE] text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="text-[11px] text-[#7A6C5E] font-bold shrink-0">Material Required:</span>
+                                  <span className="text-[11px] text-[#2C241D] font-extrabold text-right truncate max-w-[180px]">
+                                    {job.material_required}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[11px] text-[#7A6C5E] font-bold shrink-0">Assigned Team:</span>
+                                  <span className="text-[11px] text-[#2C241D] font-extrabold flex items-center gap-1">
+                                    <Users className="w-3 h-3 text-[#48A63E]" />
+                                    {job.assigned_team}
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-[11px] text-[#7A6C5E] font-bold shrink-0">Expected Completion:</span>
+                                  <span className="text-[11px] font-mono font-extrabold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                                    {job.expected_completion_date}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Progress Bar Footer */}
+                            <div className="pt-3 space-y-1.5">
+                              <div className="flex items-center justify-between text-[11px] font-extrabold">
+                                <span className="text-[#6B5C4D]">Completion Progress</span>
+                                <span className="text-[#48A63E] font-mono">{job.progress_percentage}%</span>
+                              </div>
+                              <div className="w-full h-2 rounded-full bg-[#FAF7F2] border border-[#E2D7CB] overflow-hidden p-0.5">
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-[#48A63E] to-[#38A132] transition-all duration-500"
+                                  style={{ width: `${job.progress_percentage}%` }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* ---------------------------------------------------- */}
+                {/* FEATURE 2: APPROVED ON-SITE REQUESTS SECTION */}
+                {/* ---------------------------------------------------- */}
+                <div id="approved-onsite-requests-section" className="bg-white/80 backdrop-blur-md rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
+                  {/* Section Header */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E2D7CB] pb-4">
+                    <div>
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 rounded-xl bg-[#48A63E]/10 text-[#48A63E] border border-[#48A63E]/20">
+                          <Sparkles className="w-5 h-5 text-[#48A63E]" />
+                        </div>
+                        <h3 className="text-base font-black text-[#2C241D]">Approved On-Site Requests</h3>
+                        <span className="px-2.5 py-0.5 text-xs font-black rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
+                          Approved by Retail Staff ({filteredOnsiteRequests.length})
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
+                        Retail Staff-approved site installation & display requests ready for workshop fabrication, staging, and dispatch.
+                      </p>
+                    </div>
+
+                    {/* Search & Status Filters */}
+                    <div className="flex flex-wrap items-center gap-3">
+                      {/* Search Input */}
+                      <div className="relative min-w-[200px] flex-1 sm:flex-none">
+                        <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search store, ID, product..."
+                          value={onsiteSearchQuery}
+                          onChange={(e) => setOnsiteSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-8 py-1.5 rounded-xl border border-[#E2D7CB] bg-white text-xs font-extrabold text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
+                        />
+                        {onsiteSearchQuery && (
+                          <button onClick={() => setOnsiteSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C7C6D] hover:text-[#2C241D]">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Filter Tabs */}
+                      <div className="flex items-center gap-1 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB] text-[11px] font-extrabold flex-wrap sm:flex-nowrap">
+                        {['All', 'Approved & Ready', 'In Production', 'Ready for Dispatch'].map((st) => (
+                          <button
+                            key={st}
+                            onClick={() => setOnsiteStatusFilter(st)}
+                            className={`px-2.5 py-1 rounded-lg transition-all ${
+                              onsiteStatusFilter === st
+                                ? 'bg-[#48A63E] text-white shadow-xs'
+                                : 'text-[#6B5C4D] hover:text-[#2C241D] hover:bg-white/60'
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Onsite Cards Grid */}
+                  {filteredOnsiteRequests.length === 0 ? (
+                    <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-2">
+                      <Sparkles className="w-8 h-8 text-[#A09080] mx-auto" />
+                      <p className="font-extrabold text-sm text-[#2C241D]">No Approved On-Site Requests Found</p>
+                      <p className="text-xs text-[#7A6C5E]">No retail staff approved site requests match your active query.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {filteredOnsiteRequests.map((req) => {
+                        let statusBadge = 'bg-emerald-100 text-emerald-900 border-emerald-300';
+                        if (req.production_status === 'In Production') statusBadge = 'bg-indigo-100 text-indigo-900 border-indigo-300';
+                        if (req.production_status === 'Ready for Dispatch') statusBadge = 'bg-teal-100 text-teal-900 border-teal-300';
+
+                        let priorityClass = 'bg-rose-100 text-rose-800 border-rose-300';
+                        if (req.priority === 'Medium') priorityClass = 'bg-amber-100 text-amber-800 border-amber-300';
+                        if (req.priority === 'Low') priorityClass = 'bg-blue-100 text-blue-800 border-blue-300';
+
+                        return (
+                          <div
+                            key={req.request_id}
+                            className="bg-white rounded-2xl p-5 border border-[#E2D7CB] shadow-xs hover:shadow-md transition-all space-y-4 flex flex-col justify-between"
+                          >
+                            <div className="space-y-3">
+                              {/* Header Info */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EFE7DE] pb-3">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
+                                    {req.request_id}
+                                  </span>
+                                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border uppercase ${priorityClass}`}>
+                                    {req.priority} Priority
+                                  </span>
+                                </div>
+                                <span className={`text-[11px] font-black px-3 py-0.5 rounded-full border ${statusBadge}`}>
+                                  {req.production_status}
+                                </span>
+                              </div>
+
+                              {/* Store & Product Detail */}
+                              <div className="space-y-1.5">
+                                <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
+                                  <span className="text-[#48A63E]">🏪</span>
+                                  <span>{req.store_name}</span>
+                                </h4>
+                                <p className="text-xs text-[#6B5C4D] font-medium leading-relaxed pl-6">
+                                  <span className="font-bold text-[#2C241D]">Product:</span> {req.product_name} ({req.requested_quantity})
+                                </p>
+                              </div>
+
+                              {/* Meta Grid */}
+                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
+                                <div>
+                                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Request Date</span>
+                                  <span className="font-extrabold text-[#2C241D] text-[11px]">{req.request_date}</span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Required Install Date</span>
+                                  <span className="font-extrabold text-amber-900 text-[11px] font-mono">{req.required_installation_date}</span>
+                                </div>
+                                <div className="col-span-2 sm:col-span-1">
+                                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Assigned Team</span>
+                                  <span className="font-extrabold text-[#48A63E] text-[11px] truncate block">{req.assigned_production_team}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons Row */}
+                            <div className="pt-3 border-t border-[#EFE7DE] flex flex-wrap items-center justify-between gap-2">
+                              <button
+                                onClick={() => setSelectedOnsiteRequestModal(req)}
+                                className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F3EDE5] text-[#2C241D] border border-[#E2D7CB] font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-[#48A63E]" />
+                                <span>View Details</span>
+                              </button>
+
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {req.production_status !== 'In Production' && req.production_status !== 'Ready for Dispatch' && (
+                                  <button
+                                    onClick={() => handleMarkOnsiteInProduction(req.request_id)}
+                                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                                  >
+                                    <Clock className="w-3.5 h-3.5" />
+                                    <span>Mark In Production</span>
+                                  </button>
+                                )}
+
+                                {req.production_status !== 'Ready for Dispatch' && (
+                                  <button
+                                    onClick={() => handleMarkOnsiteReadyForDispatch(req.request_id)}
+                                    className="px-3.5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Mark Ready for Dispatch</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -2226,9 +2794,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-xs font-extrabold text-[#7A6C5E] mr-1">Category Filter:</span>
                     {[
-                      { key: 'ALL', label: 'All Requests' },
+                      { key: 'ALL', label: 'All Approved Requests' },
                       { key: 'CUSTOMIZATION', label: 'Furniture Customization' },
-                      { key: 'FABRICATION', label: 'Wood Fabrication' }
+                      { key: 'FABRICATION', label: 'Wood Fabrication' },
+                      { key: 'RETAIL_ORDER', label: 'Readymade Retail Orders' }
                     ].map(cat => (
                       <button
                         key={cat.key}
@@ -2276,10 +2845,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   const displayedQueue = assessmentQueue.filter(item => {
                     if (assessmentCategoryFilter === 'CUSTOMIZATION' && item.order_type !== 'Customization') return false;
                     if (assessmentCategoryFilter === 'FABRICATION' && item.order_type !== 'Fabrication') return false;
-                    const isPaid = item.order_status === 'Paid' || (item.payment_status || '').toLowerCase() === 'paid';
-                    if (isPaid) return false;
-                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && (item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE')) return false;
-                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && (!item.is_assessed && item.assessment_status !== 'ASSESSMENT_COMPLETE')) return false;
+                    if (assessmentCategoryFilter === 'RETAIL_ORDER' && item.order_type !== 'Readymade' && item.order_type !== 'Retail Order') return false;
+
+                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && item.is_assessed) return false;
+                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && !item.is_assessed) return false;
                     return true;
                   });
 
@@ -5778,6 +6347,272 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL 1: FABRICATION JOB DETAILS MODAL */}
+      {selectedFabJobModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[120] animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 max-w-xl w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500/10 text-amber-800 border border-amber-500/30">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-lg border border-[#48A63E]/20">
+                      {selectedFabJobModal.fabrication_id}
+                    </span>
+                    <span className="font-mono text-[11px] font-bold text-[#7A6C5E]">
+                      Ref: {selectedFabJobModal.order_id}
+                    </span>
+                  </div>
+                  <h3 className="font-black text-base text-[#2C241D] mt-0.5">{selectedFabJobModal.product_name}</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedFabJobModal(null)}
+                className="p-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Product & Material Overview */}
+            <div className="flex items-start gap-4 p-4 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs">
+              {selectedFabJobModal.product_thumbnail ? (
+                <img
+                  src={selectedFabJobModal.product_thumbnail}
+                  alt={selectedFabJobModal.product_name}
+                  className="w-20 h-20 rounded-xl object-cover border border-[#E2D7CB] shrink-0"
+                />
+              ) : (
+                <div className="w-20 h-20 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+                  <Wrench className="w-8 h-8 text-amber-700" />
+                </div>
+              )}
+              <div className="space-y-1.5 text-xs flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#7A6C5E]">Quantity:</span>
+                  <span className="font-extrabold text-[#2C241D]">{selectedFabJobModal.quantity}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#7A6C5E]">Priority:</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border uppercase ${
+                    selectedFabJobModal.priority === 'High' ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                    selectedFabJobModal.priority === 'Medium' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'
+                  }`}>
+                    {selectedFabJobModal.priority} Priority
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[#7A6C5E]">Current Status:</span>
+                  <span className="font-extrabold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200">
+                    {selectedFabJobModal.status}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Production Specifications */}
+            <div className="space-y-2.5 text-xs p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]">
+              <h4 className="font-black text-[#2C241D] uppercase tracking-wider text-[11px]">Shop Floor Specifications</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Material Required</span>
+                  <span className="font-extrabold text-[#2C241D] block">{selectedFabJobModal.material_required}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Assigned Fabrication Team</span>
+                  <span className="font-extrabold text-[#48A63E] flex items-center gap-1 block">
+                    <Users className="w-3.5 h-3.5" />
+                    {selectedFabJobModal.assigned_team}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Target Completion Date</span>
+                  <span className="font-mono font-extrabold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                    {selectedFabJobModal.expected_completion_date}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Current Progress</span>
+                  <span className="font-mono font-black text-[#48A63E]">{selectedFabJobModal.progress_percentage}% Completed</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Progress Slider / Update */}
+            <div className="p-4 rounded-2xl bg-white border border-[#E2D7CB] space-y-2">
+              <label className="block text-xs font-black text-[#2C241D]">Update Job Build Progress (%):</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="5"
+                  value={selectedFabJobModal.progress_percentage}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    const newStatus = val === 100 ? 'Completed' : val >= 85 ? 'Quality Check' : val > 0 ? 'In Progress' : 'Pending';
+                    setSelectedFabJobModal({ ...selectedFabJobModal, progress_percentage: val, status: newStatus });
+                    setFabricationJobs(prev => prev.map(j => j.fabrication_id === selectedFabJobModal.fabrication_id ? { ...j, progress_percentage: val, status: newStatus } : j));
+                  }}
+                  className="flex-1 accent-[#48A63E] cursor-pointer"
+                />
+                <span className="font-mono font-extrabold text-xs text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">
+                  {selectedFabJobModal.progress_percentage}%
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
+              <button
+                onClick={() => setSelectedFabJobModal(null)}
+                className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 cursor-pointer"
+              >
+                Done / Save Updates
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: APPROVED ON-SITE REQUEST DETAILS MODAL */}
+      {selectedOnsiteRequestModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[120] animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 max-w-2xl w-full shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-[#48A63E]/10 text-[#48A63E] border border-[#48A63E]/30">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-lg border border-[#48A63E]/20">
+                      {selectedOnsiteRequestModal.request_id}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-900 border border-emerald-300">
+                      Retail Staff Approved
+                    </span>
+                  </div>
+                  <h3 className="font-black text-base text-[#2C241D] mt-0.5">Approved On-Site Request Details</h3>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedOnsiteRequestModal(null)}
+                className="p-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Store & Request Highlights */}
+            <div className="p-4 rounded-2xl bg-white border border-[#E2D7CB] space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
+                  <span className="text-[#48A63E]">🏪</span>
+                  <span>{selectedOnsiteRequestModal.store_name}</span>
+                </h4>
+                <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border uppercase ${
+                  selectedOnsiteRequestModal.priority === 'High' ? 'bg-rose-100 text-rose-800 border-rose-300' :
+                  selectedOnsiteRequestModal.priority === 'Medium' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'
+                }`}>
+                  {selectedOnsiteRequestModal.priority} Priority
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Store Location Address</span>
+                  <span className="font-extrabold text-[#2C241D]">{selectedOnsiteRequestModal.store_location || 'Central Retail Branch'}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Store Manager Contact</span>
+                  <span className="font-extrabold text-[#48A63E]">{selectedOnsiteRequestModal.store_contact || 'Branch Staff'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Product & Installation Requirements */}
+            <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-3 text-xs">
+              <h4 className="font-black text-[#2C241D] uppercase tracking-wider text-[11px]">Production & On-Site Installation Spec</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Product Requested</span>
+                  <span className="font-extrabold text-[#2C241D]">{selectedOnsiteRequestModal.product_name}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Requested Quantity</span>
+                  <span className="font-extrabold text-[#2C241D]">{selectedOnsiteRequestModal.requested_quantity}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Retail Approval Date</span>
+                  <span className="font-extrabold text-[#2C241D]">{selectedOnsiteRequestModal.request_date}</span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Required Installation Date</span>
+                  <span className="font-mono font-extrabold text-amber-900 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-block">
+                    {selectedOnsiteRequestModal.required_installation_date}
+                  </span>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Assigned Production Team</span>
+                  <span className="font-extrabold text-[#48A63E]">{selectedOnsiteRequestModal.assigned_production_team}</span>
+                </div>
+              </div>
+
+              {selectedOnsiteRequestModal.special_instructions && (
+                <div className="pt-2 border-t border-[#E2D7CB]">
+                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Special Site Instructions</span>
+                  <p className="font-medium text-[#2C241D] bg-white p-2.5 rounded-xl border border-[#E2D7CB] mt-1 leading-relaxed">
+                    {selectedOnsiteRequestModal.special_instructions}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[#E2D7CB]">
+              <button
+                onClick={() => setSelectedOnsiteRequestModal(null)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4]"
+              >
+                Close
+              </button>
+
+              <div className="flex items-center gap-2">
+                {selectedOnsiteRequestModal.production_status !== 'In Production' && (
+                  <button
+                    onClick={() => {
+                      handleMarkOnsiteInProduction(selectedOnsiteRequestModal.request_id);
+                      setSelectedOnsiteRequestModal((prev: any) => prev ? ({ ...prev, production_status: 'In Production' }) : null);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-md shadow-indigo-600/20 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>Mark In Production</span>
+                  </button>
+                )}
+
+                {selectedOnsiteRequestModal.production_status !== 'Ready for Dispatch' && (
+                  <button
+                    onClick={() => {
+                      handleMarkOnsiteReadyForDispatch(selectedOnsiteRequestModal.request_id);
+                      setSelectedOnsiteRequestModal((prev: any) => prev ? ({ ...prev, production_status: 'Ready for Dispatch' }) : null);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Mark Ready for Dispatch</span>
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}
