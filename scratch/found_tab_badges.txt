@@ -1,0 +1,12 @@
+ProductionStaffDashboardPage.tsx:1546: <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-600'}`}>
+ProductionStaffDashboardPage.tsx:1589: <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-500'}`}>
+ProductionStaffDashboardPage.tsx:1646: <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-700'}`}>
+ProductionStaffDashboardPage.tsx:1693: <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-500'}`}>
+ProductionStaffDashboardPage.tsx:1905: className={`p-2.5 rounded-xl border transition-colors ${n.unread ? 'bg-[#F3EDE5] border-[#48A63E]/40 font-bold' : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#6B5C4D]'
+ProductionStaffDashboardPage.tsx:2340: <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${statusBadgeClass}`}>
+ProductionStaffDashboardPage.tsx:2484: <span className={`text-[11px] font-black px-3 py-0.5 rounded-full border ${statusBadge}`}>
+ProductionStaffDashboardPage.tsx:2669: <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+ProductionStaffDashboardPage.tsx:4212: <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${badgeStyle}`}>
+ProductionStaffDashboardPage.tsx:4556: <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold ${query.status === 'Pending' ? 'bg-amber-100 text-amber-800 border border-amber-200' :
+AdminDashboardPage.tsx:2801: <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">New Orders</span>
+AdminDashboardPage.tsx:2813: <span className="text-[9px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">Pending Approval</span>

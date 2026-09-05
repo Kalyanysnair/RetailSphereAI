@@ -50,7 +50,10 @@ import {
   AlertCircle,
   Image as ImageIcon,
   Download,
-  AlertTriangle
+  AlertTriangle,
+  MapPin,
+  Filter,
+  Building
 } from 'lucide-react';
 import {
   fetchCustomOrders,
@@ -117,6 +120,7 @@ import {
   AdminMessage
 } from '../../utils/adminMessagesStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
+import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 
 const formatKolkataTime = (dateStr: string | null | undefined): string => {
   if (!dateStr || dateStr === '—') return '—';
@@ -681,7 +685,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const loadOnsiteData = async () => {
     try {
       const jobs = await fetchOnsiteJobsForProduction();
-      setOnsiteJobsList(jobs);
+      setOnsiteJobsList(jobs || []);
+      if (jobs && jobs.length > 0) {
+        setApprovedOnsiteRequests(jobs);
+      }
     } catch (err) {
       console.error('Error fetching onsite jobs:', err);
     }
@@ -698,9 +705,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleOpenAssessment = async (item: AssessmentQueueItem) => {
     setSelectedAssessmentRequest(item);
-    const ordType = item.order_type === 'Customization' ? 'Custom' : 'Fabrication';
+    const isService = item.order_type === 'On-Site Service' || item.order_type === 'Service' || item.request_id?.startsWith('ONS-') || item.request_id?.startsWith('SRV-') || item.request_id?.startsWith('OSR-');
+    const ordType = (item.order_type === 'Customization' || item.request_id?.startsWith('CUS-')) ? 'Custom' : isService ? 'Service' : 'Fabrication';
 
-    // Calculate realistic default cost scale for furniture items
+    // Calculate realistic default cost scale
     const titleLower = (item.title || item.furniture_type || '').toLowerCase();
     const matLower = (item.material || '').toLowerCase();
 
@@ -710,7 +718,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     let defaultFin = 2500;
     let defaultOth = 2000; // Default total ₹35,000
 
-    if (titleLower.includes('sofa') || titleLower.includes('bed') || titleLower.includes('dining') || titleLower.includes('wardrobe') || matLower.includes('marble') || matLower.includes('teak')) {
+    if (isService) {
+      defaultMat = 2500;
+      defaultLab = 4500;
+      defaultMac = 1000;
+      defaultFin = 1000;
+      defaultOth = 1500; // Total ₹10,500
+    } else if (titleLower.includes('sofa') || titleLower.includes('bed') || titleLower.includes('dining') || titleLower.includes('wardrobe') || matLower.includes('marble') || matLower.includes('teak')) {
       defaultMat = 22000;
       defaultLab = 9500;
       defaultMac = 4000;
@@ -730,13 +744,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         setAssFeasibility(ass.feasibility);
         setAssUnfeasibilityReason(ass.unfeasibility_reason || '');
         setAssOperations(ass.required_operations || '');
-        setAssStages(ass.required_stages && ass.required_stages.length > 0 ? ass.required_stages : ['Cutting', 'Shaping', 'Sanding', 'Finishing']);
+        setAssStages(ass.required_stages && ass.required_stages.length > 0 ? ass.required_stages : (isService ? ['Site Inspection', 'Structural Repair', 'Surface Finishing', 'Client Handover'] : ['Cutting', 'Shaping', 'Sanding', 'Finishing']));
         setAssMaterialReq(ass.material_requirements || '');
         setAssMachineReq(ass.machine_requirements || '');
         setAssSkillReq(ass.worker_skill_requirements || '');
-        setAssLabourHours(ass.labour_hours ? ass.labour_hours.toString() : '12');
-        setAssMachineHours(ass.machine_hours ? ass.machine_hours.toString() : '4');
-        setAssDurationDays(ass.estimated_duration_days ? ass.estimated_duration_days.toString() : '3');
+        setAssLabourHours(ass.labour_hours ? ass.labour_hours.toString() : (isService ? '8' : '12'));
+        setAssMachineHours(ass.machine_hours ? ass.machine_hours.toString() : (isService ? '2' : '4'));
+        setAssDurationDays(ass.estimated_duration_days ? ass.estimated_duration_days.toString() : (isService ? '1' : '3'));
         setAssMatCost(ass.material_cost ? ass.material_cost.toString() : defaultMat.toString());
         setAssLabCost(ass.labour_cost ? ass.labour_cost.toString() : defaultLab.toString());
         setAssMacCost(ass.machine_cost ? ass.machine_cost.toString() : defaultMac.toString());
@@ -747,20 +761,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       } else {
         setAssFeasibility('FEASIBLE');
         setAssUnfeasibilityReason('');
-        setAssOperations(`Precision ${item.material || 'Timber'} Processing & Assembly`);
-        setAssStages(['Cutting', 'Shaping', 'Sanding', 'Finishing']);
-        setAssMaterialReq(`Material: ${item.material}`);
-        setAssMachineReq('CNC Router, Sander');
-        setAssSkillReq('Woodwork & Carpentry, Surface Finishing');
-        setAssLabourHours('16');
-        setAssMachineHours('6');
-        setAssDurationDays('4');
+        setAssOperations(isService ? `On-Site Assessment, Carpentry Repair & Fitting` : `Precision ${item.material || 'Timber'} Processing & Assembly`);
+        setAssStages(isService ? ['Site Inspection', 'Structural Repair', 'Surface Finishing', 'Client Handover'] : ['Cutting', 'Shaping', 'Sanding', 'Finishing']);
+        setAssMaterialReq(isService ? `Required Hardware & Replacement Parts: ${item.title}` : `Material: ${item.material}`);
+        setAssMachineReq(isService ? 'Portable Power Tools, Drill, Sander' : 'CNC Router, Sander');
+        setAssSkillReq(isService ? 'Skilled Field Carpenter & Structural Specialist' : 'Woodwork & Carpentry, Surface Finishing');
+        setAssLabourHours(isService ? '8' : '16');
+        setAssMachineHours(isService ? '2' : '6');
+        setAssDurationDays(isService ? '1' : '4');
         setAssMatCost(defaultMat.toString());
         setAssLabCost(defaultLab.toString());
         setAssMacCost(defaultMac.toString());
         setAssFinCost(defaultFin.toString());
         setAssOthCost(defaultOth.toString());
-        setAssProdNotes('Moisture check & grain alignment required before cutting.');
+        setAssProdNotes(isService ? 'Scheduled on-site technician visit with necessary tooling.' : 'Moisture check & grain alignment required before cutting.');
         setAssTechNotes('');
       }
     } catch (e) {
@@ -775,7 +789,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     if (!selectedAssessmentRequest) return;
     setIsSubmittingAssessment(true);
     try {
-      const ordType = selectedAssessmentRequest.order_type === 'Customization' ? 'Custom' : 'Fabrication';
+      const isService = selectedAssessmentRequest.order_type === 'On-Site Service' || selectedAssessmentRequest.order_type === 'Service' || selectedAssessmentRequest.request_id?.startsWith('ONS-') || selectedAssessmentRequest.request_id?.startsWith('SRV-') || selectedAssessmentRequest.request_id?.startsWith('OSR-');
+      const ordType = (selectedAssessmentRequest.order_type === 'Customization' || selectedAssessmentRequest.request_id?.startsWith('CUS-')) ? 'Custom' : isService ? 'Service' : 'Fabrication';
       const matCost = Number(assMatCost) || 0;
       const labCost = Number(assLabCost) || 0;
       const macCost = Number(assMacCost) || 0;
@@ -2788,144 +2803,227 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* ASSESSMENT QUEUE VIEW (activeTab === 'assessment_queue' || activeTab === 'approvals') */}
             {(activeTab === 'assessment_queue' || activeTab === 'approvals') && (
               <div className="space-y-6 relative z-10">
-                {/* Category & Status Filter Pills */}
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#E2D7CB] pb-4">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-extrabold text-[#7A6C5E] mr-1">Category Filter:</span>
-                    {[
-                      { key: 'ALL', label: 'All Approved Requests' },
-                      { key: 'CUSTOMIZATION', label: 'Furniture Customization' },
-                      { key: 'FABRICATION', label: 'Wood Fabrication' }
-                    ].map(cat => (
-                      <button
-                        key={cat.key}
-                        onClick={() => {
-                          setAssessmentCategoryFilter(cat.key);
-                          loadQueueData(cat.key, assessmentTabFilter);
-                        }}
-                        className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer ${
-                          assessmentCategoryFilter === cat.key
-                            ? 'bg-[#48A63E] text-white shadow-sm'
-                            : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
-                        }`}
-                      >
-                        {cat.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-extrabold text-[#7A6C5E] mr-1">Status Filter:</span>
-                    {[
-                      { key: 'ALL', label: 'All Requests' },
-                      { key: 'PENDING_ASSESSMENT', label: 'Pending Assessment' },
-                      { key: 'ASSESSMENT_COMPLETE', label: 'Assessed & Quotation Ready' }
-                    ].map(st => (
-                      <button
-                        key={st.key}
-                        onClick={() => {
-                          setAssessmentTabFilter(st.key);
-                          loadQueueData(assessmentCategoryFilter, st.key);
-                        }}
-                        className={`px-3 py-1 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                          assessmentTabFilter === st.key
-                            ? 'bg-[#2C241D] text-white'
-                            : 'bg-white/80 border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
-                        }`}
-                      >
-                        {st.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 {(() => {
-                  const displayedQueue = assessmentQueue.filter(item => {
+                  const allQueueItems = assessmentQueue.filter(item => {
                     const oType = (item.order_type as string);
-                    if (oType === 'Readymade' || oType === 'Retail Order' || (item.request_id && item.request_id.startsWith('RET-'))) return false;
-                    if (assessmentCategoryFilter === 'CUSTOMIZATION' && oType !== 'Customization' && oType !== 'Custom') return false;
-                    if (assessmentCategoryFilter === 'FABRICATION' && oType !== 'Fabrication') return false;
+                    return oType !== 'Readymade' && oType !== 'Retail Order' && !(item.request_id && item.request_id.startsWith('RET-'));
+                  });
 
-                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && item.is_assessed) return false;
-                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && !item.is_assessed) return false;
+                  const customCount = allQueueItems.filter(i => i.order_type === 'Customization' || i.order_type === 'Custom' || i.request_id?.startsWith('CUS-')).length;
+                  const fabCount = allQueueItems.filter(i => i.order_type === 'Fabrication' || i.request_id?.startsWith('FAB-')).length;
+                  const srvCount = allQueueItems.filter(i => i.order_type === 'On-Site Service' || i.order_type === 'Service' || i.request_id?.startsWith('ONS-') || i.request_id?.startsWith('SRV-') || i.request_id?.startsWith('OSR-')).length;
+                  const totalApprovedCount = allQueueItems.length;
+
+                  const inCategoryItems = allQueueItems.filter(item => {
+                    const oType = (item.order_type as string);
+                    if (assessmentCategoryFilter === 'CUSTOMIZATION' && oType !== 'Customization' && oType !== 'Custom' && !item.request_id?.startsWith('CUS-')) return false;
+                    if (assessmentCategoryFilter === 'FABRICATION' && oType !== 'Fabrication' && !item.request_id?.startsWith('FAB-')) return false;
+                    if (assessmentCategoryFilter === 'SERVICES' && oType !== 'On-Site Service' && oType !== 'Service' && !item.request_id?.startsWith('ONS-') && !item.request_id?.startsWith('SRV-') && !item.request_id?.startsWith('OSR-')) return false;
                     return true;
                   });
 
-                  if (displayedQueue.length === 0) {
-                    return (
-                      <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                        <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-xs border border-amber-200">
-                          <FileText className="w-8 h-8" />
-                        </div>
-                        <div>
-                          <h3 className="text-base font-extrabold text-[#2C241D]">No Requests Found Matching Filter</h3>
-                          <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                            No retail-approved customer requests match category "{assessmentCategoryFilter}" and filter "{assessmentTabFilter}".
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  }
+                  const pendingCount = inCategoryItems.filter(i => !i.is_assessed && i.assessment_status !== 'ASSESSMENT_COMPLETE').length;
+                  const assessedCount = inCategoryItems.filter(i => i.is_assessed || i.assessment_status === 'ASSESSMENT_COMPLETE').length;
+
+                  const displayedQueue = inCategoryItems.filter(item => {
+                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && (item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE')) return false;
+                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && !item.is_assessed && item.assessment_status !== 'ASSESSMENT_COMPLETE') return false;
+                    return true;
+                  });
 
                   return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {displayedQueue.map(item => (
-                        <div key={item.request_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all space-y-4 flex flex-col justify-between">
-                          <div className="space-y-3">
-                            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-                              <span className="font-mono text-[11px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
-                                {item.request_id}
-                              </span>
-                              <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
-                                item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
-                                  ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                  : item.priority === 'HIGH' || item.priority === 'URGENT'
-                                    ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                                    : 'bg-amber-100 text-amber-800 border border-amber-300'
-                              }`}>
-                                {item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE' ? 'QUOTATION READY' : `${item.priority} PRIORITY`}
-                              </span>
-                            </div>
-
-                            <div>
-                              <h4 className="text-sm font-extrabold text-[#2C241D]">{item.title}</h4>
-                              <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5">Customer: {item.customer_name} ({item.customer_email})</p>
-                            </div>
-
-                            <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
-                              <div className="flex justify-between">
-                                <span className="text-[#7A6C5E]">Dimensions:</span>
-                                <span className="font-bold text-[#2C241D]">{item.dimensions}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-[#7A6C5E]">Material:</span>
-                                <span className="font-bold text-[#2C241D]">{item.material}</span>
-                              </div>
-                              {item.color && (
-                                <div className="flex justify-between">
-                                  <span className="text-[#7A6C5E]">Color/Finish:</span>
-                                  <span className="font-bold text-[#38A132]">{item.color}</span>
-                                </div>
-                              )}
-                            </div>
+                    <>
+                      {/* Structured Filter Control Panel */}
+                      <div className="bg-[#FAF7F2] border border-[#E2D7CB] rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
+                        {/* Row 1: Category Filter */}
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Sliders className="w-4 h-4 text-[#38A132]" />
+                            <span className="text-xs font-black uppercase tracking-wider text-[#7A6C5E]">Category Filter:</span>
                           </div>
-
-                          <div className="pt-3 border-t border-[#E2D7CB] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                            <span className="text-[10px] text-[#9E9082] font-semibold">
-                              Submitted: {new Date(item.order_date).toLocaleDateString()}
-                            </span>
-                            <button
-                              onClick={() => handleOpenAssessment(item)}
-                              className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
-                            >
-                              <DollarSign className="w-4 h-4 flex-shrink-0" />
-                              <span>Assess & Prepare Quote</span>
-                              <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
-                            </button>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {[
+                              { key: 'ALL', label: 'All Approved Requests', count: totalApprovedCount },
+                              { key: 'CUSTOMIZATION', label: 'Furniture Customization', count: customCount },
+                              { key: 'FABRICATION', label: 'Wood Fabrication', count: fabCount },
+                              { key: 'SERVICES', label: 'On-Site Skilled Services', count: srvCount }
+                            ].map(cat => (
+                              <button
+                                key={cat.key}
+                                onClick={() => {
+                                  setAssessmentCategoryFilter(cat.key);
+                                }}
+                                className={`px-3.5 py-1.5 rounded-full text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+                                  assessmentCategoryFilter === cat.key
+                                    ? 'bg-[#38A132] text-white shadow-sm ring-2 ring-[#38A132]/30'
+                                    : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                                }`}
+                              >
+                                <span>{cat.label}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                  assessmentCategoryFilter === cat.key
+                                    ? 'bg-white/25 text-white'
+                                    : 'bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB]'
+                                }`}>
+                                  {cat.count}
+                                </span>
+                              </button>
+                            ))}
                           </div>
                         </div>
-                      ))}
-                    </div>
+
+                        <div className="border-t border-[#EFE7DE]" />
+
+                        {/* Row 2: Status Filter */}
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Filter className="w-4 h-4 text-[#2C241D]" />
+                            <span className="text-xs font-black uppercase tracking-wider text-[#7A6C5E]">Status Filter:</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {[
+                              { key: 'ALL', label: 'All Requests', count: inCategoryItems.length },
+                              { key: 'PENDING_ASSESSMENT', label: 'Pending Assessment', count: pendingCount },
+                              { key: 'ASSESSMENT_COMPLETE', label: 'Assessed & Quotation Ready', count: assessedCount }
+                            ].map(st => (
+                              <button
+                                key={st.key}
+                                onClick={() => {
+                                  setAssessmentTabFilter(st.key);
+                                }}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer flex items-center gap-2 ${
+                                  assessmentTabFilter === st.key
+                                    ? 'bg-[#2C241D] text-white shadow-sm ring-2 ring-[#2C241D]/20'
+                                    : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                                }`}
+                              >
+                                <span>{st.label}</span>
+                                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                  assessmentTabFilter === st.key
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB]'
+                                }`}>
+                                  {st.count}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Queue Cards Grid */}
+                      {displayedQueue.length === 0 ? (
+                        <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
+                          <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-xs border border-amber-200">
+                            <FileText className="w-8 h-8" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-extrabold text-[#2C241D]">No Requests Found Matching Filter</h3>
+                            <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
+                              No retail-approved customer requests match the active category and status filters.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                          {displayedQueue.map(item => {
+                            const isService = item.order_type === 'On-Site Service' || item.order_type === 'Service' || item.request_id?.startsWith('ONS-') || item.request_id?.startsWith('SRV-') || item.request_id?.startsWith('OSR-');
+                            return (
+                              <div key={item.request_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#38A132] rounded-3xl p-5 shadow-sm hover:shadow-xl transition-all space-y-4 flex flex-col justify-between">
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                                    <span className="font-mono text-[11px] font-extrabold text-[#38A132] bg-[#38A132]/10 px-2.5 py-1 rounded-md border border-[#38A132]/20">
+                                      {item.request_id}
+                                    </span>
+                                    <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
+                                      item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
+                                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                        : item.order_status === 'APPROVED_BY_RETAIL'
+                                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                          : item.priority === 'HIGH' || item.priority === 'URGENT'
+                                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                            : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    }`}>
+                                      {item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
+                                        ? 'QUOTATION READY'
+                                        : item.order_status === 'APPROVED_BY_RETAIL'
+                                          ? 'UNDER EXAMINATION'
+                                          : `${item.priority} PRIORITY`}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <h4 className="text-sm font-extrabold text-[#2C241D] line-clamp-1">{item.title}</h4>
+                                    <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5 truncate">
+                                      Customer: {item.customer_name} {item.customer_email ? `(${item.customer_email})` : ''}
+                                    </p>
+                                  </div>
+
+                                  {isService ? (
+                                    <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] text-xs space-y-2 font-medium">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <span className="text-[#7A6C5E] flex items-center gap-1.5 flex-shrink-0">
+                                          <MapPin className="w-3.5 h-3.5 text-[#38A132]" /> Location:
+                                        </span>
+                                        <span className="font-bold text-[#2C241D] text-right truncate max-w-[170px]">{item.dimensions}</span>
+                                      </div>
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-[#7A6C5E] flex items-center gap-1.5 flex-shrink-0">
+                                          <Building className="w-3.5 h-3.5 text-[#7A6C5E]" /> City / Pincode:
+                                        </span>
+                                        <span className="font-bold text-[#2C241D]">{item.material}</span>
+                                      </div>
+                                      {item.description && (
+                                        <div className="pt-2 border-t border-[#EFE7DE] text-[11px] text-[#5C4E42] line-clamp-2 italic">
+                                          "{item.description}"
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
+                                      <div className="flex justify-between">
+                                        <span className="text-[#7A6C5E]">Dimensions:</span>
+                                        <span className="font-bold text-[#2C241D]">{item.dimensions}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-[#7A6C5E]">Material:</span>
+                                        <span className="font-bold text-[#2C241D]">{item.material}</span>
+                                      </div>
+                                      {item.color && (
+                                        <div className="flex justify-between">
+                                          <span className="text-[#7A6C5E]">Color/Finish:</span>
+                                          <span className="font-bold text-[#38A132]">{item.color}</span>
+                                        </div>
+                                      )}
+                                      {item.quantity && item.quantity > 1 && (
+                                        <div className="flex justify-between">
+                                          <span className="text-[#7A6C5E]">Quantity:</span>
+                                          <span className="font-bold text-[#2C241D]">{item.quantity} units</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="pt-3 border-t border-[#E2D7CB] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                  <span className="text-[10px] text-[#9E9082] font-semibold">
+                                    Submitted: {item.order_date ? new Date(item.order_date).toLocaleDateString() : 'Recent'}
+                                  </span>
+                                  <button
+                                    onClick={() => handleOpenAssessment(item)}
+                                    className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
+                                  >
+                                    <DollarSign className="w-4 h-4 flex-shrink-0" />
+                                    <span>Assess & Prepare Quote</span>
+                                    <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
                   );
                 })()}
               </div>
@@ -3146,8 +3244,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     {onsiteJobsList.map((job) => (
                       <div key={job.service_id} className="bg-white border-2 border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3">
                         <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
-                          <span className="font-mono text-xs font-bold text-[#48A63E]">JOB-#{job.service_id}</span>
-                          <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full">{job.status}</span>
+                          <span className="font-mono text-xs font-bold text-[#48A63E]">SRV-#{job.service_id}</span>
+                          <span className={`${getStatusBadgeColor(job.status)} text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border`}>
+                            {formatStatusLabel(job.status)}
+                          </span>
                         </div>
                         <h4 className="font-extrabold text-sm text-[#2C241D]">{job.service_category}</h4>
                         <p className="text-xs text-[#7A6C5E]">Client: {job.customer_name} ({job.city})</p>
@@ -6023,13 +6123,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {selectedAssessmentRequest.priority} PRIORITY
                 </span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[#5C4E42] font-semibold">
-                <div><span className="text-[#7A6C5E]">Dimensions:</span> {selectedAssessmentRequest.dimensions}</div>
-                <div><span className="text-[#7A6C5E]">Material:</span> {selectedAssessmentRequest.material}</div>
-                {selectedAssessmentRequest.color && (
-                  <div><span className="text-[#7A6C5E]">Color/Finish:</span> <span className="text-[#38A132]">{selectedAssessmentRequest.color}</span></div>
-                )}
-              </div>
+              {(selectedAssessmentRequest.order_type === 'On-Site Service' || selectedAssessmentRequest.order_type === 'Service' || selectedAssessmentRequest.request_id?.startsWith('ONS-') || selectedAssessmentRequest.request_id?.startsWith('SRV-') || selectedAssessmentRequest.request_id?.startsWith('OSR-')) ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#5C4E42] font-semibold">
+                  <div><span className="text-[#7A6C5E]">Location:</span> {selectedAssessmentRequest.dimensions}</div>
+                  <div><span className="text-[#7A6C5E]">City / Postal:</span> {selectedAssessmentRequest.material}</div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[#5C4E42] font-semibold">
+                  <div><span className="text-[#7A6C5E]">Dimensions:</span> {selectedAssessmentRequest.dimensions}</div>
+                  <div><span className="text-[#7A6C5E]">Material:</span> {selectedAssessmentRequest.material}</div>
+                  {selectedAssessmentRequest.color && (
+                    <div><span className="text-[#7A6C5E]">Color/Finish:</span> <span className="text-[#38A132]">{selectedAssessmentRequest.color}</span></div>
+                  )}
+                </div>
+              )}
               {selectedAssessmentRequest.description && (
                 <p className="text-[11px] text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] italic">
                   "{selectedAssessmentRequest.description}"

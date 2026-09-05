@@ -9,7 +9,6 @@ import { CustomizationModal } from './CustomizationModal';
 import { CustomOrderTracker } from './CustomOrderTracker';
 import { FabricationTab } from '../customer/FabricationTab';
 import { ServicesTab } from '../customer/ServicesTab';
-import { MyActivityTab } from '../customer/MyActivityTab';
 import { CustomerAssistantTab } from '../customer/CustomerAssistantTab';
 import { QuickActionsFab } from './QuickActionsFab';
 import { DashboardFilterState, RecommendationProduct } from '../../types/dashboard';
@@ -743,15 +742,22 @@ export const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     if (location.state && (location.state as any).activeTab) {
-      setActiveCustomerTab((location.state as any).activeTab);
+      const tab = (location.state as any).activeTab;
+      if (tab === 'my-activity') {
+        navigate('/orders', { replace: true });
+      } else {
+        setActiveCustomerTab(tab);
+      }
     } else {
       const params = new URLSearchParams(location.search);
       const tabParam = params.get('tab');
-      if (tabParam) {
+      if (tabParam === 'my-activity') {
+        navigate('/orders', { replace: true });
+      } else if (tabParam) {
         setActiveCustomerTab(tabParam);
       }
     }
-  }, [location]);
+  }, [location, navigate]);
 
   useEffect(() => {
     const handleTabChangeEvent = (e: any) => {
@@ -1043,9 +1049,6 @@ export const DashboardPage: React.FC = () => {
 
           {/* TAB: SERVICES (On-Site Skilled Services Booking) */}
           {activeCustomerTab === 'services' && <ServicesTab />}
-
-          {/* TAB: MY ACTIVITY (Unified Customer Hub for Orders, Requests, Materials, Quotes) */}
-          {activeCustomerTab === 'my-activity' && <MyActivityTab />}
 
           {/* TAB: ASSISTANT (Customer Context-Aware AI Chatbot & Computer Vision Tools) */}
           {activeCustomerTab === 'assistant' && <CustomerAssistantTab />}

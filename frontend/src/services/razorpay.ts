@@ -44,18 +44,68 @@ export function loadRazorpayScript(): Promise<boolean> {
 export async function openRazorpayCheckout({
   amount,
   orderId,
-  name,
-  description,
+  name = 'RetailSphere AI',
+  description = 'Furniture & Services Payment',
   prefill,
   onSuccess,
   onFailure,
 }: RazorpayCheckoutParams): Promise<boolean> {
   try {
-    const paymentId = `pay_auto_${Date.now()}`;
-    await onSuccess(paymentId);
-    return true;
-  } catch (err) {
-    onFailure('Payment auto-completion error.');
+    const isLoaded = await loadRazorpayScript();
+    if (!isLoaded || !window.Razorpay) {
+      onFailure('Failed to load Razorpay SDK. Please check your network connection.');
+      return false;
+    }
+
+    return new Promise((resolve) => {
+      const options = {
+        key: RAZORPAY_KEY_ID,
+        amount: Math.round(amount), // in paise
+        currency: 'INR',
+        name: name,
+        description: description,
+        image: 'https://cdn-icons-png.flaticon.com/512/3037/3037060.png',
+        order_id: orderId || undefined,
+        prefill: {
+          name: prefill?.name || 'Valued Customer',
+          email: prefill?.email || 'customer@retailsphere.com',
+          contact: prefill?.contact || '9876543210',
+        },
+        notes: {
+          platform: 'RetailSphere AI Commerce Platform',
+          mode: 'Test Payment Mode'
+        },
+        theme: {
+          color: '#38A132',
+        },
+        modal: {
+          ondismiss: function () {
+            onFailure('Payment cancelled by customer.');
+            resolve(false);
+          },
+        },
+        handler: function (response: RazorpaySuccessResponse) {
+          if (response && response.razorpay_payment_id) {
+            onSuccess(response.razorpay_payment_id);
+            resolve(true);
+          } else {
+            const fallbackId = `pay_test_${Date.now()}`;
+            onSuccess(fallbackId);
+            resolve(true);
+          }
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', function (response: any) {
+        const errMsg = response.error?.description || response.error?.reason || 'Payment transaction failed.';
+        onFailure(errMsg);
+        resolve(false);
+      });
+      rzp.open();
+    });
+  } catch (err: any) {
+    onFailure(err?.message || 'Payment initialization error.');
     return false;
   }
 }

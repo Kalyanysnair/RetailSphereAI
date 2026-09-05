@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Scissors, Plus, CheckCircle2, Clock, Upload, Cpu, Layers, FileText } from 'lucide-react';
+import { openRazorpayCheckout } from '../../services/razorpay';
+import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 
 export interface FabricationItem {
   fabrication_id: number;
@@ -160,12 +162,35 @@ export const FabricationTab: React.FC = () => {
     }
   };
 
-  const handlePayFabrication = async (fabId: number) => {
+  const handlePayFabrication = async (r: FabricationItem) => {
     try {
-      const res = await fetch(`/api/fabrication/requests/${fabId}/pay`, { method: 'PUT' });
-      if (res.ok) {
-        fetchFabrications();
-      }
+      const rawUser = localStorage.getItem('user');
+      const userObj = rawUser ? JSON.parse(rawUser) : null;
+      const amountInPaise = Math.round((r.estimated_price || 0) * 100);
+
+      await openRazorpayCheckout({
+        amount: amountInPaise,
+        name: 'RetailSphere Fabrication Studio',
+        description: `Wood Fabrication Payment for FAB-#${r.fabrication_id} (${r.service_type})`,
+        prefill: {
+          name: userObj?.full_name || userObj?.username || 'Valued Customer',
+          email: userObj?.email || 'customer@retailsphere.com',
+          contact: userObj?.phone || '9876543210'
+        },
+        onSuccess: async (paymentId) => {
+          try {
+            const res = await fetch(`/api/fabrication/requests/${r.fabrication_id}/pay`, { method: 'PUT' });
+            if (res.ok) {
+              fetchFabrications();
+            }
+          } catch (err) {
+            console.error('Payment verification error:', err);
+          }
+        },
+        onFailure: (reason) => {
+          console.warn('Fabrication payment cancelled/failed:', reason);
+        }
+      });
     } catch (err) {
       console.error('Payment error:', err);
     }
@@ -227,8 +252,8 @@ export const FabricationTab: React.FC = () => {
                   <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
                     FAB-#{r.fabrication_id}
                   </span>
-                  <span className="bg-blue-100 text-blue-800 text-[10px] font-extrabold px-2.5 py-1 rounded-full border border-blue-300">
-                    {r.status}
+                  <span className={`${getStatusBadgeColor(r.status)} text-[10px] font-extrabold px-2.5 py-1 rounded-full border`}>
+                    {r.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(r.status)}
                   </span>
                 </div>
 
@@ -267,7 +292,7 @@ export const FabricationTab: React.FC = () => {
                     {r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Recent'}
                   </span>
                   <span className="text-[11px] font-extrabold text-[#2C241D]">
-                    {r.payment_status === 'Paid' ? 'Paid ✓' : r.status === 'APPROVED' ? 'Quotation Approved' : r.status === 'QUOTED' ? 'Quotation Ready' : r.status}
+                    {r.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(r.status)}
                   </span>
                 </div>
 
@@ -315,8 +340,8 @@ export const FabricationTab: React.FC = () => {
                       </div>
                     ) : r.status === 'APPROVED' || r.status === 'CUSTOMER_APPROVED' ? (
                       <button
-                        onClick={() => handlePayFabrication(r.fabrication_id)}
-                        className="w-full py-2.5 px-4 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-md flex items-center justify-center gap-2"
+                        onClick={() => handlePayFabrication(r)}
+                        className="w-full py-2.5 px-4 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-md flex items-center justify-center gap-2"
                       >
                         <span>Pay Now (₹{r.estimated_price.toLocaleString('en-IN')})</span>
                       </button>

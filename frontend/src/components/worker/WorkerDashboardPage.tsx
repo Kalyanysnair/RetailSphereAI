@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
 import {
+  LayoutDashboard,
+  Hammer,
   Wrench,
   Clock,
   CheckCircle2,
   XCircle,
-  Sliders,
   LogOut,
   Sparkles,
   ArrowRight,
@@ -29,7 +30,6 @@ import {
   AlertTriangle,
   SlidersHorizontal,
   Layers,
-  Hammer,
   Check,
   AlertCircle,
   Filter,
@@ -38,9 +38,19 @@ import {
   Calendar,
   Image as ImageIcon,
   CheckSquare,
-  LayoutDashboard,
   PackageCheck,
-  Mail
+  Mail,
+  Phone,
+  Scissors,
+  ShieldAlert,
+  ExternalLink,
+  Camera,
+  Navigation,
+  Box,
+  Compass,
+  ShoppingBag,
+  Inbox,
+  UserCheck
 } from 'lucide-react';
 
 import {
@@ -52,19 +62,32 @@ import {
   fetchWorkerCompletedHistoryDB,
   fetchWorkerOnsiteJobsDB,
   updateWorkerOnsiteJobStatusDB,
+  fetchWorkerReworkJobsDB,
+  resolveWorkerReworkJobDB,
+  fetchWorkerDeliveriesDB,
+  updateWorkerDeliveryStatusDB,
   WorkerSummaryData,
   WorkerTaskItem,
   WorkerCompletedHistoryItem,
-  WorkerOnsiteJobItem
+  WorkerOnsiteJobItem,
+  WorkerReworkItem,
+  WorkerDeliveryItem
 } from '../../services/api_worker';
 import { getCurrentUser, updateUserProfile, changeFirstPassword, changePasswordUser } from '../../services/api';
 import { applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
-import { getMessagesForUser, markAdminMessageRead, markAllAdminMessagesReadForUser, isMessageReadByUser, AdminMessage } from '../../utils/adminMessagesStorage';
+import {
+  getMessagesForUser,
+  markAdminMessageRead,
+  markAllAdminMessagesReadForUser,
+  isMessageReadByUser,
+  AdminMessage
+} from '../../utils/adminMessagesStorage';
 import { getStaffQueries, addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 
 export const WorkerDashboardPage: React.FC = () => {
   const navigate = useNavigate();
+
   // User Profile
   const [userProfile, setUserProfile] = useState<any>(null);
 
@@ -73,12 +96,17 @@ export const WorkerDashboardPage: React.FC = () => {
   const [tasksList, setTasksList] = useState<WorkerTaskItem[]>([]);
   const [completedHistory, setCompletedHistory] = useState<WorkerCompletedHistoryItem[]>([]);
   const [onsiteJobsList, setOnsiteJobsList] = useState<WorkerOnsiteJobItem[]>([]);
+  const [reworkList, setReworkList] = useState<WorkerReworkItem[]>([]);
+  const [deliveriesList, setDeliveriesList] = useState<WorkerDeliveryItem[]>([]);
   const [leaveApplications, setLeaveApplications] = useState<WorkerLeaveItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Tabs & Filters
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'my_tasks' | 'onsite' | 'completed' | 'admin_directives' | 'queries' | 'profile' | 'leave'>('dashboard');
+  // Tabs & Navigation State
+  const [activeTab, setActiveTab] = useState<
+    'dashboard' | 'my_tasks' | 'onsite' | 'rework' | 'deliveries' | 'completed' | 'admin_messages' | 'queries' | 'leave'
+  >('dashboard');
   const [taskStatusFilter, setTaskStatusFilter] = useState<string>('All');
+  const [taskTypeFilter, setTaskTypeFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
 
@@ -92,7 +120,7 @@ export const WorkerDashboardPage: React.FC = () => {
   // Directives & Queries State
   const [adminDirectives, setAdminDirectives] = useState<AdminMessage[]>([]);
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
-  const [queryCategory, setQueryCategory] = useState<'Production / Technical Query' | 'Material & Hardware Request' | 'Role & Access Permission' | 'General Operational Query'>('Production / Technical Query');
+  const [queryCategory, setQueryCategory] = useState<'Role & Access Permission' | 'General Query' | 'Email Change Request'>('General Query');
   const [querySubject, setQuerySubject] = useState('');
   const [queryMessage, setQueryMessage] = useState('');
   const [isSubmittingQuery, setIsSubmittingQuery] = useState(false);
@@ -121,9 +149,24 @@ export const WorkerDashboardPage: React.FC = () => {
 
   // Onsite Job Modal State
   const [selectedOnsiteJob, setSelectedOnsiteJob] = useState<WorkerOnsiteJobItem | null>(null);
+  const [isOnsiteModalOpen, setIsOnsiteModalOpen] = useState(false);
   const [onsiteNotes, setOnsiteNotes] = useState('');
   const [onsiteBeforePhoto, setOnsiteBeforePhoto] = useState('');
   const [onsiteAfterPhoto, setOnsiteAfterPhoto] = useState('');
+  const [isSubmittingOnsite, setIsSubmittingOnsite] = useState(false);
+
+  // Rework Modal State
+  const [selectedReworkForDetail, setSelectedReworkForDetail] = useState<WorkerReworkItem | null>(null);
+  const [isReworkModalOpen, setIsReworkModalOpen] = useState(false);
+  const [reworkResolveNotes, setReworkResolveNotes] = useState('');
+  const [isSubmittingRework, setIsSubmittingRework] = useState(false);
+
+  // Delivery Modal State
+  const [selectedDelivery, setSelectedDelivery] = useState<WorkerDeliveryItem | null>(null);
+  const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
+  const [deliveryStatusInput, setDeliveryStatusInput] = useState('Out for Delivery');
+  const [deliveryNotesInput, setDeliveryNotesInput] = useState('');
+  const [isSubmittingDelivery, setIsSubmittingDelivery] = useState(false);
 
   // Profile / Password Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -168,12 +211,16 @@ export const WorkerDashboardPage: React.FC = () => {
       );
       setStaffQueries(userQueries);
 
-      const [summary, tasks, history, onsite, leaves] = await Promise.all([
+      const isDriver = Boolean((currentUser as any).is_driver);
+
+      const [summary, tasks, history, onsite, leaves, reworks, deliveries] = await Promise.all([
         fetchWorkerSummaryDB(),
         fetchWorkerTasksDB(taskStatusFilter),
         fetchWorkerCompletedHistoryDB(),
         fetchWorkerOnsiteJobsDB(),
-        fetchMyLeaveApplications()
+        fetchMyLeaveApplications(),
+        fetchWorkerReworkJobsDB(),
+        isDriver ? fetchWorkerDeliveriesDB() : Promise.resolve([])
       ]);
 
       if (summary) setSummaryData(summary);
@@ -181,80 +228,13 @@ export const WorkerDashboardPage: React.FC = () => {
       setCompletedHistory(history || []);
       setOnsiteJobsList(onsite || []);
       setLeaveApplications(leaves || []);
+      setReworkList(reworks || []);
+      setDeliveriesList(deliveries || []);
     } catch (err) {
-      console.error('Error loading worker workspace data:', err);
+      console.error('Failed to load worker workspace data:', err);
+      setErrorNotice('Could not load latest workshop data. Please check connection.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleApplyLeaveSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!leaveStartDate || !leaveEndDate || !leaveReason.trim()) return;
-    setIsSubmittingLeave(true);
-    try {
-      const res = await applyWorkerLeave({
-        leave_type: leaveType,
-        start_date: leaveStartDate,
-        end_date: leaveEndDate,
-        reason: leaveReason.trim()
-      });
-      setSuccessNotice(`Leave application submitted successfully! Status: ${res.status}`);
-      setLeaveReason('');
-      const freshLeaves = await fetchMyLeaveApplications();
-      setLeaveApplications(freshLeaves);
-    } catch (err: any) {
-      setErrorNotice(err.message || 'Failed to submit leave application.');
-    } finally {
-      setIsSubmittingLeave(false);
-      setTimeout(() => { setSuccessNotice(null); setErrorNotice(null); }, 4000);
-    }
-  };
-
-  const handleSendWorkerQuery = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!querySubject.trim() || !queryMessage.trim()) return;
-    setIsSubmittingQuery(true);
-    try {
-      const newQ = addStaffQuery({
-        staffName: userProfile?.full_name || summaryData?.worker_name || 'Worker',
-        staffEmail: userProfile?.email || 'worker@retailsphere.ai',
-        category: queryCategory as any,
-        subject: querySubject.trim(),
-        message: queryMessage.trim()
-      });
-      setStaffQueries((prev) => [newQ, ...prev]);
-      setSuccessNotice('Direct message sent to Production Staff & System Admin successfully!');
-      setQuerySubject('');
-      setQueryMessage('');
-    } catch (err: any) {
-      setErrorNotice(err.message || 'Failed to send query.');
-    } finally {
-      setIsSubmittingQuery(false);
-      setTimeout(() => {
-        setSuccessNotice(null);
-        setErrorNotice(null);
-      }, 4000);
-    }
-  };
-
-  const handlePasswordChangeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newPassword !== confirmPassword) {
-      setPasswordNotice({ type: 'error', text: 'New passwords do not match.' });
-      return;
-    }
-    try {
-      if (mustChangePasswordModal) {
-        await changeFirstPassword(currentPassword, newPassword);
-        setMustChangePasswordModal(false);
-      } else {
-        await changePasswordUser(newPassword, currentPassword);
-      }
-      setPasswordNotice({ type: 'success', text: 'Password updated successfully!' });
-      setTimeout(() => setPasswordNotice(null), 3000);
-    } catch (err: any) {
-      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password.' });
     }
   };
 
@@ -262,36 +242,56 @@ export const WorkerDashboardPage: React.FC = () => {
     loadWorkerWorkspaceData();
   }, [taskStatusFilter]);
 
-  const userEmail = userProfile?.email || '';
-  const unreadDirectivesCount = adminDirectives.filter((m) => !isMessageReadByUser(m, userEmail)).length;
+  // Unread directives count
+  const unreadAdminMsgsCount = useMemo(() => {
+    if (!userProfile?.email) return 0;
+    return adminDirectives.filter((m) => !isMessageReadByUser(m, userProfile.email)).length;
+  }, [adminDirectives, userProfile]);
 
-  // Derived Active Task
-  const activeTask = tasksList.find((t) => t.task_status === 'IN_PROGRESS');
+  // Active In-Progress Task (Hero on Home)
+  const activeTask = useMemo(() => {
+    return tasksList.find((t) => t.task_status === 'IN_PROGRESS') || null;
+  }, [tasksList]);
 
-  // Filtered Tasks
-  const filteredTasks = tasksList.filter((t) => {
-    if (taskStatusFilter !== 'All' && t.task_status !== taskStatusFilter) return false;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      return (
-        t.order_id.toLowerCase().includes(q) ||
-        t.job_name.toLowerCase().includes(q) ||
-        t.stage_name.toLowerCase().includes(q) ||
-        t.material.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
+  // Assigned Upcoming Queue
+  const upcomingAssignedTasks = useMemo(() => {
+    return tasksList.filter((t) => t.task_status === 'ASSIGNED');
+  }, [tasksList]);
 
-  // Actions
+  // Filtered Tasks for My Tasks Tab
+  const filteredTasks = useMemo(() => {
+    return tasksList.filter((t) => {
+      // Status Filter
+      if (taskStatusFilter !== 'All' && t.task_status !== taskStatusFilter) {
+        return false;
+      }
+      // Type Filter
+      if (taskTypeFilter === 'Custom' && t.order_type !== 'Custom') return false;
+      if (taskTypeFilter === 'Fabrication' && t.order_type !== 'Fabrication') return false;
+
+      // Search Filter
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchId = (t.order_id || '').toLowerCase().includes(q);
+        const matchName = (t.job_name || '').toLowerCase().includes(q);
+        const matchStage = (t.stage_name || '').toLowerCase().includes(q);
+        const matchMat = (t.material || '').toLowerCase().includes(q);
+        return matchId || matchName || matchStage || matchMat;
+      }
+      return true;
+    });
+  }, [tasksList, taskStatusFilter, taskTypeFilter, searchQuery]);
+
+  // Handlers for Task Actions
   const handleStartTask = async (taskId: string) => {
     try {
       const res = await startWorkerTaskDB(taskId);
-      setSuccessNotice(res.message || 'Task started successfully!');
-      loadWorkerWorkspaceData();
+      setSuccessNotice(res.message || 'Task started successfully.');
+      setIsTaskDetailModalOpen(false);
+      await loadWorkerWorkspaceData();
     } catch (err: any) {
       setErrorNotice(err.message || 'Failed to start task.');
-    } setTimeout(() => { setSuccessNotice(null); setErrorNotice(null); }, 4000);
+    }
   };
 
   const handleOpenCompleteModal = (task: WorkerTaskItem) => {
@@ -302,25 +302,23 @@ export const WorkerDashboardPage: React.FC = () => {
     setIsCompleteModalOpen(true);
   };
 
-  const handleSubmitCompleteTask = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleConfirmCompleteTask = async () => {
     if (!selectedTaskForDetail) return;
     setIsSubmittingComplete(true);
     try {
-      await completeWorkerTaskDB(selectedTaskForDetail.task_id, {
+      const res = await completeWorkerTaskDB(selectedTaskForDetail.task_id, {
         notes: completeNotes,
         work_images: completeWorkImages,
         progress_percentage: completeProgressPct
       });
-      setSuccessNotice(`Stage "${selectedTaskForDetail.stage_name}" marked COMPLETED!`);
+      setSuccessNotice(res.message || 'Task completed successfully.');
       setIsCompleteModalOpen(false);
       setIsTaskDetailModalOpen(false);
-      loadWorkerWorkspaceData();
+      await loadWorkerWorkspaceData();
     } catch (err: any) {
       setErrorNotice(err.message || 'Failed to complete task.');
     } finally {
       setIsSubmittingComplete(false);
-      setTimeout(() => { setSuccessNotice(null); setErrorNotice(null); }, 4000);
     }
   };
 
@@ -332,228 +330,498 @@ export const WorkerDashboardPage: React.FC = () => {
     setIsReportIssueModalOpen(true);
   };
 
-  const handleSubmitReportIssue = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleConfirmReportIssue = async () => {
     if (!selectedTaskForDetail || !issueDescription.trim()) return;
     setIsSubmittingIssue(true);
     try {
-      await reportWorkerTaskIssueDB(selectedTaskForDetail.task_id, {
+      const res = await reportWorkerTaskIssueDB(selectedTaskForDetail.task_id, {
         issue_type: issueType,
         description: issueDescription.trim(),
         photo_url: issuePhotoUrl.trim() || undefined
       });
-      setSuccessNotice(`Issue reported. Task "${selectedTaskForDetail.order_id}" set to ON_HOLD for Production Staff review.`);
+      setSuccessNotice(res.message || 'Issue reported. Task moved to On Hold status.');
       setIsReportIssueModalOpen(false);
       setIsTaskDetailModalOpen(false);
-      loadWorkerWorkspaceData();
+      await loadWorkerWorkspaceData();
     } catch (err: any) {
       setErrorNotice(err.message || 'Failed to report issue.');
     } finally {
       setIsSubmittingIssue(false);
-      setTimeout(() => { setSuccessNotice(null); setErrorNotice(null); }, 4000);
     }
   };
 
-  const handleUpdateOnsiteJobStatus = async (jobId: number, newStatus: string) => {
+  // Handlers for Onsite Job
+  const handleOpenOnsiteModal = (job: WorkerOnsiteJobItem) => {
+    setSelectedOnsiteJob(job);
+    setOnsiteNotes(job.customer_notes || '');
+    setOnsiteBeforePhoto(job.before_photos || '');
+    setOnsiteAfterPhoto(job.after_photos || '');
+    setIsOnsiteModalOpen(true);
+  };
+
+  const handleUpdateOnsiteStatus = async (newStatus: string) => {
+    if (!selectedOnsiteJob) return;
+    setIsSubmittingOnsite(true);
     try {
-      await updateWorkerOnsiteJobStatusDB(jobId, {
+      const res = await updateWorkerOnsiteJobStatusDB(selectedOnsiteJob.job_id, {
         status: newStatus,
         customer_notes: onsiteNotes,
         before_photos: onsiteBeforePhoto,
         after_photos: onsiteAfterPhoto
       });
-      setSuccessNotice(`On-site job status updated to ${newStatus}.`);
-      setSelectedOnsiteJob(null);
-      loadWorkerWorkspaceData();
+      setSuccessNotice(res.message || `On-site job status updated to ${newStatus}.`);
+      setIsOnsiteModalOpen(false);
+      await loadWorkerWorkspaceData();
     } catch (err: any) {
       setErrorNotice(err.message || 'Failed to update on-site job.');
-    } setTimeout(() => { setSuccessNotice(null); setErrorNotice(null); }, 4000);
+    } finally {
+      setIsSubmittingOnsite(false);
+    }
+  };
+
+  // Handlers for QC Rework
+  const handleOpenReworkModal = (rw: WorkerReworkItem) => {
+    setSelectedReworkForDetail(rw);
+    setReworkResolveNotes('');
+    setIsReworkModalOpen(true);
+  };
+
+  const handleConfirmResolveRework = async () => {
+    if (!selectedReworkForDetail) return;
+    setIsSubmittingRework(true);
+    try {
+      const res = await resolveWorkerReworkJobDB(selectedReworkForDetail.rework_id, reworkResolveNotes);
+      setSuccessNotice(res.message || 'Rework marked as resolved and submitted for re-inspection.');
+      setIsReworkModalOpen(false);
+      await loadWorkerWorkspaceData();
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Failed to resolve rework.');
+    } finally {
+      setIsSubmittingRework(false);
+    }
+  };
+
+  // Handlers for Driver Delivery
+  const handleOpenDeliveryModal = (del: WorkerDeliveryItem) => {
+    setSelectedDelivery(del);
+    setDeliveryStatusInput(del.delivery_status || 'Out for Delivery');
+    setDeliveryNotesInput(del.delivery_notes || '');
+    setIsDeliveryModalOpen(true);
+  };
+
+  const handleConfirmUpdateDelivery = async () => {
+    if (!selectedDelivery) return;
+    setIsSubmittingDelivery(true);
+    try {
+      const res = await updateWorkerDeliveryStatusDB(selectedDelivery.fulfillment_id, {
+        status: deliveryStatusInput,
+        notes: deliveryNotesInput
+      });
+      setSuccessNotice(res.message || `Delivery status updated to ${deliveryStatusInput}.`);
+      setIsDeliveryModalOpen(false);
+      await loadWorkerWorkspaceData();
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Failed to update delivery status.');
+    } finally {
+      setIsSubmittingDelivery(false);
+    }
+  };
+
+  // Handlers for Leave
+  const handleSubmitLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveReason.trim()) {
+      setErrorNotice('Please provide a reason for the leave application.');
+      return;
+    }
+    setIsSubmittingLeave(true);
+    try {
+      await applyWorkerLeave({
+        leave_type: leaveType,
+        start_date: leaveStartDate,
+        end_date: leaveEndDate,
+        reason: leaveReason
+      });
+      setSuccessNotice('Leave application submitted successfully.');
+      setLeaveReason('');
+      const updatedLeaves = await fetchMyLeaveApplications();
+      setLeaveApplications(updatedLeaves || []);
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Failed to submit leave application.');
+    } finally {
+      setIsSubmittingLeave(false);
+    }
+  };
+
+  // Handlers for Staff Query
+  const handleSubmitQuery = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!querySubject.trim() || !queryMessage.trim()) return;
+    setIsSubmittingQuery(true);
+    try {
+      addStaffQuery({
+        staffName: userProfile?.full_name || 'Artisan Worker',
+        staffEmail: userProfile?.email || 'worker@retailsphere.ai',
+        category: queryCategory,
+        subject: querySubject.trim(),
+        message: queryMessage.trim()
+      });
+      setSuccessNotice('Your inquiry has been submitted to production supervisors.');
+      setQuerySubject('');
+      setQueryMessage('');
+      const allQueries = getStaffQueries();
+      const userQueries = allQueries.filter(
+        (q) => !q.staffEmail || q.staffEmail.toLowerCase() === (userProfile?.email || '').toLowerCase()
+      );
+      setStaffQueries(userQueries);
+    } catch (err: any) {
+      setErrorNotice('Failed to submit inquiry.');
+    } finally {
+      setIsSubmittingQuery(false);
+    }
+  };
+
+  // Password Change Handler
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordNotice(null);
+    if (newPassword.length < 6) {
+      setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordNotice({ type: 'error', text: 'New password and confirmation do not match.' });
+      return;
+    }
+
+    try {
+      if (mustChangePasswordModal) {
+        await changeFirstPassword(currentPassword, newPassword);
+        setMustChangePasswordModal(false);
+      } else {
+        await changePasswordUser(currentPassword, newPassword);
+      }
+      setPasswordNotice({ type: 'success', text: 'Password successfully updated!' });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setIsProfileModalOpen(false);
+        setPasswordNotice(null);
+      }, 2000);
+    } catch (err: any) {
+      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password.' });
+    }
   };
 
   const handleLogout = () => {
     clearUserSession();
-    navigate('/login');
+    navigate('/login', { replace: true });
   };
 
   return (
     <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Background Image Layer (Matching Admin, Retail Staff, and Production Staff Dashboards) */}
-      <div 
+      {/* Background Image Layer (Matching Production & Retail Dashboards) */}
+      <div
         className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
         style={{
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
         }}
       />
+      {/* Translucent Warm Cream Overlay Layer */}
       <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
 
-      {/* LEFT SIDEBAR NAVIGATION PANEL (Matching ProductionStaffDashboardPage) */}
-      <aside className="w-72 flex-shrink-0 min-h-screen hidden md:block border-r border-[#D8CCBD] bg-[#E5DCD0]/80 backdrop-blur-xl p-6 space-y-8 relative z-20 shadow-sm">
-        {/* Brand Logo Header */}
-        <div className="space-y-1">
-          <h2 className="text-2xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-1.5">
-            <span>RetailSphere</span>
-            <span className="text-[#38A132]">AI</span>
-          </h2>
-          <span className="text-[11px] font-extrabold text-[#38A132] uppercase tracking-[0.2em] block font-mono">
-            ARTISAN WORKSHOP PORTAL
-          </span>
+      {/* ========================================================================= */}
+      {/* 1. LEFT SIDEBAR (Standard RetailSphere AI Staff Layout)                  */}
+      {/* ========================================================================= */}
+      <aside className="w-72 ultra-glass-panel border-r border-[#E2D7CB] hidden md:flex flex-col justify-between p-6 shadow-xl sticky top-0 h-screen min-h-screen z-20 flex-shrink-0">
+        <div className="space-y-8">
+          {/* Brand Logo */}
+          <div className="flex items-center justify-between">
+            <div>
+              <Link to="/dashboard" className="font-extrabold text-[#2C241D] text-lg tracking-tight block hover:opacity-90 transition-opacity">
+                RetailSphere <span className="text-[#48A63E]">AI</span>
+              </Link>
+              <span className="text-[10px] font-extrabold text-[#48A63E] uppercase tracking-widest block font-mono -mt-0.5">
+                Worker Artisan Portal
+              </span>
+            </div>
+          </div>
+
+          {/* Sidebar Scrollable Navigation */}
+          <div className="overflow-y-auto max-h-[calc(100vh-160px)] pr-1 space-y-5 scrollbar-none">
+            {/* Category 1: Workshop Operations */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Workshop Operations
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+                  {
+                    id: 'my_tasks',
+                    label: 'My Workshop Tasks',
+                    icon: Hammer,
+                    badge: summaryData ? summaryData.active_tasks_count + summaryData.pending_tasks_count : tasksList.filter(t => t.task_status !== 'COMPLETED').length,
+                    badgeColor: 'bg-emerald-600'
+                  },
+                  {
+                    id: 'completed',
+                    label: 'Completed History',
+                    icon: CheckCircle2,
+                    badge: summaryData?.completed_today_count,
+                    badgeColor: 'bg-teal-600'
+                  }
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-emerald-600'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Category 2: Field & Quality Services */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Field & Quality Services
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  {
+                    id: 'onsite',
+                    label: 'On-Site Field Jobs',
+                    icon: MapPin,
+                    badge: summaryData?.onsite_jobs_count || onsiteJobsList.filter(j => j.status !== 'COMPLETED').length,
+                    badgeColor: 'bg-blue-600'
+                  },
+                  {
+                    id: 'rework',
+                    label: 'QC Rework Tickets',
+                    icon: AlertTriangle,
+                    badge: summaryData?.rework_jobs_count || reworkList.filter(r => r.status !== 'RESOLVED').length,
+                    badgeColor: 'bg-purple-600'
+                  }
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-purple-600'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+
+            {/* Category 3: Logistics & Fleet (Strictly Conditional on is_driver) */}
+            {userProfile?.is_driver && (
+              <div>
+                <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2 flex items-center justify-between">
+                  <span>Logistics & Fleet</span>
+                  <span className="text-[9px] px-1.5 py-0.2 bg-amber-500 text-white rounded-sm font-mono">DRIVER</span>
+                </div>
+                <nav className="space-y-1 text-xs font-bold">
+                  {[
+                    {
+                      id: 'deliveries',
+                      label: 'Driver Deliveries',
+                      icon: Truck,
+                      badge: summaryData?.driver_deliveries_count || deliveriesList.filter(d => d.fulfillment_status !== 'Delivered').length,
+                      badgeColor: 'bg-indigo-600'
+                    }
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        onClick={() => setActiveTab(item.id as any)}
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                            : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Icon className="w-4 h-4" />
+                          <span>{item.label}</span>
+                        </div>
+                        {item.badge && item.badge > 0 ? (
+                          <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-indigo-600'}`}>
+                            {item.badge}
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+                </nav>
+              </div>
+            )}
+
+            {/* Category 4: Support & Availability */}
+            <div>
+              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+                Support & Availability
+              </div>
+              <nav className="space-y-1 text-xs font-bold">
+                {[
+                  {
+                    id: 'admin_messages',
+                    label: 'Admin Directives',
+                    icon: Mail,
+                    badge: unreadAdminMsgsCount,
+                    badgeColor: 'bg-amber-500 animate-pulse'
+                  },
+                  { id: 'queries', label: 'Supervisor Inquiries', icon: MessageSquare },
+                  {
+                    id: 'leave',
+                    label: 'Leave Applications',
+                    icon: Clock,
+                    badge: leaveApplications.filter(l => l.status === 'Pending').length,
+                    badgeColor: 'bg-amber-600'
+                  }
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id as any)}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
+                        isActive
+                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </div>
+                      {item.badge && item.badge > 0 ? (
+                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-600'}`}>
+                          {item.badge}
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </div>
         </div>
-
-        {/* Sidebar Navigation */}
-        <nav className="space-y-1.5 text-xs font-extrabold overflow-y-auto max-h-[calc(100vh-140px)] pr-1 scrollbar-none">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'dashboard'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <LayoutDashboard className="w-4 h-4" />
-              <span className="text-xs">Today's Work</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('my_tasks')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'my_tasks'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Wrench className="w-4 h-4" />
-              <span className="text-xs">My Assigned Tasks</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('onsite')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'onsite'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <MapPin className="w-4 h-4" />
-              <span className="text-xs">On-Site Work</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('completed')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'completed'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <PackageCheck className="w-4 h-4" />
-              <span className="text-xs">Completed History</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('admin_directives')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'admin_directives'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Mail className="w-4 h-4" />
-              <span className="text-xs">Admin/Staff Directives</span>
-            </div>
-            {unreadDirectivesCount > 0 && (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-500 text-white animate-pulse">
-                {unreadDirectivesCount}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('queries')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'queries'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <MessageSquare className="w-4 h-4" />
-              <span className="text-xs">Production Communication</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('leave')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'leave'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <Calendar className="w-4 h-4" />
-              <span className="text-xs">Leave Requests & Absence</span>
-            </div>
-            {leaveApplications.filter(l => l.status === 'Pending').length > 0 && (
-              <span className="px-2 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                {leaveApplications.filter(l => l.status === 'Pending').length} Pending
-              </span>
-            )}
-          </button>
-        </nav>
       </aside>
 
-      {/* MAIN RIGHT CONTENT AREA */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto relative z-10">
-        {/* Mobile Header Bar */}
-        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
+      {/* ========================================================================= */}
+      {/* 2. RIGHT MAIN CONTENT AREA                                                */}
+      {/* ========================================================================= */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Mobile Top Navigation */}
+        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-sm text-[#2C241D]">Artisan Workshop</span>
+            <span className="font-extrabold text-xs text-[#2C241D]">Worker Portal</span>
+            <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-[#E8F5E9] text-[#2D6338] rounded-md">
+              {userProfile?.specialization || 'Production'}
+            </span>
           </div>
-          <div className="flex items-center gap-1.5 overflow-x-auto">
-            {(['dashboard', 'my_tasks', 'onsite', 'completed', 'admin_directives', 'queries', 'profile'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`px-2.5 py-1 rounded-xl text-xs font-bold capitalize ${
-                  activeTab === tab ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {tab === 'dashboard' ? 'Today' : tab === 'my_tasks' ? 'Tasks' : tab === 'admin_directives' ? 'Directives' : tab}
-              </button>
-            ))}
-          </div>
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as any)}
+            className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white border border-[#E2D7CB] text-[#2C241D]"
+          >
+            <option value="dashboard">📊 Dashboard Overview</option>
+            <option value="my_tasks">🔨 Workshop Tasks</option>
+            <option value="onsite">📍 On-Site Jobs</option>
+            <option value="rework">⚠️ QC Rework</option>
+            {userProfile?.is_driver && <option value="deliveries">🚚 Driver Deliveries</option>}
+            <option value="completed">✅ Completed History</option>
+            <option value="admin_messages">📢 Directives</option>
+            <option value="queries">💬 Supervisor Inquiries</option>
+            <option value="leave">📅 Leave Applications</option>
+          </select>
         </div>
 
+        {/* Main Content Container */}
         <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">
           <div className="ultra-glass-panel rounded-[2.5rem] p-4 sm:p-6 lg:p-6 space-y-6 relative">
-            {/* Glossy Top Reflection Sheen */}
             <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
 
-            {/* UNREAD DIRECTIVES BANNER */}
-            {unreadDirectivesCount > 0 && activeTab !== 'admin_directives' && (
+            {/* Top Notifications Banner */}
+            {successNotice && (
+              <div className="relative z-10 p-4 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] flex items-start gap-3 shadow-md animate-fadeIn">
+                <CheckCircle2 className="w-5 h-5 text-[#48A63E] flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs font-extrabold leading-relaxed">
+                  {successNotice}
+                </div>
+                <button onClick={() => setSuccessNotice(null)} className="text-[#48A63E] hover:text-[#3D9134] p-1 cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {errorNotice && (
+              <div className="relative z-10 p-4 rounded-2xl bg-red-500/15 border border-red-500/40 text-red-700 flex items-start gap-3 shadow-md animate-fadeIn">
+                <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs font-extrabold leading-relaxed">
+                  {errorNotice}
+                </div>
+                <button onClick={() => setErrorNotice(null)} className="text-red-700 hover:text-red-900 p-1 cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Unread Admin Directives Banner */}
+            {unreadAdminMsgsCount > 0 && activeTab !== 'admin_messages' && (
               <div className="relative z-10 p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/5 border-2 border-amber-400 text-amber-900 flex items-center justify-between gap-3 shadow-md animate-fadeIn">
                 <div className="flex items-center gap-3">
                   <Bell className="w-5 h-5 text-amber-600 animate-bounce flex-shrink-0" />
                   <div>
                     <span className="font-black text-xs block">
-                      📢 You have {unreadDirectivesCount} unread Admin/Staff Directive{unreadDirectivesCount > 1 ? 's' : ''}!
+                      📢 You have {unreadAdminMsgsCount} unread Supervisor Directive{unreadAdminMsgsCount > 1 ? 's' : ''}!
                     </span>
                     <span className="text-[11px] text-amber-800 font-medium">
-                      System Admin & Production Staff have dispatched official instructions to the workshop.
+                      Workshop supervisors dispatched official instructions for active manufacturing operations.
                     </span>
                   </div>
                 </div>
                 <button
-                  onClick={() => setActiveTab('admin_directives')}
+                  onClick={() => setActiveTab('admin_messages')}
                   className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-xs transition-all whitespace-nowrap cursor-pointer"
                 >
                   View Directives →
@@ -561,1150 +829,513 @@ export const WorkerDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* NOTICES BANNER */}
-            {successNotice && (
-              <div className="bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] p-4 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-between animate-fadeIn relative z-20">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-[#48A63E]" />
-                  <span>{successNotice}</span>
-                </div>
-                <button onClick={() => setSuccessNotice(null)} className="text-[#48A63E] hover:opacity-70">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-            {errorNotice && (
-              <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-between animate-fadeIn relative z-20">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-5 text-rose-600" />
-                  <span>{errorNotice}</span>
-                </div>
-                <button onClick={() => setErrorNotice(null)} className="text-rose-700 hover:opacity-70">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            )}
-
-            {/* PAGE TOP HEADER */}
-            <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-[#EFE7DE]">
+            {/* Top Workspace Bar (Elevated z-index for dropdown stacking) */}
+            <div className="relative z-30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-[#E2D7CB]">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                  {activeTab === 'dashboard' && "Today's Production & Stage Operations"}
-                  {activeTab === 'my_tasks' && "My Assigned Stage Tasks"}
-                  {activeTab === 'onsite' && "On-Site Installation & Field Work"}
-                  {activeTab === 'completed' && "My Finished Stages History"}
-                  {activeTab === 'admin_directives' && "Admin & Staff Directives"}
-                  {activeTab === 'queries' && "Production Staff Communication Desk"}
-                  {activeTab === 'leave' && "Leave Requests & Absence Management"}
-                  {activeTab === 'profile' && "Artisan Profile & Skill Capabilities"}
-                </h1>
-                <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                  {activeTab === 'leave' ? 'Submit leave requests for workshop staff & admin review. Leave status is reflected across Production Staff & Admin Dashboards.' : activeTab === 'admin_directives' ? 'Official announcements and operational directives sent by System Admin and Production Staff.' : activeTab === 'queries' ? 'Direct communication line to send technical queries or material requests to Production Staff.' : 'Production workshop operational workspace calculated live from PostgreSQL.'}
-                </p>
-              </div>
-
-              {/* STAFF NAME DROPDOWN PILL ("Name Session" matching Staff Dashboards) */}
-              <div className="relative self-start lg:self-auto">
-                <button
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white border border-[#E2D7CB] hover:border-[#48A63E] transition-all shadow-xs cursor-pointer"
-                  title="Click for profile and sign out options"
-                >
-                  <div className="w-7 h-7 rounded-xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center flex-shrink-0 shadow-md">
-                    {(userProfile?.full_name || summaryData?.worker_name || 'Worker')
-                      .split(' ')
-                      .map((n: string) => n[0])
-                      .join('')
-                      .slice(0, 2)
-                      .toUpperCase()}
-                  </div>
-                  <span className="text-xs font-extrabold text-[#2C241D]">
-                    {userProfile?.full_name || summaryData?.worker_name || 'Worker'}
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 text-[#6B5C4D] transition-transform ${isUserMenuOpen ? 'rotate-180 text-[#48A63E]' : ''}`} />
-                </button>
-
-                {isUserMenuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
-                    <button
-                      onClick={() => {
-                        setActiveTab('profile');
-                        setIsUserMenuOpen(false);
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left cursor-pointer"
-                    >
-                      <User className="w-4 h-4 text-[#48A63E]" />
-                      <span>View Profile & Skills</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(false);
-                        handleLogout();
-                      }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4 text-rose-600" />
-                      <span>Sign Out</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* TAB 1: TODAY'S WORK / OPERATIONAL DASHBOARD */}
-            {activeTab === 'dashboard' && (
-              <div className="space-y-6">
-                {/* KPI OVERVIEW (Executive Glass Cards) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Active Task</span>
-                      <Hammer className="w-4 h-4 text-[#48A63E]" />
-                    </div>
-                    <div className="text-2xl font-extrabold text-[#48A63E] mt-2">
-                      {summaryData?.active_tasks_count || (activeTask ? 1 : 0)}
-                    </div>
-                    <div className="text-[10px] text-[#48A63E] font-bold mt-1">Currently In Progress</div>
-                  </div>
-
-                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Pending Tasks</span>
-                      <Wrench className="w-4 h-4 text-amber-600" />
-                    </div>
-                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                      {summaryData?.pending_tasks_count || tasksList.filter(t => t.task_status === 'ASSIGNED').length}
-                    </div>
-                    <div className="text-[10px] text-amber-800 font-bold mt-1">Assigned & Waiting</div>
-                  </div>
-
-                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Completed Today</span>
-                      <PackageCheck className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                      {summaryData?.completed_today_count || completedHistory.length}
-                    </div>
-                    <div className="text-[10px] text-blue-700 font-bold mt-1">Finished Stages</div>
-                  </div>
-
-                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                    <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>On-Site Jobs</span>
-                      <MapPin className="w-4 h-4 text-purple-600" />
-                    </div>
-                    <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                      {summaryData?.onsite_jobs_count || onsiteJobsList.length}
-                    </div>
-                    <div className="text-[10px] text-purple-700 font-bold mt-1">Field Service</div>
-                  </div>
-                </div>
-
-            {/* HIGHLIGHTED ACTIVE TASK BANNER */}
-            <div className="bg-white rounded-3xl p-6 border-2 border-[#48A63E] shadow-lg relative overflow-hidden space-y-4">
-              <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#48A63E] opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-[#48A63E]"></span>
-                  </span>
-                  <h3 className="text-lg font-black text-[#2C241D]">CURRENT ACTIVE TASK</h3>
+                  <h1 className="text-xl sm:text-2xl font-black text-[#2C241D] tracking-tight">
+                    {activeTab === 'dashboard' && 'Workshop Execution Center'}
+                    {activeTab === 'my_tasks' && 'My Assigned Manufacturing Stages'}
+                    {activeTab === 'onsite' && 'On-Site Field Service Assignments'}
+                    {activeTab === 'rework' && 'Quality Control & Rework Tickets'}
+                    {activeTab === 'deliveries' && 'Driver Logistics & Order Delivery'}
+                    {activeTab === 'completed' && 'Completed Workshop History'}
+                    {activeTab === 'admin_messages' && 'Supervisor Directives & Broadcasts'}
+                    {activeTab === 'queries' && 'Technical Queries & Material Requests'}
+                    {activeTab === 'leave' && 'Leave Management & Absence Tracking'}
+                  </h1>
                 </div>
-                {activeTask && (
-                  <span className="px-3 py-1 bg-[#48A63E]/15 text-[#48A63E] font-black text-xs rounded-xl border border-[#48A63E]/30">
-                    IN PROGRESS
-                  </span>
-                )}
-              </div>
-
-              {activeTask ? (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                  <div className="space-y-2 md:col-span-2">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">
-                        {activeTask.order_id}
+                <p className="text-xs text-[#7A6C5E] font-medium mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span>Artisan ID: #{userProfile?.user_id || '104'}</span>
+                  <span>•</span>
+                  <span>Specialization: <strong className="text-[#2C241D]">{userProfile?.specialization || 'Joinery & Assembly'}</strong></span>
+                  {userProfile?.is_driver && (
+                    <>
+                      <span>•</span>
+                      <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white font-bold text-[10px]">
+                        Driver Capable
                       </span>
-                      <h4 className="text-xl font-black text-[#2C241D]">{activeTask.job_name}</h4>
-                    </div>
-
-                    <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-                      <div>
-                        <span className="block text-[10px] font-bold text-[#7A6C5E]">Assigned Stage:</span>
-                        <span className="font-extrabold text-[#2C241D]">{activeTask.stage_name}</span>
-                      </div>
-                      <div>
-                        <span className="block text-[10px] font-bold text-[#7A6C5E]">Material:</span>
-                        <span className="font-extrabold text-[#2C241D]">{activeTask.material}</span>
-                      </div>
-                      <div>
-                        <span className="block text-[10px] font-bold text-[#7A6C5E]">Dimensions:</span>
-                        <span className="font-mono font-bold text-[#2C241D]">{activeTask.dimensions}</span>
-                      </div>
-                    </div>
-
-                    <p className="text-xs font-semibold text-[#6B5C4D]">
-                      <strong className="text-[#2C241D]">Instructions:</strong> {activeTask.technical_instructions}
-                    </p>
-                  </div>
-
-                  <div className="flex flex-col items-stretch gap-2.5">
-                    <button
-                      onClick={() => { setSelectedTaskForDetail(activeTask); setIsTaskDetailModalOpen(true); }}
-                      className="w-full py-3 rounded-2xl bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#2C241D] font-extrabold text-xs border border-[#E2D7CB] flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-                    >
-                      <Eye className="w-4 h-4 text-[#48A63E]" />
-                      <span>View Specifications & Images</span>
-                    </button>
-                    <button
-                      onClick={() => handleOpenCompleteModal(activeTask)}
-                      className="w-full py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-[#48A63E]/20"
-                    >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Complete Stage</span>
-                    </button>
-                    <button
-                      onClick={() => handleOpenReportIssueModal(activeTask)}
-                      className="w-full py-2.5 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-extrabold text-xs border border-amber-300 flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <span>Report Issue / Put On Hold</span>
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-8 text-center bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2">
-                  <CheckCircle2 className="w-10 h-10 text-[#7A6C5E] mx-auto opacity-40" />
-                  <p className="font-extrabold text-sm text-[#2C241D]">No Active Task Currently In Progress</p>
-                  <p className="text-xs font-semibold text-[#7A6C5E]">Select an assigned task from below or "My Tasks" tab to start working.</p>
-                </div>
-              )}
-            </div>
-
-            {/* ASSIGNED & UPCOMING TASKS LIST */}
-            <div className="bg-white rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-                <h4 className="font-black text-base text-[#2C241D]">Upcoming Assigned Work</h4>
-                <button onClick={() => setActiveTab('my_tasks')} className="text-xs font-extrabold text-[#48A63E] hover:underline flex items-center gap-1">
-                  <span>View All ({tasksList.length})</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {tasksList.filter(t => t.task_status !== 'IN_PROGRESS').length === 0 ? (
-                <div className="py-10 text-center text-[#7A6C5E] text-xs font-bold">
-                  No upcoming assigned tasks. All work is up to date!
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {tasksList.filter(t => t.task_status !== 'IN_PROGRESS').slice(0, 4).map((task) => (
-                    <div key={task.task_id} className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-3 hover:border-[#48A63E] transition-all">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[11px] font-mono font-black text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded border border-[#48A63E]/20">
-                          {task.order_id}
-                        </span>
-                        <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border ${
-                          task.task_status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                          task.task_status === 'ON_HOLD' ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                          'bg-[#48A63E]/15 text-[#48A63E] border-[#48A63E]/30'
-                        }`}>
-                          {task.task_status}
-                        </span>
-                      </div>
-
-                      <div>
-                        <h5 className="font-extrabold text-sm text-[#2C241D]">{task.job_name}</h5>
-                        <p className="text-xs font-bold text-[#7A6C5E]">{task.stage_name} • {task.material}</p>
-                      </div>
-
-                      <div className="flex items-center justify-between pt-2 border-t border-[#EFE7DE]">
-                        <span className="text-[11px] font-semibold text-[#7A6C5E]">Assigned: {task.assigned_date}</span>
-                        {task.task_status === 'ASSIGNED' && (
-                          <button
-                            onClick={() => handleStartTask(task.task_id)}
-                            className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-xs flex items-center gap-1 cursor-pointer"
-                          >
-                            <span>Start Task</span>
-                            <ArrowRight className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {task.task_status !== 'ASSIGNED' && (
-                          <button
-                            onClick={() => { setSelectedTaskForDetail(task); setIsTaskDetailModalOpen(true); }}
-                            className="px-3 py-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs hover:bg-[#F2ECE1]"
-                          >
-                            Open Specs
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: MY TASKS (Full Filterable Work List) */}
-        {activeTab === 'my_tasks' && (
-          <div className="bg-white rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
-            {/* Header & Controls */}
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-              <div>
-                <h3 className="text-lg font-black text-[#2C241D]">My Assigned Production Tasks</h3>
-                <p className="text-xs font-bold text-[#7A6C5E]">Filter and execute tasks assigned to your worker account.</p>
-              </div>
-
-              <div className="flex items-center gap-3 w-full sm:w-auto">
-                <div className="relative flex-1 sm:w-64">
-                  <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search by order ID, material..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                  />
-                </div>
-
-                <select
-                  value={taskStatusFilter}
-                  onChange={(e) => setTaskStatusFilter(e.target.value)}
-                  className="px-3 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-extrabold text-[#2C241D] cursor-pointer"
-                >
-                  <option value="All">All Statuses</option>
-                  <option value="ASSIGNED">Assigned</option>
-                  <option value="IN_PROGRESS">In Progress</option>
-                  <option value="ON_HOLD">On Hold</option>
-                  <option value="COMPLETED">Completed</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Task Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Order Ref</th>
-                    <th className="py-3 px-4">Job / Product Title</th>
-                    <th className="py-3 px-4">Production Stage</th>
-                    <th className="py-3 px-4">Material Specs</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#EFE7DE]">
-                  {filteredTasks.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-[#7A6C5E]">
-                        No tasks found matching current filter.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredTasks.map((task) => (
-                      <tr key={task.task_id} className="hover:bg-[#FAF7F2] transition-colors">
-                        <td className="py-3.5 px-4 font-mono font-black text-[#48A63E]">
-                          {task.order_id}
-                        </td>
-                        <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                          {task.job_name}
-                        </td>
-                        <td className="py-3.5 px-4 font-bold text-[#6B5C4D]">
-                          {task.stage_name}
-                        </td>
-                        <td className="py-3.5 px-4 text-[#6B5C4D]">
-                          {task.material} ({task.dimensions})
-                        </td>
-                        <td className="py-3.5 px-4">
-                          <span className={`px-2.5 py-0.5 rounded-md text-[10px] font-extrabold border ${
-                            task.task_status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
-                            task.task_status === 'IN_PROGRESS' ? 'bg-[#48A63E]/15 text-[#48A63E] border-[#48A63E]/30 animate-pulse' :
-                            task.task_status === 'ON_HOLD' ? 'bg-amber-100 text-amber-800 border-amber-300' :
-                            'bg-slate-100 text-slate-800 border-slate-300'
-                          }`}>
-                            {task.task_status}
-                          </span>
-                        </td>
-                        <td className="py-3.5 px-4 text-right space-x-2">
-                          <button
-                            onClick={() => { setSelectedTaskForDetail(task); setIsTaskDetailModalOpen(true); }}
-                            className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs"
-                          >
-                            Open Task
-                          </button>
-                          {task.task_status === 'ASSIGNED' && (
-                            <button
-                              onClick={() => handleStartTask(task.task_id)}
-                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-xs"
-                            >
-                              Start
-                            </button>
-                          )}
-                          {task.task_status === 'IN_PROGRESS' && (
-                            <button
-                              onClick={() => handleOpenCompleteModal(task)}
-                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-xs"
-                            >
-                              Complete
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    ))
+                    </>
                   )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 3: ON-SITE SERVICE WORK */}
-        {activeTab === 'onsite' && (
-          <div className="bg-white rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
-            <div className="border-b border-[#EFE7DE] pb-4">
-              <h3 className="text-lg font-black text-[#2C241D]">On-Site Installation & Field Service Jobs</h3>
-              <p className="text-xs font-bold text-[#7A6C5E]">On-site furniture installation, assembly, repair and customer service tasks.</p>
-            </div>
-
-            {onsiteJobsList.length === 0 ? (
-              <div className="py-12 text-center bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2">
-                <MapPin className="w-10 h-10 text-[#7A6C5E] mx-auto opacity-40" />
-                <p className="font-extrabold text-sm text-[#2C241D]">No Active On-Site Assignments</p>
-                <p className="text-xs font-semibold text-[#7A6C5E]">Field service requests assigned by Retail/Production Staff will appear here.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {onsiteJobsList.map((job) => (
-                  <div key={job.job_id} className="p-5 bg-[#FAF7F2] rounded-3xl border border-[#E2D7CB] space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-mono font-black text-purple-700 bg-purple-100 px-2.5 py-1 rounded-lg border border-purple-300">
-                        {job.service_id}
-                      </span>
-                      <span className="px-2.5 py-0.5 rounded-md text-[10px] font-extrabold bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30">
-                        {job.status}
-                      </span>
-                    </div>
-
-                    <div>
-                      <h4 className="font-black text-base text-[#2C241D]">{job.service_category}</h4>
-                      <p className="text-xs font-semibold text-[#6B5C4D]">{job.description}</p>
-                    </div>
-
-                    <div className="p-3 bg-white rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
-                      <div className="flex items-center gap-1.5 text-[#2C241D] font-extrabold">
-                        <User className="w-3.5 h-3.5 text-[#48A63E]" />
-                        <span>{job.customer_name} ({job.customer_phone || 'N/A'})</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[#6B5C4D] font-bold">
-                        <MapPin className="w-3.5 h-3.5 text-[#48A63E]" />
-                        <span>{job.address}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[#6B5C4D] font-bold">
-                        <Calendar className="w-3.5 h-3.5 text-[#48A63E]" />
-                        <span>Scheduled: {job.scheduled_time}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end gap-2 pt-2 border-t border-[#EFE7DE]">
-                      {job.status === 'ASSIGNED' && (
-                        <button
-                          onClick={() => handleUpdateOnsiteJobStatus(job.job_id, 'IN_TRANSIT')}
-                          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-xs"
-                        >
-                          Start Dispatch / In Transit
-                        </button>
-                      )}
-                      {job.status === 'IN_TRANSIT' && (
-                        <button
-                          onClick={() => handleUpdateOnsiteJobStatus(job.job_id, 'IN_PROGRESS')}
-                          className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-xs"
-                        >
-                          Arrived & Start Service
-                        </button>
-                      )}
-                      {job.status === 'IN_PROGRESS' && (
-                        <button
-                          onClick={() => handleUpdateOnsiteJobStatus(job.job_id, 'COMPLETED')}
-                          className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-xs flex items-center gap-1"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Mark Completed</span>
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB 4: COMPLETED WORK HISTORY */}
-        {activeTab === 'completed' && (
-          <div className="bg-white rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
-            <div className="border-b border-[#EFE7DE] pb-4">
-              <h3 className="text-lg font-black text-[#2C241D]">Completed Production Stages History</h3>
-              <p className="text-xs font-bold text-[#7A6C5E]">Record of finished production stages with actual calculated task duration.</p>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-3 px-4">Order Ref</th>
-                    <th className="py-3 px-4">Job Title</th>
-                    <th className="py-3 px-4">Stage Name</th>
-                    <th className="py-3 px-4">Completion Date</th>
-                    <th className="py-3 px-4">Actual Duration</th>
-                    <th className="py-3 px-4 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#EFE7DE]">
-                  {completedHistory.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-[#7A6C5E]">
-                        No completed tasks logged yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    completedHistory.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-[#FAF7F2] transition-colors">
-                        <td className="py-3.5 px-4 font-mono font-black text-[#48A63E]">
-                          {item.order_id}
-                        </td>
-                        <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                          {item.job_name}
-                        </td>
-                        <td className="py-3.5 px-4 font-bold text-[#6B5C4D]">
-                          {item.stage_name}
-                        </td>
-                        <td className="py-3.5 px-4 text-[#6B5C4D]">
-                          {item.completed_date}
-                        </td>
-                        <td className="py-3.5 px-4 font-mono font-bold text-[#38A132]">
-                          ⏱️ {item.duration}
-                        </td>
-                        <td className="py-3.5 px-4 text-right">
-                          <span className="px-2.5 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                            COMPLETED
-                          </span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* TAB: ADMIN & STAFF DIRECTIVES */}
-        {activeTab === 'admin_directives' && (
-          <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-6">
-            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-4">
-              <div>
-                <h3 className="text-lg font-black text-[#2C241D]">Official Admin & Staff Directives</h3>
-                <p className="text-xs text-[#6B5C4D]">Executive announcements and operational directives sent to workshop staff.</p>
-              </div>
-              {unreadDirectivesCount > 0 && (
-                <button
-                  onClick={() => {
-                    const email = userProfile?.email || '';
-                    const role = (userProfile as any)?.role || 'Worker';
-                    markAllAdminMessagesReadForUser(email, role);
-                    setAdminDirectives(getMessagesForUser(email, role));
-                  }}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F852A] text-white text-xs font-extrabold shadow-sm transition-all cursor-pointer"
-                >
-                  Mark All as Read
-                </button>
-              )}
-            </div>
-
-            {adminDirectives.length === 0 ? (
-              <div className="p-8 text-center bg-white/60 backdrop-blur-xl rounded-2xl border border-white/80 space-y-2">
-                <Mail className="w-8 h-8 text-[#A39282] mx-auto" />
-                <h4 className="text-sm font-extrabold text-[#2C241D]">No Official Directives</h4>
-                <p className="text-xs text-[#7A6C5E]">There are currently no active directives broadcasted to your account.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {adminDirectives.map((msg) => {
-                  const isRead = isMessageReadByUser(msg, userProfile?.email);
-                  return (
-                    <div
-                      key={msg.id}
-                      className={`p-5 rounded-2xl border transition-all ${
-                        !isRead
-                          ? 'bg-amber-50/90 border-amber-300 shadow-md'
-                          : 'bg-white/70 border-white/90 shadow-sm'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-3 mb-3">
-                        <div className="flex items-center gap-2.5">
-                          <span className="px-2.5 py-0.5 rounded-md bg-[#38A132]/15 text-[#38A132] text-[10px] font-black border border-[#38A132]/30">
-                            {msg.sender || 'System Admin'}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-extrabold">
-                            {msg.recipientType}
-                          </span>
-                          {!isRead && (
-                            <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white text-[10px] font-black animate-pulse">
-                              NEW DIRECTIVE
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[11px] font-bold text-[#7A6C5E]">{msg.createdDate}</span>
-                      </div>
-
-                      <h4 className="text-base font-black text-[#2C241D] mb-1.5">{msg.subject}</h4>
-                      <p className="text-xs text-[#4A3E32] leading-relaxed whitespace-pre-wrap">{msg.message}</p>
-
-                      {!isRead && (
-                        <div className="mt-4 pt-3 border-t border-[#EFE7DE] flex justify-end">
-                          <button
-                            onClick={() => {
-                              markAdminMessageRead(msg.id, userProfile?.email);
-                              setAdminDirectives(getMessagesForUser(userProfile?.email || '', userProfile?.role || 'Worker'));
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-white border border-[#E2D7CB] hover:bg-[#FAF7F2] text-xs font-extrabold text-[#2C241D] transition-all cursor-pointer shadow-2xs"
-                          >
-                            Acknowledge & Mark Read
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* TAB: PRODUCTION STAFF COMMUNICATION DESK */}
-        {activeTab === 'queries' && (
-          <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
-              <div>
-                <h3 className="text-lg font-black text-[#2C241D]">Production Staff Communication & Query Desk</h3>
-                <p className="text-xs text-[#6B5C4D]">Send technical questions, material shortages, or operational requests directly to Production Staff & System Admin.</p>
-              </div>
-            </div>
-
-            {/* SUBMIT NEW QUERY FORM */}
-            <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 border border-white/90 shadow-md space-y-4">
-              <h4 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-[#38A132]" />
-                <span>Submit Direct Message to Production Staff</span>
-              </h4>
-
-              <form onSubmit={handleSendWorkerQuery} className="space-y-3.5 text-xs font-semibold">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block font-extrabold text-[#2C241D] mb-1">Query Category *</label>
-                    <select
-                      value={queryCategory}
-                      onChange={(e) => setQueryCategory(e.target.value as any)}
-                      className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
-                    >
-                      <option value="Production / Technical Query">Production / Technical Query</option>
-                      <option value="Material & Hardware Request">Material & Hardware Request</option>
-                      <option value="Role & Access Permission">Role & Access Permission</option>
-                      <option value="General Operational Query">General Operational Query</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block font-extrabold text-[#2C241D] mb-1">Subject / Job Reference *</label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Timber specification doubt for ORD-0014"
-                      value={querySubject}
-                      onChange={(e) => setQuerySubject(e.target.value)}
-                      className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Message Details *</label>
-                  <textarea
-                    rows={3}
-                    placeholder="Write your question or request for Production Staff..."
-                    value={queryMessage}
-                    onChange={(e) => setQueryMessage(e.target.value)}
-                    className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132]"
-                    required
-                  />
-                </div>
-
-                <div className="flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={isSubmittingQuery}
-                    className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F852A] text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
-                  >
-                    <Send className="w-4 h-4" />
-                    <span>{isSubmittingQuery ? 'Sending...' : 'Send Message to Production Staff'}</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            {/* PREVIOUS QUERIES & RESPONSES LIST */}
-            <div className="space-y-4">
-              <h4 className="text-sm font-extrabold text-[#2C241D]">Sent Communication History ({staffQueries.length})</h4>
-              {staffQueries.length === 0 ? (
-                <div className="p-6 text-center bg-white/60 backdrop-blur-xl rounded-2xl border border-white/80 text-[#7A6C5E] text-xs font-bold">
-                  No communication history found. Submit your first query above to contact Production Staff.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {staffQueries.map((q) => (
-                    <div key={q.id} className="p-4 rounded-2xl bg-white/70 border border-white/90 shadow-sm space-y-2.5">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-extrabold text-[#2C241D]">{q.subject}</span>
-                          <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-bold">
-                            {q.category}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
-                            q.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' :
-                            q.status === 'Approved' ? 'bg-blue-100 text-blue-800' :
-                            q.status === 'In Review' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
-                          }`}>
-                            {q.status}
-                          </span>
-                          <span className="text-[10px] text-[#7A6C5E]">{q.createdAt}</span>
-                        </div>
-                      </div>
-
-                      <p className="text-xs text-[#4A3E32]">{q.message}</p>
-
-                      {q.adminResponse && (
-                        <div className="p-3 bg-[#38A132]/10 rounded-xl border border-[#38A132]/30 text-xs space-y-1">
-                          <span className="font-extrabold text-[#2C241D] block">Response from Production Staff / Admin:</span>
-                          <p className="text-[#2C241D] font-medium">{q.adminResponse}</p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* TAB 5: WORKER PROFILE & SKILLS */}
-        {activeTab === 'profile' && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            {/* Top Identity Card */}
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E2D7CB] shadow-sm space-y-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-[#48A63E] to-[#2E8729] text-white font-black text-2xl flex items-center justify-center shadow-md">
-                    {(userProfile?.full_name || 'W')[0]}
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-black text-[#2C241D] flex items-center gap-2">
-                      <span>{userProfile?.full_name || 'Worker'}</span>
-                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                        Active Roster
-                      </span>
-                    </h3>
-                    <p className="text-xs font-mono font-bold text-[#7A6C5E] mt-0.5">{userProfile?.email}</p>
-                    <div className="flex items-center gap-2 mt-2 flex-wrap">
-                      <span className="px-2.5 py-0.5 rounded-md bg-[#48A63E]/15 text-[#48A63E] text-[10px] font-black border border-[#48A63E]/30">
-                        Role: {userProfile?.role || 'Worker'}
-                      </span>
-                      {userProfile?.phone && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-900 text-[10px] font-black border border-amber-200 font-mono">
-                          📞 {userProfile.phone}
-                        </span>
-                      )}
-                      {(summaryData?.is_driver || userProfile?.is_driver) && (
-                        <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-black border border-purple-300 flex items-center gap-1">
-                          <Truck className="w-3 h-3 text-purple-700" />
-                          <span>Fleet Driver Eligible</span>
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs font-semibold space-y-1 min-w-[180px]">
-                  <div className="flex justify-between">
-                    <span className="text-[#7A6C5E]">Artisan ID:</span>
-                    <span className="font-mono font-extrabold text-[#2C241D]">ART-#{userProfile?.user_id || 104}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#7A6C5E]">Shift Status:</span>
-                    <span className="font-bold text-emerald-700">Workshop On-Duty</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-[#7A6C5E]">Completed Jobs:</span>
-                    <span className="font-extrabold text-[#38A132]">{summaryData?.completed_today_count ?? 12} Tasks</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Skill Capabilities & Craft Specializations */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-[#48A63E]" />
-                    <span>Artisan Skill Capabilities & Specialization</span>
-                  </h4>
-                  <span className="text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
-                    Verified Competency
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                  <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2.5">
-                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
-                      <span className="font-bold text-[#7A6C5E]">Primary Craft Specialization</span>
-                      <span className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
-                        🪵 {userProfile?.specialization || 'Woodwork & Carpentry'}
-                      </span>
-                    </div>
-                    <div className="space-y-1.5 pt-1">
-                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Skill Mastery Tags</span>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          🪚 Precision Joinery
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          ✨ Surface Polishing & PU
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          🔩 Hardware & Fitting
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          📐 Blueprint & Specs Reading
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-2.5">
-                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
-                      <span className="font-bold text-[#7A6C5E]">Fleet Transport & On-Site</span>
-                      <span className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
-                        🚚 {(summaryData?.is_driver || userProfile?.is_driver) ? 'Fleet Van Driver' : 'Workshop Station'}
-                      </span>
-                    </div>
-                    <div className="space-y-1.5 pt-1">
-                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Workshop Equipment Proficiency</span>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          ⚡ CNC Panel Router
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          🌀 Spray Booth System
-                        </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-[#E2D7CB] text-[#2C241D]">
-                          🗜️ Edge Banding Machine
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Password & Security Card Embedded in Profile View */}
-            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E2D7CB] shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-                <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-[#48A63E]" />
-                  <span>Account Security & Login Password</span>
-                </h4>
-                <span className="text-[10px] font-bold text-[#7A6C5E]">Encrypted Credentials</span>
-              </div>
-
-              {passwordNotice && (
-                <div className={`p-3 rounded-xl text-xs font-bold border ${passwordNotice.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-rose-50 text-rose-900 border-rose-300'}`}>
-                  {passwordNotice.text}
-                </div>
-              )}
-
-              <form onSubmit={handlePasswordChangeSubmit} className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-semibold">
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">New Password *</label>
-                  <input
-                    type="password"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Confirm New Password *</label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E]"
-                    required
-                  />
-                </div>
-
-                <div className="sm:col-span-2 pt-2 flex justify-end">
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Update Account Password</span>
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-      </div>
-    </main>
-  </div>
-
-      {/* MODAL: TASK DETAIL & SPECIFICATIONS */}
-      {isTaskDetailModalOpen && selectedTaskForDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md animate-fadeIn">
-          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-2xl shadow-2xl border border-[#E2D7CB] space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="text-xs font-mono font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">
-                  {selectedTaskForDetail.order_id}
-                </span>
-                <h3 className="text-lg font-black text-[#2C241D]">{selectedTaskForDetail.job_name}</h3>
-              </div>
-              <button onClick={() => setIsTaskDetailModalOpen(false)} className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#FAF7F2]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs font-semibold">
-              <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div>
-                  <span className="block text-[10px] font-bold text-[#7A6C5E]">Assigned Stage:</span>
-                  <span className="font-extrabold text-[#2C241D] text-sm">{selectedTaskForDetail.stage_name}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-bold text-[#7A6C5E]">Material:</span>
-                  <span className="font-extrabold text-[#2C241D]">{selectedTaskForDetail.material}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-bold text-[#7A6C5E]">Dimensions:</span>
-                  <span className="font-mono font-bold text-[#2C241D]">{selectedTaskForDetail.dimensions}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-bold text-[#7A6C5E]">Color / Finish:</span>
-                  <span className="font-extrabold text-[#2C241D]">{selectedTaskForDetail.color}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-bold text-[#7A6C5E]">Status:</span>
-                  <span className="font-extrabold text-[#38A132]">{selectedTaskForDetail.task_status}</span>
-                </div>
-                <div>
-                  <span className="block text-[10px] font-bold text-[#7A6C5E]">Priority:</span>
-                  <span className="font-extrabold text-amber-700">{selectedTaskForDetail.priority}</span>
-                </div>
-              </div>
-
-              <div>
-                <h4 className="font-black text-[#2C241D] mb-1">Customer Requirements</h4>
-                <p className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-[#6B5C4D]">
-                  {selectedTaskForDetail.customer_requirements}
                 </p>
               </div>
 
-              <div>
-                <h4 className="font-black text-[#2C241D] mb-1">Technical Instructions from Production Staff</h4>
-                <p className="p-3 bg-[#48A63E]/10 rounded-xl border border-[#48A63E]/30 text-[#2C241D]">
-                  {selectedTaskForDetail.technical_instructions}
-                </p>
-              </div>
-
-              {/* Reference Design Images Gallery */}
-              {selectedTaskForDetail.reference_image && parseReferenceImages(selectedTaskForDetail.reference_image).length > 0 && (
-                <div>
-                  <h4 className="font-black text-[#2C241D] mb-1.5 flex items-center gap-1.5">
-                    <ImageIcon className="w-4 h-4 text-[#48A63E]" />
-                    <span>Reference Design / Drawing Images</span>
-                  </h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {parseReferenceImages(selectedTaskForDetail.reference_image).map((imgUrl, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => openImageInNewTab(imgUrl)}
-                        className="group relative rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] shadow-xs hover:shadow-md transition-all block h-36 text-left cursor-pointer w-full"
-                      >
-                        <img
-                          src={imgUrl}
-                          alt={`Reference Design ${i + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                        />
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* TAB 4.5: LEAVE APPLICATION & ABSENCE MANAGEMENT */}
-            {activeTab === 'leave' && (
-              <div className="space-y-6">
-                <div className="ultra-glass-card rounded-3xl p-6 sm:p-8 space-y-6 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-lg font-black text-[#2C241D] flex items-center gap-2">
-                        <Calendar className="w-5 h-5 text-[#38A132]" />
-                        <span>Worker Leave Application & Absence Portal</span>
-                      </h3>
-                      <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
-                        Submit leave requests for workshop staff & admin review. Leave status is reflected across Production Staff & Admin Dashboards.
-                      </p>
+              {/* Top Controls: Staff Name Dropdown Pill Matching Other Dashboards */}
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(!isUserMenuOpen);
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-1.5 rounded-2xl bg-white border border-[#E2D7CB] hover:border-[#48A63E] transition-all shadow-xs cursor-pointer"
+                    title="Click for profile and sign out options"
+                  >
+                    <div className="w-7 h-7 rounded-xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center flex-shrink-0 shadow-md">
+                      {(userProfile?.full_name || 'Worker').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                     </div>
-                    <span className="text-xs font-extrabold text-[#38A132] bg-[#38A132]/10 px-3 py-1 rounded-lg border border-[#38A132]/20 whitespace-nowrap">
-                      Annual Allowance: 14 Days
+                    <span className="text-xs font-extrabold text-[#2C241D]">
+                      {userProfile?.full_name || 'Worker'}
                     </span>
-                  </div>
+                    <ChevronDown className={`w-3.5 h-3.5 text-[#6B5C4D] transition-transform ${isUserMenuOpen ? 'rotate-180 text-[#48A63E]' : ''}`} />
+                  </button>
 
-                  {/* Leave Allowance Stat Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
-                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Casual Leave Balance</span>
-                      <div className="text-xl font-black text-[#2C241D]">8 Days Available</div>
-                      <span className="text-[10px] font-bold text-emerald-700">Workshop Approved</span>
-                    </div>
-                    <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
-                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Sick Leave Balance</span>
-                      <div className="text-xl font-black text-[#2C241D]">6 Days Available</div>
-                      <span className="text-[10px] font-bold text-emerald-700">Medical Backup Eligible</span>
-                    </div>
-                    <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] space-y-1 shadow-2xs">
-                      <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Pending Requests</span>
-                      <div className="text-xl font-black text-amber-700">
-                        {leaveApplications.filter(l => l.status === 'Pending').length} Applications
-                      </div>
-                      <span className="text-[10px] font-bold text-amber-800">Awaiting Staff/Admin Review</span>
-                    </div>
-                  </div>
-
-                  {/* Apply for Leave Form */}
-                  <form onSubmit={handleApplyLeaveSubmit} className="bg-white p-5 rounded-2xl border border-[#E2D7CB] space-y-4 shadow-sm">
-                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2 border-b border-[#EFE7DE] pb-2">
-                      <span>Submit New Leave Application</span>
-                    </h4>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs font-semibold">
-                      <div>
-                        <label className="block font-extrabold text-[#2C241D] mb-1">Leave Type *</label>
-                        <select
-                          value={leaveType}
-                          onChange={(e) => setLeaveType(e.target.value)}
-                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
-                        >
-                          <option value="Casual Leave">🌴 Casual Leave</option>
-                          <option value="Sick Leave">🏥 Sick Leave / Medical</option>
-                          <option value="Emergency Leave">⚡ Emergency Leave</option>
-                          <option value="Annual Leave">📅 Annual Vacation Leave</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block font-extrabold text-[#2C241D] mb-1">Start Date *</label>
-                        <input
-                          type="date"
-                          value={leaveStartDate}
-                          onChange={(e) => setLeaveStartDate(e.target.value)}
-                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block font-extrabold text-[#2C241D] mb-1">End Date *</label>
-                        <input
-                          type="date"
-                          value={leaveEndDate}
-                          onChange={(e) => setLeaveEndDate(e.target.value)}
-                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132]"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block font-extrabold text-[#2C241D] mb-1">Reason for Leave *</label>
-                      <textarea
-                        rows={2}
-                        value={leaveReason}
-                        onChange={(e) => setLeaveReason(e.target.value)}
-                        placeholder="Provide details for your leave request..."
-                        className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132]"
-                        required
+                  {isUserMenuOpen && (
+                    <>
+                      {/* Invisible backdrop to handle click-outside */}
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setIsUserMenuOpen(false)}
                       />
-                    </div>
+                      <div className="absolute right-0 top-full mt-2 w-48 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
+                        <button
+                          onClick={() => {
+                            setIsProfileModalOpen(true);
+                            setIsUserMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left cursor-pointer"
+                        >
+                          <User className="w-4 h-4 text-[#48A63E]" />
+                          <span>View Profile</span>
+                        </button>
 
-                    <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => {
+                            setIsUserMenuOpen(false);
+                            handleLogout();
+                          }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left cursor-pointer"
+                        >
+                          <LogOut className="w-4 h-4 text-rose-600" />
+                          <span>Sign Out</span>
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* ===================================================================== */}
+            {/* KPI METRICS RIBBON (Matching Retail/Production Staff Dashboards)       */}
+            {/* ===================================================================== */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 relative z-10">
+              {/* Metric 1: Active In-Progress Task */}
+              <div
+                onClick={() => setActiveTab('my_tasks')}
+                className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#38A132]/10 text-[#38A132] flex items-center justify-center shrink-0">
+                  <Hammer className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                    {summaryData?.active_tasks_count || 0}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                    Active Workshop
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 2: Pending Assigned Tasks */}
+              <div
+                onClick={() => setActiveTab('my_tasks')}
+                className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                    {summaryData?.pending_tasks_count || 0}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                    Pending Queue
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 3: Completed Today */}
+              <div
+                onClick={() => setActiveTab('completed')}
+                className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-500/10 text-teal-700 flex items-center justify-center shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                    {summaryData?.completed_today_count || 0}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                    Done Today
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 4: On-Site Field Jobs */}
+              <div
+                onClick={() => setActiveTab('onsite')}
+                className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-700 flex items-center justify-center shrink-0">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                    {summaryData?.onsite_jobs_count || 0}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                    On-Site Jobs
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 5: QC Rework Tickets */}
+              <div
+                onClick={() => setActiveTab('rework')}
+                className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+              >
+                <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-700 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                    {summaryData?.rework_jobs_count || 0}
+                  </div>
+                  <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                    QC Rework
+                  </div>
+                </div>
+              </div>
+
+              {/* Metric 6: Driver Deliveries (or Leave Status if not driver) */}
+              {userProfile?.is_driver ? (
+                <div
+                  onClick={() => setActiveTab('deliveries')}
+                  className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-700 flex items-center justify-center shrink-0">
+                    <Truck className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                      {summaryData?.driver_deliveries_count || 0}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                      Driver Deliveries
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={() => setActiveTab('leave')}
+                  className="bg-white/90 p-3.5 sm:p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs hover:shadow-md transition-all cursor-pointer flex items-center gap-3"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-700 flex items-center justify-center shrink-0">
+                    <Calendar className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-lg sm:text-xl font-black text-[#2C241D]">
+                      {leaveApplications.filter(l => l.status === 'Pending').length}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] font-bold text-[#7A6C5E] truncate">
+                      Pending Leaves
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ===================================================================== */}
+            {/* 3. TAB 1: DASHBOARD OVERVIEW (HOME)                                   */}
+            {/* ===================================================================== */}
+            {activeTab === 'dashboard' && (
+              <div className="space-y-6 relative z-10 animate-fadeIn">
+                {/* A. CURRENT ACTIVE WORKSHOP TASK HERO */}
+                <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs relative overflow-hidden">
+                  <div className="flex items-center justify-between pb-4 border-b border-[#EFE7DE] mb-5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="w-3 h-3 rounded-full bg-[#38A132] animate-pulse" />
+                      <h2 className="text-base sm:text-lg font-black text-[#2C241D]">
+                        Active Workshop Execution
+                      </h2>
+                    </div>
+                    {activeTask && (
+                      <span className="px-3 py-1 rounded-full bg-[#E8F5E9] text-[#2D6338] text-xs font-black uppercase tracking-wider border border-[#A5D6A7]">
+                        Stage In Progress
+                      </span>
+                    )}
+                  </div>
+
+                  {activeTask ? (
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                      {/* Left: Design Reference Image / Preview */}
+                      <div className="lg:col-span-4 bg-[#FAF7F2] rounded-2xl p-3 border border-[#E2D7CB] space-y-2">
+                        <div className="relative h-48 w-full bg-[#EFE8DC] rounded-xl overflow-hidden flex items-center justify-center border border-[#D6C9B9]">
+                          {activeTask.reference_image ? (
+                            <img
+                              src={activeTask.reference_image}
+                              alt={activeTask.job_name}
+                              className="w-full h-full object-contain cursor-pointer hover:scale-105 transition-transform"
+                              onClick={() => {
+                                if (activeTask.reference_image) {
+                                  openImageInNewTab(activeTask.reference_image);
+                                }
+                              }}
+                            />
+                          ) : (
+                            <div className="text-center p-4 text-[#7A6C5E]">
+                              <ImageIcon className="w-10 h-10 mx-auto mb-1 opacity-40" />
+                              <span className="text-[11px] font-bold">Standard Workshop Blueprint</span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] font-bold text-[#7A6C5E] px-1">
+                          <span>{activeTask.order_type} Order</span>
+                          <span className="font-mono text-[#B89768] font-black">{activeTask.order_id}</span>
+                        </div>
+                      </div>
+
+                      {/* Middle: Technical Job Specs */}
+                      <div className="lg:col-span-5 space-y-3">
+                        <div>
+                          <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2.5 py-0.5 rounded-md border border-[#D6C9B9]">
+                            {activeTask.order_id} • Stage: {activeTask.stage_name}
+                          </span>
+                          <h3 className="text-base sm:text-lg font-black text-[#2C241D] mt-1.5 leading-snug">
+                            {activeTask.job_name}
+                          </h3>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Dimensions</span>
+                            <span className="font-extrabold text-[#2C241D]">{activeTask.dimensions || 'Standard Specification'}</span>
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Timber / Material</span>
+                            <span className="font-extrabold text-[#2C241D]">{activeTask.material || 'Solid Hardwood'}</span>
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Finish & Color</span>
+                            <span className="font-extrabold text-[#2C241D]">{activeTask.color || 'Natural Walnut'}</span>
+                          </div>
+                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Required Skill</span>
+                            <span className="font-extrabold text-[#2C241D]">{activeTask.required_skill || 'Joinery'}</span>
+                          </div>
+                        </div>
+
+                        {activeTask.technical_instructions && (
+                          <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900">
+                            <strong className="font-extrabold block text-[10px] uppercase text-amber-800">Technician Instructions:</strong>
+                            {activeTask.technical_instructions}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Right: Operational Actions */}
+                      <div className="lg:col-span-3 space-y-3 flex flex-col justify-between h-full bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB]">
+                        <div>
+                          <span className="text-[10px] font-black uppercase text-[#7A6C5E] block mb-1">
+                            Build Stage Progress
+                          </span>
+                          <div className="w-full bg-[#E2D7CB] rounded-full h-2.5 overflow-hidden mb-2">
+                            <div
+                              className="bg-[#38A132] h-2.5 rounded-full transition-all duration-500"
+                              style={{ width: `${activeTask.progress_percentage || 50}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-[11px] font-bold text-[#7A6C5E]">
+                            <span>Started: {activeTask.started_at ? new Date(activeTask.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'}</span>
+                            <span className="font-extrabold text-[#38A132]">{activeTask.progress_percentage || 50}%</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2 pt-2">
+                          <button
+                            onClick={() => handleOpenCompleteModal(activeTask)}
+                            className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer"
+                          >
+                            <Check className="w-4 h-4" />
+                            <span>Complete Stage</span>
+                          </button>
+                          <button
+                            onClick={() => handleOpenReportIssueModal(activeTask)}
+                            className="w-full py-2 rounded-xl bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Report Issue / Hold</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="py-12 text-center space-y-3">
+                      <div className="w-14 h-14 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
+                        <Hammer className="w-7 h-7 opacity-40" />
+                      </div>
+                      <div className="max-w-md mx-auto">
+                        <h4 className="text-sm font-extrabold text-[#2C241D]">No Stage Currently In Progress</h4>
+                        <p className="text-xs text-[#7A6C5E] mt-1">
+                          You do not have an active workshop task in progress right now. Review the upcoming queue below or check your assigned tasks to begin work.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* B. UPCOMING ASSIGNED STAGES QUEUE */}
+                <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#EFE7DE]">
+                    <h3 className="text-sm sm:text-base font-black text-[#2C241D] flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-600" />
+                      <span>Upcoming Assigned Manufacturing Stages</span>
+                    </h3>
+                    <button
+                      onClick={() => setActiveTab('my_tasks')}
+                      className="text-xs font-bold text-[#38A132] hover:text-[#2F8829] flex items-center gap-1 cursor-pointer"
+                    >
+                      <span>View All Tasks ({tasksList.length})</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {upcomingAssignedTasks.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-[#7A6C5E]">
+                      No pending assigned stages in queue. You are completely caught up!
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider bg-[#FAF7F2]">
+                            <th className="py-2.5 px-3 rounded-l-xl">Order Ref</th>
+                            <th className="py-2.5 px-3">Product / Job</th>
+                            <th className="py-2.5 px-3">Stage</th>
+                            <th className="py-2.5 px-3">Type</th>
+                            <th className="py-2.5 px-3">Priority</th>
+                            <th className="py-2.5 px-3">Assigned Date</th>
+                            <th className="py-2.5 px-3 text-right rounded-r-xl">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                          {upcomingAssignedTasks.slice(0, 5).map((task) => (
+                            <tr key={task.task_id} className="hover:bg-[#FAF7F2] transition-colors">
+                              <td className="py-3 px-3 font-mono font-bold text-[#B89768]">
+                                {task.order_id}
+                              </td>
+                              <td className="py-3 px-3 font-extrabold text-[#2C241D]">
+                                {task.job_name}
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] font-bold text-[11px]">
+                                  {task.stage_name}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-[11px] text-[#7A6C5E]">
+                                {task.order_type}
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className={`px-2 py-0.5 rounded-md font-black text-[10px] uppercase ${
+                                  task.priority === 'URGENT' ? 'bg-red-100 text-red-700' :
+                                  task.priority === 'HIGH' ? 'bg-amber-100 text-amber-800' :
+                                  'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {task.priority}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-[11px] text-[#7A6C5E]">
+                                {task.assigned_date ? new Date(task.assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'Today'}
+                              </td>
+                              <td className="py-3 px-3 text-right">
+                                <button
+                                  onClick={() => handleStartTask(task.task_id)}
+                                  className="px-3 py-1 rounded-lg bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-[11px] transition-all cursor-pointer shadow-2xs"
+                                >
+                                  Start Stage
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* C. FIELD SERVICE & REWORK GLANCE GRID */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* On-Site Appointments Glance */}
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-[#EFE7DE]">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-[#2C241D] flex items-center gap-2">
+                        <MapPin className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Scheduled On-Site Appointments</span>
+                      </h3>
                       <button
-                        type="submit"
-                        disabled={isSubmittingLeave}
-                        className="bg-[#38A132] hover:bg-[#32922D] disabled:opacity-50 px-6 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                        onClick={() => setActiveTab('onsite')}
+                        className="text-[11px] font-bold text-[#38A132] hover:underline cursor-pointer"
                       >
-                        <Calendar className="w-4 h-4" />
-                        <span>{isSubmittingLeave ? 'Submitting...' : 'Submit Leave Request'}</span>
+                        View All ({onsiteJobsList.length})
                       </button>
                     </div>
-                  </form>
 
-                  {/* Roster of Submitted Applications */}
-                  <div className="space-y-3 pt-2">
-                    <h4 className="font-extrabold text-sm text-[#2C241D]">My Submitted Leave Requests History</h4>
-
-                    {leaveApplications.length === 0 ? (
-                      <div className="p-8 bg-white/60 rounded-2xl border border-dashed border-[#E2D7CB] text-center text-xs text-[#7A6C5E] font-medium">
-                        No leave requests submitted yet.
+                    {onsiteJobsList.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-[#7A6C5E]">
+                        No on-site service appointments assigned.
                       </div>
                     ) : (
-                      <div className="space-y-2.5">
-                        {leaveApplications.map((l) => (
-                          <div key={l.leave_id} className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 shadow-2xs text-xs">
-                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-black text-[#2C241D]">{l.leave_type}</span>
-                                <span className="px-2.5 py-0.5 rounded-full bg-slate-100 font-extrabold text-[#7A6C5E] text-[10px]">
-                                  {l.duration_days} Day{l.duration_days > 1 ? 's' : ''} ({l.start_date} to {l.end_date})
-                                </span>
-                              </div>
-                              <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                l.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
-                                l.status === 'Rejected' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
-                                'bg-amber-100 text-amber-900 border border-amber-300'
-                              }`}>
-                                {l.status}
-                              </span>
+                      <div className="space-y-2">
+                        {onsiteJobsList.slice(0, 3).map((job) => (
+                          <div key={job.job_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] flex items-center justify-between text-xs">
+                            <div>
+                              <div className="font-extrabold text-[#2C241D]">{job.customer_name} • {job.service_category}</div>
+                              <div className="text-[11px] text-[#7A6C5E] truncate max-w-xs">{job.address}</div>
                             </div>
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[10px]">
+                              {job.status}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-                            <p className="text-[#4A3E32] font-medium">{l.reason}</p>
+                  {/* QC Rework Glance */}
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-[#EFE7DE]">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-[#2C241D] flex items-center gap-2">
+                        <AlertTriangle className="w-3.5 h-3.5 text-purple-600" />
+                        <span>Assigned QC Rework Defects</span>
+                      </h3>
+                      <button
+                        onClick={() => setActiveTab('rework')}
+                        className="text-[11px] font-bold text-[#38A132] hover:underline cursor-pointer"
+                      >
+                        View All ({reworkList.length})
+                      </button>
+                    </div>
 
-                            {l.reviewed_by && (
-                              <div className="p-2.5 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-[11px] space-y-0.5">
-                                <span className="font-extrabold text-[#2C241D]">
-                                  Reviewed by {l.reviewed_by}:
-                                </span>
-                                <p className="text-[#7A6C5E] font-medium">{l.review_notes || `Status set to ${l.status}`}</p>
-                              </div>
-                            )}
+                    {reworkList.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-[#7A6C5E]">
+                        No active QC rework tickets assigned. Quality standards 100%!
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {reworkList.slice(0, 3).map((rw) => (
+                          <div key={rw.rework_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] flex items-center justify-between text-xs">
+                            <div>
+                              <div className="font-extrabold text-[#2C241D]">{rw.order_id} • {rw.order_title}</div>
+                              <div className="text-[11px] text-red-600 font-bold truncate max-w-xs">{rw.rework_reason}</div>
+                            </div>
+                            <button
+                              onClick={() => handleOpenReworkModal(rw)}
+                              className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] cursor-pointer"
+                            >
+                              Inspect
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -1714,27 +1345,715 @@ export const WorkerDashboardPage: React.FC = () => {
               </div>
             )}
 
-            <div className="pt-4 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
-              {selectedTaskForDetail.task_status === 'ASSIGNED' && (
-                <button
-                  onClick={() => { handleStartTask(selectedTaskForDetail.task_id); setIsTaskDetailModalOpen(false); }}
-                  className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md"
-                >
-                  Start Task Now
-                </button>
-              )}
-              {selectedTaskForDetail.task_status === 'IN_PROGRESS' && (
-                <button
-                  onClick={() => { handleOpenCompleteModal(selectedTaskForDetail); }}
-                  className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md flex items-center gap-1.5"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Complete Stage</span>
-                </button>
-              )}
+            {/* ===================================================================== */}
+            {/* 4. TAB 2: MY WORKSHOP TASKS                                           */}
+            {/* ===================================================================== */}
+            {activeTab === 'my_tasks' && (
+              <div className="space-y-4 relative z-10 animate-fadeIn">
+                {/* Search & Filter Bar */}
+                <div className="bg-white/95 p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search tasks by order ID, product name, or material..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] placeholder:text-[#7A6C5E] focus:outline-none focus:border-[#38A132]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Category Filter */}
+                    <select
+                      value={taskTypeFilter}
+                      onChange={(e) => setTaskTypeFilter(e.target.value)}
+                      className="px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] cursor-pointer"
+                    >
+                      <option value="All">All Categories</option>
+                      <option value="Custom">Custom Production</option>
+                      <option value="Fabrication">Wood Fabrication</option>
+                    </select>
+
+                    {/* Status Filter */}
+                    <select
+                      value={taskStatusFilter}
+                      onChange={(e) => setTaskStatusFilter(e.target.value)}
+                      className="px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] cursor-pointer"
+                    >
+                      <option value="All">All Statuses</option>
+                      <option value="ASSIGNED">Assigned</option>
+                      <option value="IN_PROGRESS">In Progress</option>
+                      <option value="ON_HOLD">On Hold</option>
+                      <option value="COMPLETED">Completed</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Task Cards Grid */}
+                {filteredTasks.length === 0 ? (
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
+                      <Hammer className="w-6 h-6 opacity-40" />
+                    </div>
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">No Tasks Match Your Filter</h4>
+                    <p className="text-xs text-[#7A6C5E]">Try adjusting the status or category filters above.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {filteredTasks.map((task) => (
+                      <div
+                        key={task.task_id}
+                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                              {task.order_id}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                              task.task_status === 'COMPLETED' ? 'bg-[#E8F5E9] text-[#2D6338]' :
+                              task.task_status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800' :
+                              task.task_status === 'ON_HOLD' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {task.task_status}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-black text-[#2C241D] leading-snug">
+                              {task.job_name}
+                            </h4>
+                            <span className="text-xs font-extrabold text-[#38A132] block mt-0.5">
+                              Stage: {task.stage_name}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-[11px] bg-[#FAF7F2] p-2.5 rounded-2xl border border-[#E2D7CB]">
+                            <div>
+                              <span className="text-[10px] text-[#7A6C5E] uppercase block font-bold">Timber</span>
+                              <span className="font-extrabold text-[#2C241D] truncate block">{task.material || 'Standard'}</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-[#7A6C5E] uppercase block font-bold">Dimensions</span>
+                              <span className="font-extrabold text-[#2C241D] truncate block">{task.dimensions || 'Standard'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-between gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedTaskForDetail(task);
+                              setIsTaskDetailModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#EFE8DC] text-[#2C241D] font-bold text-xs border border-[#E2D7CB] cursor-pointer"
+                          >
+                            Details
+                          </button>
+
+                          {task.task_status === 'ASSIGNED' && (
+                            <button
+                              onClick={() => handleStartTask(task.task_id)}
+                              className="px-3.5 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-xs cursor-pointer"
+                            >
+                              Start Stage
+                            </button>
+                          )}
+
+                          {task.task_status === 'IN_PROGRESS' && (
+                            <button
+                              onClick={() => handleOpenCompleteModal(task)}
+                              className="px-3.5 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-xs cursor-pointer"
+                            >
+                              Complete Stage
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 5. TAB 3: ON-SITE FIELD SERVICES                                      */}
+            {/* ===================================================================== */}
+            {activeTab === 'onsite' && (
+              <div className="space-y-4 relative z-10 animate-fadeIn">
+                {onsiteJobsList.length === 0 ? (
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
+                      <MapPin className="w-6 h-6 opacity-40" />
+                    </div>
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">No On-Site Service Appointments</h4>
+                    <p className="text-xs text-[#7A6C5E]">Service jobs assigned by production supervisors will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {onsiteJobsList.map((job) => (
+                      <div
+                        key={job.job_id}
+                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                              {job.service_id}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                              job.status === 'COMPLETED' ? 'bg-[#E8F5E9] text-[#2D6338]' :
+                              job.status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800' :
+                              job.status === 'IN_TRANSIT' ? 'bg-indigo-100 text-indigo-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {job.status}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-black text-[#2C241D]">
+                              {job.customer_name} • {job.service_category}
+                            </h4>
+                            <p className="text-xs text-[#7A6C5E] mt-1">{job.description}</p>
+                          </div>
+
+                          <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
+                            <div className="flex items-center gap-2 text-[#2C241D] font-extrabold">
+                              <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span>{job.address}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
+                              <Phone className="w-3.5 h-3.5 shrink-0" />
+                              <span>{job.customer_phone}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>Scheduled: {job.scheduled_time}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-between">
+                          <button
+                            onClick={() => handleOpenOnsiteModal(job)}
+                            className="w-full py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <Camera className="w-3.5 h-3.5" />
+                            <span>Update Status & Photos</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 6. TAB 4: QC REWORK SECTION                                           */}
+            {/* ===================================================================== */}
+            {activeTab === 'rework' && (
+              <div className="space-y-4 relative z-10 animate-fadeIn">
+                {reworkList.length === 0 ? (
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
+                      <CheckCircle2 className="w-6 h-6 text-[#38A132]" />
+                    </div>
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">Zero QC Defects Assigned</h4>
+                    <p className="text-xs text-[#7A6C5E]">All inspected jobs have passed quality benchmarks cleanly.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {reworkList.map((rw) => (
+                      <div
+                        key={rw.rework_id}
+                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all space-y-4"
+                      >
+                        <div className="flex items-start justify-between">
+                          <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                            {rw.order_id}
+                          </span>
+                          <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                            rw.status === 'RESOLVED' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {rw.status}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-black text-[#2C241D]">{rw.order_title}</h4>
+                          <div className="p-2.5 bg-red-50 rounded-xl border border-red-200 mt-2 text-xs text-red-800">
+                            <strong className="block font-black text-[10px] uppercase text-red-700">QC Defect Reason:</strong>
+                            {rw.rework_reason}
+                          </div>
+                        </div>
+
+                        {rw.checklist && (
+                          <div className="grid grid-cols-2 gap-2 text-[10px] font-bold">
+                            <div className={`p-1.5 rounded-lg ${rw.checklist.dimensions ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'}`}>
+                              Dimensions: {rw.checklist.dimensions ? 'Passed' : 'Defect'}
+                            </div>
+                            <div className={`p-1.5 rounded-lg ${rw.checklist.finishing ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'}`}>
+                              Finishing: {rw.checklist.finishing ? 'Passed' : 'Defect'}
+                            </div>
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => handleOpenReworkModal(rw)}
+                          className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-xs cursor-pointer"
+                        >
+                          Resolve & Submit for Re-Inspection
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 7. TAB 5: DRIVER LOGISTICS (ONLY FOR is_driver)                       */}
+            {/* ===================================================================== */}
+            {activeTab === 'deliveries' && userProfile?.is_driver && (
+              <div className="space-y-4 relative z-10 animate-fadeIn">
+                {deliveriesList.length === 0 ? (
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
+                    <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
+                      <Truck className="w-6 h-6 opacity-40" />
+                    </div>
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">No Deliveries Assigned</h4>
+                    <p className="text-xs text-[#7A6C5E]">Orders dispatched for your delivery vehicle will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {deliveriesList.map((del) => (
+                      <div
+                        key={del.fulfillment_id}
+                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all space-y-4"
+                      >
+                        <div className="flex items-start justify-between">
+                          <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                            {del.order_id}
+                          </span>
+                          <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                            del.fulfillment_status === 'Delivered' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-indigo-100 text-indigo-800'
+                          }`}>
+                            {del.delivery_status || del.fulfillment_status}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-black text-[#2C241D]">{del.customer_name}</h4>
+                          <p className="text-xs text-[#7A6C5E] mt-0.5">{del.items_description}</p>
+                        </div>
+
+                        <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
+                          <div className="flex items-center gap-2 text-[#2C241D] font-extrabold">
+                            <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                            <span>{del.delivery_address}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
+                            <Truck className="w-3.5 h-3.5 shrink-0" />
+                            <span>Vehicle: {del.vehicle_reg} ({del.vehicle_type})</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
+                            <Phone className="w-3.5 h-3.5 shrink-0" />
+                            <span>Phone: {del.customer_phone}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleOpenDeliveryModal(del)}
+                          className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-xs cursor-pointer"
+                        >
+                          Update Delivery Status
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 8. TAB 6: COMPLETED HISTORY                                           */}
+            {/* ===================================================================== */}
+            {activeTab === 'completed' && (
+              <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs space-y-4 relative z-10 animate-fadeIn">
+                <div className="flex items-center justify-between pb-3 border-b border-[#EFE7DE]">
+                  <h3 className="text-sm sm:text-base font-black text-[#2C241D]">
+                    Workshop Finished Operations Log
+                  </h3>
+                  <span className="text-xs font-extrabold text-[#7A6C5E]">
+                    Total Records: {completedHistory.length}
+                  </span>
+                </div>
+
+                {completedHistory.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-[#7A6C5E]">
+                    No completed stage history logged yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider bg-[#FAF7F2]">
+                          <th className="py-2.5 px-3 rounded-l-xl">Order Ref</th>
+                          <th className="py-2.5 px-3">Job Name</th>
+                          <th className="py-2.5 px-3">Completed Stage</th>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Duration</th>
+                          <th className="py-2.5 px-3 text-right rounded-r-xl">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
+                        {completedHistory.map((item, idx) => (
+                          <tr key={`${item.task_id}-${idx}`} className="hover:bg-[#FAF7F2] transition-colors">
+                            <td className="py-3 px-3 font-mono font-bold text-[#B89768]">{item.order_id}</td>
+                            <td className="py-3 px-3 font-extrabold text-[#2C241D]">{item.job_name}</td>
+                            <td className="py-3 px-3">
+                              <span className="px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] font-bold text-[11px]">
+                                {item.stage_name}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-[#7A6C5E]">{item.completed_date}</td>
+                            <td className="py-3 px-3 font-bold text-[#38A132]">{item.duration}</td>
+                            <td className="py-3 px-3 text-right">
+                              <span className="px-2.5 py-0.5 rounded-full bg-[#E8F5E9] text-[#2D6338] font-black text-[10px] uppercase">
+                                {item.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 9. TAB 7: ADMIN DIRECTIVES & BROADCASTS                               */}
+            {/* ===================================================================== */}
+            {activeTab === 'admin_messages' && (
+              <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs space-y-4 relative z-10 animate-fadeIn">
+                <div className="flex items-center justify-between pb-3 border-b border-[#EFE7DE]">
+                  <h3 className="text-sm sm:text-base font-black text-[#2C241D] flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-[#B89768]" />
+                    <span>Supervisor & Admin Directives</span>
+                  </h3>
+                  {unreadAdminMsgsCount > 0 && (
+                    <button
+                      onClick={() => {
+                        if (userProfile?.email) {
+                          markAllAdminMessagesReadForUser(userProfile.email, userProfile.role || 'Worker');
+                          setAdminDirectives(getMessagesForUser(userProfile.email, userProfile.role || 'Worker'));
+                        }
+                      }}
+                      className="text-xs font-bold text-[#38A132] hover:underline cursor-pointer"
+                    >
+                      Mark All as Read
+                    </button>
+                  )}
+                </div>
+
+                {adminDirectives.length === 0 ? (
+                  <div className="py-12 text-center text-xs text-[#7A6C5E]">
+                    No broadcast directives from workshop supervisors.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {adminDirectives.map((msg) => {
+                      const isRead = isMessageReadByUser(msg, userProfile?.email || '');
+                      return (
+                        <div
+                          key={msg.id}
+                          className={`p-4 rounded-2xl border transition-all ${
+                            isRead ? 'bg-[#FAF7F2] border-[#E2D7CB]' : 'bg-amber-50/80 border-amber-300 shadow-xs'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="font-extrabold text-sm text-[#2C241D]">{msg.subject}</span>
+                            <span className="text-[10px] text-[#7A6C5E] font-bold">{msg.createdDate}</span>
+                          </div>
+                          <p className="text-xs text-[#5C4E42] leading-relaxed">{msg.message}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 10. TAB 8: SUPERVISOR INQUIRIES                                       */}
+            {/* ===================================================================== */}
+            {activeTab === 'queries' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10 animate-fadeIn">
+                <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-4">
+                  <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-[#B89768]" />
+                    <span>Submit Technical Inquiry to Supervisor</span>
+                  </h3>
+
+                  <form onSubmit={handleSubmitQuery} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Category</label>
+                      <select
+                        value={queryCategory}
+                        onChange={(e: any) => setQueryCategory(e.target.value)}
+                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                      >
+                        <option value="General Query">General Operational / Technical Query</option>
+                        <option value="Role & Access Permission">Role & Access Permission</option>
+                        <option value="Email Change Request">Email / Profile Update Request</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Subject</label>
+                      <input
+                        type="text"
+                        value={querySubject}
+                        onChange={(e) => setQuerySubject(e.target.value)}
+                        placeholder="Brief subject summary..."
+                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Details</label>
+                      <textarea
+                        rows={4}
+                        value={queryMessage}
+                        onChange={(e) => setQueryMessage(e.target.value)}
+                        placeholder="Describe drawing clarification, technical inquiry, or tool requirement..."
+                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingQuery}
+                      className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer"
+                    >
+                      {isSubmittingQuery ? 'Submitting...' : 'Send Inquiry to Supervisor'}
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-3">
+                  <h3 className="text-sm font-extrabold text-[#2C241D]">Past Inquiries & Responses</h3>
+                  {staffQueries.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-[#7A6C5E]">No inquiries submitted yet.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                      {staffQueries.map((q) => (
+                        <div key={q.id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-xs space-y-1">
+                          <div className="flex justify-between items-start">
+                            <span className="font-extrabold text-[#2C241D]">{q.subject}</span>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                              q.status === 'Resolved' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-amber-100 text-amber-900'
+                            }`}>
+                              {q.status}
+                            </span>
+                          </div>
+                          <p className="text-[#5C4E42]">{q.message}</p>
+                          {q.adminResponse && (
+                            <div className="mt-1.5 p-2 bg-white rounded-xl border border-[#E2D7CB] text-xs text-[#2D6338]">
+                              <strong>Supervisor Response:</strong> {q.adminResponse}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ===================================================================== */}
+            {/* 11. TAB 9: LEAVE MANAGEMENT                                           */}
+            {/* ===================================================================== */}
+            {activeTab === 'leave' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10 animate-fadeIn">
+                <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-4">
+                  <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-[#B89768]" />
+                    <span>Apply for Absence / Leave</span>
+                  </h3>
+
+                  <form onSubmit={handleSubmitLeave} className="space-y-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Leave Type</label>
+                      <select
+                        value={leaveType}
+                        onChange={(e) => setLeaveType(e.target.value)}
+                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                      >
+                        <option value="Casual Leave">Casual Leave (CL)</option>
+                        <option value="Medical Leave">Medical Leave (ML)</option>
+                        <option value="Earned Leave">Earned Leave (EL)</option>
+                        <option value="Special Duty Off">Special Duty Off</option>
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Start Date</label>
+                        <input
+                          type="date"
+                          value={leaveStartDate}
+                          onChange={(e) => setLeaveStartDate(e.target.value)}
+                          className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">End Date</label>
+                        <input
+                          type="date"
+                          value={leaveEndDate}
+                          onChange={(e) => setLeaveEndDate(e.target.value)}
+                          className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Reason</label>
+                      <textarea
+                        rows={3}
+                        value={leaveReason}
+                        onChange={(e) => setLeaveReason(e.target.value)}
+                        placeholder="Reason for absence..."
+                        className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmittingLeave}
+                      className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer"
+                    >
+                      {isSubmittingLeave ? 'Submitting Application...' : 'Submit Leave Application'}
+                    </button>
+                  </form>
+                </div>
+
+                <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-3">
+                  <h3 className="text-sm font-extrabold text-[#2C241D]">Leave History & Status</h3>
+                  {leaveApplications.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-[#7A6C5E]">No leave applications submitted.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                      {leaveApplications.map((l) => (
+                        <div key={l.leave_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-xs space-y-1">
+                          <div className="flex justify-between items-start">
+                            <span className="font-extrabold text-[#2C241D]">{l.leave_type} ({l.duration_days} days)</span>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                              l.status === 'Approved' ? 'bg-[#E8F5E9] text-[#2D6338]' :
+                              l.status === 'Rejected' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-900'
+                            }`}>
+                              {l.status}
+                            </span>
+                          </div>
+                          <p className="text-[#7A6C5E] text-[11px]">{l.start_date} to {l.end_date}</p>
+                          <p className="text-[#5C4E42]">{l.reason}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* 12. INTERACTIVE MODALS & DRAWERS                                          */}
+      {/* ========================================================================= */}
+
+      {/* A. TASK DETAILS MODAL */}
+      {isTaskDetailModalOpen && selectedTaskForDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-2xl bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto scrollbar-none text-[#2C241D]">
+            <div className="flex items-start justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2.5 py-0.5 rounded-md border border-[#D6C9B9]">
+                  {selectedTaskForDetail.order_id}
+                </span>
+                <h3 className="text-base font-extrabold text-[#2C241D] mt-1.5">
+                  {selectedTaskForDetail.job_name} — Stage: {selectedTaskForDetail.stage_name}
+                </h3>
+              </div>
               <button
                 onClick={() => setIsTaskDetailModalOpen(false)}
-                className="px-4 py-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] font-bold text-xs"
+                className="p-1 rounded-xl hover:bg-[#FAF7F2] text-[#7A6C5E] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {selectedTaskForDetail.reference_image && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-black uppercase text-[#7A6C5E]">Design Reference / Blueprint</span>
+                <div className="relative h-48 w-full bg-[#FAF7F2] rounded-2xl overflow-hidden border border-[#E2D7CB] group">
+                  <img
+                    src={selectedTaskForDetail.reference_image}
+                    alt="Blueprint"
+                    className="w-full h-full object-contain"
+                  />
+                  <button
+                    onClick={() => {
+                      if (selectedTaskForDetail.reference_image) {
+                        openImageInNewTab(selectedTaskForDetail.reference_image);
+                      }
+                    }}
+                    className="absolute bottom-2 right-2 px-2.5 py-1 rounded-lg bg-black/70 text-white text-[10px] font-bold flex items-center gap-1 hover:bg-black transition-colors cursor-pointer"
+                  >
+                    <ExternalLink className="w-3 h-3" /> Full Size
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+                <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Dimensions</span>
+                <span className="font-extrabold text-[#2C241D]">{selectedTaskForDetail.dimensions || 'Standard'}</span>
+              </div>
+              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+                <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Material</span>
+                <span className="font-extrabold text-[#2C241D]">{selectedTaskForDetail.material || 'Solid Wood'}</span>
+              </div>
+              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+                <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Finish / Color</span>
+                <span className="font-extrabold text-[#2C241D]">{selectedTaskForDetail.color || 'Natural'}</span>
+              </div>
+              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+                <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Required Skill</span>
+                <span className="font-extrabold text-[#2C241D]">{selectedTaskForDetail.required_skill}</span>
+              </div>
+            </div>
+
+            {selectedTaskForDetail.technical_instructions && (
+              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900">
+                <strong className="block font-bold text-[10px] uppercase text-amber-800">Technician Instructions:</strong>
+                {selectedTaskForDetail.technical_instructions}
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+              <button
+                onClick={() => setIsTaskDetailModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
               >
                 Close
               </button>
@@ -1743,175 +2062,374 @@ export const WorkerDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL: COMPLETE TASK */}
+      {/* B. COMPLETE TASK MODAL */}
       {isCompleteModalOpen && selectedTaskForDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md animate-fadeIn">
-          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-[#2C241D]">Complete Production Stage</h3>
-              <button onClick={() => setIsCompleteModalOpen(false)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
-                <X className="w-5 h-5" />
+              <h3 className="text-base font-extrabold text-[#2C241D]">
+                Complete Stage: {selectedTaskForDetail.stage_name}
+              </h3>
+              <button onClick={() => setIsCompleteModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                <X className="w-5 h-5 text-[#7A6C5E]" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitCompleteTask} className="space-y-3.5 text-xs font-semibold">
+            <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Stage Completion Remarks / Work Notes</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Completion Notes / Remarks</label>
                 <textarea
                   rows={3}
-                  placeholder="e.g. Timber framing and joinery completed according to dimensions. Prepared for surface sanding."
                   value={completeNotes}
                   onChange={(e) => setCompleteNotes(e.target.value)}
-                  className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E]"
-                  required
+                  placeholder="Notes on joinery, tolerances, sanding finish..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132]"
                 />
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Finished Work Photo URL (Optional)</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Work Finished Photo URL (Optional)</label>
                 <input
                   type="text"
-                  placeholder="https://... (URL of finished stage photo)"
                   value={completeWorkImages}
                   onChange={(e) => setCompleteWorkImages(e.target.value)}
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
+                  placeholder="https://..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium"
                 />
               </div>
+            </div>
 
-              <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsCompleteModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingComplete}
-                  className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20"
-                >
-                  {isSubmittingComplete ? 'Saving...' : 'Confirm & Mark Completed'}
-                </button>
-              </div>
-            </form>
+            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+              <button
+                onClick={() => setIsCompleteModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmCompleteTask}
+                disabled={isSubmittingComplete}
+                className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
+              >
+                {isSubmittingComplete ? 'Completing...' : 'Confirm Stage Completion'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: REPORT ISSUE */}
+      {/* C. REPORT ISSUE / ON HOLD MODAL */}
       {isReportIssueModalOpen && selectedTaskForDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md animate-fadeIn">
-          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-600" />
-                <span>Report Production Issue / Put On Hold</span>
+              <h3 className="text-base font-extrabold text-amber-900">
+                Report Issue & Put Stage On Hold
               </h3>
-              <button onClick={() => setIsReportIssueModalOpen(false)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
-                <X className="w-5 h-5" />
+              <button onClick={() => setIsReportIssueModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                <X className="w-5 h-5 text-[#7A6C5E]" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmitReportIssue} className="space-y-3.5 text-xs font-semibold">
+            <div className="space-y-3 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Issue Category *</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Issue Category</label>
                 <select
                   value={issueType}
                   onChange={(e) => setIssueType(e.target.value)}
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
                 >
-                  <option value="Material Unavailable">Material Unavailable / Low Quality</option>
-                  <option value="Design Discrepancy">Design Specification / Dimension Discrepancy</option>
-                  <option value="Tool / Machine Defect">Tool / Equipment Failure</option>
-                  <option value="Damage / Defect">Component Defect / Rework Needed</option>
-                  <option value="Other">Other Operational Blocker</option>
+                  <option value="Material Unavailable">Material Unavailable / Shortage</option>
+                  <option value="Defect in Timber / Raw Material">Defect in Timber / Raw Material</option>
+                  <option value="Machine Breakdown">Machine / Tool Breakdown</option>
+                  <option value="Blueprint / Specification Discrepancy">Blueprint / Specification Discrepancy</option>
+                  <option value="Hardware Fitting Missing">Hardware Fitting Missing</option>
+                  <option value="Other Workshop Impediment">Other Workshop Impediment</option>
                 </select>
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Issue Description & Details *</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Description of Issue</label>
                 <textarea
                   rows={3}
-                  placeholder="Describe the issue preventing stage completion so Production Staff can assist..."
                   value={issueDescription}
                   onChange={(e) => setIssueDescription(e.target.value)}
-                  className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-amber-500"
-                  required
+                  placeholder="Detail the issue stopping production..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-amber-500"
                 />
               </div>
+            </div>
 
-              <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setIsReportIssueModalOpen(false)}
-                  className="px-4 py-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] font-bold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingIssue}
-                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-md"
-                >
-                  {isSubmittingIssue ? 'Submitting...' : 'Submit Issue & Put On Hold'}
-                </button>
-              </div>
-            </form>
+            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+              <button
+                onClick={() => setIsReportIssueModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmReportIssue}
+                disabled={isSubmittingIssue || !issueDescription.trim()}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-md cursor-pointer"
+              >
+                {isSubmittingIssue ? 'Submitting...' : 'Mark Stage On Hold'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* MODAL: UPDATE PASSWORD */}
-      {isProfileModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A1410]/70 backdrop-blur-md animate-fadeIn">
-          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] space-y-4">
+      {/* D. ON-SITE JOB STATUS MODAL */}
+      {isOnsiteModalOpen && selectedOnsiteJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-[#2C241D]">Update Worker Account Password</h3>
-              <button onClick={() => setIsProfileModalOpen(false)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
-                <X className="w-5 h-5" />
+              <h3 className="text-base font-extrabold text-[#2C241D]">
+                On-Site Job #{selectedOnsiteJob.job_id} — {selectedOnsiteJob.customer_name}
+              </h3>
+              <button onClick={() => setIsOnsiteModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                <X className="w-5 h-5 text-[#7A6C5E]" />
               </button>
             </div>
 
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Customer & Service Notes</label>
+                <textarea
+                  rows={2}
+                  value={onsiteNotes}
+                  onChange={(e) => setOnsiteNotes(e.target.value)}
+                  placeholder="Notes from customer premises..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Before Service Photo URL</label>
+                <input
+                  type="text"
+                  value={onsiteBeforePhoto}
+                  onChange={(e) => setOnsiteBeforePhoto(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">After Service Photo URL</label>
+                <input
+                  type="text"
+                  value={onsiteAfterPhoto}
+                  onChange={(e) => setOnsiteAfterPhoto(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-[#EFE7DE] flex flex-wrap justify-end gap-2">
+              <button
+                onClick={() => handleUpdateOnsiteStatus('IN_TRANSIT')}
+                disabled={isSubmittingOnsite}
+                className="px-3 py-2 rounded-xl bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold text-xs cursor-pointer"
+              >
+                In Transit
+              </button>
+              <button
+                onClick={() => handleUpdateOnsiteStatus('IN_PROGRESS')}
+                disabled={isSubmittingOnsite}
+                className="px-3 py-2 rounded-xl bg-blue-50 text-blue-800 border border-blue-200 font-bold text-xs cursor-pointer"
+              >
+                In Progress
+              </button>
+              <button
+                onClick={() => handleUpdateOnsiteStatus('COMPLETED')}
+                disabled={isSubmittingOnsite}
+                className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer"
+              >
+                Mark Completed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* E. REWORK RESOLUTION MODAL */}
+      {isReworkModalOpen && selectedReworkForDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-base font-extrabold text-purple-900">
+                Resolve Rework #{selectedReworkForDetail.rework_id}
+              </h3>
+              <button onClick={() => setIsReworkModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                <X className="w-5 h-5 text-[#7A6C5E]" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-red-50 rounded-2xl border border-red-200 text-xs text-red-900">
+              <strong>Defect:</strong> {selectedReworkForDetail.rework_reason}
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <label className="block text-[11px] font-bold text-[#7A6C5E]">Resolution / Rectification Notes</label>
+              <textarea
+                rows={3}
+                value={reworkResolveNotes}
+                onChange={(e) => setReworkResolveNotes(e.target.value)}
+                placeholder="Describe rectifications performed (re-planed surface, replaced veneer...)"
+                className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-purple-600"
+              />
+            </div>
+
+            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+              <button
+                onClick={() => setIsReworkModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmResolveRework}
+                disabled={isSubmittingRework}
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold shadow-md cursor-pointer"
+              >
+                {isSubmittingRework ? 'Submitting...' : 'Mark Resolved & Request QC'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* F. DRIVER DELIVERY MODAL */}
+      {isDeliveryModalOpen && selectedDelivery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-base font-extrabold text-indigo-900">
+                Delivery Status: {selectedDelivery.order_id}
+              </h3>
+              <button onClick={() => setIsDeliveryModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                <X className="w-5 h-5 text-[#7A6C5E]" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Status</label>
+                <select
+                  value={deliveryStatusInput}
+                  onChange={(e) => setDeliveryStatusInput(e.target.value)}
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
+                >
+                  <option value="Dispatched">Dispatched from Hub</option>
+                  <option value="Out for Delivery">Out for Delivery</option>
+                  <option value="Delivered">Delivered & Handed Over</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Delivery Handover Notes</label>
+                <textarea
+                  rows={2}
+                  value={deliveryNotesInput}
+                  onChange={(e) => setDeliveryNotesInput(e.target.value)}
+                  placeholder="Customer signature received, placed in living room..."
+                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+              <button
+                onClick={() => setIsDeliveryModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmUpdateDelivery}
+                disabled={isSubmittingDelivery}
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md cursor-pointer"
+              >
+                {isSubmittingDelivery ? 'Updating...' : 'Save Delivery Status'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* G. SECURITY / PASSWORD CHANGE MODAL */}
+      {(isProfileModalOpen || mustChangePasswordModal) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-md bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                <Key className="w-5 h-5 text-[#38A132]" />
+                <span>{mustChangePasswordModal ? 'Mandatory First-Time Password Change' : 'Security & Password Update'}</span>
+              </h3>
+              {!mustChangePasswordModal && (
+                <button onClick={() => setIsProfileModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                  <X className="w-5 h-5 text-[#7A6C5E]" />
+                </button>
+              )}
+            </div>
+
             {passwordNotice && (
-              <div className={`p-3 rounded-xl text-xs font-bold border ${passwordNotice.type === 'success' ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-rose-50 text-rose-900 border-rose-300'}`}>
+              <div className={`p-3 rounded-xl text-xs font-bold ${
+                passwordNotice.type === 'success' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'
+              }`}>
                 {passwordNotice.text}
               </div>
             )}
 
-            <form onSubmit={handlePasswordChangeSubmit} className="space-y-3 text-xs font-semibold">
+            <form onSubmit={handleChangePassword} className="space-y-3 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">New Password *</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Current Password</label>
+                <input
+                  type="password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  required
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">New Password (Min 6 chars)</label>
                 <input
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
                   required
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
                 />
               </div>
+
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Confirm New Password *</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Confirm New Password</label>
                 <input
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
                   required
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
                 />
               </div>
 
-              <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsProfileModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] font-bold"
-                >
-                  Cancel
-                </button>
+              <div className="pt-2 flex justify-end gap-2">
+                {!mustChangePasswordModal && (
+                  <button
+                    type="button"
+                    onClick={() => setIsProfileModalOpen(false)}
+                    className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold shadow-md"
+                  className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
                 >
                   Update Password
                 </button>
@@ -1923,5 +2441,3 @@ export const WorkerDashboardPage: React.FC = () => {
     </div>
   );
 };
-
-export default WorkerDashboardPage;

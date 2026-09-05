@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
   Package, 
   Wrench, 
@@ -38,9 +39,11 @@ import {
   cancelCustomOrder 
 } from '../../services/api_production';
 import { fetchRetailOrdersFromDB, RetailOrder } from '../../utils/retailOrdersStorage';
-import { setDirectCheckoutItem } from '../../utils/cartStorage';
+import { setDirectCheckoutItem, addToCart } from '../../utils/cartStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 import { fetchOrderFulfillmentDetails, fetchOrderMessagesAPI, sendOrderMessageAPI, FulfillmentDetails } from '../../services/retailOrdersFulfillmentApi';
+import { openRazorpayCheckout } from '../../services/razorpay';
+import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 
 export interface FabricationItem {
   fabrication_id: number;
@@ -101,6 +104,7 @@ export interface MaterialItem {
 }
 
 export const MyActivityTab: React.FC = () => {
+  const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -338,6 +342,124 @@ export const MyActivityTab: React.FC = () => {
     } finally {
       setSubmittingMat(false);
     }
+  };
+
+  const handlePayCustomOrder = async (ord: CustomOrderData) => {
+    if (!ord.estimated_price) return;
+    const amountInPaise = Math.round(ord.estimated_price * 100);
+    await openRazorpayCheckout({
+      amount: amountInPaise,
+      name: 'RetailSphere Custom Furniture',
+      description: `Payment for Custom #${ord.custom_order_id} (${ord.furniture_type})`,
+      prefill: {
+        name: userName,
+        email: userEmail || 'customer@retailsphere.com',
+        contact: ord.customer_phone || '9876543210',
+      },
+      onSuccess: async (paymentId) => {
+        try {
+          await updateOrderStatus(ord.custom_order_id, 'Paid');
+          loadAllActivities();
+        } catch (e) {
+          console.error(e);
+        }
+      },
+      onFailure: (reason) => {
+        console.warn('Custom order payment cancelled:', reason);
+      }
+    });
+  };
+
+  const handlePayFabricationActivity = async (f: FabricationItem) => {
+    if (!f.estimated_price) return;
+    const amountInPaise = Math.round(f.estimated_price * 100);
+    await openRazorpayCheckout({
+      amount: amountInPaise,
+      name: 'RetailSphere Fabrication Studio',
+      description: `Payment for Wood Fabrication FAB-#${f.fabrication_id} (${f.service_type})`,
+      prefill: {
+        name: userName,
+        email: userEmail || 'customer@retailsphere.com',
+      },
+      onSuccess: async (paymentId) => {
+        try {
+          await fetch(`/api/fabrication/requests/${f.fabrication_id}/pay`, { method: 'PUT' });
+          loadAllActivities();
+        } catch (e) {
+          console.error(e);
+        }
+      },
+      onFailure: (reason) => {
+        console.warn('Fabrication payment cancelled:', reason);
+      }
+    });
+  };
+
+  const handlePayServiceActivity = async (s: ServiceItem) => {
+    if (!s.estimated_price) return;
+    const amountInPaise = Math.round(s.estimated_price * 100);
+    await openRazorpayCheckout({
+      amount: amountInPaise,
+      name: 'RetailSphere On-Site Services',
+      description: `Payment for On-Site Service SRV-#${s.service_id} (${s.service_category})`,
+      prefill: {
+        name: userName,
+        email: userEmail || 'customer@retailsphere.com',
+      },
+      onSuccess: async (paymentId) => {
+        try {
+          await fetch(`/api/services/requests/${s.service_id}/pay`, { method: 'PUT' });
+          loadAllActivities();
+        } catch (e) {
+          console.error(e);
+        }
+      },
+      onFailure: (reason) => {
+        console.warn('Service payment cancelled:', reason);
+      }
+    });
+  };
+
+  const [addedToCartIds, setAddedToCartIds] = useState<Record<string, boolean>>({});
+
+  const handleAddCustomToCart = (ord: CustomOrderData, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!ord.estimated_price) return;
+    const refImgs = ord.reference_image ? parseReferenceImages(ord.reference_image) : [];
+    addToCart({
+      id: `custom_${ord.custom_order_id}`,
+      name: `Bespoke ${ord.furniture_type} (#${ord.custom_order_id})`,
+      material: `${ord.material} • ${ord.color || 'Custom'} (${ord.dimensions})`,
+      price: Number(ord.estimated_price),
+      imageUrl: refImgs[0] || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=500&q=80'
+    });
+    navigate('/cart');
+  };
+
+  const handleAddFabricationToCart = (f: FabricationItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!f.estimated_price) return;
+    addToCart({
+      id: `fab_${f.fabrication_id}`,
+      name: `Fabrication: ${f.service_type} (#${f.fabrication_id})`,
+      material: `${f.material_source} (${f.dimensions}) - Qty: ${f.quantity}`,
+      price: Number(f.estimated_price),
+      imageUrl: f.drawing_image || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=500&q=80'
+    });
+    navigate('/cart');
+  };
+
+  const handleAddServiceToCart = (s: ServiceItem, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (!s.estimated_price) return;
+    addToCart({
+      id: `srv_${s.service_id}`,
+      name: `On-Site Service: ${s.service_category} (#${s.service_id})`,
+      material: `${s.city} (${s.address}) - ${s.preferred_date || 'Appointment'}`,
+      price: Number(s.estimated_price),
+      imageUrl: s.photos || 'https://images.unsplash.com/photo-1581092918056-0c4c3acd3789?auto=format&fit=crop&w=500&q=80'
+    });
+    navigate('/cart');
   };
 
   const navigateToTab = (tabName: string) => {
@@ -703,8 +825,8 @@ export const MyActivityTab: React.FC = () => {
                             <span className="text-xs font-mono font-black text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
                               #{ord.custom_order_id} • {ord.furniture_type}
                             </span>
-                            <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495]">
-                              {ord.order_status}
+                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${getStatusBadgeColor(ord.order_status)}`}>
+                              {formatStatusLabel(ord.order_status)}
                             </span>
                           </div>
 
@@ -731,27 +853,39 @@ export const MyActivityTab: React.FC = () => {
                             </div>
 
                             <div className="text-right shrink-0">
-                              <span className="text-sm font-black text-[#48A63E] block">
+                              <span className="text-sm font-black text-[#38A132] block">
                                 {ord.estimated_price ? formatCurrency(ord.estimated_price) : 'Reviewing'}
                               </span>
                               {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') ? (
                                 <button
                                   onClick={() => downloadPaymentReceipt(ord)}
-                                  className="text-[10px] font-black text-[#48A63E] hover:underline inline-flex items-center gap-0.5 mt-1 cursor-pointer"
+                                  className="text-[10px] font-black text-[#38A132] hover:underline inline-flex items-center gap-0.5 mt-1 cursor-pointer"
                                 >
                                   <Download className="w-3 h-3" />
                                   <span>Receipt</span>
                                 </button>
-                              ) : ord.order_status === 'Quote Provided' ? (
-                                <button
-                                  onClick={async () => {
-                                    await updateOrderStatus(ord.custom_order_id, 'CUSTOMER_APPROVED');
-                                    loadAllActivities();
-                                  }}
-                                  className="px-2.5 py-1 rounded-xl bg-[#48A63E] text-white text-[10px] font-black mt-1 shadow-xs cursor-pointer"
-                                >
-                                  Approve Quote
-                                </button>
+                              ) : ord.estimated_price ? (
+                                <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
+                                  <button
+                                    onClick={(e) => handleAddCustomToCart(ord, e)}
+                                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all cursor-pointer flex items-center gap-1 ${
+                                      addedToCartIds[`custom_${ord.custom_order_id}`]
+                                        ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]'
+                                        : 'bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                                    }`}
+                                    title="Add to Shopping Cart"
+                                  >
+                                    <ShoppingCart className="w-3 h-3" />
+                                    <span>{addedToCartIds[`custom_${ord.custom_order_id}`] ? 'Added ✓' : 'Add to Cart'}</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handlePayCustomOrder(ord)}
+                                    className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                                  >
+                                    <CreditCard className="w-3 h-3" />
+                                    <span>Pay Now</span>
+                                  </button>
+                                </div>
                               ) : null}
                             </div>
                           </div>
@@ -759,9 +893,9 @@ export const MyActivityTab: React.FC = () => {
                           {/* Workshop Live Progress Bar */}
                           <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between text-[10px]">
                             <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-[#48A63E]" /> {ord.current_stage || 'Material Sourcing'}
+                              <Clock className="w-3 h-3 text-[#38A132]" /> {ord.current_stage || 'Material Sourcing'}
                             </span>
-                            <span className="font-black text-[#48A63E]">
+                            <span className="font-black text-[#38A132]">
                               {ord.progress_percentage ?? ((stageIdx + 1) * 20)}% Complete
                             </span>
                           </div>
@@ -779,14 +913,14 @@ export const MyActivityTab: React.FC = () => {
                 <div className="space-y-3 pt-2">
                   <div className="flex items-center justify-between pb-1 border-b border-[#EFE7DE]">
                     <div className="flex items-center gap-2 text-xs font-black text-[#2C241D]">
-                      <div className="w-5 h-5 rounded-lg bg-[#48A63E]/15 border border-[#48A63E]/30 flex items-center justify-center text-[#48A63E]">
+                      <div className="w-5 h-5 rounded-lg bg-[#38A132]/15 border border-[#38A132]/30 flex items-center justify-center text-[#38A132]">
                         <Scissors className="w-3 h-3" />
                       </div>
                       <span>Fabrication Work ({filteredFabrications.length})</span>
                     </div>
                     <button
                       onClick={() => navigateToTab('fabricate')}
-                      className="text-[11px] font-black text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
+                      className="text-[11px] font-black text-[#38A132] hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
                       <span>New Sizing Job</span>
@@ -797,22 +931,58 @@ export const MyActivityTab: React.FC = () => {
                     {filteredFabrications.map((f) => (
                       <div
                         key={f.fabrication_id}
-                        className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md transition-all space-y-2.5"
+                        className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-3"
                       >
-                        <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2">
-                          <span className="text-xs font-mono font-black text-[#2C241D]">
+                        <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2.5">
+                          <span className="text-xs font-mono font-black text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
                             #{f.fabrication_id} • {f.service_type}
                           </span>
-                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495]">
-                            {f.status}
+                          <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                            f.payment_status === 'Paid' || f.status === 'PAID'
+                              ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
+                              : getStatusBadgeColor(f.status)
+                          }`}>
+                            {f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
                           </span>
                         </div>
 
-                        <div className="text-[11px] text-[#6E6458] flex justify-between items-center">
-                          <span>{f.dimensions} (Qty: {f.quantity})</span>
-                          <span className="font-black text-sm text-[#48A63E]">
-                            {f.estimated_price ? formatCurrency(f.estimated_price) : 'Under Review'}
-                          </span>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/15 to-orange-500/20 border-2 border-amber-300 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+                              <Scissors className="w-6 h-6" />
+                            </div>
+
+                            <div className="text-[11px] text-[#5C4E42] space-y-0.5">
+                              <div>Source: <strong>{f.material_source}</strong></div>
+                              <div>Dimensions: <strong>{f.dimensions}</strong></div>
+                              <div>Quantity: <strong>{f.quantity} sheet(s)</strong></div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <span className="text-sm font-black text-[#38A132] block">
+                              {f.estimated_price ? formatCurrency(f.estimated_price) : 'Under Examination'}
+                            </span>
+                            {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' ? (
+                              <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
+                                <button
+                                  onClick={(e) => handleAddFabricationToCart(f, e)}
+                                  className="px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all cursor-pointer flex items-center gap-1 bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]"
+                                  title="Add to Shopping Cart"
+                                >
+                                  <ShoppingCart className="w-3 h-3" />
+                                  <span>Add to Cart</span>
+                                </button>
+                                <button
+                                  onClick={() => handlePayFabricationActivity(f)}
+                                  className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                                >
+                                  <CreditCard className="w-3 h-3" />
+                                  <span>Pay Now</span>
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -834,7 +1004,7 @@ export const MyActivityTab: React.FC = () => {
                     </div>
                     <button
                       onClick={() => navigateToTab('services')}
-                      className="text-[11px] font-black text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
+                      className="text-[11px] font-black text-[#38A132] hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
                       <span>Book Service</span>
@@ -851,16 +1021,45 @@ export const MyActivityTab: React.FC = () => {
                           <span className="text-xs font-mono font-black text-[#2C241D]">
                             #{s.service_id} • {s.service_category}
                           </span>
-                          <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495]">
-                            {s.status}
+                          <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                            s.payment_status === 'Paid' || s.status === 'PAID'
+                              ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
+                              : getStatusBadgeColor(s.status)
+                          }`}>
+                            {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
                           </span>
                         </div>
 
                         <div className="text-[11px] text-[#6E6458] flex justify-between items-center">
-                          <span className="truncate max-w-[200px]">{s.preferred_date ? `Date: ${s.preferred_date}` : s.address}</span>
-                          <span className="font-black text-sm text-[#48A63E]">
-                            {s.estimated_price ? formatCurrency(s.estimated_price) : 'Quote on Visit'}
-                          </span>
+                          <span className="truncate max-w-[160px]">{s.preferred_date ? `Date: ${s.preferred_date}` : s.address}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-sm text-[#38A132]">
+                              {s.estimated_price ? formatCurrency(s.estimated_price) : 'Quote on Visit'}
+                            </span>
+                            {s.estimated_price && s.payment_status !== 'Paid' && (s.status === 'QUOTED' || s.status === 'APPROVED') && (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={(e) => handleAddServiceToCart(s, e)}
+                                  className={`px-2 py-1 rounded-xl text-[10px] font-black border transition-all cursor-pointer flex items-center gap-1 ${
+                                    addedToCartIds[`srv_${s.service_id}`]
+                                      ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]'
+                                      : 'bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                                  }`}
+                                  title="Add to Shopping Cart"
+                                >
+                                  <ShoppingCart className="w-3 h-3" />
+                                  <span>{addedToCartIds[`srv_${s.service_id}`] ? 'Added ✓' : 'Add to Cart'}</span>
+                                </button>
+                                <button
+                                  onClick={() => handlePayServiceActivity(s)}
+                                  className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1"
+                                >
+                                  <CreditCard className="w-3 h-3" />
+                                  <span>Pay Now</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     ))}

@@ -1071,7 +1071,7 @@ export interface ProductionOverviewData {
 export interface AssessmentQueueItem {
   request_id: string;
   numeric_id: number;
-  order_type: 'Customization' | 'Fabrication';
+  order_type: 'Customization' | 'Fabrication' | 'On-Site Service' | 'Service' | string;
   customer_name: string;
   customer_email: string;
   title: string;
@@ -1171,7 +1171,20 @@ export interface ProductionHistoryItem {
 
 export interface OnsiteJobData {
   service_id: number;
+  request_id?: string;
+  store_name?: string;
+  store_location?: string;
+  product_name?: string;
+  requested_quantity?: string;
+  request_date?: string;
+  required_installation_date?: string;
+  assigned_production_team?: string;
+  production_status?: string;
+  store_contact?: string;
+  special_instructions?: string;
   customer_name: string;
+  customer_email?: string;
+  customer_phone?: string;
   service_category: string;
   description: string;
   address: string;
@@ -1181,6 +1194,10 @@ export interface OnsiteJobData {
   preferred_time: string;
   status: string;
   priority: string;
+  payment_status?: string;
+  estimated_price?: number;
+  photos?: string;
+  jobs?: any[];
 }
 
 export interface ProductionReportsData {

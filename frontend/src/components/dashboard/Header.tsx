@@ -41,7 +41,6 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
     { id: 'create', name: 'CREATE' },
     { id: 'fabricate', name: 'FABRICATE' },
     { id: 'services', name: 'SERVICES' },
-    { id: 'my-activity', name: 'MY ACTIVITY' },
     { id: 'assistant', name: 'ASSISTANT' },
   ];
 

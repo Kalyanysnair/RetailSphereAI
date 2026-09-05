@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Wrench, Plus, MapPin, Calendar, Clock, CheckCircle2, User, Phone, FileText, Navigation, Map, Compass, Check } from 'lucide-react';
 import { LeafletMapPicker } from '../common/LeafletMapPicker';
+import { openRazorpayCheckout } from '../../services/razorpay';
+import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 
 export interface ServiceItem {
   service_id: number;
@@ -209,12 +211,35 @@ export const ServicesTab: React.FC = () => {
     }
   };
 
-  const handlePayService = async (srvId: number) => {
+  const handlePayService = async (s: ServiceItem) => {
     try {
-      const res = await fetch(`/api/services/requests/${srvId}/pay`, { method: 'PUT' });
-      if (res.ok) {
-        fetchServices();
-      }
+      const rawUser = localStorage.getItem('user');
+      const userObj = rawUser ? JSON.parse(rawUser) : null;
+      const amountInPaise = Math.round((s.estimated_price || 0) * 100);
+
+      await openRazorpayCheckout({
+        amount: amountInPaise,
+        name: 'RetailSphere On-Site Services',
+        description: `Service Payment for SRV-#${s.service_id} (${s.service_category})`,
+        prefill: {
+          name: userObj?.full_name || userObj?.username || 'Valued Customer',
+          email: userObj?.email || 'customer@retailsphere.com',
+          contact: userObj?.phone || '9876543210'
+        },
+        onSuccess: async (paymentId) => {
+          try {
+            const res = await fetch(`/api/services/requests/${s.service_id}/pay`, { method: 'PUT' });
+            if (res.ok) {
+              fetchServices();
+            }
+          } catch (err) {
+            console.error('Payment confirmation error:', err);
+          }
+        },
+        onFailure: (reason) => {
+          console.warn('Service payment cancelled/failed:', reason);
+        }
+      });
     } catch (err) {
       console.error('Payment error:', err);
     }
@@ -268,8 +293,8 @@ export const ServicesTab: React.FC = () => {
                   <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
                     SRV-#{s.service_id}
                   </span>
-                  <span className="bg-amber-100 text-amber-800 text-[10px] font-extrabold px-2.5 py-1 rounded-full border border-amber-300">
-                    {s.status}
+                  <span className={`${getStatusBadgeColor(s.status)} text-[10px] font-extrabold px-2.5 py-1 rounded-full border`}>
+                    {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
                   </span>
                 </div>
 
@@ -316,10 +341,10 @@ export const ServicesTab: React.FC = () => {
                 </span>
                 {s.estimated_price && s.status === 'QUOTED' && s.payment_status !== 'Paid' && (
                   <button
-                    onClick={() => handlePayService(s.service_id)}
-                    className="px-4 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-sm"
+                    onClick={() => handlePayService(s)}
+                    className="px-4 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-sm"
                   >
-                    Approve & Pay ₹{s.estimated_price}
+                    Approve & Pay ₹{s.estimated_price.toLocaleString('en-IN')}
                   </button>
                 )}
               </div>

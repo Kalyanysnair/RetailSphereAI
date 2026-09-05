@@ -2,7 +2,7 @@ const API_HOST = typeof window !== 'undefined' && window.location.hostname === '
 export const API_BASE_URL = `http://${API_HOST}:8000`;
 
 const getAuthHeaders = () => {
-  const token = localStorage.getItem('access_token');
+  const token = localStorage.getItem('access_token') || localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -19,6 +19,8 @@ export interface WorkerSummaryData {
   pending_tasks_count: number;
   completed_today_count: number;
   onsite_jobs_count: number;
+  rework_jobs_count?: number;
+  driver_deliveries_count?: number;
 }
 
 export interface WorkerTaskItem {
@@ -70,6 +72,51 @@ export interface WorkerOnsiteJobItem {
   after_photos?: string;
   customer_notes?: string;
   completed_at?: string;
+}
+
+export interface WorkerReworkItem {
+  rework_id: number;
+  inspection_id: number;
+  order_type: string;
+  order_id: string;
+  raw_order_id: number;
+  order_title: string;
+  rework_reason: string;
+  status: string;
+  inspection_notes?: string;
+  checklist?: {
+    dimensions?: boolean;
+    finishing?: boolean;
+    structure?: boolean;
+    specifications?: boolean;
+  };
+  photos?: string;
+  reference_image?: string;
+  dimensions?: string;
+  material?: string;
+  created_at?: string;
+  resolved_at?: string;
+}
+
+export interface WorkerDeliveryItem {
+  fulfillment_id: number;
+  order_id: string;
+  raw_order_id: number;
+  customer_name: string;
+  customer_phone: string;
+  customer_email?: string;
+  delivery_address: string;
+  vehicle_reg: string;
+  vehicle_type: string;
+  fulfillment_status: string;
+  delivery_status: string;
+  expected_delivery_date: string;
+  dispatched_at?: string;
+  delivered_at?: string;
+  items_count: number;
+  items_description: string;
+  total_amount: number;
+  delivery_notes?: string;
 }
 
 export async function fetchWorkerSummaryDB(): Promise<WorkerSummaryData | null> {
@@ -210,6 +257,66 @@ export async function updateWorkerOnsiteJobStatusDB(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Failed to update on-site job status' }));
     throw new Error(err.detail || 'Failed to update on-site job status');
+  }
+  return await res.json();
+}
+
+export async function fetchWorkerReworkJobsDB(): Promise<WorkerReworkItem[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/worker/my-rework-jobs`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching worker rework jobs:', err);
+    return [];
+  }
+}
+
+export async function resolveWorkerReworkJobDB(
+  reworkId: number,
+  notes?: string
+): Promise<{ message: string; status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/worker/my-rework-jobs/${reworkId}/resolve`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ notes: notes || '' })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to resolve rework job' }));
+    throw new Error(err.detail || 'Failed to resolve rework job');
+  }
+  return await res.json();
+}
+
+export async function fetchWorkerDeliveriesDB(): Promise<WorkerDeliveryItem[]> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/worker/my-deliveries`, {
+      headers: getAuthHeaders()
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching worker deliveries:', err);
+    return [];
+  }
+}
+
+export async function updateWorkerDeliveryStatusDB(
+  fulfillmentId: number,
+  payload: { status: string; notes?: string }
+): Promise<{ message: string; delivery_status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/worker/my-deliveries/${fulfillmentId}/status`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update delivery status' }));
+    throw new Error(err.detail || 'Failed to update delivery status');
   }
   return await res.json();
 }

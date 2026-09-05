@@ -46,14 +46,16 @@ export function saveCartItems(items: CartItem[]): void {
   }
 }
 
-export function addToCart(product: { id: string; name: string; material?: string; price: number; imageUrl?: string }): void {
+export function addToCart(product: { id: string; name: string; material?: string; price: number; imageUrl?: string; quantity?: number; category?: string }): void {
   const current = getCartItems();
   const existingIndex = current.findIndex(
     (item) => item.id === product.id || (product.name && item.name === product.name)
   );
 
+  const addQty = product.quantity && product.quantity > 0 ? product.quantity : 1;
+
   if (existingIndex > -1) {
-    current[existingIndex].quantity += 1;
+    current[existingIndex].quantity += addQty;
     if (product.id && current[existingIndex].id !== product.id) {
       current[existingIndex].id = product.id;
     }
@@ -63,7 +65,7 @@ export function addToCart(product: { id: string; name: string; material?: string
       name: product.name,
       material: product.material || 'Premium Finish',
       price: product.price,
-      quantity: 1,
+      quantity: addQty,
       imageUrl: product.imageUrl || '',
     });
   }

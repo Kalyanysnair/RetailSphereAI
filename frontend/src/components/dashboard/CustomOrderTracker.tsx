@@ -4,6 +4,7 @@ import { Sparkles, Clock, CheckCircle2, Users, Sliders, ChevronRight, PackageChe
 import { fetchOrderTrackingTimeline, OrderTrackingInfo, fetchCustomOrders, CustomOrderData, submitCustomOrderRequest, cancelCustomOrder, downloadPaymentReceipt, updateOrderStatus, customerRespondQuotation } from '../../services/api_production';
 import { addToCart, setDirectCheckoutItem } from '../../utils/cartStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
+import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 
 // Category Definitions & Aspect Specs
 interface ItemTypeSpec {
@@ -60,7 +61,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'Recliner Chair',
         desc: 'Recliner Chair - Ergonomic lumbar and reclining options',
-        img: 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=300&q=80',
+        img: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Premium Teak Wood', 'Sheesham Rosewood', 'Dark Walnut', 'Natural Oak', 'Brushed Stainless Steel'],
@@ -834,9 +835,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                                 <img
                                   src={cat.heroImage || cat.duoImages?.[0]}
                                   alt={cat.name}
-                                  onError={(e) => {
-                                    (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80';
-                                  }}
                                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                                 />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent pointer-events-none" />
@@ -893,9 +891,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                               <img
                                 src={typeObj.img}
                                 alt={typeObj.name}
-                                onError={(e) => {
-                                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80';
-                                }}
                                 className="w-14 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0 shadow-2xs"
                               />
                             </div>
@@ -1277,9 +1272,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                       <img
                         src={selectedCategory.types.find(t => t.name === furnitureType)?.img || selectedCategory.heroImage}
                         alt={furnitureType}
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80';
-                        }}
                         className="w-12 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0"
                       />
                       <div className="min-w-0">
@@ -1501,7 +1493,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
                     isSelected ? 'bg-white/20 text-white' : 'bg-[#FAF7F2] text-[#7A6C5E]'
                   }`}>
-                    {ord.order_status}
+                    {formatStatusLabel(ord.order_status)}
                   </span>
                 </button>
               );
@@ -1518,18 +1510,8 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                     Order #{activeOrder.custom_order_id}
                   </span>
 
-                  <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
-                    activeOrder.order_status === 'Pending' || activeOrder.order_status === 'Pending Approval'
-                      ? 'bg-amber-500/15 text-amber-800 border border-amber-500/30'
-                      : activeOrder.order_status === 'Approved'
-                      ? 'bg-blue-500/15 text-blue-800 border border-blue-500/30'
-                      : activeOrder.order_status === 'In Production'
-                      ? 'bg-purple-500/15 text-purple-800 border border-purple-500/30 animate-pulse'
-                      : activeOrder.order_status === 'Completed'
-                      ? 'bg-emerald-500/15 text-emerald-800 border border-emerald-500/30'
-                      : 'bg-rose-500/15 text-rose-800 border border-rose-500/30'
-                  }`}>
-                    Status: {activeOrder.order_status}
+                  <span className={`text-xs font-extrabold px-3 py-1 rounded-full border ${getStatusBadgeColor(activeOrder.order_status)}`}>
+                    Status: {formatStatusLabel(activeOrder.order_status)}
                   </span>
 
                   {/* DOWNLOAD PAYMENT RECEIPT PROVISION */}

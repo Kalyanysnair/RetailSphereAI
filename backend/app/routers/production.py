@@ -1070,6 +1070,49 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
         if st_upper in ["COMPLETED"]:
             completed_today_cnt += 1
 
+    # Process On-Site Service Requests (Retail Staff Approved ONLY)
+    services = db.query(models.ServiceRequest).all()
+    for s in services:
+        rev_st = (getattr(s, "review_status", None) or "").upper().strip()
+        st = s.status or "PENDING"
+        st_upper = st.upper().strip()
+
+        is_retail_approved = (rev_st in ["APPROVED", "APPROVED_BY_RETAIL"]) or (st_upper in ["APPROVED", "APPROVED_BY_RETAIL", "APPROVED_BY_RETAIL_STAFF", "IN ASSESSMENT", "UNDER_ASSESSMENT", "ASSESSMENT_COMPLETE", "ASSESSED", "CUSTOMER_APPROVED", "PAID", "IN_PRODUCTION", "COMPLETED", "QUOTED", "WORKER_ASSIGNED", "IN_PROGRESS"])
+        if not is_retail_approved:
+            continue
+
+        pay_st = (s.payment_status or "Pending").upper().strip()
+        has_price = s.estimated_price is not None and s.estimated_price > 0
+        is_paid = (pay_st == "PAID" or st_upper in ["PAID", "COMPLETED"])
+
+        if is_paid:
+            customer_approved_cnt += 1
+        elif has_price or st_upper in ["QUOTED", "ASSESSED"]:
+            quotation_pending_cnt += 1
+        elif st_upper not in ["COMPLETED", "REJECTED", "CANCELLED"]:
+            pending_assessment_cnt += 1
+            priorities.append({
+                "id": f"ONS-{s.service_id:04d}",
+                "title": f"On-Site {s.service_category}",
+                "issue": "Artisan Dispatch / Assessment",
+                "priority": s.priority or "HIGH"
+            })
+
+        if st_upper in ["IN_PROGRESS", "WORKER_ASSIGNED", "IN_PRODUCTION"]:
+            in_production_cnt += 1
+            cust_u = s.customer.user if s.customer and s.customer.user else None
+            active_production_items.append({
+                "order_id": f"ONS-{s.service_id:04d}",
+                "numeric_id": s.service_id,
+                "order_type": "On-Site Service",
+                "customer": cust_u.full_name if cust_u else "Customer",
+                "product": s.service_category,
+                "current_stage": "On-Site Service Visit",
+                "worker": "Field Artisan Team",
+                "status": "In Progress",
+                "priority": s.priority or "NORMAL"
+            })
+
     return {
         "metrics": {
             "pending_assessment": pending_assessment_cnt,
@@ -1209,6 +1252,54 @@ def get_assessment_queue(
                 "is_assessed": is_assessed
             })
 
+    # 3. On-Site Service Requests (Retail Staff Approved ONLY)
+    if cat_upper in ["ALL", "SERVICES", "ON-SITE", "ONSITE", "SERVICE"]:
+        s_query = db.query(models.ServiceRequest)
+        services = s_query.order_by(models.ServiceRequest.created_at.desc()).all()
+        for s in services:
+            rev_st = (getattr(s, "review_status", None) or "").upper().strip()
+            sst = (s.status or "").upper().strip()
+
+            is_retail_approved = (rev_st in ["APPROVED", "APPROVED_BY_RETAIL"]) or (sst in ["APPROVED", "APPROVED_BY_RETAIL", "APPROVED_BY_RETAIL_STAFF", "IN ASSESSMENT", "UNDER_ASSESSMENT", "ASSESSMENT_COMPLETE", "ASSESSED", "CUSTOMER_APPROVED", "PAID", "IN_PRODUCTION", "COMPLETED", "QUOTED", "WORKER_ASSIGNED", "IN_PROGRESS"])
+            if not is_retail_approved:
+                continue
+
+            cust_u = s.customer.user if s.customer and s.customer.user else None
+            has_price = s.estimated_price is not None and s.estimated_price > 0
+            is_assessed = has_price or sst in ["ASSESSED", "QUOTED", "APPROVED", "PAID"]
+
+            st_badge = "PENDING_ASSESSMENT"
+            if is_assessed:
+                st_badge = "ASSESSMENT_COMPLETE"
+            elif sst in ["IN_ASSESSMENT", "UNDER_ASSESSMENT", "IN ASSESSMENT"]:
+                st_badge = "IN_ASSESSMENT"
+
+            if tab_upper != "ALL" and st_badge != tab_upper:
+                continue
+
+            items.append({
+                "request_id": f"ONS-{s.service_id:04d}",
+                "numeric_id": s.service_id,
+                "order_type": "On-Site Service",
+                "customer_name": cust_u.full_name if cust_u else "Customer",
+                "customer_email": cust_u.email if cust_u else "",
+                "title": s.service_category if (s.service_category or "").lower().startswith("on-site") else f"On-Site {s.service_category}",
+                "furniture_type": s.service_category,
+                "material": f"{s.city}, {s.pincode}" if s.city else "On-Site Location",
+                "dimensions": s.address or "Client Address",
+                "quantity": 1,
+                "description": s.description,
+                "reference_image": s.photos,
+                "order_date": s.created_at.isoformat() if s.created_at else None,
+                "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+                "priority": s.priority or "NORMAL",
+                "assessment_status": st_badge,
+                "order_status": s.status,
+                "payment_status": s.payment_status or "Pending",
+                "estimated_price": float(s.estimated_price) if s.estimated_price else None,
+                "is_assessed": is_assessed
+            })
+
     items.sort(key=lambda x: x["order_date"] or "", reverse=True)
     return items
 
@@ -1334,6 +1425,14 @@ def save_technical_assessment(payload: AssessmentPayload, db: Session = Depends(
                 f_ord.estimated_price = total_calculated
             else:
                 f_ord.status = "NOT_FEASIBLE"
+    elif payload.order_type in ["Service", "On-Site Service", "On-Site"]:
+        s_ord = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == payload.order_id).first()
+        if s_ord:
+            if payload.feasibility.upper() == "FEASIBLE":
+                s_ord.status = "QUOTED"
+                s_ord.estimated_price = total_calculated
+            else:
+                s_ord.status = "NOT_FEASIBLE"
 
     log_production_history(
         db,
@@ -1475,6 +1574,18 @@ def generate_or_revise_quotation(payload: QuotationCreatePayload, db: Session = 
                     user_id=f_ord.customer.user_id,
                     title=f"Fabrication Quotation Ready — #FAB-{f_ord.fabrication_id:04d}",
                     message=f"Production Staff generated a quotation of ₹{total:,.2f} for your fabrication request. Review & approve to add to cart.",
+                    created_at=datetime.utcnow()
+                )
+    elif payload.order_type in ["Service", "On-Site Service", "On-Site"]:
+        s_ord = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == payload.order_id).first()
+        if s_ord:
+            s_ord.estimated_price = total
+            s_ord.status = "QUOTED"
+            if s_ord.customer:
+                models.Notification(
+                    user_id=s_ord.customer.user_id,
+                    title=f"Service Quotation Ready — #SRV-{s_ord.service_id:04d}",
+                    message=f"Production Staff generated a quotation of ₹{total:,.2f} for your on-site skilled service visit. Review & approve in your dashboard.",
                     created_at=datetime.utcnow()
                 )
 
@@ -2018,15 +2129,54 @@ def get_order_production_history(order_type: str, order_id: int, db: Session = D
 @router.get("/onsite-jobs")
 def get_onsite_jobs_for_production(db: Session = Depends(get_db)):
     services = db.query(models.ServiceRequest).filter(
-        models.ServiceRequest.review_status == "APPROVED"
+        (models.ServiceRequest.review_status == "APPROVED") |
+        (models.ServiceRequest.status.in_(["APPROVED", "APPROVED_BY_RETAIL", "APPROVED_BY_RETAIL_STAFF", "PAID", "QUOTED", "WORKER_ASSIGNED", "IN_PROGRESS", "COMPLETED"]))
     ).order_by(models.ServiceRequest.created_at.desc()).all()
 
     res = []
     for s in services:
         cust_u = s.customer.user if s.customer and s.customer.user else None
+        
+        # Check assigned jobs
+        jobs_list = []
+        assigned_team_str = "On-Site Skilled Artisan Team"
+        for j in s.jobs:
+            w_user = db.query(models.User).filter(models.User.user_id == j.worker_id).first()
+            if w_user:
+                assigned_team_str = f"Artisan: {w_user.full_name}"
+            jobs_list.append({
+                "job_id": j.job_id,
+                "worker_id": j.worker_id,
+                "worker_name": w_user.full_name if w_user else "Artisan Worker",
+                "status": j.status,
+                "scheduled_time": j.scheduled_time.isoformat() if j.scheduled_time else None
+            })
+
+        prod_status = "Approved & Ready"
+        if s.status == "COMPLETED":
+            prod_status = "Ready for Dispatch"
+        elif s.status in ["IN_PROGRESS", "WORKER_ASSIGNED"]:
+            prod_status = "In Production"
+        elif s.status == "PAID":
+            prod_status = "Approved & Ready"
+
         res.append({
             "service_id": s.service_id,
+            "request_id": f"ONS-{s.service_id:04d}",
+            "store_name": f"{s.service_category} ({s.city})",
+            "store_location": f"{s.address}, {s.city} ({s.pincode})",
+            "product_name": s.service_category,
+            "requested_quantity": "1 Service Visit",
+            "request_date": s.created_at.strftime("%d %b %Y") if s.created_at else "Recent",
+            "required_installation_date": s.preferred_date.strftime("%d %b %Y") if s.preferred_date else "Flexible",
+            "priority": s.priority or "High",
+            "assigned_production_team": assigned_team_str,
+            "production_status": prod_status,
+            "store_contact": f"{cust_u.full_name if cust_u else 'Customer'} • {cust_u.phone if cust_u and cust_u.phone else 'Client'}",
+            "special_instructions": s.description or "Standard on-site carpentry/upholstery service requirements.",
             "customer_name": cust_u.full_name if cust_u else "Customer",
+            "customer_email": cust_u.email if cust_u else "",
+            "customer_phone": cust_u.phone if cust_u else "",
             "service_category": s.service_category,
             "description": s.description,
             "address": s.address,
@@ -2035,7 +2185,10 @@ def get_onsite_jobs_for_production(db: Session = Depends(get_db)):
             "preferred_date": s.preferred_date.isoformat() if s.preferred_date else None,
             "preferred_time": s.preferred_time,
             "status": s.status,
-            "priority": s.priority or "NORMAL"
+            "payment_status": s.payment_status or "Pending",
+            "estimated_price": float(s.estimated_price) if s.estimated_price else None,
+            "photos": s.photos,
+            "jobs": jobs_list
         })
     return res
 

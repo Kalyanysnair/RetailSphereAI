@@ -19,7 +19,7 @@ export interface WorkerLeaveItem {
 const LEAVE_STORAGE_KEY = 'retailsphere_worker_leave_requests';
 
 function getAuthHeaders() {
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('access_token') || localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {})
@@ -31,7 +31,6 @@ function getStoredLeaves(): WorkerLeaveItem[] {
     const data = localStorage.getItem(LEAVE_STORAGE_KEY);
     if (!data) return [];
     const parsed: WorkerLeaveItem[] = JSON.parse(data);
-    // Filter out initial mock leaves if present
     const clean = parsed.filter(l => l.leave_id !== 101 && l.leave_id !== 102);
     return clean;
   } catch {
@@ -60,7 +59,7 @@ export async function applyWorkerLeave(payload: {
   end_date: string;
   reason: string;
 }): Promise<WorkerLeaveItem> {
-  const userStr = localStorage.getItem('user_profile');
+  const userStr = localStorage.getItem('user_profile') || localStorage.getItem('user');
   const user = userStr ? JSON.parse(userStr) : null;
   const workerId = user?.user_id || user?.id || 104;
   const workerName = user?.full_name || user?.name || 'Artisan Worker';
@@ -69,77 +68,49 @@ export async function applyWorkerLeave(payload: {
   const end = new Date(payload.end_date);
   const durationDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 3600 * 24)) + 1);
 
-  try {
-    const res = await fetch(`${API_BASE_URL}/api/worker/leave-applications`, {
-      method: 'POST',
-      headers: getAuthHeaders(),
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const newLeave: WorkerLeaveItem = {
-        leave_id: data.leave_id || Date.now(),
-        worker_id: workerId,
-        worker_name: workerName,
-        leave_type: payload.leave_type,
-        start_date: payload.start_date,
-        end_date: payload.end_date,
-        duration_days: durationDays,
-        reason: payload.reason,
-        status: 'Pending',
-        applied_on: new Date().toISOString()
-      };
-      const current = getStoredLeaves();
-      saveStoredLeaves([newLeave, ...current]);
-      return newLeave;
-    }
-  } catch (err) {
-    console.warn('API leave submit failed, storing locally:', err);
+  const res = await fetch(`${API_BASE_URL}/api/worker/leave-applications`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (res.ok) {
+    const data = await res.json();
+    const newLeave: WorkerLeaveItem = {
+      leave_id: data.leave_id || Date.now(),
+      worker_id: workerId,
+      worker_name: workerName,
+      leave_type: payload.leave_type,
+      start_date: payload.start_date,
+      end_date: payload.end_date,
+      duration_days: durationDays,
+      reason: payload.reason,
+      status: 'Pending',
+      applied_on: new Date().toISOString()
+    };
+    return newLeave;
   }
 
-  const newLeave: WorkerLeaveItem = {
-    leave_id: Date.now(),
-    worker_id: workerId,
-    worker_name: workerName,
-    leave_type: payload.leave_type,
-    start_date: payload.start_date,
-    end_date: payload.end_date,
-    duration_days: durationDays,
-    reason: payload.reason,
-    status: 'Pending',
-    applied_on: new Date().toISOString()
-  };
-
-  const current = getStoredLeaves();
-  saveStoredLeaves([newLeave, ...current]);
-  return newLeave;
+  const err = await res.json().catch(() => ({ detail: 'Failed to submit leave application' }));
+  throw new Error(err.detail || 'Failed to submit leave application');
 }
 
 // 2. Fetch My Worker Leave Applications
 export async function fetchMyLeaveApplications(): Promise<WorkerLeaveItem[]> {
-  const userStr = localStorage.getItem('user_profile');
-  const user = userStr ? JSON.parse(userStr) : null;
-  const workerId = user?.user_id || user?.id;
-
   try {
     const res = await fetch(`${API_BASE_URL}/api/worker/leave-applications`, {
       headers: getAuthHeaders()
     });
     if (res.ok) {
-      const dbLeaves: WorkerLeaveItem[] = await res.json();
-      if (dbLeaves && dbLeaves.length > 0) {
+      const dbLeaves = await res.json();
+      if (Array.isArray(dbLeaves)) {
         return dbLeaves;
       }
     }
   } catch (err) {
-    console.warn('API fetch worker leaves failed, returning stored leaves:', err);
+    console.warn('API fetch worker leaves failed:', err);
   }
 
-  const stored = getStoredLeaves();
-  if (workerId) {
-    return stored.filter(l => l.worker_id === workerId);
-  }
-  return stored;
+  return [];
 }
 
 // 3. Fetch All Leave Applications for Staff & Admin

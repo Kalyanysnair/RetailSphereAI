@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X, Sliders, Zap } from 'lucide-react';
+import { ShoppingBag, Trash2, Plus, Minus, ArrowLeft, ShieldCheck, CheckCircle2, AlertCircle, CreditCard, X, Sliders, Zap, Scissors, Layers, Wrench, Ruler, MapPin } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import {
   CartItem,
@@ -22,7 +22,35 @@ import { getCurrentUser } from '../../services/api';
 
 import { parseReferenceImages } from '../../utils/imageUtils';
 
-const renderCartItemMaterialBadges = (materialStr?: string) => {
+const renderCategoryTag = (isFab?: boolean, isCus?: boolean, isSrv?: boolean) => {
+  if (isFab) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-900 text-[10px] font-extrabold tracking-wide uppercase border border-amber-300 mb-1 shadow-2xs">
+        <Scissors className="w-3 h-3 text-amber-700" />
+        <span>Wood Fabrication Service</span>
+      </span>
+    );
+  }
+  if (isCus) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 text-[#2B7A24] text-[10px] font-extrabold tracking-wide uppercase border border-[#38A132]/30 mb-1 shadow-2xs">
+        <Layers className="w-3 h-3 text-[#2E8B29]" />
+        <span>Custom Workshop Build</span>
+      </span>
+    );
+  }
+  if (isSrv) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-900 text-[10px] font-extrabold tracking-wide uppercase border border-blue-300 mb-1 shadow-2xs">
+        <Wrench className="w-3 h-3 text-blue-700" />
+        <span>On-Site Skilled Service</span>
+      </span>
+    );
+  }
+  return null;
+};
+
+const renderSpecBadges = (materialStr?: string) => {
   if (!materialStr || !materialStr.trim()) return null;
 
   let cleanStr = materialStr
@@ -30,56 +58,55 @@ const renderCartItemMaterialBadges = (materialStr?: string) => {
     .replace(/SPECIAL REQUIREMENTS:.*$/i, '')
     .trim();
 
-  if (!cleanStr.includes('•') && !cleanStr.includes(':')) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#48A63E]/10 text-[#38A132] text-[10px] font-extrabold tracking-wide uppercase border border-[#38A132]/20 mb-1">
-        <span>🪵</span>
-        <span>{cleanStr}</span>
-      </span>
-    );
-  }
-
   const parts = cleanStr
-    .split(/[•;]/)
+    .split(/[•;|\n]/)
     .map((p) => p.trim())
     .filter(Boolean);
 
-  const badges: { icon: string; text: string }[] = [];
+  const badges: { icon: string; label?: string; text: string }[] = [];
 
   parts.forEach((part) => {
     const uppercase = part.toUpperCase();
-    if (uppercase.includes('ASPECTS') || uppercase.includes('REQUIREMENTS') || uppercase.includes('NONE')) return;
+    if (uppercase.includes('ASPECTS') || uppercase.includes('REQUIREMENTS') || uppercase.includes('NONE') || uppercase === 'CUSTOM') return;
 
-    let textVal = part.replace(/^(MATERIAL|UPHOLSTERY|SPECS|DIMENSIONS|WOOD|FABRIC|FINISH):\s*/i, '').trim();
+    let label = '';
+    let textVal = part;
+    if (part.includes(':')) {
+      const splitColon = part.split(':');
+      label = splitColon[0].trim();
+      textVal = splitColon.slice(1).join(':').trim();
+    } else {
+      textVal = part.trim();
+    }
 
-    if (textVal && textVal.length < 50) {
+    if (textVal && textVal.length < 60 && !badges.some(b => b.text.toLowerCase() === textVal.toLowerCase())) {
       let icon = '✨';
-      if (uppercase.includes('TEAK') || uppercase.includes('WOOD') || uppercase.includes('TIMBER') || uppercase.includes('OAK') || uppercase.includes('WALNUT')) icon = '🪵';
-      else if (uppercase.includes('UPHOLSTERY') || uppercase.includes('FABRIC') || uppercase.includes('LEATHER') || uppercase.includes('COTTON') || uppercase.includes('VELVET')) icon = '🛋️';
-      else if (uppercase.includes('CM') || uppercase.includes('INCH') || uppercase.includes('MM') || uppercase.includes('SPECS') || uppercase.includes('DIMENSIONS')) icon = '📐';
+      const upperVal = (label + ' ' + textVal).toUpperCase();
+      if (upperVal.includes('STEEL') || upperVal.includes('METAL') || upperVal.includes('IRON') || upperVal.includes('BRASS') || upperVal.includes('ALUMINUM')) icon = '🔩';
+      else if (upperVal.includes('TEAK') || upperVal.includes('WOOD') || upperVal.includes('TIMBER') || upperVal.includes('OAK') || upperVal.includes('WALNUT') || upperVal.includes('PLY') || upperVal.includes('MDF') || upperVal.includes('SHEET') || upperVal.includes('LUMBER')) icon = '🪵';
+      else if (upperVal.includes('UPHOLSTERY') || upperVal.includes('FABRIC') || upperVal.includes('LEATHER') || upperVal.includes('COTTON') || upperVal.includes('VELVET') || upperVal.includes('LINEN')) icon = '🛋️';
+      else if (upperVal.includes('COLOR') || upperVal.includes('FINISH') || upperVal.includes('GREEN') || upperVal.includes('BLACK') || upperVal.includes('WHITE') || upperVal.includes('BROWN') || upperVal.includes('POLISH') || upperVal.includes('GOLD')) icon = '🎨';
+      else if (upperVal.includes('CM') || upperVal.includes('INCH') || upperVal.includes('MM') || upperVal.includes('SPECS') || upperVal.includes('DIMENSIONS') || upperVal.includes('X') || upperVal.includes('SIZE')) icon = '📐';
+      else if (upperVal.includes('QTY') || upperVal.includes('QUANTITY') || upperVal.includes('UNIT') || upperVal.includes('PIECE')) icon = '🔢';
+      else if (upperVal.includes('ROAD') || upperVal.includes('STREET') || upperVal.includes('NAGAR') || upperVal.includes('JUNCTION') || upperVal.includes('APTS') || upperVal.includes('HOUSE') || upperVal.includes('KOTTAYAM') || upperVal.includes('ERNAKULAM') || upperVal.includes('KOCHI')) icon = '📍';
+      else if (upperVal.includes('202') || upperVal.includes('DATE') || upperVal.includes('APPOINTMENT') || upperVal.includes('MORNING') || upperVal.includes('AFTERNOON') || upperVal.includes('EVENING')) icon = '📅';
 
-      badges.push({ icon, text: textVal });
+      badges.push({ icon, label: label ? label : undefined, text: textVal });
     }
   });
 
-  if (badges.length === 0) {
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#48A63E]/10 text-[#38A132] text-[10px] font-extrabold tracking-wide uppercase border border-[#38A132]/20 mb-1">
-        <span>✨</span>
-        <span>Custom Built Specifications</span>
-      </span>
-    );
-  }
+  if (badges.length === 0) return null;
 
   return (
-    <div className="flex flex-wrap gap-1.5 mb-1.5">
-      {badges.slice(0, 3).map((b, idx) => (
+    <div className="flex flex-wrap items-center gap-1.5 mt-2">
+      {badges.map((b, idx) => (
         <span
           key={idx}
-          className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-[#48A63E]/10 text-[#38A132] text-[10px] font-extrabold tracking-wide border border-[#38A132]/20"
+          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[10.5px] bg-[#FAF6F0] text-[#3D3126] border border-[#E8DEC8] shadow-2xs"
         >
-          <span>{b.icon}</span>
-          <span>{b.text}</span>
+          <span className="text-[11px]">{b.icon}</span>
+          {b.label && <span className="font-extrabold text-[#2C241D]">{b.label}:</span>}
+          <span className="text-[#5C4D3E] font-medium">{b.text}</span>
         </span>
       ))}
     </div>
@@ -103,6 +130,17 @@ export const CartPage: React.FC = () => {
   const [lastPaymentId, setLastPaymentId] = useState<string>('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [wishlistCount, setWishlistCount] = useState(0);
+
+  // Auto-redirect to My Orders & Tracking upon successful payment
+  useEffect(() => {
+    if (isOrderPlaced) {
+      const timer = setTimeout(() => {
+        setIsOrderPlaced(false);
+        navigate('/orders');
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [isOrderPlaced, navigate]);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -442,7 +480,7 @@ export const CartPage: React.FC = () => {
                 </div>
                 <h2 className="text-2xl font-extrabold text-[#2C241D]">Razorpay Payment Complete!</h2>
                 <p className="text-xs text-[#6B5C4D] leading-relaxed font-medium">
-                  Thank you for your payment. Your order has been registered, paid via Razorpay, and logged in your order tracking dashboard.
+                  Thank you for your payment. Your order has been registered, paid via Razorpay, and logged in your tracking portal. Redirecting to My Orders & Tracking in 3 seconds...
                 </p>
                 {lastPaymentId && (
                   <div className="inline-block bg-[#FAF7F2] border border-[#E2D7CB] px-3.5 py-1.5 rounded-xl text-xs font-bold text-[#48A63E]">
@@ -457,7 +495,7 @@ export const CartPage: React.FC = () => {
                     }}
                     className="w-full sm:w-auto py-3 px-6 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-bold text-xs transition-colors shadow-md shadow-[#48A63E]/20"
                   >
-                    View Orders & Tracking
+                    View Orders & Tracking →
                   </button>
                   <button
                     onClick={() => {
@@ -495,6 +533,10 @@ export const CartPage: React.FC = () => {
                 {/* Cart Items List (2 cols) */}
                 <div className="lg:col-span-2 space-y-4">
                   {activeItems.map((item) => {
+                    const isFabrication = String(item.id).startsWith('fab_');
+                    const isCustom = String(item.id).startsWith('custom_');
+                    const isService = String(item.id).startsWith('srv_') || String(item.id).startsWith('ons_');
+
                     const parsedImgs = parseReferenceImages(item.imageUrl || '');
                     const thumbUrl = parsedImgs.length > 0
                       ? parsedImgs[0]
@@ -505,24 +547,49 @@ export const CartPage: React.FC = () => {
                         key={item.id}
                         className="ultra-glass-card rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md transition-all hover:border-[#48A63E]/60"
                       >
-                        {/* Product Thumbnail & Details */}
-                        <div className="flex items-center gap-4 w-full sm:w-auto">
-                          <img
-                            src={thumbUrl}
-                            alt={item.name}
-                            className="w-20 h-20 sm:w-24 sm:h-24 object-contain p-1 rounded-xl bg-gradient-to-br from-[#FAF7F2] to-[#EAE0D4] flex-shrink-0 border border-[#E2D7CB] shadow-2xs"
-                            onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"; }}
-                          />
+                        {/* Product Visual & Specification Breakdown */}
+                        <div className="flex items-start sm:items-center gap-4 w-full sm:flex-1 min-w-0">
+                          {isFabrication ? (
+                            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-br from-amber-50 to-orange-100/80 border-2 border-amber-300 flex flex-col items-center justify-center p-2 text-center flex-shrink-0 shadow-xs">
+                              <div className="w-9 h-9 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-800 mb-1">
+                                <Scissors className="w-5 h-5 text-amber-700" />
+                              </div>
+                              <span className="text-[10px] font-black uppercase text-amber-900 tracking-wider">Wood Cut</span>
+                              <span className="text-[9px] font-bold text-amber-700">Sizing Spec</span>
+                            </div>
+                          ) : isCustom ? (
+                            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-br from-emerald-50 to-green-100/80 border-2 border-emerald-300 flex flex-col items-center justify-center p-2 text-center flex-shrink-0 shadow-xs">
+                              <div className="w-9 h-9 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-800 mb-1">
+                                <Layers className="w-5 h-5 text-[#38A132]" />
+                              </div>
+                              <span className="text-[10px] font-black uppercase text-emerald-900 tracking-wider">Custom Build</span>
+                              <span className="text-[9px] font-bold text-emerald-700">Workshop</span>
+                            </div>
+                          ) : isService ? (
+                            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-100/80 border-2 border-blue-300 flex flex-col items-center justify-center p-2 text-center flex-shrink-0 shadow-xs">
+                              <div className="w-9 h-9 rounded-xl bg-blue-500/20 flex items-center justify-center text-blue-800 mb-1">
+                                <Wrench className="w-5 h-5 text-blue-700" />
+                              </div>
+                              <span className="text-[10px] font-black uppercase text-blue-900 tracking-wider">On-Site</span>
+                              <span className="text-[9px] font-bold text-blue-700">Service</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={thumbUrl}
+                              alt={item.name}
+                              className="w-20 h-20 sm:w-24 sm:h-24 object-contain p-1 rounded-xl bg-gradient-to-br from-[#FAF7F2] to-[#EAE0D4] flex-shrink-0 border border-[#E2D7CB] shadow-2xs"
+                              onError={(e) => { (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"; }}
+                            />
+                          )}
 
-                          <div>
-                            {renderCartItemMaterialBadges(item.material)}
+                          <div className="flex-1 min-w-0">
+                            {renderCategoryTag(isFabrication, isCustom, isService)}
 
                             <h3 className="text-sm sm:text-base font-extrabold text-[#2C241D] line-clamp-1">
                               {item.name}
                             </h3>
-                            <p className="text-xs font-semibold text-[#6B5C4D] mt-0.5">
-                              ₹{item.price.toLocaleString('en-IN')} each
-                            </p>
+
+                            {renderSpecBadges(item.material)}
                           </div>
                         </div>
 

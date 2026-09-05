@@ -46,52 +46,48 @@ def get_worker_summary(
     db: Session = Depends(get_db)
 ):
     worker_id = current_user.user_id
+    tasks = get_worker_tasks(status_filter=None, current_user=current_user, db=db)
 
     # Active tasks (in progress)
-    active_stages = db.query(models.ProductionStage).filter(
-        models.ProductionStage.assigned_worker_id == worker_id,
-        models.ProductionStage.status == "IN_PROGRESS"
-    ).count()
+    active_count = sum(1 for t in tasks if t.get("task_status") == "IN_PROGRESS")
 
-    active_assignments = db.query(models.WorkerAssignment).filter(
-        models.WorkerAssignment.worker_id == worker_id,
-        models.WorkerAssignment.task_status.ilike("%In Progress%")
-    ).count()
-
-    active_count = max(active_stages, active_assignments)
-
-    # Pending tasks (assigned)
-    pending_stages = db.query(models.ProductionStage).filter(
-        models.ProductionStage.assigned_worker_id == worker_id,
-        models.ProductionStage.status.in_(["ASSIGNED", "READY_FOR_ASSIGNMENT"])
-    ).count()
-
-    pending_assignments = db.query(models.WorkerAssignment).filter(
-        models.WorkerAssignment.worker_id == worker_id,
-        models.WorkerAssignment.task_status.ilike("%Assigned%")
-    ).count()
-
-    pending_count = max(pending_stages, pending_assignments)
+    # Pending tasks (assigned / on hold / ready)
+    pending_count = sum(1 for t in tasks if t.get("task_status") in ["ASSIGNED", "READY_FOR_ASSIGNMENT", "ON_HOLD"])
 
     # Completed today
-    today_start = datetime.combine(date.today(), datetime.min.time())
-    completed_today_stages = db.query(models.ProductionStage).filter(
-        models.ProductionStage.assigned_worker_id == worker_id,
-        models.ProductionStage.status == "COMPLETED",
-        models.ProductionStage.completed_at >= today_start
-    ).count()
+    today_str = date.today().strftime("%Y-%m-%d")
+    completed_today = sum(
+        1 for t in tasks 
+        if t.get("task_status") == "COMPLETED" and (
+            (t.get("completed_at") or "").startswith(today_str) or 
+            (t.get("assigned_date") or "").startswith(today_str)
+        )
+    )
 
-    completed_today_assignments = db.query(models.WorkerAssignment).filter(
-        models.WorkerAssignment.worker_id == worker_id,
-        models.WorkerAssignment.task_status.ilike("%Completed%")
-    ).count()
-
-    completed_today = max(completed_today_stages, completed_today_assignments)
-
-    # Onsite jobs
+    # Onsite jobs (Active / In Progress / Assigned)
     onsite_jobs = db.query(models.ServiceJob).filter(
         models.ServiceJob.worker_id == worker_id,
         models.ServiceJob.status.in_(["ASSIGNED", "IN_TRANSIT", "IN_PROGRESS"])
+    ).count()
+
+    # Rework jobs (Assigned QC reworks not yet resolved)
+    rework_jobs = db.query(models.ReworkJob).filter(
+        models.ReworkJob.assigned_worker_id == worker_id,
+        models.ReworkJob.status != "RESOLVED"
+    ).count()
+
+    # Driver deliveries (if worker is driver)
+    driver_deliveries = 0
+    if current_user.is_driver:
+        driver_deliveries = db.query(models.OrderFulfillment).filter(
+            models.OrderFulfillment.driver_id == worker_id,
+            models.OrderFulfillment.fulfillment_status != "Delivered"
+        ).count()
+
+    # Pending leaves count
+    pending_leaves = db.query(models.WorkerLeave).filter(
+        models.WorkerLeave.worker_id == worker_id,
+        models.WorkerLeave.status == "Pending"
     ).count()
 
     return {
@@ -103,7 +99,10 @@ def get_worker_summary(
         "active_tasks_count": active_count,
         "pending_tasks_count": pending_count,
         "completed_today_count": completed_today,
-        "onsite_jobs_count": onsite_jobs
+        "onsite_jobs_count": onsite_jobs,
+        "rework_jobs_count": rework_jobs,
+        "driver_deliveries_count": driver_deliveries,
+        "pending_leaves_count": pending_leaves
     }
 
 
@@ -116,18 +115,82 @@ def get_worker_tasks(
     worker_id = current_user.user_id
     tasks = []
 
-    # 1. Custom Orders via WorkerAssignment
+    # 1. Authoritative ProductionStage records assigned to worker
+    prod_stages = db.query(models.ProductionStage).filter(
+        models.ProductionStage.assigned_worker_id == worker_id
+    ).all()
+
+    covered_custom_orders = set()
+
+    for stg in prod_stages:
+        order_code = f"ORD-{stg.order_id:04d}" if stg.order_type == "Custom" else f"FAB-{stg.order_id:04d}"
+        job_title = f"{stg.order_type} Order"
+
+        if stg.order_type == "Custom":
+            covered_custom_orders.add(stg.order_id)
+            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == stg.order_id).first()
+            if ord_obj:
+                job_title = f"Custom {ord_obj.furniture_type}"
+                dims = ord_obj.dimensions
+                mat = ord_obj.material
+                col = ord_obj.color
+                desc = ord_obj.design_description
+                img = ord_obj.reference_image
+                prio = getattr(ord_obj, "priority", "NORMAL") or "NORMAL"
+            else:
+                dims, mat, col, desc, img, prio = "N/A", "Wood", "Natural", "", "", "NORMAL"
+        else:
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stg.order_id).first()
+            if fab_obj:
+                job_title = f"Fabrication {fab_obj.service_type}"
+                dims = fab_obj.dimensions
+                mat = fab_obj.material_source
+                col = "Standard Finish"
+                desc = fab_obj.requirements
+                img = fab_obj.drawing_image
+                prio = getattr(fab_obj, "priority", "NORMAL") or "NORMAL"
+            else:
+                dims, mat, col, desc, img, prio = "N/A", "Material", "Standard", "", "", "NORMAL"
+
+        tasks.append({
+            "task_id": f"stg-{stg.stage_id}",
+            "raw_stage_id": stg.stage_id,
+            "order_type": stg.order_type,
+            "order_id": order_code,
+            "raw_order_id": stg.order_id,
+            "job_name": job_title,
+            "stage_name": stg.stage_name,
+            "required_skill": stg.required_skill or current_user.specialization or "Woodwork & Carpentry",
+            "task_status": stg.status.upper() if stg.status else "ASSIGNED",
+            "priority": prio,
+            "assigned_date": stg.started_at.strftime("%Y-%m-%d") if stg.started_at else (date.today().strftime("%Y-%m-%d")),
+            "dimensions": dims,
+            "material": mat,
+            "color": col,
+            "customer_requirements": desc or "Fulfill production requirement according to specifications",
+            "reference_image": img or "",
+            "technical_instructions": stg.remarks or "Proceed with stage execution according to specs.",
+            "started_at": stg.started_at.isoformat() if stg.started_at else None,
+            "completed_at": stg.completed_at.isoformat() if stg.completed_at else None,
+            "progress_percentage": stg.progress_percentage
+        })
+
+    # 2. WorkerAssignment records (for Custom Orders not already covered by ProductionStage)
     assignments = db.query(models.WorkerAssignment).filter(
         models.WorkerAssignment.worker_id == worker_id
     ).all()
 
     for asgn in assignments:
+        if asgn.custom_order_id in covered_custom_orders:
+            # Stage record is authoritative; skip duplicating with generic assignment
+            continue
+
         order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == asgn.custom_order_id).first()
         if not order:
             continue
 
         raw_status = (asgn.task_status or "Assigned").strip()
-        stage_name = "Production Stage"
+        stage_name = current_user.specialization or "Production Stage"
         mapped_status = "ASSIGNED"
 
         if ":" in raw_status:
@@ -151,14 +214,6 @@ def get_worker_tasks(
             elif "hold" in st_lower:
                 mapped_status = "ON_HOLD"
 
-        stage_obj = db.query(models.ProductionStage).filter(
-            models.ProductionStage.order_id == order.custom_order_id,
-            models.ProductionStage.assigned_worker_id == worker_id
-        ).first()
-
-        started_at = stage_obj.started_at.isoformat() if stage_obj and stage_obj.started_at else None
-        completed_at = stage_obj.completed_at.isoformat() if stage_obj and stage_obj.completed_at else None
-        
         latest_prog = db.query(models.ProductionProgress).filter(
             models.ProductionProgress.custom_order_id == order.custom_order_id
         ).order_by(models.ProductionProgress.updated_at.desc()).first()
@@ -170,81 +225,20 @@ def get_worker_tasks(
             "order_id": f"ORD-{order.custom_order_id:04d}",
             "raw_order_id": order.custom_order_id,
             "job_name": f"Custom {order.furniture_type}",
-            "stage_name": stage_obj.stage_name if stage_obj else stage_name,
+            "stage_name": stage_name,
             "required_skill": current_user.specialization or "Woodwork & Carpentry",
             "task_status": mapped_status,
             "priority": getattr(order, "priority", "NORMAL") or "NORMAL",
-            "assigned_date": asgn.assigned_date.strftime("%Y-%m-%d") if asgn.assigned_date else "Recent",
+            "assigned_date": asgn.assigned_date.strftime("%Y-%m-%d") if asgn.assigned_date else date.today().strftime("%Y-%m-%d"),
             "dimensions": order.dimensions,
             "material": order.material,
             "color": order.color,
             "customer_requirements": order.design_description or "Standard custom specification",
             "reference_image": order.reference_image or "",
             "technical_instructions": latest_prog.remarks if latest_prog else "Follow attached reference drawing and dimensions.",
-            "started_at": started_at,
-            "completed_at": completed_at,
+            "started_at": None,
+            "completed_at": None,
             "progress_percentage": latest_prog.progress_percentage if latest_prog else (100 if mapped_status == "COMPLETED" else (50 if mapped_status == "IN_PROGRESS" else 0))
-        })
-
-    # 2. ProductionStage records assigned to worker
-    prod_stages = db.query(models.ProductionStage).filter(
-        models.ProductionStage.assigned_worker_id == worker_id
-    ).all()
-
-    existing_task_ids = {t["task_id"] for t in tasks}
-
-    for stg in prod_stages:
-        task_key = f"stg-{stg.stage_id}"
-        if task_key in existing_task_ids:
-            continue
-
-        order_code = f"ORD-{stg.order_id:04d}" if stg.order_type == "Custom" else f"FAB-{stg.order_id:04d}"
-        job_title = f"{stg.order_type} Order"
-
-        if stg.order_type == "Custom":
-            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == stg.order_id).first()
-            if ord_obj:
-                job_title = f"Custom {ord_obj.furniture_type}"
-                dims = ord_obj.dimensions
-                mat = ord_obj.material
-                col = ord_obj.color
-                desc = ord_obj.design_description
-                img = ord_obj.reference_image
-            else:
-                dims, mat, col, desc, img = "N/A", "Wood", "Natural", "", ""
-        else:
-            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stg.order_id).first()
-            if fab_obj:
-                job_title = f"Fabrication {fab_obj.service_type}"
-                dims = fab_obj.dimensions
-                mat = fab_obj.material_source
-                col = "Standard Finish"
-                desc = fab_obj.requirements
-                img = fab_obj.drawing_image
-            else:
-                dims, mat, col, desc, img = "N/A", "Material", "Standard", "", ""
-
-        tasks.append({
-            "task_id": task_key,
-            "raw_stage_id": stg.stage_id,
-            "order_type": stg.order_type,
-            "order_id": order_code,
-            "raw_order_id": stg.order_id,
-            "job_name": job_title,
-            "stage_name": stg.stage_name,
-            "required_skill": stg.required_skill or current_user.specialization or "Woodwork & Carpentry",
-            "task_status": stg.status.upper() if stg.status else "ASSIGNED",
-            "priority": "NORMAL",
-            "assigned_date": stg.started_at.strftime("%Y-%m-%d") if stg.started_at else "Recent",
-            "dimensions": dims,
-            "material": mat,
-            "color": col,
-            "customer_requirements": desc or "Fulfill fabrication requirement",
-            "reference_image": img or "",
-            "technical_instructions": stg.remarks or "Proceed with stage execution according to specs.",
-            "started_at": stg.started_at.isoformat() if stg.started_at else None,
-            "completed_at": stg.completed_at.isoformat() if stg.completed_at else None,
-            "progress_percentage": stg.progress_percentage
         })
 
     # Apply optional status filter
@@ -671,3 +665,193 @@ def get_my_leave_applications(
     ).order_by(models.WorkerLeave.applied_on.desc()).all()
 
     return leaves
+
+
+# ==================================================
+# QC REWORK MANAGEMENT FOR ASSIGNED WORKERS
+# ==================================================
+class WorkerReworkResolvePayload(BaseModel):
+    notes: Optional[str] = None
+
+
+@router.get("/my-rework-jobs")
+def get_worker_rework_jobs(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    reworks = db.query(models.ReworkJob).filter(
+        models.ReworkJob.assigned_worker_id == worker_id
+    ).order_by(models.ReworkJob.created_at.desc()).all()
+
+    res = []
+    for r in reworks:
+        insp = r.inspection
+        order_title = "Custom Production"
+        ref_image = None
+        dimensions = None
+        material = None
+
+        if insp and insp.order_type == "Custom":
+            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == insp.order_id).first()
+            if ord_obj:
+                order_title = f"Custom {ord_obj.furniture_type}"
+                ref_image = ord_obj.reference_image
+                dimensions = ord_obj.dimensions
+                material = ord_obj.material
+        elif insp and insp.order_type == "Fabrication":
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == insp.order_id).first()
+            if fab_obj:
+                order_title = f"Fabrication {fab_obj.service_type}"
+                ref_image = fab_obj.drawing_image
+                dimensions = fab_obj.dimensions
+                material = fab_obj.material_source
+
+        res.append({
+            "rework_id": r.rework_id,
+            "inspection_id": r.inspection_id,
+            "order_type": insp.order_type if insp else "Custom",
+            "order_id": f"ORD-{insp.order_id:04d}" if (insp and insp.order_type == "Custom") else (f"FAB-{insp.order_id:04d}" if insp else "N/A"),
+            "raw_order_id": insp.order_id if insp else 0,
+            "order_title": order_title,
+            "rework_reason": r.rework_reason,
+            "status": r.status or "ASSIGNED",
+            "inspection_notes": insp.inspection_notes if insp else "",
+            "checklist": {
+                "dimensions": insp.dimensions_check if insp else True,
+                "finishing": insp.finishing_check if insp else True,
+                "structure": insp.structure_check if insp else True,
+                "specifications": insp.specifications_check if insp else True,
+            } if insp else {},
+            "photos": insp.photos if insp else "",
+            "reference_image": ref_image,
+            "dimensions": dimensions,
+            "material": material,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
+        })
+    return res
+
+
+@router.post("/my-rework-jobs/{rework_id}/resolve")
+def resolve_worker_rework_job(
+    rework_id: int,
+    payload: WorkerReworkResolvePayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    rw = db.query(models.ReworkJob).filter(
+        models.ReworkJob.rework_id == rework_id,
+        models.ReworkJob.assigned_worker_id == worker_id
+    ).first()
+
+    if not rw:
+        raise HTTPException(status_code=404, detail="Rework job not found or unauthorized.")
+
+    rw.status = "RESOLVED"
+    rw.resolved_at = datetime.utcnow()
+
+    # Reset order status to In Production for re-inspection
+    if rw.inspection and rw.inspection.order_type == "Custom":
+        ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == rw.inspection.order_id).first()
+        if ord_obj:
+            ord_obj.order_status = "In Production"
+    elif rw.inspection and rw.inspection.order_type == "Fabrication":
+        fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == rw.inspection.order_id).first()
+        if fab_obj:
+            fab_obj.status = "IN_PRODUCTION"
+
+    db.commit()
+    return {"message": f"Rework job #{rework_id} marked as resolved and submitted for re-inspection.", "status": "RESOLVED"}
+
+
+# ==================================================
+# DRIVER LOGISTICS DELIVERIES (FOR is_driver=True)
+# ==================================================
+class WorkerDeliveryStatusPayload(BaseModel):
+    status: str  # Dispatched, Out for Delivery, Delivered
+    notes: Optional[str] = None
+
+
+@router.get("/my-deliveries")
+def get_worker_deliveries(
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    if not current_user.is_driver:
+        return []
+
+    fulfillments = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.driver_id == worker_id
+    ).order_by(models.OrderFulfillment.fulfillment_id.desc()).all()
+
+    res = []
+    for f in fulfillments:
+        ord_obj = f.order
+        cust = ord_obj.customer if ord_obj else None
+        cust_user = cust.user if cust else None
+        veh = f.vehicle
+
+        items_summary = []
+        if ord_obj and ord_obj.items:
+            for item in ord_obj.items:
+                items_summary.append(f"{item.product_name or 'Furniture'} (x{item.quantity})")
+
+        res.append({
+            "fulfillment_id": f.fulfillment_id,
+            "order_id": f"ORD-{f.order_id:04d}",
+            "raw_order_id": f.order_id,
+            "customer_name": ord_obj.customer_name if ord_obj and ord_obj.customer_name else (cust_user.full_name if cust_user else "Valued Customer"),
+            "customer_phone": cust_user.phone if cust_user else (ord_obj.customer_email if ord_obj else ""),
+            "customer_email": ord_obj.customer_email if ord_obj else (cust_user.email if cust_user else ""),
+            "delivery_address": ord_obj.delivery_address if ord_obj and ord_obj.delivery_address else (f"{cust.address}, {cust.city}" if cust else "Standard Delivery Address"),
+            "vehicle_reg": veh.registration_number if veh else "Assigned Vehicle",
+            "vehicle_type": veh.vehicle_type if veh else "Mini Truck",
+            "fulfillment_status": f.fulfillment_status or "Dispatched",
+            "delivery_status": f.delivery_status or f.fulfillment_status or "Assigned to Driver",
+            "expected_delivery_date": f.expected_delivery_date or (f.dispatch_date.strftime("%d %b %Y") if f.dispatch_date else "Scheduled"),
+            "dispatched_at": f.dispatched_at.isoformat() if f.dispatched_at else None,
+            "delivered_at": f.delivered_at.isoformat() if f.delivered_at else None,
+            "items_count": len(ord_obj.items) if ord_obj and ord_obj.items else 1,
+            "items_description": ", ".join(items_summary) if items_summary else "Furniture Delivery Items",
+            "total_amount": float(ord_obj.total_amount) if ord_obj and ord_obj.total_amount else 0.0,
+            "delivery_notes": f.delivery_notes or f.dispatch_note or ""
+        })
+    return res
+
+
+@router.post("/my-deliveries/{fulfillment_id}/status")
+def update_worker_delivery_status(
+    fulfillment_id: int,
+    payload: WorkerDeliveryStatusPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    if not current_user.is_driver:
+        raise HTTPException(status_code=403, detail="Only registered driver workers can update delivery status.")
+
+    f = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.fulfillment_id == fulfillment_id,
+        models.OrderFulfillment.driver_id == worker_id
+    ).first()
+
+    if not f:
+        raise HTTPException(status_code=404, detail="Delivery fulfillment record not found or unauthorized.")
+
+    st = payload.status.strip()
+    f.delivery_status = st
+    if payload.notes:
+        f.delivery_notes = payload.notes.strip()
+
+    if st.lower() in ["delivered", "complete", "completed"]:
+        f.fulfillment_status = "Delivered"
+        f.delivered_at = datetime.utcnow()
+        if f.order:
+            f.order.order_status = "Delivered"
+
+    db.commit()
+    return {"message": f"Delivery status updated to {st}.", "delivery_status": st}
+
