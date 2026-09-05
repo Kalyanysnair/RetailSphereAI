@@ -15,7 +15,8 @@ interface ItemTypeSpec {
 interface CategorySpec {
   id: string;
   name: string;
-  duoImages: [string, string];
+  heroImage: string;
+  duoImages?: [string, string];
   types: ItemTypeSpec[];
   materials: string[];
   fabricsOrFinishes: string[];
@@ -30,6 +31,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'sofas',
     name: 'Sofas & Seating',
+    heroImage: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=500&q=80',
     duoImages: [
       'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80',
       'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=300&q=80',
@@ -38,27 +40,27 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'Custom 3-Seater Sofa',
         desc: 'Custom 3-Seater Sofa - Depth/Width Options available',
-        img: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'L-Shape Sectional',
         desc: 'Modular corner layout with optional chaise lounger',
-        img: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1493663284031-b7e3aefcae8e?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Lounge Armchair',
         desc: 'Lounge Armchair - Depth/Width Options available',
-        img: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Modular Sofa',
         desc: 'Flexible interlocking seating blocks with plush cushions',
-        img: 'https://images.unsplash.com/photo-1550581190-9c1c48d21d6c?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1550581190-9c1c48d21d6c?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Recliner Chair',
-        desc: 'Recliner Chair - Options available',
-        img: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=200&q=80',
+        desc: 'Recliner Chair - Ergonomic lumbar and reclining options',
+        img: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Premium Teak Wood', 'Sheesham Rosewood', 'Dark Walnut', 'Natural Oak', 'Brushed Stainless Steel'],
@@ -84,6 +86,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'dining',
     name: 'Dining Tables & Chairs',
+    heroImage: 'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=500&q=80',
     duoImages: [
       'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=300&q=80',
       'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=300&q=80',
@@ -92,22 +95,22 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'Dining Table',
         desc: 'Solid wood or marble tabletop with custom leg geometry',
-        img: 'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1617806118233-18e1de247200?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Complete Dining Set with Chairs',
         desc: 'Matching table and upholstered handcrafted dining chairs',
-        img: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Dining Bench',
         desc: 'Live-edge timber bench for casual seating',
-        img: 'https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1503602642458-232111445657?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Kitchen Counter Island',
         desc: 'Multi-functional prep counter with integrated bar seating',
-        img: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Solid Teak Planks', 'Sheesham Wood', 'Italian Carrara Marble', 'Walnut Slab', 'Smoked Tempered Glass'],
@@ -133,6 +136,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'beds',
     name: 'Beds & Sanctuary',
+    heroImage: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=500&q=80',
     duoImages: [
       'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=300&q=80',
       'https://images.unsplash.com/photo-1540518614846-7ede433c5173?auto=format&fit=crop&w=300&q=80',
@@ -141,22 +145,22 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'Platform Bed Frame',
         desc: 'Low-profile minimalist solid wood platform',
-        img: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Canopy Four-Poster Bed',
         desc: 'Architectural wooden canopy frame with draped linen option',
-        img: 'https://images.unsplash.com/photo-1540518614846-7ede433c5173?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1540518614846-7ede433c5173?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Hydraulic Storage Bed',
         desc: 'Gas-lift underbed compartment for ample linen storage',
-        img: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Daybed',
         desc: 'Versatile lounger bed frame for guest rooms & lounges',
-        img: 'https://images.unsplash.com/photo-1616046229478-9901c5536a45?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1616046229478-9901c5536a45?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Solid Teak Wood', 'Sheesham Rosewood', 'Dark Walnut', 'Natural Oak Frame'],
@@ -182,6 +186,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'storage',
     name: 'Storage & Cabinets',
+    heroImage: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=500&q=80',
     duoImages: [
       'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=300&q=80',
       'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=300&q=80',
@@ -190,22 +195,22 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'TV Media Console',
         desc: 'Low-slung console with acoustic fluted doors & cable routing',
-        img: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1595428774223-ef52624120d2?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Sideboard Credenza',
         desc: 'Dining room credenza with drawers & brass handles',
-        img: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Bookcase Display Cabinet',
         desc: 'Tall shelving unit with warm LED backlighting',
-        img: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Full Modular Wardrobe',
         desc: 'Custom closet system with internal organizer drawers',
-        img: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Solid Teak Wood', 'Sheesham Wood', 'Walnut & Brass', 'Oak & Tempered Glass'],
@@ -226,6 +231,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
   {
     id: 'workspace',
     name: 'Desks & Workstations',
+    heroImage: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=500&q=80',
     duoImages: [
       'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=300&q=80',
       'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=300&q=80',
@@ -234,22 +240,22 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'Executive L-Desk',
         desc: 'Spacious L-shaped timber workstation with modesty panel',
-        img: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Standing Electric Lift Desk',
         desc: 'Height-adjustable solid wood desk with digital presets',
-        img: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1527443224154-c4a3942d3acf?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Writing Desk',
         desc: 'Compact desk with slim stationery drawers',
-        img: 'https://images.unsplash.com/photo-1515378791036-0648a3ef77b2?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1515378791036-0648a3ef77b2?auto=format&fit=crop&w=300&q=80',
       },
       {
         name: 'Floating Wall Desk',
         desc: 'Space-saving wall-mounted timber desk',
-        img: 'https://images.unsplash.com/photo-1507652313519-d4e9174996dd?auto=format&fit=crop&w=200&q=80',
+        img: 'https://images.unsplash.com/photo-1507652313519-d4e9174996dd?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Solid Teak Slab', 'Walnut & Steel', 'Oak Timber', 'Rosewood Executive'],
@@ -679,39 +685,41 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
   return (
     <div className="space-y-8 text-[#2C241D]">
-      {/* INLINE EXPANDABLE CUSTOMIZATION FORM (PAGE DOCUMENT FLOW MATCHING USER TARGET DESIGN IMAGE) */}
+      {/* INLINE EXPANDABLE CUSTOMIZATION FORM (MODERN BESPOKE STUDIO DESIGN) */}
       {isFormOpen && (
-        <div id="custom-order-form" className="relative bg-[#FAF6F0] border-4 border-[#B89768] rounded-[2.2rem] shadow-2xl overflow-hidden text-[#2C241D] animate-fadeIn scroll-mt-24">
-          {/* Gold Frame Outer Trim Effect */}
-          <div className="absolute inset-0 border border-[#E6C994]/40 rounded-[2.1rem] pointer-events-none z-20" />
+        <div id="custom-order-form" className="relative bg-white/95 backdrop-blur-2xl border border-[#E2D7CB] rounded-[2.5rem] shadow-2xl overflow-hidden text-[#2C241D] animate-fadeIn scroll-mt-24">
+          {/* Subtle Ambient Lighting Effects */}
+          <div className="absolute -top-32 -right-32 w-96 h-96 bg-[#38A132]/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute -bottom-32 -left-32 w-96 h-96 bg-[#B89768]/8 rounded-full blur-3xl pointer-events-none" />
 
           {orderSuccess ? (
-            <div className="relative z-10 py-16 text-center space-y-3 bg-[#FAF8F5]">
-              <div className="w-16 h-16 rounded-full bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] mx-auto flex items-center justify-center animate-bounce">
+            <div className="relative z-10 py-16 text-center space-y-4 bg-gradient-to-b from-white to-[#FAF8F5]">
+              <div className="w-16 h-16 rounded-full bg-[#38A132]/10 border-2 border-[#38A132]/30 text-[#38A132] mx-auto flex items-center justify-center animate-bounce shadow-md">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <h3 className="text-xl font-extrabold text-[#2C241D]">
+              <h3 className="text-2xl font-serif font-bold text-[#1C1814]">
                 {editingOrderId ? 'Specifications Updated Successfully!' : 'Custom Build Request Submitted!'}
               </h3>
-              <p className="text-xs text-[#6B5C4D] max-w-sm mx-auto font-medium">
-                Your custom specifications for <strong>{furnitureType}</strong> have been saved!
+              <p className="text-xs text-[#6E6458] max-w-sm mx-auto font-medium">
+                Your bespoke configuration for <strong>{furnitureType}</strong> has been received by our master artisans.
               </p>
             </div>
           ) : (
-            <form onSubmit={handleCreateOrUpdateCustomOrder} className="relative z-10 flex flex-col lg:flex-row min-h-[620px]">
-              {/* Left Main Studio Panel (White Marble Texture) */}
-              <div className="flex-1 p-6 sm:p-8 space-y-6 bg-gradient-to-br from-[#FAF8F5] via-[#F6F1EA] to-[#EEE8DF] bg-[radial-gradient(#E8DFD3_1px,transparent_1px)] [background-size:20px_20px] relative z-10">
+            <form onSubmit={handleCreateOrUpdateCustomOrder} className="relative z-10 flex flex-col lg:flex-row min-h-[640px]">
+              {/* Left Main Studio Panel */}
+              <div className="flex-1 p-6 sm:p-8 space-y-6 bg-gradient-to-br from-white via-[#FAF8F5] to-[#F5EFE6]/50">
                 {/* Studio Header */}
-                <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4">
-                  <div>
-                    <h1 className="font-serif italic text-2xl sm:text-3xl text-[#9C7A4B] font-normal tracking-wide">
-                      Bespoke Custom Furniture Studio
-                    </h1>
-                    <h2 className="font-serif text-xl sm:text-2xl font-normal text-[#2C241D] tracking-tight mt-1">
-                      {editingOrderId ? `Edit Specifications for Order #${editingOrderId}` : 'Configure Your Custom Furniture Specifications'}
+                <div className="flex items-start justify-between border-b border-[#E2D7CB]/80 pb-5">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/20 text-[#38A132] text-[10px] font-black uppercase tracking-wider">
+                      <Sparkles className="w-3 h-3 text-[#38A132]" />
+                      <span>Bespoke Studio Atelier</span>
+                    </div>
+                    <h2 className="text-xl sm:text-2xl font-serif font-bold text-[#1C1814] tracking-tight">
+                      {editingOrderId ? `Edit Specifications for Order #${editingOrderId}` : 'Configure Your Custom Furniture'}
                     </h2>
-                    <p className="text-xs text-[#6E6458] font-medium mt-0.5">
-                      Step {modalStep} of 3 • {modalStep === 1 ? 'Select Category & Specific Item Type' : modalStep === 2 ? 'Select Timber, Color Palette & Specifications' : 'Define Dimensions & Special Custom Requirements'}
+                    <p className="text-xs text-[#7A6C5E] font-medium">
+                      Step {modalStep} of 3 • {modalStep === 1 ? 'Select Category & Specific Item Type' : modalStep === 2 ? 'Select Timber, Color Palette & Specifications' : 'Define Exact Dimensions & Special Requirements'}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -719,9 +727,9 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                       <button
                         type="button"
                         onClick={() => handleStepChange((modalStep - 1) as any)}
-                        className="px-3 py-1.5 rounded-xl bg-white/90 border border-[#D6C9B9] hover:bg-white text-[#2C241D] text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1.5"
+                        className="px-3.5 py-1.5 rounded-xl bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold transition-all cursor-pointer shadow-xs flex items-center gap-1.5"
                       >
-                        <ArrowLeft className="w-4 h-4 text-[#48A63E]" />
+                        <ArrowLeft className="w-3.5 h-3.5 text-[#38A132]" />
                         <span>Back</span>
                       </button>
                     )}
@@ -729,82 +737,110 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                     <button
                       type="button"
                       onClick={handleCloseAndRedirectToShop}
-                      className="p-2 rounded-xl bg-white/80 border border-[#D6C9B9] hover:bg-white text-[#6E6458] hover:text-[#1C1814] transition-colors cursor-pointer shadow-2xs"
+                      className="p-2 rounded-xl bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#1C1814] transition-all cursor-pointer shadow-xs"
                       title="Close Studio"
                     >
-                      <X className="w-5 h-5" />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
 
-                {/* 3-Step Wizard Stepper Bar */}
-                <div className="flex items-center w-full bg-[#EBE4D8] rounded-xl overflow-hidden border border-[#D6C9B9] p-1 text-xs font-bold">
+                {/* 3-Step Sleek Wizard Navigation */}
+                <div className="grid grid-cols-3 gap-2 bg-[#F3EDE3]/70 p-1.5 rounded-2xl border border-[#E2D7CB]/80">
                   <button
                     type="button"
                     onClick={() => setModalStep(1)}
-                    className={`flex-1 py-2 px-3 text-center cursor-pointer transition-all rounded-lg ${
+                    className={`py-2 px-3 text-center cursor-pointer transition-all rounded-xl text-xs font-bold flex items-center justify-center gap-2 ${
                       modalStep === 1
-                        ? 'bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495] font-extrabold shadow-2xs'
-                        : 'text-[#6E6458] hover:text-[#1C1814]'
+                        ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                        : 'text-[#6E6458] hover:text-[#1C1814] hover:bg-white/60'
                     }`}
                   >
-                    1: Category
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                      modalStep === 1 ? 'bg-white/20 text-white font-black' : 'bg-black/5 text-[#7A6C5E]'
+                    }`}>
+                      1
+                    </span>
+                    <span className="truncate">Category & Style</span>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setModalStep(2)}
-                    className={`flex-1 py-2 px-3 text-center cursor-pointer transition-all rounded-lg ${
+                    className={`py-2 px-3 text-center cursor-pointer transition-all rounded-xl text-xs font-bold flex items-center justify-center gap-2 ${
                       modalStep === 2
-                        ? 'bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495] font-extrabold shadow-2xs'
-                        : 'text-[#6E6458] hover:text-[#1C1814]'
+                        ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                        : 'text-[#6E6458] hover:text-[#1C1814] hover:bg-white/60'
                     }`}
                   >
-                    2: Materials
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                      modalStep === 2 ? 'bg-white/20 text-white font-black' : 'bg-black/5 text-[#7A6C5E]'
+                    }`}>
+                      2
+                    </span>
+                    <span className="truncate">Timber & Palette</span>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setModalStep(3)}
-                    className={`flex-1 py-2 px-3 text-center cursor-pointer transition-all rounded-lg ${
+                    className={`py-2 px-3 text-center cursor-pointer transition-all rounded-xl text-xs font-bold flex items-center justify-center gap-2 ${
                       modalStep === 3
-                        ? 'bg-[#E1EAD6] text-[#2D6338] border border-[#A6C495] font-extrabold shadow-2xs'
-                        : 'text-[#6E6458] hover:text-[#1C1814]'
+                        ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                        : 'text-[#6E6458] hover:text-[#1C1814] hover:bg-white/60'
                     }`}
                   >
-                    3: Review
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] ${
+                      modalStep === 3 ? 'bg-white/20 text-white font-black' : 'bg-black/5 text-[#7A6C5E]'
+                    }`}>
+                      3
+                    </span>
+                    <span className="truncate">Dimensions & Details</span>
                   </button>
                 </div>
 
-                {/* STEP 1: CATEGORY & DUAL IMAGE CARDS & ITEM SPECIFIC CARDS */}
+                {/* STEP 1: CATEGORY & PRODUCT SELECTION */}
                 {modalStep === 1 && (
                   <div className="space-y-6 animate-fadeIn">
                     {/* Select Furniture Category */}
                     <div>
-                      <h3 className="text-[11px] font-extrabold text-[#7A6C5E] mb-2 uppercase tracking-wider">
-                        Select Furniture Category
-                      </h3>
-                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <h3 className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
+                          <Layers className="w-3.5 h-3.5 text-[#38A132]" />
+                          <span>Select Furniture Category</span>
+                        </h3>
+                        <span className="text-[11px] font-semibold text-[#7A6C5E]">5 Categories</span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                         {CATEGORY_SPECS.map((cat) => {
                           const isSelected = selectedCategory.id === cat.id;
                           return (
                             <div
                               key={cat.id}
                               onClick={() => handleCategorySelect(cat)}
-                              className={`relative p-2 rounded-xl border cursor-pointer transition-all flex flex-col justify-between h-28 ${
+                              className={`group relative p-2.5 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between overflow-hidden ${
                                 isSelected
-                                  ? 'bg-white border-2 border-[#48A63E] ring-2 ring-[#48A63E]/20 shadow-xs'
-                                  : 'bg-white/70 border-[#D6C9B9] hover:bg-white hover:shadow-2xs'
+                                  ? 'bg-white border-2 border-[#38A132] ring-4 ring-[#38A132]/15 shadow-md scale-[1.02]'
+                                  : 'bg-white/80 border-[#E2D7CB] hover:bg-white hover:border-[#38A132]/50 hover:shadow-sm'
                               }`}
                             >
                               {isSelected && (
-                                <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#48A63E] text-white flex items-center justify-center z-10 shadow-2xs">
-                                  <CheckCircle2 className="w-3 h-3 fill-white text-[#48A63E]" />
+                                <div className="absolute top-2 right-2 w-5 h-5 rounded-full bg-[#38A132] text-white flex items-center justify-center z-10 shadow-xs">
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-white" />
                                 </div>
                               )}
-                              <div className="grid grid-cols-2 gap-1 h-16 rounded-lg overflow-hidden bg-[#F4ECE1]">
-                                <img src={cat.duoImages[0]} alt={cat.name} className="w-full h-full object-cover" />
-                                <img src={cat.duoImages[1]} alt={cat.name} className="w-full h-full object-cover" />
+                              <div className="w-full h-20 rounded-xl overflow-hidden bg-[#F3EDE3] relative mb-2">
+                                <img
+                                  src={cat.heroImage || cat.duoImages?.[0]}
+                                  alt={cat.name}
+                                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent pointer-events-none" />
                               </div>
-                              <span className="text-[10px] font-extrabold text-[#1C1814] leading-tight text-center line-clamp-1 mt-1">
+                              <span className={`text-[11px] font-bold leading-snug text-center line-clamp-1 ${
+                                isSelected ? 'text-[#38A132] font-extrabold' : 'text-[#1C1814]'
+                              }`}>
                                 {cat.name}
                               </span>
                             </div>
@@ -815,34 +851,47 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                     {/* Select Specific Product / Item Type */}
                     <div>
-                      <h3 className="text-[11px] font-extrabold text-[#7A6C5E] mb-2 uppercase tracking-wider">
-                        Select Specific Product / Item Type
-                      </h3>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div className="flex items-center justify-between mb-2.5">
+                        <h3 className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
+                          <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
+                          <span>Select Specific Product / Model</span>
+                        </h3>
+                        <span className="text-[11px] font-semibold text-[#7A6C5E]">{selectedCategory.types.length} Models available</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {selectedCategory.types.map((typeObj) => {
                           const isSelected = furnitureType === typeObj.name;
                           return (
                             <div
                               key={typeObj.name}
                               onClick={() => setFurnitureType(typeObj.name)}
-                              className={`p-2.5 rounded-xl border cursor-pointer transition-all flex items-center justify-between gap-2.5 ${
+                              className={`p-3.5 rounded-2xl border cursor-pointer transition-all flex items-center justify-between gap-3.5 ${
                                 isSelected
-                                  ? 'bg-[#EFE8DC] border border-[#B89768] shadow-2xs ring-1 ring-[#B89768]/50'
-                                  : 'bg-white/90 border-[#D6C9B9] hover:bg-white'
+                                  ? 'bg-gradient-to-r from-[#38A132]/8 via-[#38A132]/4 to-transparent border-2 border-[#38A132] shadow-sm ring-2 ring-[#38A132]/10'
+                                  : 'bg-white/80 border-[#E2D7CB] hover:bg-white hover:border-[#38A132]/40 hover:shadow-xs'
                               }`}
                             >
-                              <div className="flex items-start gap-2.5 min-w-0">
-                                <div className={`w-4 h-4 rounded-full border flex items-center justify-center mt-0.5 shrink-0 ${
-                                  isSelected ? 'border-[#2D6338] bg-[#2D6338] text-white' : 'border-[#C8BCAC] bg-white'
+                              <div className="flex items-start gap-3 min-w-0">
+                                <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mt-0.5 shrink-0 ${
+                                  isSelected ? 'border-[#38A132] bg-[#38A132] text-white' : 'border-[#C8BCAC] bg-white'
                                 }`}>
                                   {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
                                 </div>
                                 <div className="min-w-0">
-                                  <h4 className="text-[11px] font-extrabold text-[#1C1814] truncate">{typeObj.name}</h4>
-                                  <p className="text-[10px] text-[#6E6458] font-medium truncate mt-0.5">{typeObj.desc}</p>
+                                  <h4 className={`text-xs font-bold truncate ${isSelected ? 'text-[#38A132] font-extrabold' : 'text-[#1C1814]'}`}>
+                                    {typeObj.name}
+                                  </h4>
+                                  <p className="text-[11px] text-[#6E6458] font-medium truncate mt-0.5">
+                                    {typeObj.desc}
+                                  </p>
                                 </div>
                               </div>
-                              <img src={typeObj.img} alt={typeObj.name} className="w-12 h-10 rounded-lg object-cover border border-[#D6C9B9] shrink-0" />
+                              <img
+                                src={typeObj.img}
+                                alt={typeObj.name}
+                                className="w-14 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0 shadow-2xs"
+                              />
                             </div>
                           );
                         })}
@@ -853,33 +902,38 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                 {/* STEP 2: MATERIALS, FABRICS & CATEGORY ASPECTS */}
                 {modalStep === 2 && (
-                  <div className="space-y-4 animate-fadeIn">
+                  <div className="space-y-5 animate-fadeIn">
                     {/* Primary Timber / Structural Material */}
                     <div>
-                      <label className="block font-extrabold text-[#7A6C5E] mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                        <Sliders className="w-3.5 h-3.5 text-[#48A63E]" />
-                        Primary Timber / Structural Material
+                      <label className="block font-black text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                        <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>Primary Timber & Structural Material</span>
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {[...selectedCategory.materials, 'Other'].map((mat) => (
-                          <button
-                            key={mat}
-                            type="button"
-                            onClick={() => setMaterial(mat)}
-                            className={`px-3.5 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer truncate ${
-                              material === mat
-                                ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
-                                : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
-                            }`}
-                          >
-                            {mat === 'Other' ? '✨ Other Material' : mat}
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        {[...selectedCategory.materials, 'Other'].map((mat) => {
+                          const isSelected = material === mat;
+                          return (
+                            <button
+                              key={mat}
+                              type="button"
+                              onClick={() => setMaterial(mat)}
+                              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold text-left transition-all cursor-pointer truncate flex items-center justify-between ${
+                                isSelected
+                                  ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                                  : 'bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                              }`}
+                            >
+                              <span className="truncate">{mat === 'Other' ? '✨ Custom Material' : mat}</span>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0 ml-1" />}
+                            </button>
+                          );
+                        })}
                       </div>
+
                       {material === 'Other' && (
-                        <div className="mt-2 animate-fadeIn">
-                          <label className="block text-[10px] font-extrabold text-[#7A6C5E] mb-1">
-                            Specify Your Custom Structural Material:
+                        <div className="mt-3 p-3.5 bg-white border border-[#E2D7CB] rounded-2xl animate-fadeIn space-y-1.5">
+                          <label className="block text-[11px] font-bold text-[#5C4E42]">
+                            Specify Custom Structural Material:
                           </label>
                           <input
                             type="text"
@@ -887,20 +941,20 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                             value={customMaterialInput}
                             onChange={(e) => setCustomMaterialInput(e.target.value)}
                             required={material === 'Other'}
-                            className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                            className="w-full px-3.5 py-2 bg-[#FAF8F5] border border-[#E2D7CB] rounded-xl font-bold text-xs focus:outline-none focus:border-[#38A132] focus:ring-1 focus:ring-[#38A132] text-[#2C241D]"
                           />
                         </div>
                       )}
                     </div>
 
-                    {/* COLOR & POLISH SELECTION */}
+                    {/* Color & Polish Shade Selection */}
                     <div>
-                      <label className="block font-extrabold text-[#7A6C5E] mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                        <Palette className="w-3.5 h-3.5 text-[#48A63E]" />
-                        Color & Polish Shade Selection
+                      <label className="block font-black text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                        <Palette className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>Color & Polish Shade Palette</span>
                       </label>
 
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                         {[
                           { name: 'Cream White', hex: '#FDFBF7' },
                           { name: 'Emerald Green', hex: '#0B4F37' },
@@ -919,16 +973,16 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                                 key={swatch.name}
                                 type="button"
                                 onClick={() => setSelectedColor(swatch.name)}
-                                className={`px-3 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
+                                className={`px-3 py-2 rounded-xl text-xs font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
                                   isSelected
-                                    ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
-                                    : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                                    ? 'bg-[#38A132]/10 border-2 border-[#38A132] text-[#38A132] shadow-xs'
+                                    : 'bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
                                 }`}
                               >
-                                <div className="w-4 h-4 rounded-full border border-dashed border-[#48A63E] flex items-center justify-center text-[9px] shrink-0 font-mono">
+                                <div className="w-4 h-4 rounded-full border border-dashed border-[#38A132] flex items-center justify-center text-[10px] shrink-0 font-mono">
                                   🎨
                                 </div>
-                                <span className="truncate">Custom Color</span>
+                                <span className="truncate">Custom Shade</span>
                               </button>
                             );
                           }
@@ -938,14 +992,16 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                               key={swatch.name}
                               type="button"
                               onClick={() => setSelectedColor(swatch.name)}
-                              className={`px-3 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer flex items-center gap-2 ${
+                              className={`px-3 py-2 rounded-xl text-xs font-bold text-left transition-all cursor-pointer flex items-center gap-2.5 ${
                                 isSelected
-                                  ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
-                                  : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                                  ? 'bg-[#38A132]/10 border-2 border-[#38A132] text-[#38A132] shadow-xs'
+                                  : 'bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
                               }`}
                             >
                               <span
-                                className="w-3.5 h-3.5 rounded-full inline-block border border-black/20 shadow-2xs shrink-0"
+                                className={`w-4 h-4 rounded-full inline-block border shrink-0 ${
+                                  isSelected ? 'ring-2 ring-[#38A132] ring-offset-1' : 'border-black/20'
+                                }`}
                                 style={{ backgroundColor: swatch.hex }}
                               />
                               <span className="truncate">{swatch.name}</span>
@@ -955,7 +1011,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                       </div>
 
                       {(selectedColor === 'Custom Color Picker' || selectedColor === 'Other') && (
-                        <div className="mt-2.5 p-3.5 bg-white border border-[#E2D7CB] rounded-xl space-y-2.5 animate-fadeIn shadow-xs">
+                        <div className="mt-3 p-3.5 bg-white border border-[#E2D7CB] rounded-2xl space-y-2.5 animate-fadeIn shadow-xs">
                           <div className="flex items-center gap-3 flex-wrap">
                             <div>
                               <label className="block text-[10px] font-extrabold text-[#7A6C5E] mb-1">
@@ -968,7 +1024,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                                   onChange={(e) => setCustomPickerHex(e.target.value)}
                                   className="w-8 h-8 rounded-lg border border-[#E2D7CB] cursor-pointer bg-transparent p-0.5"
                                 />
-                                <span className="font-mono text-[11px] font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2 py-1 rounded-md border border-[#E2D7CB]">
+                                <span className="font-mono text-[11px] font-extrabold text-[#2C241D] bg-[#FAF8F5] px-2 py-1 rounded-md border border-[#E2D7CB]">
                                   {customPickerHex.toUpperCase()}
                                 </span>
                               </div>
@@ -983,7 +1039,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                                 placeholder="e.g. Sage Green, Dusty Rose Velvet..."
                                 value={customColorInput}
                                 onChange={(e) => setCustomColorInput(e.target.value)}
-                                className="w-full px-3 py-1.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-lg font-bold text-xs focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                                className="w-full px-3 py-1.5 bg-[#FAF8F5] border border-[#E2D7CB] rounded-lg font-bold text-xs focus:outline-none focus:border-[#38A132] text-[#2C241D]"
                               />
                             </div>
                           </div>
@@ -993,124 +1049,144 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                     {/* Upholstery Fabric / Texture Finish */}
                     <div>
-                      <label className="block font-extrabold text-[#7A6C5E] mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wider">
-                        <Sliders className="w-3.5 h-3.5 text-[#48A63E]" />
-                        Upholstery Fabric / Texture Finish
+                      <label className="block font-black text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                        <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>Upholstery Fabric & Texture Finish</span>
                       </label>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {selectedCategory.fabricsOrFinishes.map((fab) => (
-                          <button
-                            key={fab}
-                            type="button"
-                            onClick={() => setFabricOrFinish(fab)}
-                            className={`px-3.5 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer truncate ${
-                              fabricOrFinish === fab
-                                ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
-                                : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
-                            }`}
-                          >
-                            {fab}
-                          </button>
-                        ))}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                        {selectedCategory.fabricsOrFinishes.map((fab) => {
+                          const isSelected = fabricOrFinish === fab;
+                          return (
+                            <button
+                              key={fab}
+                              type="button"
+                              onClick={() => setFabricOrFinish(fab)}
+                              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold text-left transition-all cursor-pointer truncate flex items-center justify-between ${
+                                isSelected
+                                  ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                                  : 'bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                              }`}
+                            >
+                              <span className="truncate">{fab}</span>
+                              {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0 ml-1" />}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
 
                     {/* DYNAMIC CATEGORY ASPECTS */}
                     {selectedCategory.aspects.map((asp) => (
                       <div key={asp.key}>
-                        <label className="block font-extrabold text-[#7A6C5E] mb-1.5 text-[11px] uppercase tracking-wider">
+                        <label className="block font-black text-[#5C4E42] mb-2 text-xs uppercase tracking-wider">
                           {asp.label}
                         </label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {asp.options.map((opt) => (
-                            <button
-                              key={opt}
-                              type="button"
-                              onClick={() => handleAspectChange(asp.key, opt)}
-                              className={`px-3.5 py-2 rounded-xl text-[11px] font-bold text-left transition-all cursor-pointer truncate ${
-                                aspectSelections[asp.key] === opt
-                                  ? 'bg-[#EFE8DC] border border-[#B89768] text-[#1C1814] shadow-2xs ring-1 ring-[#B89768]/50'
-                                  : 'bg-white/90 hover:bg-white border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
-                              }`}
-                            >
-                              {opt}
-                            </button>
-                          ))}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                          {asp.options.map((opt) => {
+                            const isSelected = aspectSelections[asp.key] === opt;
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => handleAspectChange(asp.key, opt)}
+                                className={`px-3.5 py-2.5 rounded-xl text-xs font-bold text-left transition-all cursor-pointer truncate flex items-center justify-between ${
+                                  isSelected
+                                    ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
+                                    : 'bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814]'
+                                }`}
+                              >
+                                <span className="truncate">{opt}</span>
+                                {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-white shrink-0 ml-1" />}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* STEP 3: DIMENSIONS & TEXT AREA FOR SPECIAL REQUIREMENTS */}
+                {/* STEP 3: DIMENSIONS & REFERENCE IMAGES & SPECIAL REQUIREMENTS */}
                 {modalStep === 3 && (
-                  <div className="space-y-5 animate-fadeIn">
+                  <div className="space-y-6 animate-fadeIn">
+                    {/* Measurements */}
                     <div>
-                      <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                        <Ruler className="w-4 h-4 text-[#48A63E]" />
-                        Exact Custom Dimensions & Measurements
+                      <label className="block font-black text-[#5C4E42] mb-2.5 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                        <Ruler className="w-4 h-4 text-[#38A132]" />
+                        <span>Exact Custom Dimensions & Measurements</span>
                       </label>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Length (cm)</label>
-                          <input
-                            type="number"
-                            value={lengthCm}
-                            onChange={(e) => setLengthCm(e.target.value)}
-                            required
-                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                          />
+                      <div className="grid grid-cols-3 gap-3.5">
+                        <div className="bg-white p-3 rounded-2xl border border-[#E2D7CB] shadow-2xs">
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Length</label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              value={lengthCm}
+                              onChange={(e) => setLengthCm(e.target.value)}
+                              required
+                              className="w-full pr-8 py-1.5 text-sm bg-transparent font-black focus:outline-none text-[#2C241D]"
+                            />
+                            <span className="absolute right-0 top-1.5 text-xs font-bold text-[#7A6C5E]">cm</span>
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Width / Depth (cm)</label>
-                          <input
-                            type="number"
-                            value={widthCm}
-                            onChange={(e) => setWidthCm(e.target.value)}
-                            required
-                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                          />
+
+                        <div className="bg-white p-3 rounded-2xl border border-[#E2D7CB] shadow-2xs">
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Width / Depth</label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              value={widthCm}
+                              onChange={(e) => setWidthCm(e.target.value)}
+                              required
+                              className="w-full pr-8 py-1.5 text-sm bg-transparent font-black focus:outline-none text-[#2C241D]"
+                            />
+                            <span className="absolute right-0 top-1.5 text-xs font-bold text-[#7A6C5E]">cm</span>
+                          </div>
                         </div>
-                        <div>
-                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Height (cm)</label>
-                          <input
-                            type="number"
-                            value={heightCm}
-                            onChange={(e) => setHeightCm(e.target.value)}
-                            required
-                            className="w-full px-3.5 py-2.5 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                          />
+
+                        <div className="bg-white p-3 rounded-2xl border border-[#E2D7CB] shadow-2xs">
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Height</label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              value={heightCm}
+                              onChange={(e) => setHeightCm(e.target.value)}
+                              required
+                              className="w-full pr-8 py-1.5 text-sm bg-transparent font-black focus:outline-none text-[#2C241D]"
+                            />
+                            <span className="absolute right-0 top-1.5 text-xs font-bold text-[#7A6C5E]">cm</span>
+                          </div>
                         </div>
                       </div>
                     </div>
 
-                    {/* REFERENCE DESIGN IMAGES PROVISION */}
-                    <div className="space-y-4">
+                    {/* Reference Design Images */}
+                    <div className="space-y-3">
                       <div className="flex items-center justify-between">
-                        <label className="font-extrabold text-[#5C4E42] flex items-center gap-1.5 text-xs">
-                          <Image className="w-4 h-4 text-[#48A63E]" />
-                          Reference Design Images (Optional)
+                        <label className="font-black text-[#5C4E42] flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                          <Image className="w-4 h-4 text-[#38A132]" />
+                          <span>Reference Design Images (Optional)</span>
                         </label>
                         <button
                           type="button"
                           onClick={() => setReferenceImageUrls((prev) => [...prev, ''])}
-                          className="text-xs font-extrabold text-[#48A63E] hover:text-[#3D9134] flex items-center gap-1 cursor-pointer bg-[#48A63E]/10 px-2.5 py-1 rounded-xl border border-[#48A63E]/30"
+                          className="text-xs font-extrabold text-[#38A132] hover:text-[#32922D] flex items-center gap-1 cursor-pointer bg-[#38A132]/10 px-3 py-1 rounded-xl border border-[#38A132]/20 transition-all"
                         >
                           <Plus className="w-3.5 h-3.5" />
-                          <span>Add Link</span>
+                          <span>Add Image URL</span>
                         </button>
                       </div>
 
-                      {/* DRAG AND DROP ZONE */}
+                      {/* Drag and Drop Zone */}
                       <div
                         onDragOver={handleDragOver}
                         onDragLeave={handleDragLeave}
                         onDrop={handleDrop}
                         onClick={() => document.getElementById('reference-file-input')?.click()}
-                        className={`border-2 border-dashed rounded-2xl p-5 sm:p-6 text-center cursor-pointer transition-all ${
+                        className={`border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all ${
                           isDragging
-                            ? 'border-[#48A63E] bg-[#48A63E]/15 shadow-md shadow-[#48A63E]/20 scale-[1.01]'
-                            : 'border-[#48A63E]/40 hover:border-[#48A63E] bg-white/70 hover:bg-white'
+                            ? 'border-[#38A132] bg-[#38A132]/10 shadow-md scale-[1.01]'
+                            : 'border-[#E2D7CB] hover:border-[#38A132]/50 bg-white/80 hover:bg-white'
                         }`}
                       >
                         <input
@@ -1122,12 +1198,12 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                           className="hidden"
                         />
                         <div className="flex flex-col items-center justify-center space-y-2">
-                          <div className="w-12 h-12 rounded-2xl bg-[#48A63E]/10 border border-[#48A63E]/30 text-[#48A63E] flex items-center justify-center">
-                            <UploadCloud className="w-6 h-6 animate-pulse" />
+                          <div className="w-12 h-12 rounded-2xl bg-[#38A132]/10 border border-[#38A132]/20 text-[#38A132] flex items-center justify-center">
+                            <UploadCloud className="w-6 h-6" />
                           </div>
                           <div>
-                            <p className="text-xs font-extrabold text-[#2C241D]">
-                              Drag & drop reference design images here, or <span className="text-[#48A63E] underline">browse device files</span>
+                            <p className="text-xs font-black text-[#2C241D]">
+                              Drag & drop reference design images here, or <span className="text-[#38A132] underline">browse files</span>
                             </p>
                             <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
                               Supports PNG, JPG, JPEG, WEBP
@@ -1135,84 +1211,126 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                           </div>
                         </div>
                       </div>
+
+                      {/* Preview Thumbnails */}
+                      {referenceImageUrls.filter(u => u.trim() !== '').length > 0 && (
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          {referenceImageUrls.map((url, idx) => {
+                            if (!url.trim()) return null;
+                            return (
+                              <div key={idx} className="relative group w-16 h-16 rounded-xl overflow-hidden border border-[#E2D7CB] bg-white shadow-2xs">
+                                <img src={url} alt={`Ref ${idx + 1}`} className="w-full h-full object-cover" />
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setReferenceImageUrls(prev => prev.filter((_, i) => i !== idx));
+                                  }}
+                                  className="absolute inset-0 bg-black/60 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <Trash2 className="w-4 h-4 text-rose-400" />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
 
+                    {/* Special Notes Textarea */}
                     <div>
-                      <label className="block font-extrabold text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs">
-                        <MessageSquareText className="w-4 h-4 text-[#48A63E]" />
-                        Additional Requirements & Special Customization Details
+                      <label className="block font-black text-[#5C4E42] mb-2 flex items-center gap-1.5 text-xs uppercase tracking-wider">
+                        <MessageSquareText className="w-4 h-4 text-[#38A132]" />
+                        <span>Additional Customization Notes & Requirements</span>
                       </label>
                       <textarea
-                        rows={4}
+                        rows={3}
                         value={customNotes}
                         onChange={(e) => setCustomNotes(e.target.value)}
-                        placeholder="Write all specific needs here: e.g. Stain-resistant upholstery, custom carving on legs, robot vacuum clearance..."
-                        className="w-full px-4 py-3 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
+                        placeholder="Write specific requirements here: e.g. Stain-resistant upholstery, custom leg carvings, exact clearance heights..."
+                        className="w-full px-4 py-3 text-xs sm:text-sm bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132] focus:ring-1 focus:ring-[#38A132]"
                       />
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* Right Wood-Veneer Panel: Summary & Price Range Estimator (Matching Target Design Image) */}
-              <div className="w-full lg:w-72 bg-[#ECE3D5] border-l border-[#D6C9B9] p-5 space-y-4 flex flex-col justify-between flex-shrink-0 rounded-r-[1.8rem]">
+              {/* Right Blueprint Panel: Live Summary & Valuation Range */}
+              <div className="w-full lg:w-80 bg-gradient-to-b from-[#FAF8F5] via-[#F4EFE7] to-[#EFE8DC] border-t lg:border-t-0 lg:border-l border-[#E2D7CB] p-6 space-y-5 flex flex-col justify-between flex-shrink-0">
                 <div className="space-y-4">
-                  {/* Spec Summary Card */}
-                  <div className="bg-white/90 backdrop-blur-xs border border-[#D6C9B9] rounded-2xl p-4 space-y-2 shadow-2xs">
-                    <h4 className="font-extrabold text-sm text-[#1C1814] tracking-tight">
-                      {furnitureType || 'Custom 3-Seater Sofa'}
-                    </h4>
-                    <p className="text-[11px] text-[#6E6458] font-medium leading-snug">
-                      Configure Custom Furniture Specifications
-                    </p>
-                    <div className="pt-2 border-t border-[#EAE0D4] space-y-1 text-xs font-bold text-[#2C241D]">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[#6E6458]">Category:</span>
-                        <span className="truncate max-w-[120px]">{selectedCategory.name}</span>
+                  {/* Blueprint Spec Card */}
+                  <div className="bg-white/90 backdrop-blur-md border border-[#E2D7CB] rounded-2xl p-4 space-y-3 shadow-xs">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-[#38A132]" />
+                      <span className="text-[11px] font-black uppercase tracking-wider text-[#5C4E42]">
+                        Live Build Blueprint
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-3 pb-3 border-b border-[#E2D7CB]">
+                      <img
+                        src={selectedCategory.types.find(t => t.name === furnitureType)?.img || selectedCategory.heroImage}
+                        alt={furnitureType}
+                        className="w-12 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <h4 className="font-extrabold text-xs text-[#1C1814] truncate">
+                          {furnitureType || 'Custom Furniture'}
+                        </h4>
+                        <p className="text-[10px] text-[#7A6C5E] font-medium truncate mt-0.5">
+                          {selectedCategory.name}
+                        </p>
                       </div>
-                      {material && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[#6E6458]">Material:</span>
-                          <span className="truncate max-w-[120px]">{material}</span>
-                        </div>
-                      )}
-                      {selectedColor && (
-                        <div className="flex items-center justify-between">
-                          <span className="text-[#6E6458]">Color:</span>
-                          <span className="truncate max-w-[120px]">{selectedColor}</span>
-                        </div>
-                      )}
+                    </div>
+
+                    <div className="space-y-1.5 text-xs font-bold text-[#2C241D]">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#7A6C5E]">Material:</span>
+                        <span className="truncate max-w-[130px] font-extrabold">{material}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#7A6C5E]">Color / Polish:</span>
+                        <span className="truncate max-w-[130px] font-extrabold">{selectedColor}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#7A6C5E]">Finish:</span>
+                        <span className="truncate max-w-[130px] font-extrabold">{fabricOrFinish}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-[#7A6C5E]">Dimensions:</span>
+                        <span className="font-mono font-extrabold">{lengthCm}×{widthCm}×{heightCm} cm</span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Price Estimator Card */}
-                  <div className="bg-white/90 backdrop-blur-xs border border-[#D6C9B9] rounded-2xl p-4 space-y-1 shadow-2xs">
-                    <span className="text-[11px] font-extrabold text-[#6E6458] block uppercase tracking-wider">
-                      Estimated Price Range
-                    </span>
-                    <div className="text-lg font-mono font-black text-[#2D6338]">
-                      ₹45,000 - ₹1,20,000
+                  {/* Price Valuation Range Card */}
+                  <div className="bg-white/90 backdrop-blur-md border border-[#E2D7CB] rounded-2xl p-4 space-y-1.5 shadow-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider">
+                        Estimated Price Range
+                      </span>
+                      <span className="text-[10px] font-bold text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded-full">
+                        Artisan Estimate
+                      </span>
                     </div>
+                    <div className="text-xl font-mono font-black text-[#38A132]">
+                      {selectedCategory.id === 'sofas' ? '₹45,000 – ₹1,20,000' :
+                       selectedCategory.id === 'dining' ? '₹35,000 – ₹95,000' :
+                       selectedCategory.id === 'beds' ? '₹40,000 – ₹1,10,000' :
+                       selectedCategory.id === 'storage' ? '₹25,000 – ₹75,000' : '₹20,000 – ₹60,000'}
+                    </div>
+                    <p className="text-[10px] text-[#7A6C5E] font-medium leading-relaxed">
+                      Final quotation verified by craftsmen upon blueprint submission.
+                    </p>
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="space-y-2">
-                  {modalStep > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => handleStepChange((modalStep - 1) as any)}
-                      className="w-full py-2.5 bg-white/90 hover:bg-white border border-[#C8BCAC] text-[#2C241D] text-xs font-extrabold rounded-full transition-all cursor-pointer shadow-2xs flex items-center justify-center gap-2"
-                    >
-                      <ArrowLeft className="w-4 h-4 text-[#48A63E]" />
-                      <span>Back to Step {modalStep - 1}</span>
-                    </button>
-                  )}
-
+                {/* Stepper Navigation Action Buttons */}
+                <div className="space-y-2 pt-2">
                   <button
                     type="button"
                     onClick={handleCloseAndRedirectToShop}
-                    className="w-full py-2.5 bg-white hover:bg-[#FAF7F2] border border-[#C8BCAC] text-[#2C241D] text-xs font-extrabold rounded-xl transition-all cursor-pointer shadow-2xs"
+                    className="w-full py-2.5 bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814] text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
                   >
                     Save for Later
                   </button>
@@ -1221,19 +1339,19 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                     <button
                       type="button"
                       onClick={() => handleStepChange((modalStep + 1) as any)}
-                      className="w-full py-3 bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-black rounded-full shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
+                      className="w-full py-3 bg-gradient-to-r from-[#38A132] to-[#48A63E] hover:from-[#32922D] hover:to-[#38A132] text-white text-xs font-black rounded-xl shadow-md shadow-[#38A132]/25 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95"
                     >
-                      <span>Next: {modalStep === 1 ? 'Materials & Specs' : 'Review & Submit'}</span>
+                      <span>Next: {modalStep === 1 ? 'Timber & Palette' : 'Review & Submit'}</span>
                       <ArrowRight className="w-4 h-4" />
                     </button>
                   ) : (
                     <button
                       type="submit"
                       disabled={submittingOrder}
-                      className="w-full py-3 bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-black rounded-full shadow-md flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60"
+                      className="w-full py-3.5 bg-gradient-to-r from-[#38A132] to-[#48A63E] hover:from-[#32922D] hover:to-[#38A132] text-white text-xs font-black rounded-xl shadow-lg shadow-[#38A132]/25 flex items-center justify-center gap-2 cursor-pointer transition-all active:scale-95 disabled:opacity-60"
                     >
                       <Send className="w-4 h-4" />
-                      <span>{submittingOrder ? 'Submitting...' : (editingOrderId ? 'Update Specifications' : 'Submit Custom Request')}</span>
+                      <span>{submittingOrder ? 'Submitting Blueprint...' : (editingOrderId ? 'Update Specifications' : 'Submit Custom Build Request')}</span>
                     </button>
                   )}
                 </div>
@@ -1243,9 +1361,85 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
         </div>
       )}
 
-      {/* SINGLE UNIFIED GLASS CARD CONTAINER FOR TRACKER (Only rendered when user has active custom orders) */}
+      {/* EMPTY STATE & BESPOKE STUDIO HERO (When user has no active custom requests) */}
+      {userOrders.length === 0 && !isFormOpen && (
+        <div className="relative bg-gradient-to-br from-[#FAF8F5] via-[#F6F1EA] to-[#EEE8DF] border-2 border-[#D6C9B9] rounded-[2.2rem] p-8 sm:p-12 shadow-xl overflow-hidden text-[#2C241D]">
+          {/* Subtle decorative background elements */}
+          <div className="absolute top-0 right-0 w-96 h-96 bg-[#48A63E]/5 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#B89768]/10 rounded-full blur-2xl pointer-events-none" />
+
+          <div className="relative z-10 max-w-3xl mx-auto text-center space-y-6">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#E1EAD6] border border-[#A6C495] text-[#2D6338] text-xs font-black shadow-xs">
+              <Sparkles className="w-3.5 h-3.5 text-[#48A63E]" />
+              <span>Artisan Craftsmanship & Tailored Living</span>
+            </div>
+
+            <h2 className="font-serif italic text-3xl sm:text-4xl text-[#9C7A4B] font-normal tracking-wide">
+              Bespoke Custom Furniture Studio
+            </h2>
+
+            <p className="text-sm text-[#6B5C4D] leading-relaxed max-w-xl mx-auto font-medium">
+              You currently have no active custom furniture requests. Commission a one-of-a-kind handcrafted piece tailored precisely to your floorplan, timber preferences, fabrics, and artisan finishes.
+            </p>
+
+            {/* 3 Luxury Value Props */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left pt-2 pb-2">
+              <div className="bg-white/80 backdrop-blur-sm border border-[#E2D7CB] rounded-2xl p-4.5 space-y-2 shadow-xs hover:shadow-md transition-shadow">
+                <div className="w-9 h-9 rounded-xl bg-[#48A63E]/15 border border-[#48A63E]/30 flex items-center justify-center text-[#48A63E]">
+                  <Ruler className="w-4.5 h-4.5" />
+                </div>
+                <h4 className="text-xs font-black text-[#2C241D]">Exact Dimensions</h4>
+                <p className="text-[11px] text-[#6E6458] leading-normal font-medium">
+                  Custom length, depth, and layout specifications designed for your sanctuary.
+                </p>
+              </div>
+
+              <div className="bg-white/80 backdrop-blur-sm border border-[#E2D7CB] rounded-2xl p-4.5 space-y-2 shadow-xs hover:shadow-md transition-shadow">
+                <div className="w-9 h-9 rounded-xl bg-[#9C7A4B]/15 border border-[#9C7A4B]/30 flex items-center justify-center text-[#9C7A4B]">
+                  <Palette className="w-4.5 h-4.5" />
+                </div>
+                <h4 className="text-xs font-black text-[#2C241D]">Master Timbers & Fabrics</h4>
+                <p className="text-[11px] text-[#6E6458] leading-normal font-medium">
+                  Choose from Solid Teak, Rosewood, Walnut, Cream Bouclé, Velvet, or Custom Hues.
+                </p>
+              </div>
+
+              <div className="bg-white/80 backdrop-blur-sm border border-[#E2D7CB] rounded-2xl p-4.5 space-y-2 shadow-xs hover:shadow-md transition-shadow">
+                <div className="w-9 h-9 rounded-xl bg-[#38A132]/15 border border-[#38A132]/30 flex items-center justify-center text-[#38A132]">
+                  <Layers className="w-4.5 h-4.5" />
+                </div>
+                <h4 className="text-xs font-black text-[#2C241D]">Live Workshop Tracking</h4>
+                <p className="text-[11px] text-[#6E6458] leading-normal font-medium">
+                  Follow 5-stage workshop milestones, artisan remarks, and photo progress in real-time.
+                </p>
+              </div>
+            </div>
+
+            {/* CTA Button */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => {
+                  setEditingOrderId(null);
+                  setIsFormOpen(true);
+                  setModalStep(1);
+                  setTimeout(() => {
+                    const el = document.getElementById('custom-order-form');
+                    if (el) el.scrollIntoView({ behavior: 'smooth' });
+                  }, 100);
+                }}
+                className="w-full sm:w-auto py-3.5 px-8 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-black flex items-center justify-center gap-2.5 shadow-lg shadow-[#38A132]/25 hover:shadow-xl transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Start Custom Furniture Request</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SINGLE UNIFIED GLASS CARD CONTAINER FOR TRACKER (Rendered when user has active custom orders) */}
       {userOrders.length > 0 && activeOrder && (
-        <div className="ultra-glass-card bg-white/60 backdrop-blur-xl border border-white/80 rounded-[2rem] p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
+        <div className="ultra-glass-card bg-white/70 backdrop-blur-xl border border-white/80 rounded-[2rem] p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
         <div className="glass-sheen" aria-hidden="true" />
 
         {/* Card Header & Action Bar */}
@@ -1274,16 +1468,46 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-md shadow-[#38A132]/25 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
-              <span>Request Custom Order</span>
+              <span>Request Another Custom Piece</span>
             </button>
           </div>
         </div>
+
+        {/* Multi-Order Selector Tabs (if customer has multiple custom orders) */}
+        {userOrders.length > 1 && (
+          <div className="relative z-10 flex items-center gap-2 overflow-x-auto pb-2 border-b border-[#EFE7DE]">
+            {userOrders.map((ord) => {
+              const isSelected = ord.custom_order_id === selectedOrderId;
+              return (
+                <button
+                  key={ord.custom_order_id}
+                  onClick={() => setSelectedOrderId(ord.custom_order_id)}
+                  className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer whitespace-nowrap flex items-center gap-2 ${
+                    isSelected
+                      ? 'bg-[#2D6338] text-white shadow-md'
+                      : 'bg-white/80 text-[#6B5C4D] hover:bg-white border border-[#E2D7CB]'
+                  }`}
+                >
+                  <span>#{ord.custom_order_id} - {ord.furniture_type}</span>
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                    isSelected ? 'bg-white/20 text-white' : 'bg-[#FAF7F2] text-[#7A6C5E]'
+                  }`}>
+                    {ord.order_status}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         <div className="relative z-10 space-y-6">
             {/* Active Order Specs & Status Banner */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 pb-6 border-b border-[#EFE7DE]">
               <div className="space-y-2 flex-1">
                 <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-xs font-black text-[#5C4E42] bg-[#FAF7F2] px-3 py-1 rounded-full border border-[#E2D7CB]">
+                    Order #{activeOrder.custom_order_id}
+                  </span>
 
                   <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${
                     activeOrder.order_status === 'Pending' || activeOrder.order_status === 'Pending Approval'
@@ -1464,7 +1688,78 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               </div>
             </div>
 
+            {/* LIVE 5-STAGE WORKSHOP PROGRESS TRACKER */}
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#48A63E]" />
+                  <h4 className="text-xs font-black text-[#2C241D] uppercase tracking-wider">
+                    Live Workshop Craftsmanship Progress
+                  </h4>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-black text-[#48A63E]">
+                    {activeOrder.progress_percentage ?? Math.min(100, (currentStageIdx + 1) * 20)}% Completed
+                  </span>
+                </div>
+              </div>
 
+              {/* Progress Bar Shimmer */}
+              <div className="w-full h-2.5 bg-[#EBE4D8] rounded-full overflow-hidden p-0.5 border border-[#D6C9B9]">
+                <div
+                  className="h-full bg-gradient-to-r from-[#48A63E] via-[#38A132] to-[#2D6338] rounded-full transition-all duration-700 ease-out shadow-xs"
+                  style={{ width: `${activeOrder.progress_percentage ?? Math.min(100, (currentStageIdx + 1) * 20)}%` }}
+                />
+              </div>
+
+              {/* 5-Step Stepper Icons */}
+              <div className="grid grid-cols-5 gap-2 pt-2">
+                {stages.map((stg, idx) => {
+                  const isDone = idx < currentStageIdx || activeOrder.order_status === 'Completed';
+                  const isCurrent = idx === currentStageIdx && activeOrder.order_status !== 'Completed';
+
+                  return (
+                    <div key={idx} className="flex flex-col items-center text-center space-y-1.5">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                        isDone
+                          ? 'bg-[#48A63E] text-white shadow-xs'
+                          : isCurrent
+                          ? 'bg-[#E1EAD6] text-[#2D6338] border-2 border-[#48A63E] ring-2 ring-[#48A63E]/20 animate-pulse font-black'
+                          : 'bg-white border border-[#D6C9B9] text-[#A69B8D]'
+                      }`}>
+                        {isDone ? (
+                          <CheckCircle2 className="w-4 h-4" />
+                        ) : (
+                          <span className="text-[11px] font-black">{idx + 1}</span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] leading-tight font-bold hidden sm:block ${
+                        isDone || isCurrent ? 'text-[#2C241D]' : 'text-[#A69B8D]'
+                      }`}>
+                        {stg}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Latest Remarks Callout */}
+              {activeOrder.latest_remarks && (
+                <div className="mt-3 bg-[#FAF8F5] border border-[#E2D7CB] rounded-2xl p-4 flex items-start gap-3">
+                  <div className="w-7 h-7 rounded-lg bg-[#48A63E]/15 border border-[#48A63E]/30 flex items-center justify-center text-[#48A63E] shrink-0 mt-0.5">
+                    <MessageSquareText className="w-3.5 h-3.5" />
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider block">
+                      Artisan Workshop Update:
+                    </span>
+                    <p className="text-xs text-[#2C241D] font-semibold mt-0.5">
+                      {activeOrder.latest_remarks}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Assigned Craftsmen Info */}
             {trackingInfo && trackingInfo.assigned_workers.length > 0 && (

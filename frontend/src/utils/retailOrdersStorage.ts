@@ -58,7 +58,7 @@ const STORAGE_KEY = 'retail_orders_list';
 function isExcludedOrderId(idVal: any): boolean {
   if (!idVal) return false;
   const str = String(idVal).toLowerCase().replace(/[^a-z0-9]/g, '');
-  return str === '103' || str === '0103';
+  return str === '103' || str === '0103' || str === '40' || str === '040' || str === 'custom40' || str === 'ret40' || str === 'ret000040';
 }
 
 export function getStoredRetailOrders(): RetailOrder[] {
@@ -113,15 +113,29 @@ export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
         dbOrders.forEach((o) => {
           if (o && o.orderId && !isExcludedOrderId(o.orderId)) orderMap.set(String(o.orderId), o);
         });
+
+        // Combine any non-duplicate local orders
+        const local = getStoredRetailOrders();
+        local.forEach((loc) => {
+          if (loc && loc.orderId && !orderMap.has(String(loc.orderId)) && !isExcludedOrderId(loc.orderId)) {
+            orderMap.set(String(loc.orderId), loc);
+          }
+        });
+
         const combined = Array.from(orderMap.values());
         combined.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(combined));
+        } catch (e) {}
+
         return combined;
       }
     }
   } catch (err) {
     console.warn('Could not fetch DB orders:', err);
   }
-  return [];
+  return getStoredRetailOrders();
 }
 
 export async function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderId' | 'orderDate'>): Promise<RetailOrder> {
@@ -263,6 +277,37 @@ export function computeLogicalCompletionStatus(order: {
     };
   }
 
+  // 3.5 Out for Delivery
+  if (
+    oStatus === 'out for delivery' ||
+    oStatus === 'out_for_delivery' ||
+    cStatus === 'out for delivery' ||
+    cStatus === 'out_for_delivery'
+  ) {
+    return {
+      status: 'Out for Delivery',
+      percentage: 90,
+      badgeBg: 'bg-sky-100/90',
+      badgeText: 'text-sky-900',
+      badgeBorder: 'border-sky-300',
+      barColor: 'bg-sky-600',
+      stage: 'Out for Delivery to Customer'
+    };
+  }
+
+  // 3.6 Dispatched
+  if (oStatus === 'dispatched' || cStatus === 'dispatched') {
+    return {
+      status: 'Dispatched',
+      percentage: 80,
+      badgeBg: 'bg-blue-100/90',
+      badgeText: 'text-blue-900',
+      badgeBorder: 'border-blue-300',
+      barColor: 'bg-blue-600',
+      stage: 'Dispatched via Carrier / Internal Fleet'
+    };
+  }
+
   // 4. Shipped & In Transit
   if (oStatus === 'shipped' || cStatus === 'shipped' || cStatus.includes('transit')) {
     return {
@@ -353,8 +398,8 @@ export function updateStoredRetailOrderCompletionStatus(
     if (target) {
       if (newCompletionStatus !== undefined) target.completionStatus = newCompletionStatus;
       if (newCompletionPercentage !== undefined) target.completionPercentage = newCompletionPercentage;
-      if (assignedWorkerName !== undefined) target.assignedWorkerName = assignedWorkerName;
-      if (assignedWorkerId !== undefined) target.assignedWorkerId = assignedWorkerId;
+      if (assignedWorkerName !== undefined) (target as any).assignedWorkerName = assignedWorkerName;
+      if (assignedWorkerId !== undefined) (target as any).assignedWorkerId = assignedWorkerId;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
       window.dispatchEvent(new Event('retail-orders-updated'));
     }

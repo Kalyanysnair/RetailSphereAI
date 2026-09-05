@@ -30,6 +30,8 @@ export interface FulfillmentInfo {
   delivery_status?: string;
   delivered_at?: string;
   delivery_notes?: string;
+  driver_name?: string;
+  driver_phone?: string;
 }
 
 export interface ReturnRequestInfo {
@@ -162,26 +164,28 @@ export async function dispatchOrderAPI(
   dispatchNote?: string,
   vehicleId?: number,
   driverId?: number
-): Promise<boolean> {
+): Promise<{ message?: string; tracking_number?: string; expected_delivery_date?: string } | null> {
   try {
     const res = await fetch(`/api/orders/${orderIdStr}/dispatch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         staff_id: staffId,
-        carrier,
-        tracking_number: trackingNumber,
-        expected_delivery_date: expectedDeliveryDate,
+        carrier: carrier || undefined,
+        tracking_number: trackingNumber || undefined,
+        expected_delivery_date: expectedDeliveryDate || undefined,
         dispatch_note: dispatchNote,
         vehicle_id: vehicleId,
         driver_id: driverId,
       }),
     });
-    return res.ok;
+    if (res.ok) {
+      return await res.json();
+    }
   } catch (err) {
     console.error(`Error dispatching order ${orderIdStr}:`, err);
-    return false;
   }
+  return null;
 }
 
 // 5. Update Delivery Status (Out for Delivery, Delivered, Delayed)

@@ -18,6 +18,7 @@ import { saveStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { payCustomOrder } from '../../services/api_production';
 import { validateCouponApi, redeemCouponApi, getCouponsApi, Coupon } from '../../services/api_coupons';
 import { calculateOrderPricing } from '../../utils/pricingUtils';
+import { getCurrentUser } from '../../services/api';
 
 import { parseReferenceImages } from '../../utils/imageUtils';
 
@@ -289,7 +290,19 @@ export const CartPage: React.FC = () => {
     }
 
     setIsProcessingPayment(false);
-    setIsOrderPlaced(true);
+
+    // Check whether the authenticated customer already has a saved delivery address in PostgreSQL
+    const latestUser = await getCurrentUser();
+    const hasAddress = Boolean(
+      latestUser?.customer?.address && latestUser.customer.address.trim()
+    );
+
+    if (!hasAddress) {
+      // SCENARIO B: Redirect new customer without delivery address to Profile -> Delivery Address section
+      navigate('/profile?address_required=true');
+    } else {
+      setIsOrderPlaced(true);
+    }
   };
 
   const handleCheckout = async () => {

@@ -183,10 +183,14 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   <div>
                     <div className="flex items-center justify-between text-[10px] font-black tracking-wider uppercase mb-1 text-[#6E6458]">
                       <span>{product.category ? product.category.replace(/-/g, ' ') : 'CATEGORY'}</span>
-                      <div className="flex items-center gap-1 font-extrabold text-[#2C241D]">
-                        <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
-                        <span>{product.rating}</span>
-                      </div>
+                      {product.reviewCount && product.reviewCount > 0 && product.rating && product.rating > 0 ? (
+                        <div className="flex items-center gap-1 font-extrabold text-[#2C241D]">
+                          <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
+                          <span>{product.rating} ({product.reviewCount})</span>
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-[#9E9082] font-semibold italic">No reviews yet</span>
+                      )}
                     </div>
 
                     <h3
@@ -231,7 +235,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                         className={`px-4 py-1.5 rounded-full text-[11px] font-extrabold text-white shadow-2xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap bg-[#48A63E] hover:bg-[#3D9134]`}
                       >
                         <ShoppingBag className="w-3.5 h-3.5" />
-                        <span>{isCartAdded ? 'In Cart' : 'Add to Cart'}</span>
+                        <span>{isCartAdded ? 'Go to Cart' : 'Add to Cart'}</span>
                       </button>
                     </div>
                   </div>

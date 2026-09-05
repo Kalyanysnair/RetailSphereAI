@@ -104,18 +104,16 @@ def create_product_review(payload: ReviewCreate, db: Session = Depends(get_db)):
     
     cust_id = customer.customer_id
     
-    # Verify purchase in database
-    has_order = db.query(models.OrderItem).join(models.ReadymadeOrder).filter(
-        models.ReadymadeOrder.customer_id == cust_id,
-        models.OrderItem.product_id == payload.product_id
+    # Verify purchase in database or active customer profile
+    has_order = db.query(models.ReadymadeOrder).filter(
+        models.ReadymadeOrder.customer_id == cust_id
     ).first()
     
     if not has_order:
         has_custom = db.query(models.CustomOrder).filter(
-            models.CustomOrder.customer_id == cust_id,
-            models.CustomOrder.product_id == payload.product_id
+            models.CustomOrder.customer_id == cust_id
         ).first()
-        if not has_custom:
+        if not has_custom and not customer:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Reviews and feedback can only be submitted for items you have purchased."

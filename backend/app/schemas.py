@@ -96,3 +96,18 @@ class Token(BaseModel):
     token_type: str = "bearer"
     user: UserResponse
 
+
+class CarrierPartnerCreate(BaseModel):
+    carrier_name: str
+    contact_phone: str
+    contact_email: Optional[str] = None
+    status: Optional[bool] = True
+
+
+class CarrierPartnerUpdate(BaseModel):
+    carrier_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    contact_email: Optional[str] = None
+    status: Optional[bool] = None
+
+

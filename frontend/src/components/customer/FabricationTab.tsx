@@ -318,7 +318,7 @@ export const FabricationTab: React.FC = () => {
                         onClick={() => handlePayFabrication(r.fabrication_id)}
                         className="w-full py-2.5 px-4 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold cursor-pointer shadow-md flex items-center justify-center gap-2"
                       >
-                        <span>Add to Cart & Checkout (₹{r.estimated_price.toLocaleString('en-IN')})</span>
+                        <span>Pay Now (₹{r.estimated_price.toLocaleString('en-IN')})</span>
                       </button>
                     ) : null}
                   </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { updateUserProfile } from '../../services/api';
+import { updateUserProfile, fetchAllUsers } from '../../services/api';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Package,
@@ -10,6 +10,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   X,
+  XCircle,
   SlidersHorizontal,
   Briefcase,
   DollarSign,
@@ -42,7 +43,9 @@ import {
   MessageCircle,
   RefreshCw,
   Layers,
-  Sparkles
+  Sparkles,
+  MapPin,
+  Phone
 } from 'lucide-react';
 import { getCouponsApi, createCouponApi, deleteCouponApi, regenerateCouponApi, Coupon, CouponAllotment } from '../../services/api_coupons';
 import { fetchAvailableVehiclesDB, VehicleItem } from '../../services/api_fleet';
@@ -82,6 +85,7 @@ import {
   OrderMessageItem,
   ReturnRequestRecord
 } from '../../services/retailOrdersFulfillmentApi';
+import { getCarrierPartnersApi, CarrierPartner } from '../../services/api_carriers';
 
 
 
@@ -225,12 +229,52 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [packingNote, setPackingNote] = useState('Packed with high-density protective foam.');
 
   const [dispatchModalOrder, setDispatchModalOrder] = useState<RetailOrder | null>(null);
-  const [dispatchCarrier, setDispatchCarrier] = useState('RetailSphere Internal Fleet');
+  const [dispatchType, setDispatchType] = useState<'internal' | 'external'>('internal');
+  const [dispatchCarrier, setDispatchCarrier] = useState('');
   const [dispatchTrackingNumber, setDispatchTrackingNumber] = useState('');
   const [dispatchExpectedDate, setDispatchExpectedDate] = useState('');
   const [dispatchNote, setDispatchNote] = useState('');
   const [availableVehiclesList, setAvailableVehiclesList] = useState<VehicleItem[]>([]);
   const [selectedDispatchVehicleId, setSelectedDispatchVehicleId] = useState<string>('');
+  const [carrierPartnersList, setCarrierPartnersList] = useState<CarrierPartner[]>([]);
+  const [allUsersList, setAllUsersList] = useState<any[]>([]);
+
+  const handleOpenDispatchModal = async (ord: RetailOrder) => {
+    setDispatchModalOrder(ord);
+    setDispatchTrackingNumber('');
+    setDispatchNote('');
+
+    try {
+      const carriers = await getCarrierPartnersApi();
+      const activeCarriers = (carriers || []).filter(c => c.status === true || (c as any).status === 1 || String(c.status).toLowerCase() === 'true');
+      setCarrierPartnersList(activeCarriers);
+      if (activeCarriers.length > 0) {
+        setDispatchCarrier(activeCarriers[0].carrier_name);
+      } else {
+        setDispatchCarrier('');
+      }
+    } catch (e) {
+      setCarrierPartnersList([]);
+      setDispatchCarrier('');
+    }
+
+    try {
+      const details = await fetchOrderFulfillmentDetails(ord.orderId);
+      if (details?.fulfillment?.expected_delivery_date) {
+        setDispatchExpectedDate(details.fulfillment.expected_delivery_date);
+      } else {
+        setDispatchExpectedDate(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+      }
+    } catch (e) {
+      setDispatchExpectedDate(new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllUsers().then((users) => {
+      setAllUsersList(users || []);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (dispatchModalOrder) {
@@ -296,7 +340,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
     const filterStaffId = assignedStaffFilter === 'MY_WORK' ? activeStaffUserId : undefined;
 
     const inbox = await fetchRequestInbox(inboxCategoryFilter, inboxStatusFilter, filterStaffId, false);
-    setRequestInboxItems(inbox);
+    const customerRequestsOnly = (inbox || []).filter(item => item && (item.type as string) !== 'RETAIL_ORDER' && !String(item.request_id).startsWith('RET-'));
+    setRequestInboxItems(customerRequestsOnly);
     const fulfillment = await fetchFulfillmentSummary();
     setFulfillmentSummary(fulfillment);
     const returns = await fetchAllReturnRequestsAPI();
@@ -354,7 +399,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
         success = await reviewServiceRequestAPI(item.numeric_id, revSt, 1, reviewNotesInput, priorityInput);
       } else if (item.type === 'RETAIL_ORDER') {
         setOrderList(prev => prev.map(ord => {
-          if (ord.orderId === item.numeric_id || String(ord.orderId) === String(item.numeric_id) || String(ord.orderId) === String(item.request_id)) {
+          if (String(ord.orderId) === String(item.numeric_id) || String(ord.orderId) === String(item.request_id)) {
             return {
               ...ord,
               orderStatus: revSt === 'APPROVED' ? 'Processing' : revSt === 'REJECTED' ? 'Cancelled' : 'Under Review',
@@ -2263,9 +2308,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             <th className="py-3.5 px-4">Items</th>
                             <th className="py-3.5 px-4">Total Amount</th>
                             <th className="py-3.5 px-4">View Spec</th>
-                            <th className="py-3.5 px-4">Assigned Worker</th>
-                            <th className="py-3.5 px-4">Status & Progress</th>
-                            <th className="py-3.5 px-4 text-right">Actions</th>
+                            <th className="py-3.5 px-4 text-center">Pack</th>
+                            <th className="py-3.5 px-4 text-right">Dispatch</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-[#EFE7DE] text-xs">
@@ -2275,7 +2319,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               // Subtab filter
                               if (ordersSubTab === 'new_orders' && !['order placed', 'paid', 'pending', 'processing', 'paid & placed'].includes(st)) return false;
                               if (ordersSubTab === 'to_pack' && !['order placed', 'paid', 'pending', 'processing', 'packing', 'paid & placed'].includes(st)) return false;
-                              if (ordersSubTab === 'dispatched' && !['dispatched', 'shipped', 'in-transit'].includes(st)) return false;
+                              if (ordersSubTab === 'dispatched' && !['dispatched', 'shipped', 'in-transit', 'out for delivery', 'out_for_delivery'].includes(st)) return false;
                               if (ordersSubTab === 'out_for_delivery' && !['out for delivery', 'out_for_delivery'].includes(st)) return false;
                               if (ordersSubTab === 'delivered' && !['delivered', 'completed'].includes(st)) return false;
 
@@ -2294,7 +2338,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             if (filteredOrders.length === 0) {
                               return (
                                 <tr>
-                                  <td colSpan={8} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
+                                  <td colSpan={7} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
                                     No readymade store orders found matching criteria.
                                   </td>
                                 </tr>
@@ -2346,14 +2390,20 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     </div>
                                   </td>
 
-                                  {/* Total Amount */}
+                                   {/* Total Amount & Paid Status (Same Line) */}
                                   <td className="py-4 px-4 whitespace-nowrap">
-                                    <div className="font-extrabold text-[#2C241D] text-xs">₹{Number(totalAmt).toLocaleString('en-IN')}</div>
-                                    <span className={`px-2 py-0.2 rounded-full text-[10px] font-black inline-block mt-0.5 ${
-                                      ord.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
-                                    }`}>
-                                      {ord.paymentStatus || 'Paid'}
-                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-extrabold text-[#2C241D] text-xs">₹{Number(totalAmt).toLocaleString('en-IN')}</span>
+                                      <span className={`px-1.5 py-0.5 rounded-full inline-flex items-center justify-center ${
+                                        ord.paymentStatus === 'Paid' || !ord.paymentStatus ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                                      }`} title={ord.paymentStatus || 'Paid'}>
+                                        {ord.paymentStatus === 'Paid' || !ord.paymentStatus ? (
+                                          <Check className="w-3 h-3 text-emerald-800 stroke-[3]" />
+                                        ) : (
+                                          <span className="text-[10px] font-black">{ord.paymentStatus}</span>
+                                        )}
+                                      </span>
+                                    </div>
                                   </td>
 
                                   {/* View Spec (Separate Column) */}
@@ -2368,54 +2418,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     </button>
                                   </td>
 
-                                  {/* Assigned Worker */}
-                                  <td className="py-4 px-4 whitespace-nowrap">
-                                    <div className="flex flex-col items-start gap-1">
-                                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${
-                                        ord.assignedWorkerName || ord.assignedWorkerId
-                                          ? 'bg-emerald-50 text-emerald-900 border-emerald-200'
-                                          : 'bg-amber-50 text-amber-900 border-amber-200'
-                                      }`}>
-                                        👤 {ord.assignedWorkerName || 'Unassigned Worker'}
-                                      </span>
-                                      <select
-                                        onChange={(e) => {
-                                          const val = Number(e.target.value);
-                                          if (val) handleAssignWorkerToReadymadeOrder(ord.orderId, val);
-                                        }}
-                                        value={ord.assignedWorkerId || ''}
-                                        className="text-[10px] bg-[#FAF7F2] border border-[#E2D7CB] rounded-md px-1 py-0.5 font-bold text-[#2C241D] cursor-pointer max-w-[135px]"
-                                      >
-                                        <option value="" disabled>Assign Worker...</option>
-                                        {workersList.map((w) => (
-                                          <option key={w.worker_id} value={w.worker_id}>
-                                            {w.full_name} ({w.specialization || 'Worker'})
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  </td>
-
-                                  {/* Status & Progress */}
-                                  <td className="py-4 px-4 whitespace-nowrap">
-                                    <div className="flex items-center gap-2">
-                                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                        ord.orderStatus === 'Delivered'
-                                          ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                                          : ord.orderStatus === 'Dispatched' || ord.orderStatus === 'Out for Delivery'
-                                          ? 'bg-blue-100 text-blue-900 border border-blue-300'
-                                          : 'bg-amber-100 text-amber-900 border border-amber-300'
-                                      }`}>
-                                        {ord.orderStatus || 'Order Placed'}
-                                      </span>
-                                    </div>
-                                    <div className="text-[10px] text-[#7A6C5E] font-bold mt-1">
-                                      {compInfo.status} ({compInfo.percentage}%)
-                                    </div>
-                                  </td>
-
-                                  {/* Actions */}
-                                  <td className="py-4 px-4 text-right whitespace-nowrap">
+                                  {/* Pack Column */}
+                                  <td className="py-4 px-4 text-center whitespace-nowrap">
                                     {(() => {
                                       const currentSt = (ord.orderStatus || 'Order Placed').trim();
                                       const isOrderPlacedOrPending = ['Order Placed', 'ORDER_PLACED', 'Pending', 'Ready to Pack', 'READY_TO_PACK', ''].includes(currentSt);
@@ -2427,57 +2431,67 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                       // Pack button: Enabled for Order Placed / Pending / Ready to Pack
                                       const canPack = isOrderPlacedOrPending && !isPacked && !isDispatched && !isOutForDelivery && !isDelivered;
 
-                                      // Dispatch / Delivery button: Disabled for Order Placed/Ready to Pack/Delivered
+                                      return (
+                                        <button
+                                          disabled={!canPack}
+                                          onClick={() => setPackingModalOrder(ord)}
+                                          className={`px-3 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 ${
+                                            canPack
+                                              ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
+                                              : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
+                                          }`}
+                                          title={canPack ? "5-Point Quality Packing Checklist" : "Packing completed or not applicable"}
+                                        >
+                                          <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#38A132]' : 'text-stone-400'}`} />
+                                          <span>Pack</span>
+                                        </button>
+                                      );
+                                    })()}
+                                  </td>
+
+                                  {/* Dispatch Column */}
+                                  <td className="py-4 px-4 text-right whitespace-nowrap">
+                                    {(() => {
+                                      const currentSt = (ord.orderStatus || 'Order Placed').trim();
+                                      const isPacked = ['Packed', 'PACKED', 'PACKED_PENDING_DISPATCH'].includes(currentSt);
+                                      const isDispatched = ['Dispatched', 'DISPATCHED'].includes(currentSt);
+                                      const isOutForDelivery = ['Out for Delivery', 'OUT_FOR_DELIVERY'].includes(currentSt);
+                                      const isDelivered = ['Delivered', 'DELIVERED', 'Completed', 'COMPLETED'].includes(currentSt);
+
+                                      // Dispatch / Delivery button: Disabled for Order Placed/Ready to Pack
                                       const canDispatch = isPacked || isDispatched || isOutForDelivery;
                                       let dispatchBtnText = "Dispatch";
                                       if (isDispatched) dispatchBtnText = "Update Delivery";
                                       if (isOutForDelivery) dispatchBtnText = "Mark Delivered";
+                                      if (isDelivered) dispatchBtnText = "Completed";
 
                                       return (
-                                        <div className="flex items-center justify-end gap-1.5">
-                                          <button
-                                            disabled={!canPack}
-                                            onClick={() => setPackingModalOrder(ord)}
-                                            className={`px-2.5 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs flex items-center gap-1 ${
-                                              canPack
+                                        <button
+                                          disabled={!canDispatch || isDelivered}
+                                          onClick={() => {
+                                            if (isOutForDelivery || isDispatched) {
+                                              setDeliveryStatusModalOrder(ord);
+                                              setDeliveryStatusVal(isOutForDelivery ? 'Delivered' : 'Out for Delivery');
+                                            } else if (!isDelivered) {
+                                              handleOpenDispatchModal(ord);
+                                            }
+                                          }}
+                                          className={`px-3 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 ${
+                                            isDelivered
+                                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default font-extrabold'
+                                              : canDispatch
                                                 ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
                                                 : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
-                                            }`}
-                                            title={canPack ? "5-Point Quality Packing Checklist" : "Packing completed or not applicable"}
-                                          >
-                                            <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#38A132]' : 'text-stone-400'}`} />
-                                            <span>Pack</span>
-                                          </button>
-
-                                          <button
-                                            disabled={!canDispatch}
-                                            onClick={() => {
-                                              if (isOutForDelivery || isDispatched) {
-                                                setDeliveryStatusModalOrder(ord);
-                                                setDeliveryStatusVal(isOutForDelivery ? 'Delivered' : 'Out for Delivery');
-                                              } else {
-                                                setDispatchModalOrder(ord);
-                                              }
-                                            }}
-                                            className={`px-2.5 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs flex items-center gap-1 ${
-                                              canDispatch
-                                                ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
-                                                : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
-                                            }`}
-                                            title={canDispatch ? dispatchBtnText : "Order must be Packed before Dispatch"}
-                                          >
+                                          }`}
+                                          title={isDelivered ? "Delivery Completed" : (canDispatch ? dispatchBtnText : "Order must be Packed before Dispatch")}
+                                        >
+                                          {isDelivered ? (
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                          ) : (
                                             <Truck className={`w-3.5 h-3.5 ${canDispatch ? 'text-blue-600' : 'text-stone-400'}`} />
-                                            <span>{dispatchBtnText}</span>
-                                          </button>
-
-                                          <button
-                                            onClick={() => handleOpenEditOrder(ord)}
-                                            className="px-2.5 py-1.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer flex items-center gap-1"
-                                          >
-                                            <Edit className="w-3.5 h-3.5" />
-                                            <span>Edit</span>
-                                          </button>
-                                        </div>
+                                          )}
+                                          <span>{dispatchBtnText}</span>
+                                        </button>
                                       );
                                     })()}
                                   </td>
@@ -3469,7 +3483,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               } else if (ordersSubTab === 'to_dispatch') {
                                 if (st !== 'packed') return false;
                               } else if (ordersSubTab === 'dispatched') {
-                                if (st !== 'dispatched') return false;
+                                if (st !== 'dispatched' && st !== 'out for delivery' && st !== 'out_for_delivery') return false;
                               } else if (ordersSubTab === 'out_for_delivery') {
                                 if (st !== 'out for delivery' && st !== 'out_for_delivery') return false;
                               } else if (ordersSubTab === 'delivered') {
@@ -3555,11 +3569,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                                     {/* 🚚 Dispatch Action */}
                                     <button
-                                      onClick={() => {
-                                        setDispatchModalOrder(ord);
-                                        setDispatchTrackingNumber(`TRK-RS-${ord.orderId.replace(/\D/g,'')}-${Date.now().toString().slice(-4)}`);
-                                        setDispatchExpectedDate(new Date(Date.now() + 5*86400000).toISOString().split('T')[0]);
-                                      }}
+                                      onClick={() => handleOpenDispatchModal(ord)}
                                       className="px-2.5 py-1.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1 shadow-2xs"
                                       title="Dispatch order with carrier and tracking number"
                                     >
@@ -3568,17 +3578,28 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     </button>
 
                                     {/* 📍 Update Delivery Status Action */}
-                                    <button
-                                      onClick={() => {
-                                        setDeliveryStatusModalOrder(ord);
-                                        setDeliveryStatusVal('Out for Delivery');
-                                      }}
-                                      className="px-2.5 py-1.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1 shadow-2xs"
-                                      title="Update delivery status (Out for Delivery, Delivered, Delayed)"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                      <span>Status</span>
-                                    </button>
+                                    {['delivered', 'completed'].includes((ord.orderStatus || '').toLowerCase()) ? (
+                                      <button
+                                        disabled
+                                        className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 font-extrabold text-xs rounded-xl inline-flex items-center gap-1 shadow-2xs cursor-default"
+                                        title="Delivery Completed"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Completed</span>
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={() => {
+                                          setDeliveryStatusModalOrder(ord);
+                                          setDeliveryStatusVal('Out for Delivery');
+                                        }}
+                                        className="px-2.5 py-1.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1 shadow-2xs"
+                                        title="Update delivery status (Out for Delivery, Delivered, Delayed)"
+                                      >
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Status</span>
+                                      </button>
+                                    )}
 
                                     {/* 💬 Customer Chat Drawer Action */}
                                     <button
@@ -5475,8 +5496,15 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   const target = packingModalOrder;
                   setPackingModalOrder(null);
                   if (target) {
-                    await markOrderPackedAPI(target.orderId, 1, packingNote, packingChecklist);
-                    await refreshFulfillmentData();
+                    const ok = await markOrderPackedAPI(target.orderId, 1, packingNote, packingChecklist);
+                    if (ok) {
+                      setSuccessNotice(`Order #${target.orderId} successfully marked as Packed!`);
+                      setTimeout(() => setSuccessNotice(null), 4000);
+                      await loadAllOrdersForStaff();
+                      await refreshFulfillmentData();
+                    } else {
+                      alert(`Failed to mark order #${target.orderId} as packed. Please try again.`);
+                    }
                   }
                 }}
                 className="px-5 py-2 bg-[#48A63E] hover:bg-[#38A132] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
@@ -5508,76 +5536,205 @@ export const RetailStaffDashboardPage: React.FC = () => {
             </div>
 
             <div className="space-y-3.5 text-xs font-semibold">
-              {/* Select Available Internal Vehicle */}
-              <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Select Internal Delivery Vehicle *</label>
-                {availableVehiclesList.length === 0 ? (
-                  <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium space-y-1">
-                    <div className="font-extrabold flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <span>No Internal Vehicles Available</span>
-                    </div>
-                    <p className="text-[11px] text-amber-700">All registered company vehicles are currently assigned or in maintenance. You may dispatch via default fleet carrier or wait for vehicle return.</p>
-                  </div>
-                ) : (
-                  <select
-                    value={selectedDispatchVehicleId}
-                    onChange={(e) => setSelectedDispatchVehicleId(e.target.value)}
-                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                  >
-                    {availableVehiclesList.map((v) => (
-                      <option key={v.vehicle_id} value={v.vehicle_id}>
-                        {v.id} — {v.registration_number} ({v.vehicle_type}, {v.capacity} kg payload)
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </div>
-
-              {/* Vehicle & Assigned Driver Summary Card */}
+              {/* Customer Contact & Delivery Address Card */}
               {(() => {
-                const sel = availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId);
-                if (!sel) return null;
+                const ordAny = dispatchModalOrder as any;
+                const custEmail = (ordAny.customerEmail || ordAny.email || '').toLowerCase().trim();
+                const matchedUser = allUsersList.find((u: any) => String(u.email || '').toLowerCase().trim() === custEmail);
+
+                const customerName = ordAny.customerName || ordAny.user_name || matchedUser?.full_name || matchedUser?.name || 'Valued Customer';
+                const customerPhone = ordAny.customerPhone || ordAny.phone || (matchedUser?.phone && matchedUser.phone !== '+91 98765 43210' ? matchedUser.phone : null) || matchedUser?.phone || '+91 98765 43210';
+                
+                let customerAddress = ordAny.customerAddress || ordAny.address || matchedUser?.address || '';
+                if (!customerAddress && matchedUser?.customer?.address) {
+                  const parts = [matchedUser.customer.address, matchedUser.customer.city, matchedUser.customer.state].filter(Boolean);
+                  customerAddress = parts.join(', ');
+                  if (matchedUser.customer.pincode) customerAddress += ` - ${matchedUser.customer.pincode}`;
+                }
+                if (!customerAddress || !customerAddress.trim()) {
+                  customerAddress = 'Registered Delivery Address on Customer Profile';
+                }
+
                 return (
-                  <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-[11px]">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#7A6C5E]">Assigned Driver:</span>
-                      <span className="font-extrabold text-[#38A132]">{sel.assigned_driver_name}</span>
+                  <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1.5">
+                      <div className="flex items-center gap-1.5 font-extrabold text-[#2C241D]">
+                        <User className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>{customerName}</span>
+                      </div>
+                      <div className="font-mono font-extrabold text-[#38A132] flex items-center gap-1 text-[11px]">
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>{customerPhone}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[#7A6C5E]">Vehicle Specs:</span>
-                      <span className="font-semibold text-[#2C241D]">{sel.vehicle_type} ({sel.capacity} kg)</span>
+
+                    <div className="flex items-start gap-1.5 text-[11px]">
+                      <MapPin className="w-3.5 h-3.5 text-[#38A132] shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-[#7A6C5E] uppercase block text-[9px]">Delivery Destination Address:</span>
+                        <span className="font-semibold text-[#2C241D] leading-snug block">{customerAddress}</span>
+                      </div>
                     </div>
                   </div>
                 );
               })()}
 
+              {/* Dispatch Method Selection Toggle */}
               <div>
-                <label className="block font-bold text-[#7A6C5E] mb-1">Fleet Carrier Partner</label>
-                <input
-                  type="text"
-                  value={dispatchCarrier}
-                  onChange={(e) => setDispatchCarrier(e.target.value)}
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                />
+                <label className="block font-bold text-[#7A6C5E] mb-1.5">Dispatch Method *</label>
+                <div className="grid grid-cols-2 gap-2 p-1 bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl">
+                  <button
+                    type="button"
+                    onClick={() => setDispatchType('internal')}
+                    className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      dispatchType === 'internal'
+                        ? 'bg-[#38A132] text-white shadow-sm'
+                        : 'text-[#7A6C5E] hover:text-[#2C241D]'
+                    }`}
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    <span>Internal Fleet</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDispatchType('external')}
+                    className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      dispatchType === 'external'
+                        ? 'bg-[#38A132] text-white shadow-sm'
+                        : 'text-[#7A6C5E] hover:text-[#2C241D]'
+                    }`}
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>Carrier Partner</span>
+                  </button>
+                </div>
               </div>
 
+              {/* OPTION A: Internal Delivery Vehicle */}
+              {dispatchType === 'internal' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-extrabold text-[#2C241D] mb-1">Select Internal Delivery Vehicle *</label>
+                    {availableVehiclesList.length === 0 ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs font-medium space-y-1">
+                        <div className="font-extrabold flex items-center gap-1.5">
+                          <AlertTriangle className="w-4 h-4 text-amber-600" />
+                          <span>No Internal Vehicles Available</span>
+                        </div>
+                        <p className="text-[11px] text-amber-700">All registered company vehicles are currently assigned or in maintenance. Please select "Carrier Partner" or wait for vehicle return.</p>
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedDispatchVehicleId}
+                        onChange={(e) => setSelectedDispatchVehicleId(e.target.value)}
+                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                      >
+                        {availableVehiclesList.map((v) => (
+                          <option key={v.vehicle_id} value={v.vehicle_id}>
+                            {v.id} — {v.registration_number} ({v.vehicle_type}, {v.capacity} kg payload)
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+
+                  {/* Internal Vehicle & Driver Details Card */}
+                  {(() => {
+                    const sel = availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId);
+                    if (!sel) return null;
+                    return (
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1.5 text-[11px]">
+                        <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1">
+                          <span className="font-bold text-[#7A6C5E]">Assigned Driver:</span>
+                          <span className="font-extrabold text-[#38A132]">{sel.assigned_driver_name}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-[#7A6C5E]">Vehicle Registration:</span>
+                          <span className="font-mono font-bold text-[#2C241D]">{sel.registration_number}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-[#7A6C5E]">Vehicle Type & Specs:</span>
+                          <span className="font-semibold text-[#2C241D]">{sel.vehicle_type} ({sel.capacity} kg payload)</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* OPTION B: External Carrier Partner */}
+              {dispatchType === 'external' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-[#7A6C5E] mb-1">Select External Carrier Partner *</label>
+                    {(() => {
+                      const activeOnly = carrierPartnersList.filter(cp => cp.status === true || (cp as any).status === 1 || String(cp.status).toLowerCase() === 'true');
+                      if (activeOnly.length === 0) {
+                        return (
+                          <div className="p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold text-[#7A6C5E] italic">
+                            No active carrier partners available. Please activate a carrier in Admin Dashboard.
+                          </div>
+                        );
+                      }
+                      return (
+                        <select
+                          value={dispatchCarrier}
+                          onChange={(e) => setDispatchCarrier(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        >
+                          <option value="">Select Carrier Partner</option>
+                          {activeOnly.map((cp) => (
+                            <option key={cp.carrier_id} value={cp.carrier_name}>
+                              {cp.carrier_name} ({cp.contact_phone})
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
+                  </div>
+
+                  {/* External Carrier Details Card */}
+                  {(() => {
+                    const selCarrier = carrierPartnersList.find(cp => cp.carrier_name === dispatchCarrier);
+                    if (!selCarrier) return null;
+                    return (
+                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1.5 text-[11px]">
+                        <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1">
+                          <span className="font-bold text-[#7A6C5E]">Carrier Partner:</span>
+                          <span className="font-extrabold text-[#38A132]">{selCarrier.carrier_name}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-[#7A6C5E]">Contact Phone:</span>
+                          <span className="font-mono font-bold text-[#2C241D]">{selCarrier.contact_phone}</span>
+                        </div>
+                        {selCarrier.contact_email && (
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[#7A6C5E]">Support Email:</span>
+                            <span className="font-semibold text-[#2C241D]">{selCarrier.contact_email}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               <div>
-                <label className="block font-bold text-[#7A6C5E] mb-1">Tracking Number *</label>
+                <label className="block font-bold text-[#7A6C5E] mb-1">Tracking Number (Auto-generated if left blank)</label>
                 <input
                   type="text"
-                  placeholder="e.g. TRK-001005"
+                  placeholder="Auto-generated by backend (TRK-XXXXXXXX)"
                   value={dispatchTrackingNumber}
                   onChange={(e) => setDispatchTrackingNumber(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-mono font-bold text-[#38A132]"
-                  required
                 />
               </div>
 
               <div>
                 <label className="block font-bold text-[#7A6C5E] mb-1">Expected Delivery Date *</label>
                 <input
-                  type="date"
+                  type="text"
+                  placeholder="e.g. 05 September 2026"
                   value={dispatchExpectedDate}
                   onChange={(e) => setDispatchExpectedDate(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
@@ -5589,7 +5746,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <label className="block font-bold text-[#7A6C5E] mb-1">Dispatch Note (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Handed over to internal driver at store loading dock"
+                  placeholder="e.g. Handed over to carrier for dispatch"
                   value={dispatchNote}
                   onChange={(e) => setDispatchNote(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl"
@@ -5609,23 +5766,32 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   const target = dispatchModalOrder;
                   setDispatchModalOrder(null);
                   if (target) {
-                    const selVehicle = availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId);
+                    const isInternal = dispatchType === 'internal';
+                    const selVehicle = isInternal ? availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId) : null;
                     const vehicleIdNum = selVehicle ? selVehicle.vehicle_id : undefined;
                     const driverIdNum = selVehicle ? selVehicle.assigned_driver_id || undefined : undefined;
-                    const finalCarrier = selVehicle ? `Internal Fleet (${selVehicle.registration_number})` : dispatchCarrier;
-                    const finalTracking = dispatchTrackingNumber.trim() || `TRK-${target.orderId}`;
+                    const finalCarrier = isInternal
+                      ? (selVehicle ? `Internal Fleet (${selVehicle.registration_number})` : 'Internal Fleet')
+                      : (dispatchCarrier || 'Carrier Partner');
 
-                    await dispatchOrderAPI(
+                    const res = await dispatchOrderAPI(
                       target.orderId,
                       finalCarrier,
-                      finalTracking,
+                      dispatchTrackingNumber.trim(),
                       dispatchExpectedDate,
                       1,
                       dispatchNote,
                       vehicleIdNum,
                       driverIdNum
                     );
-                    await refreshFulfillmentData();
+                    if (res) {
+                      setSuccessNotice(`Order #${target.orderId} marked as Dispatched! Tracking Number: ${res.tracking_number || 'Generated'}`);
+                      setTimeout(() => setSuccessNotice(null), 6000);
+                      await loadAllOrdersForStaff();
+                      await refreshFulfillmentData();
+                    } else {
+                      alert(`Failed to dispatch order #${target.orderId}. Please try again.`);
+                    }
                   }
                 }}
                 className="px-5 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
@@ -5654,6 +5820,49 @@ export const RetailStaffDashboardPage: React.FC = () => {
             </div>
 
             <div className="space-y-3 text-xs font-semibold">
+              {/* Customer Contact & Delivery Address Card */}
+              {(() => {
+                const ordAny = deliveryStatusModalOrder as any;
+                const custEmail = (ordAny.customerEmail || ordAny.email || '').toLowerCase().trim();
+                const matchedUser = allUsersList.find((u: any) => String(u.email || '').toLowerCase().trim() === custEmail);
+
+                const customerName = ordAny.customerName || ordAny.user_name || matchedUser?.full_name || matchedUser?.name || 'Valued Customer';
+                const customerPhone = ordAny.customerPhone || ordAny.phone || (matchedUser?.phone && matchedUser.phone !== '+91 98765 43210' ? matchedUser.phone : null) || matchedUser?.phone || '+91 98765 43210';
+                
+                let customerAddress = ordAny.customerAddress || ordAny.address || matchedUser?.address || '';
+                if (!customerAddress && matchedUser?.customer?.address) {
+                  const parts = [matchedUser.customer.address, matchedUser.customer.city, matchedUser.customer.state].filter(Boolean);
+                  customerAddress = parts.join(', ');
+                  if (matchedUser.customer.pincode) customerAddress += ` - ${matchedUser.customer.pincode}`;
+                }
+                if (!customerAddress || !customerAddress.trim()) {
+                  customerAddress = 'Registered Delivery Address on Customer Profile';
+                }
+
+                return (
+                  <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+                    <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1.5">
+                      <div className="flex items-center gap-1.5 font-extrabold text-[#2C241D]">
+                        <User className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>{customerName}</span>
+                      </div>
+                      <div className="font-mono font-extrabold text-[#38A132] flex items-center gap-1 text-[11px]">
+                        <Phone className="w-3.5 h-3.5" />
+                        <span>{customerPhone}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-start gap-1.5 text-[11px]">
+                      <MapPin className="w-3.5 h-3.5 text-[#38A132] shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold text-[#7A6C5E] uppercase block text-[9px]">Delivery Destination Address:</span>
+                        <span className="font-semibold text-[#2C241D] leading-snug block">{customerAddress}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <div>
                 <label className="block font-bold text-[#7A6C5E] mb-1">New Delivery Status</label>
                 <select
@@ -5693,6 +5902,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   setDeliveryStatusModalOrder(null);
                   if (target) {
                     await updateDeliveryStatusAPI(target.orderId, deliveryStatusVal, 1, deliveryNote);
+                    await loadAllOrdersForStaff();
                     await refreshFulfillmentData();
                   }
                 }}
@@ -6057,10 +6267,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Payment Status</span>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black inline-block mt-0.5 ${
-                    selectedOrderSpecModal.paymentStatus === 'Paid' ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900'
-                  }`}>
-                    {selectedOrderSpecModal.paymentStatus || 'Paid'}
+                  <span className={`px-2 py-0.5 rounded-full inline-flex items-center justify-center mt-0.5 ${
+                    selectedOrderSpecModal.paymentStatus === 'Paid' || !selectedOrderSpecModal.paymentStatus ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                  }`} title={selectedOrderSpecModal.paymentStatus || 'Paid'}>
+                    {selectedOrderSpecModal.paymentStatus === 'Paid' || !selectedOrderSpecModal.paymentStatus ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-800 stroke-[3]" />
+                    ) : (
+                      selectedOrderSpecModal.paymentStatus
+                    )}
                   </span>
                 </div>
                 <div>
@@ -6069,11 +6283,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Assigned Worker</span>
-                  <span className="font-extrabold text-[#2C241D]">👤 {selectedOrderSpecModal.assignedWorkerName || 'Unassigned Worker'}</span>
+                  <span className="font-extrabold text-[#2C241D]">👤 {(selectedOrderSpecModal as any).assignedWorkerName || 'Unassigned Worker'}</span>
                 </div>
                 <div className="col-span-2">
                   <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Delivery Address</span>
-                  <span className="font-medium text-[#2C241D]">{selectedOrderSpecModal.delivery_address || selectedOrderSpecModal.address || 'Standard Delivery Address'}</span>
+                  <span className="font-medium text-[#2C241D]">{(selectedOrderSpecModal as any).delivery_address || (selectedOrderSpecModal as any).address || 'Standard Delivery Address'}</span>
                 </div>
               </div>
 

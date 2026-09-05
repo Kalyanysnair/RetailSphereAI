@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
 import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
+import { getCarrierPartnersApi, createCarrierPartnerApi, updateCarrierPartnerApi, deleteCarrierPartnerApi, CarrierPartner } from '../../services/api_carriers';
 import { 
   Users, 
   Package, 
@@ -257,6 +258,7 @@ export const AdminDashboardPage: React.FC = () => {
     | 'users'
     | 'analytics'
     | 'fleet'
+    | 'carriers'
   >('overview');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -298,6 +300,17 @@ export const AdminDashboardPage: React.FC = () => {
   const [vNotes, setVNotes] = useState('');
   const [vModelName, setVModelName] = useState('');
   const [vYear, setVYear] = useState('');
+
+  // Carrier Partners State
+  const [carrierPartners, setCarrierPartners] = useState<CarrierPartner[]>([]);
+  const [loadingCarriers, setLoadingCarriers] = useState(false);
+  const [carrierNameInput, setCarrierNameInput] = useState('');
+  const [carrierPhoneInput, setCarrierPhoneInput] = useState('');
+  const [carrierEmailInput, setCarrierEmailInput] = useState('');
+  const [carrierStatusInput, setCarrierStatusInput] = useState(true);
+  const [isSubmittingCarrier, setIsSubmittingCarrier] = useState(false);
+  const [carrierFormError, setCarrierFormError] = useState<string | null>(null);
+  const [carrierFormSuccess, setCarrierFormSuccess] = useState<string | null>(null);
 
   // System BI Dashboard & Real-Time Analytics State
   const [dashboardSummary, setDashboardSummary] = useState<AdminDashboardSummary | null>(null);
@@ -615,8 +628,16 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  const loadCarrierPartnersData = async () => {
+    setLoadingCarriers(true);
+    const list = await getCarrierPartnersApi();
+    setCarrierPartners(list || []);
+    setLoadingCarriers(false);
+  };
+
   useEffect(() => {
     loadFleetDataFromDB();
+    loadCarrierPartnersData();
   }, [fleetStatusFilter, activeTab]);
 
   const handleOpenAddVehicleModal = () => {
@@ -2290,6 +2311,20 @@ export const AdminDashboardPage: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setActiveTab('carriers')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'carriers'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Truck className="w-4 h-4 text-emerald-600" />
+              <span className="text-xs">Carrier Partners</span>
+            </div>
+          </button>
+
+          <button
             onClick={() => setActiveTab('users')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'users'
@@ -3537,6 +3572,188 @@ export const AdminDashboardPage: React.FC = () => {
                         </tbody>
                       </table>
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB: CARRIER PARTNERS MANAGEMENT */}
+              {activeTab === 'carriers' && (
+                <div className="relative z-10 space-y-6 animate-fadeIn">
+                  {/* Top Header & Overview */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg">
+                    <div>
+                      <h3 className="text-xl font-extrabold text-[#2C241D] flex items-center gap-2.5">
+                        <Truck className="w-6 h-6 text-[#38A132]" />
+                        <span>Carrier Partners</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
+                        Manage external logistics partners for ready-made order dispatch.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Add Carrier Partner Form Card */}
+                  <div className="bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg space-y-4">
+                    <h4 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2 border-b border-[#E2D7CB]/60 pb-3">
+                      <Plus className="w-4 h-4 text-[#38A132]" />
+                      <span>Add New Carrier Partner</span>
+                    </h4>
+
+                    {carrierFormError && (
+                      <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>{carrierFormError}</span>
+                      </div>
+                    )}
+
+                    {carrierFormSuccess && (
+                      <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-bold flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{carrierFormSuccess}</span>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Carrier Name *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. BlueDart Logistics"
+                          value={carrierNameInput}
+                          onChange={(e) => setCarrierNameInput(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Phone *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. +91 98765 43210"
+                          value={carrierPhoneInput}
+                          onChange={(e) => setCarrierPhoneInput(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Email (Optional)</label>
+                        <input
+                          type="email"
+                          placeholder="e.g. dispatch@carrier.com"
+                          value={carrierEmailInput}
+                          onChange={(e) => setCarrierEmailInput(e.target.value)}
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2">
+                      <label className="flex items-center gap-2 text-xs font-extrabold text-[#2C241D] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={carrierStatusInput}
+                          onChange={(e) => setCarrierStatusInput(e.target.checked)}
+                          className="w-4 h-4 rounded text-[#38A132] focus:ring-[#38A132]"
+                        />
+                        <span>Active Partner (Available for Selection in Dispatch)</span>
+                      </label>
+
+                      <button
+                        disabled={isSubmittingCarrier}
+                        onClick={async () => {
+                          setCarrierFormError(null);
+                          setCarrierFormSuccess(null);
+                          if (!carrierNameInput.trim()) {
+                            setCarrierFormError('Carrier Name is required.');
+                            return;
+                          }
+                          if (!carrierPhoneInput.trim()) {
+                            setCarrierFormError('Contact Phone is required.');
+                            return;
+                          }
+                          setIsSubmittingCarrier(true);
+                          const newCP = await createCarrierPartnerApi({
+                            carrier_name: carrierNameInput.trim(),
+                            contact_phone: carrierPhoneInput.trim(),
+                            contact_email: carrierEmailInput.trim() || undefined,
+                            status: carrierStatusInput,
+                          });
+                          setIsSubmittingCarrier(false);
+                          if (newCP) {
+                            setCarrierFormSuccess(`Carrier partner '${newCP.carrier_name}' added successfully!`);
+                            setCarrierNameInput('');
+                            setCarrierPhoneInput('');
+                            setCarrierEmailInput('');
+                            setCarrierStatusInput(true);
+                            await loadCarrierPartnersData();
+                            setTimeout(() => setCarrierFormSuccess(null), 4000);
+                          } else {
+                            setCarrierFormError('Failed to save carrier partner.');
+                          }
+                        }}
+                        className="px-5 py-2.5 bg-[#38A132] hover:bg-[#2E8B29] text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add Carrier Partner</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Registered Carrier Partners List */}
+                  <div className="bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg space-y-4">
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">Registered Carrier Partners</h4>
+
+                    {loadingCarriers ? (
+                      <div className="py-8 text-center text-xs text-[#7A6C5E] font-medium">Loading carrier partners...</div>
+                    ) : carrierPartners.length === 0 ? (
+                      <div className="py-12 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-2">
+                        <Truck className="w-10 h-10 text-[#9E9082] mx-auto opacity-50" />
+                        <div className="text-xs font-extrabold text-[#2C241D]">No carrier partners added yet.</div>
+                        <p className="text-[11px] text-[#7A6C5E]">Use the form above to add carrier partners for future use during dispatch.</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left text-[#2C241D]">
+                          <thead className="bg-[#FAF7F2] text-[#7A6C5E] font-extrabold uppercase text-[10px] border-b border-[#E2D7CB]">
+                            <tr>
+                              <th className="py-3 px-4">Carrier ID</th>
+                              <th className="py-3 px-4">Carrier Name</th>
+                              <th className="py-3 px-4">Contact Phone</th>
+                              <th className="py-3 px-4">Contact Email</th>
+                              <th className="py-3 px-4">Status</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#E2D7CB]/60 font-medium">
+                            {carrierPartners.map((c, idx) => (
+                              <tr key={c.carrier_id} className="hover:bg-[#FAF7F2]/50">
+                                <td className="py-3 px-4 font-mono font-bold text-[#7A6C5E]">#{idx + 1}</td>
+                                <td className="py-3 px-4 font-extrabold text-[#2C241D]">{c.carrier_name}</td>
+                                <td className="py-3 px-4 font-mono font-semibold">{c.contact_phone}</td>
+                                <td className="py-3 px-4 text-[#7A6C5E]">{c.contact_email || '—'}</td>
+                                <td className="py-3 px-4">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    c.status ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-100 text-stone-600'
+                                  }`}>
+                                    {c.status ? 'Active' : 'Inactive'}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <button
+                                    onClick={async () => {
+                                      await updateCarrierPartnerApi(c.carrier_id, { status: !c.status });
+                                      await loadCarrierPartnersData();
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-[11px] font-bold text-[#2C241D] hover:bg-[#E2D7CB]/40 transition-all cursor-pointer"
+                                  >
+                                    {c.status ? 'Deactivate' : 'Activate'}
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

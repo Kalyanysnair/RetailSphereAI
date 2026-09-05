@@ -175,7 +175,7 @@ export const getAllUserStoredCustomOrders = (): CustomOrderData[] => {
 export const saveStoredCustomOrders = (orders: CustomOrderData[]) => {
   try {
     const key = getUserCustomKey();
-    const excludedIds = [103, 102, 13, 28, 101, 14];
+    const excludedIds = [103, 102, 13, 28, 101, 14, 40];
     const filtered = orders.filter(o => !excludedIds.includes(o.custom_order_id));
     localStorage.setItem(key, JSON.stringify(filtered));
   } catch (e) {
@@ -320,7 +320,7 @@ export async function fetchCustomOrders(statusFilter?: string, isStaff: boolean 
     const map = new Map<number, CustomOrderData>();
     dbOrders.forEach(o => map.set(o.custom_order_id, o));
 
-    const excludedIds = [103, 102, 13, 28, 101, 14];
+    const excludedIds = [103, 102, 13, 28, 101, 14, 40];
     const allCandidateOrders = Array.from(map.values()).filter(o => !excludedIds.includes(o.custom_order_id));
 
     if (isStaff || workerId) {

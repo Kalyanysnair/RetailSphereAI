@@ -8,7 +8,7 @@ import secrets
 import random
 
 from app.database import get_db
-from app import models, auth
+from app import models, auth, schemas
 from app.email_utils import send_staff_credentials_email
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
@@ -322,13 +322,29 @@ def list_all_users(db: Session = Depends(get_db)):
     result = []
     for u in users:
         role_name = u.role.role_name if u.role else "Customer"
+        cust_addr = ""
+        cust_dict = None
+        if u.customer_profile:
+            parts = [p for p in [u.customer_profile.address, u.customer_profile.city, u.customer_profile.state] if p and p.strip()]
+            cust_addr = ", ".join(parts)
+            if u.customer_profile.pincode and u.customer_profile.pincode.strip():
+                cust_addr += f" - {u.customer_profile.pincode.strip()}"
+            cust_dict = {
+                "address": u.customer_profile.address or "",
+                "city": u.customer_profile.city or "",
+                "state": u.customer_profile.state or "",
+                "pincode": u.customer_profile.pincode or ""
+            }
+
         result.append({
             "id": f"usr-{u.user_id}",
             "user_id": u.user_id,
             "full_name": u.full_name,
             "name": u.full_name,
             "email": u.email,
-            "phone": u.phone or "+91 98765 43210",
+            "phone": u.phone or "",
+            "address": cust_addr,
+            "customer": cust_dict,
             "role_name": role_name,
             "role": role_name,
             "is_driver": bool(u.is_driver),
@@ -950,9 +966,21 @@ def get_readymade_orders(db: Session = Depends(get_db)):
                 "imageUrl": img
             })
         
+        user_id = None
+        if r.customer_id:
+            c = db.query(models.Customer).filter(models.Customer.customer_id == r.customer_id).first()
+            if c:
+                user_id = c.user_id
+                if c.user:
+                    cust_name = cust_name or c.user.full_name
+                    cust_email = cust_email or c.user.email
+
         res.append({
             "orderId": f"RET-{r.order_id:06d}",
             "customerId": r.customer_id,
+            "customer_id": r.customer_id,
+            "userId": user_id,
+            "user_id": user_id,
             "customerName": cust_name or "Valued Customer",
             "email": cust_email or "customer@retailsphere.com",
             "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
@@ -1572,7 +1600,7 @@ def global_system_search(
             })
 
     # 2. Custom Orders
-    customs = db.query(models.CustomOrder).all()
+    customs = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40])).all()
     for c in customs:
         code = f"CUS-{c.custom_order_id:04d}".lower()
         if query_str in code or query_str in (c.furniture_type or "").lower() or query_str in (c.material or "").lower():
@@ -1684,6 +1712,68 @@ def export_database_excel_endpoint():
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
     )
+
+
+# --- Carrier Partner Management Endpoints ---
+@router.get("/carriers")
+def list_carrier_partners(db: Session = Depends(get_db)):
+    carriers = db.query(models.CarrierPartner).order_by(models.CarrierPartner.carrier_id.asc()).all()
+    return carriers
+
+
+@router.post("/carriers", status_code=status.HTTP_201_CREATED)
+def create_carrier_partner(payload: schemas.CarrierPartnerCreate, db: Session = Depends(get_db)):
+    name_clean = payload.carrier_name.strip()
+    if not name_clean:
+        raise HTTPException(status_code=400, detail="Carrier name is required.")
+    
+    phone_clean = payload.contact_phone.strip()
+    if not phone_clean:
+        raise HTTPException(status_code=400, detail="Contact phone number is required.")
+
+    new_carrier = models.CarrierPartner(
+        carrier_name=name_clean,
+        contact_phone=phone_clean,
+        contact_email=payload.contact_email.strip() if payload.contact_email else None,
+        status=payload.status if payload.status is not None else True
+    )
+    db.add(new_carrier)
+    db.commit()
+    db.refresh(new_carrier)
+
+    return new_carrier
+
+
+@router.put("/carriers/{carrier_id}")
+def update_carrier_partner(carrier_id: int, payload: schemas.CarrierPartnerUpdate, db: Session = Depends(get_db)):
+    carrier = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == carrier_id).first()
+    if not carrier:
+        raise HTTPException(status_code=404, detail="Carrier partner not found.")
+
+    if payload.carrier_name is not None and payload.carrier_name.strip():
+        carrier.carrier_name = payload.carrier_name.strip()
+    if payload.contact_phone is not None and payload.contact_phone.strip():
+        carrier.contact_phone = payload.contact_phone.strip()
+    if payload.contact_email is not None:
+        carrier.contact_email = payload.contact_email.strip() if payload.contact_email else None
+    if payload.status is not None:
+        carrier.status = payload.status
+
+    db.commit()
+    db.refresh(carrier)
+    return carrier
+
+
+@router.delete("/carriers/{carrier_id}")
+def delete_carrier_partner(carrier_id: int, db: Session = Depends(get_db)):
+    carrier = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == carrier_id).first()
+    if not carrier:
+        raise HTTPException(status_code=404, detail="Carrier partner not found.")
+
+    db.delete(carrier)
+    db.commit()
+    return {"message": f"Carrier partner #{carrier_id} deleted successfully."}
+
 
 
 

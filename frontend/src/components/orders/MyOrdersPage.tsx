@@ -128,6 +128,13 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   const [feedbackText, setFeedbackText] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>(['Excellent Craftsmanship', 'Fast Delivery']);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [submittedRatings, setSubmittedRatings] = useState<Record<string, any>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('customer_order_ratings') || '{}');
+    } catch {
+      return {};
+    }
+  });
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [cancelModalOrder, setCancelModalOrder] = useState<{ id: string | number; isCustom: boolean } | null>(null);
 
@@ -296,11 +303,16 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
         const storedRetailOrders = await fetchRetailOrdersFromDB();
 
         const userRetailOrders = storedRetailOrders.filter((r) => {
-          if (!userObj || (!sessionEmail && !sessionUserId)) return false;
+          if (!userObj && !sessionEmail && !sessionUserId) return true;
           const oEmail = (r.email || '').toLowerCase().trim();
           const oCustomerId = r.customerId || (r as any).customer_id;
+          const oUserId = (r as any).userId || (r as any).user_id;
 
-          if (sessionUserId && oCustomerId && Number(oCustomerId) === Number(sessionUserId)) return true;
+          if (sessionUserId && (
+            (oUserId && Number(oUserId) === Number(sessionUserId)) ||
+            (oCustomerId && Number(oCustomerId) === Number(sessionUserId))
+          )) return true;
+
           if (sessionEmail && oEmail && oEmail === sessionEmail) return true;
 
           return false;
@@ -313,7 +325,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
           numericId: 9000 + index,
           type: 'standard',
           date: r.orderDate,
-          status: r.orderStatus === 'Cancelled' ? 'Cancelled' : (r.paymentStatus === 'Paid' ? 'Order Placed' : r.orderStatus),
+          status: r.orderStatus || r.completionStatus || 'Order Placed',
           totalPrice: r.totalAmount,
           originalSubtotal: r.originalSubtotal,
           couponCode: r.couponCode,
@@ -381,34 +393,73 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
     );
   };
 
-  const handleSubmitFeedback = (e: React.FormEvent) => {
+  const handleSubmitFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!feedbackModalOrder) return;
 
     setSubmittingFeedback(true);
-    setTimeout(() => {
-      setOrders(prev => prev.map(o => {
-        if (o.orderId === feedbackModalOrder.orderId) {
-          return {
-            ...o,
-            feedbackGiven: true,
-            rating,
-            feedbackText: `${feedbackText} [Tags: ${selectedTags.join(', ')}]`
-          };
-        }
-        return o;
-      }));
 
-      setSubmittingFeedback(false);
-      setFeedbackModalOrder(null);
-      setToastMessage(`Thank you! Your feedback has been saved.`);
-      setTimeout(() => setToastMessage(null), 3500);
-    }, 800);
+    const orderKey = feedbackModalOrder.orderId;
+    const ratingObj = {
+      rating,
+      feedbackText,
+      tags: selectedTags,
+      date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    };
+
+    // Save to local storage for persistent customer dashboard rendering
+    const updated = {
+      ...submittedRatings,
+      [orderKey]: ratingObj
+    };
+    setSubmittedRatings(updated);
+    localStorage.setItem('customer_order_ratings', JSON.stringify(updated));
+
+    // Submit backend product review if product items present
+    if (feedbackModalOrder.items) {
+      for (const item of feedbackModalOrder.items) {
+        const pid = (item as any).productId || (item as any).id || (item as any).product_id;
+        if (pid && typeof pid === 'number') {
+          try {
+            await fetch('/api/reviews', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                product_id: pid,
+                rating: rating,
+                review: feedbackText || 'Excellent product!',
+                user_email: userObj?.email || 'customer@gmail.com',
+                customer_name: userObj?.full_name || 'Customer'
+              })
+            });
+          } catch (err) {
+            console.warn('Backend review submission note:', err);
+          }
+        }
+      }
+    }
+
+    setOrders(prev => prev.map(o => {
+      if (o.orderId === feedbackModalOrder.orderId) {
+        return {
+          ...o,
+          feedbackGiven: true,
+          rating,
+          feedbackText
+        };
+      }
+      return o;
+    }));
+
+    setSubmittingFeedback(false);
+    setFeedbackModalOrder(null);
+    setToastMessage(`Thank you! Your rating and feedback have been saved.`);
+    setTimeout(() => setToastMessage(null), 3500);
   };
 
   const filteredOrders = orders.filter(o => {
-    if (activeTab === 'current') return o.status === 'Pending' || o.status === 'Pending Approval' || o.status === 'Quote Provided' || o.status === 'Order Placed' || o.status === 'In Production' || o.status === 'Approved' || o.status === 'Processing' || o.status === 'Shipped' || o.status === 'Warehouse Processing' || o.status === 'Paid';
-    if (activeTab === 'in-progress') return o.status === 'In Production' || o.status === 'Approved' || o.status === 'Out for Delivery';
+    if (activeTab === 'current') return o.status === 'Pending' || o.status === 'Pending Approval' || o.status === 'Quote Provided' || o.status === 'Order Placed' || o.status === 'In Production' || o.status === 'Approved' || o.status === 'Processing' || o.status === 'Shipped' || o.status === 'Warehouse Processing' || o.status === 'Paid' || o.status === 'Packed' || o.status === 'Dispatched' || o.status === 'Out for Delivery';
+    if (activeTab === 'in-progress') return o.status === 'In Production' || o.status === 'Approved' || o.status === 'Out for Delivery' || o.status === 'Dispatched' || o.status === 'Packed';
     if (activeTab === 'delivered') return o.status === 'Completed' || o.status === 'Delivered';
     if (activeTab === 'custom') return o.isCustomBuild;
     return true;
@@ -810,6 +861,28 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                             <span>Message Staff</span>
                           </button>
 
+                          {/* Customer Rate & Review Button for Completed / Delivered Orders */}
+                          {(order.status === 'Completed' || order.status === 'Delivered') && (
+                            <button
+                              onClick={() => {
+                                setFeedbackModalOrder(order);
+                                const existingRating = submittedRatings[order.orderId];
+                                if (existingRating) {
+                                  setRating(existingRating.rating || 5);
+                                  setFeedbackText(existingRating.feedbackText || '');
+                                } else {
+                                  setRating(5);
+                                  setFeedbackText('');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                              title="Rate & add review feedback for this completed order"
+                            >
+                              <Star className="w-3.5 h-3.5 fill-white text-white" />
+                              <span>{order.feedbackGiven || submittedRatings[order.orderId] ? `Rated ${order.rating || submittedRatings[order.orderId]?.rating}/5` : 'Rate & Review'}</span>
+                            </button>
+                          )}
+
                           {/* Cancel Button */}
                           {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
                             <button
@@ -825,8 +898,38 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
 
                       {/* MAIN CONTENT ROW: Product Items List vs Payment Breakdown Box */}
                       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-                        {/* Left Column: Product Items (Lg: 8 cols) */}
+                        {/* Left Column: Product Items & Rating Summary (Lg: 8 cols) */}
                         <div className="lg:col-span-8 space-y-2.5">
+                          {/* Customer Rating Card - Displays ONLY in Customer Dashboard */}
+                          {(order.feedbackGiven || order.rating || submittedRatings[order.orderId]) && (
+                            <div className="bg-[#FFFDF9] border border-amber-200 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-2xs">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <div className="flex text-amber-400">
+                                  {[1, 2, 3, 4, 5].map((star) => (
+                                    <Star
+                                      key={star}
+                                      className={`w-4 h-4 ${
+                                        star <= (order.rating || submittedRatings[order.orderId]?.rating || 5)
+                                          ? 'fill-amber-400 text-amber-400'
+                                          : 'text-amber-200'
+                                      }`}
+                                    />
+                                  ))}
+                                </div>
+                                <span className="font-extrabold text-[#2C241D]">
+                                  {order.rating || submittedRatings[order.orderId]?.rating || 5} / 5 Rating
+                                </span>
+                                {(order.feedbackText || submittedRatings[order.orderId]?.feedbackText) && (
+                                  <span className="text-[#6E6458] font-medium italic text-[11px]">
+                                    &ldquo;{order.feedbackText || submittedRatings[order.orderId]?.feedbackText}&rdquo;
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-amber-800 font-extrabold bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-200/80 shrink-0">
+                                Your Customer Rating
+                              </span>
+                            </div>
+                          )}
                           {order.items.map((item, idx) => (
                             <div key={item.id || idx} className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3 rounded-xl border border-[#EFE7DE]">
                               {item.image && item.image.trim() !== '' ? (
@@ -1144,6 +1247,18 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                       <span className="font-bold text-[#2C241D]">{trackingFulfillmentData.fulfillment.expected_delivery_date}</span>
                     </div>
                   )}
+
+                  {trackingFulfillmentData?.fulfillment?.driver_phone ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#7A6C5E]">Driver Contact:</span>
+                      <span className="font-mono font-extrabold text-[#38A132]">{trackingFulfillmentData.fulfillment.driver_phone}</span>
+                    </div>
+                  ) : (trackingFulfillmentData?.order_status === 'Dispatched' || trackingFulfillmentData?.order_status === 'Out for Delivery') ? (
+                    <div className="flex justify-between items-center">
+                      <span className="text-[#7A6C5E]">Driver Contact:</span>
+                      <span className="font-medium text-[#7A6C5E] italic">Not assigned yet</span>
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* Status Timeline */}

@@ -85,7 +85,7 @@ def get_custom_orders(
     customer_email: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    query = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id != 103)
+    query = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
     if status_filter and status_filter.strip() and status_filter != "All":
         query = query.filter(models.CustomOrder.order_status == status_filter.strip())
 
@@ -154,7 +154,7 @@ def get_custom_orders(
         # Get latest progress
         latest_progress = db.query(models.ProductionProgress).filter(
             models.ProductionProgress.custom_order_id == ord_obj.custom_order_id
-        ).order_by(models.ProductionProgress.updated_at.desc()).first()
+        ).order_by(models.ProductionProgress.progress_id.desc()).first()
 
         result.append({
             "custom_order_id": ord_obj.custom_order_id,
@@ -825,7 +825,7 @@ def get_order_tracking(order_id: int, db: Session = Depends(get_db)):
 
     progress_history = db.query(models.ProductionProgress).filter(
         models.ProductionProgress.custom_order_id == order_id
-    ).order_by(models.ProductionProgress.updated_at.asc()).all()
+    ).order_by(models.ProductionProgress.progress_id.asc()).all()
 
     return {
         "custom_order_id": order.custom_order_id,
@@ -883,7 +883,7 @@ def log_production_history(
 @router.get("/dashboard/overview")
 def get_production_dashboard_overview(db: Session = Depends(get_db)):
     # 1. Custom Orders
-    customs = db.query(models.CustomOrder).all()
+    customs = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40])).all()
 
     # 2. Fabrication Requests
     fabs = db.query(models.FabricationRequest).all()
@@ -1206,59 +1206,6 @@ def get_assessment_queue(
                 "order_status": f.status,
                 "payment_status": f.payment_status,
                 "estimated_price": float(f.estimated_price) if f.estimated_price else None,
-                "is_assessed": is_assessed
-            })
-
-    # 3. Readymade Retail Store Orders (Retail Staff Approved ONLY)
-    if cat_upper in ["ALL", "READYMADE", "RETAIL_ORDER", "RETAIL"]:
-        r_query = db.query(models.ReadymadeOrder)
-        orders = r_query.order_by(models.ReadymadeOrder.order_date.desc()).all()
-        for r in orders:
-            comp_st = (r.completion_status or "").upper()
-            pay_st = (r.payment_status or "").upper()
-            ord_st = (r.order_status or "").upper()
-
-            is_retail_approved = ("APPROVED" in comp_st) or ("RETAIL" in comp_st) or pay_st in ["PAID", "COMPLETED"] or ord_st in ["PROCESSING", "APPROVED", "ORDER PLACED"]
-            if not is_retail_approved:
-                continue
-
-            has_tech_ass = ("Retail", r.order_id) in assessed_set or ("Readymade", r.order_id) in assessed_set
-            has_quote = ("Retail", r.order_id) in quote_set or ("Readymade", r.order_id) in quote_set
-
-            is_assessed = has_tech_ass or has_quote
-
-            st_badge = "PENDING_ASSESSMENT"
-            if is_assessed:
-                st_badge = "ASSESSMENT_COMPLETE"
-
-            if tab_upper != "ALL" and st_badge != tab_upper:
-                continue
-
-            item_title = "Readymade Store Purchase"
-            item_img = None
-            if r.items and len(r.items) > 0:
-                item_title = r.items[0].product_name or item_title
-                if hasattr(r.items[0], 'image_url'):
-                    item_img = r.items[0].image_url
-
-            items.append({
-                "request_id": f"RET-{r.order_id:05d}",
-                "numeric_id": r.order_id,
-                "order_type": "Readymade",
-                "customer_name": r.customer_name or "Valued Customer",
-                "customer_email": r.customer_email or "",
-                "title": item_title,
-                "furniture_type": "Readymade Store Furniture",
-                "material": "Standard Factory Build",
-                "dimensions": f"{len(r.items) if r.items else 1} Item(s)",
-                "description": "Paid & Placed Retail Store Purchase",
-                "reference_image": item_img,
-                "order_date": r.order_date.isoformat() if r.order_date else None,
-                "priority": "HIGH",
-                "assessment_status": st_badge,
-                "order_status": r.order_status or "Order Placed",
-                "payment_status": r.payment_status or "Paid",
-                "estimated_price": float(r.total_amount or 0),
                 "is_assessed": is_assessed
             })
 

@@ -849,6 +849,18 @@ class Vehicle(Base):
     fulfillments = relationship("OrderFulfillment", back_populates="vehicle")
 
 
+class CarrierPartner(Base):
+    __tablename__ = "tbl_carrier_partner"
+
+    carrier_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    carrier_name = Column(String(100), nullable=False)
+    contact_phone = Column(String(50), nullable=False)
+    contact_email = Column(String(100), nullable=True)
+    status = Column(Boolean, default=True)  # True = Active, False = Inactive
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+
 
 
 

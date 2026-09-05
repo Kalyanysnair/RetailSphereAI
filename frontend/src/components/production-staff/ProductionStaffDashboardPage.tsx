@@ -666,6 +666,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const loadQueueData = async (catFilt: string = assessmentCategoryFilter, tabFilt: string = assessmentTabFilter) => {
     try {
       const q = await fetchAssessmentQueue(catFilt, tabFilt);
+      console.log('[ProductionStaffDashboard] Assessment queue records from API:', q);
       setAssessmentQueue(q || []);
     } catch (err) {
       console.error('Error fetching assessment queue:', err);
@@ -1504,9 +1505,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {
                     id: 'assessment_queue',
                     label: 'Assessment & Quotation',
-                    icon: FileText,
-                    badge: ((overviewData?.metrics?.pending_assessment || 0) + (overviewData?.metrics?.quotation_pending || 0)),
-                    badgeColor: 'bg-amber-600'
+                    icon: FileText
                   },
                   {
                     id: 'planning',
@@ -2796,8 +2795,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     {[
                       { key: 'ALL', label: 'All Approved Requests' },
                       { key: 'CUSTOMIZATION', label: 'Furniture Customization' },
-                      { key: 'FABRICATION', label: 'Wood Fabrication' },
-                      { key: 'RETAIL_ORDER', label: 'Readymade Retail Orders' }
+                      { key: 'FABRICATION', label: 'Wood Fabrication' }
                     ].map(cat => (
                       <button
                         key={cat.key}
@@ -2843,9 +2841,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                 {(() => {
                   const displayedQueue = assessmentQueue.filter(item => {
-                    if (assessmentCategoryFilter === 'CUSTOMIZATION' && item.order_type !== 'Customization') return false;
-                    if (assessmentCategoryFilter === 'FABRICATION' && item.order_type !== 'Fabrication') return false;
-                    if (assessmentCategoryFilter === 'RETAIL_ORDER' && item.order_type !== 'Readymade' && item.order_type !== 'Retail Order') return false;
+                    const oType = (item.order_type as string);
+                    if (oType === 'Readymade' || oType === 'Retail Order' || (item.request_id && item.request_id.startsWith('RET-'))) return false;
+                    if (assessmentCategoryFilter === 'CUSTOMIZATION' && oType !== 'Customization' && oType !== 'Custom') return false;
+                    if (assessmentCategoryFilter === 'FABRICATION' && oType !== 'Fabrication') return false;
 
                     if (assessmentTabFilter === 'PENDING_ASSESSMENT' && item.is_assessed) return false;
                     if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && !item.is_assessed) return false;

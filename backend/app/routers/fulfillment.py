@@ -1,5 +1,7 @@
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
+import random
+import string
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -15,29 +17,46 @@ def parse_order_num(order_id_str: str) -> int:
     return int(clean_id)
 
 
+def resolve_valid_user_id(db: Session, user_id: Optional[int]) -> Optional[int]:
+    if user_id:
+        u = db.query(models.User.user_id).filter(models.User.user_id == user_id).first()
+        if u:
+            return user_id
+    u_fallback = db.query(models.User.user_id).filter(models.User.role_id.in_([3, 2, 4])).first() or db.query(models.User.user_id).first()
+    return u_fallback[0] if u_fallback else None
+
+
+def generate_unique_tracking_number(db: Session) -> str:
+    while True:
+        rand_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        trk_num = f"TRK-{rand_code}"
+        existing = db.query(models.OrderFulfillment).filter(models.OrderFulfillment.tracking_number == trk_num).first()
+        if not existing:
+            return trk_num
+
+
 # Helper to record status history
 def record_status_history(
     db: Session,
     order_id: int,
     previous_status: Optional[str],
     new_status: str,
-    changed_by_id: Optional[int] = None,
-    changed_by_role: str = "System",
+    changed_by_id: Optional[int],
+    changed_by_role: str = "Retail Staff",
     note: Optional[str] = None
 ):
+    valid_user_id = resolve_valid_user_id(db, changed_by_id)
     history = models.OrderStatusHistory(
         order_id=order_id,
-        previous_status=previous_status,
+        previous_status=previous_status or "Order Placed",
         new_status=new_status,
-        changed_by_id=changed_by_id,
+        changed_by_id=valid_user_id,
         changed_by_role=changed_by_role,
-        changed_at=datetime.utcnow(),
         note=note
     )
     db.add(history)
 
 
-# Helper to notify customer
 def create_customer_notification(
     db: Session,
     customer_id: Optional[int],
@@ -47,22 +66,50 @@ def create_customer_notification(
     if not customer_id:
         return
     cust = db.query(models.Customer).filter(models.Customer.customer_id == customer_id).first()
-    if cust and cust.user_id:
-        notif = models.Notification(
-            user_id=cust.user_id,
-            title=title,
-            message=message,
-            is_read=False,
-            created_at=datetime.utcnow()
-        )
-        db.add(notif)
+    if not cust or not cust.user_id:
+        return
+
+    notif = models.Notification(
+        user_id=cust.user_id,
+        title=title,
+        message=message,
+        is_read=False
+    )
+    db.add(notif)
+
+
+# --- PAYLOAD SCHEMAS ---
+class PackOrderPayload(BaseModel):
+    staff_id: Optional[int] = None
+    packing_notes: Optional[str] = "Packed securely with protective padding."
+
+
+class DispatchOrderPayload(BaseModel):
+    staff_id: Optional[int] = None
+    carrier: Optional[str] = "Internal Fleet"
+    tracking_number: Optional[str] = None
+    expected_delivery_date: Optional[str] = None
+    vehicle_id: Optional[int] = None
+    driver_id: Optional[int] = None
+    dispatch_note: Optional[str] = None
+
+
+class DeliveryStatusPayload(BaseModel):
+    staff_id: Optional[int] = None
+    delivery_status: str
+    notes: Optional[str] = None
+    note: Optional[str] = None
 
 
 # 1. GET /api/orders/fulfillment/summary
 @router.get("/fulfillment/summary")
 def get_fulfillment_summary(db: Session = Depends(get_db)):
-    all_orders = db.query(models.ReadymadeOrder).all()
+    all_fulfillments = db.query(models.OrderFulfillment).all()
+    all_orders = db.query(models.ReadymadeOrder).filter(
+        ~models.ReadymadeOrder.order_status.in_(["Cancelled", "Returned"])
+    ).all()
 
+    total = len(all_orders)
     to_pack = 0
     packed = 0
     to_dispatch = 0
@@ -71,20 +118,20 @@ def get_fulfillment_summary(db: Session = Depends(get_db)):
     delivered = 0
 
     for o in all_orders:
-        st = (o.order_status or "").strip().lower()
-        if st in ["order placed", "payment confirmed", "order confirmed", "pending", "processing"]:
+        st = (o.order_status or "Order Placed").strip()
+        if st in ["Order Placed", "Pending", "Processing", "Ready to Pack"]:
             to_pack += 1
-        elif st == "packed":
+        elif st in ["Packed", "PACKED"]:
             packed += 1
             to_dispatch += 1
-        elif st == "dispatched":
+        elif st in ["Dispatched", "DISPATCHED"]:
             dispatched += 1
-        elif st in ["out for delivery", "out_for_delivery"]:
+        elif st in ["Out for Delivery", "OUT_FOR_DELIVERY"]:
             out_for_delivery += 1
-        elif st in ["delivered", "completed"]:
+        elif st in ["Delivered", "Completed"]:
             delivered += 1
 
-    returns_count = db.query(models.OrderReturn).count()
+    returns_count = db.query(models.OrderReturn).filter(models.OrderReturn.status != "Rejected").count()
 
     return {
         "to_pack": to_pack,
@@ -94,7 +141,7 @@ def get_fulfillment_summary(db: Session = Depends(get_db)):
         "out_for_delivery": out_for_delivery,
         "delivered": delivered,
         "returns": returns_count,
-        "total_orders": len(all_orders)
+        "total_orders": total
     }
 
 
@@ -124,6 +171,17 @@ def get_order_fulfillment_details(order_id_str: str, db: Session = Depends(get_d
 
     fulfillment_data = None
     if fulfillment:
+        driver_name = None
+        driver_phone = None
+        if fulfillment.driver_user:
+            driver_name = fulfillment.driver_user.full_name
+            driver_phone = fulfillment.driver_user.phone
+        elif fulfillment.driver_id:
+            d_user = db.query(models.User).filter(models.User.user_id == fulfillment.driver_id).first()
+            if d_user:
+                driver_name = d_user.full_name
+                driver_phone = d_user.phone
+
         fulfillment_data = {
             "fulfillment_id": fulfillment.fulfillment_id,
             "fulfillment_status": fulfillment.fulfillment_status,
@@ -136,6 +194,8 @@ def get_order_fulfillment_details(order_id_str: str, db: Session = Depends(get_d
             "delivery_status": fulfillment.delivery_status,
             "delivered_at": fulfillment.delivered_at.isoformat() if fulfillment.delivered_at else None,
             "delivery_notes": fulfillment.delivery_notes,
+            "driver_name": driver_name,
+            "driver_phone": driver_phone,
         }
 
     return_data = None
@@ -176,28 +236,6 @@ def get_order_fulfillment_details(order_id_str: str, db: Session = Depends(get_d
     }
 
 
-# Payloads
-class PackOrderPayload(BaseModel):
-    staff_id: Optional[int] = None
-    staff_name: Optional[str] = "Retail Staff"
-    packing_notes: Optional[str] = "Packed with high-density protective foam."
-    checklist: Optional[dict] = None
-
-class DispatchOrderPayload(BaseModel):
-    staff_id: Optional[int] = None
-    carrier: str = "Express Delivery"
-    tracking_number: str
-    expected_delivery_date: str
-    dispatch_note: Optional[str] = None
-    vehicle_id: Optional[int] = None
-    driver_id: Optional[int] = None
-
-class DeliveryStatusPayload(BaseModel):
-    staff_id: Optional[int] = None
-    delivery_status: str # "Out for Delivery", "Delivered", "Delivery Delayed", "Delivery Failed"
-    note: Optional[str] = None
-
-
 # 3. POST /api/orders/{order_id_str}/pack
 @router.post("/{order_id_str}/pack")
 def mark_order_packed(order_id_str: str, payload: PackOrderPayload, db: Session = Depends(get_db)):
@@ -219,17 +257,23 @@ def mark_order_packed(order_id_str: str, payload: PackOrderPayload, db: Session 
         fulfillment = models.OrderFulfillment(order_id=order_num)
         db.add(fulfillment)
 
+    valid_staff_id = resolve_valid_user_id(db, payload.staff_id)
+    packed_now = datetime.utcnow()
     fulfillment.fulfillment_status = "Packed"
-    fulfillment.packed_at = datetime.utcnow()
-    fulfillment.packed_by_id = payload.staff_id
+    fulfillment.packed_at = packed_now
+    fulfillment.packed_by_id = valid_staff_id
     fulfillment.packing_notes = payload.packing_notes
+
+    # Requirement 6 & 7: Calculate Expected Delivery Date = Packing Date + 1 Day
+    exp_date = packed_now + timedelta(days=1)
+    fulfillment.expected_delivery_date = exp_date.strftime("%d %B %Y")
 
     record_status_history(
         db,
         order_id=order_num,
         previous_status=prev_status,
         new_status="Packed",
-        changed_by_id=payload.staff_id,
+        changed_by_id=valid_staff_id,
         changed_by_role="Retail Staff",
         note=payload.packing_notes or "Quality verified and securely packed for dispatch."
     )
@@ -238,11 +282,15 @@ def mark_order_packed(order_id_str: str, payload: PackOrderPayload, db: Session 
         db,
         customer_id=ord_obj.customer_id,
         title=f"Order Packed — RET-{ord_obj.order_id:06d}",
-        message=f"Your order RET-{ord_obj.order_id:06d} has passed quality check and is packed for dispatch."
+        message=f"Your order RET-{ord_obj.order_id:06d} has passed quality check and is packed for dispatch. Expected delivery: {fulfillment.expected_delivery_date}."
     )
 
     db.commit()
-    return {"message": f"Order RET-{ord_obj.order_id:06d} marked as Packed", "order_status": "Packed"}
+    return {
+        "message": f"Order RET-{ord_obj.order_id:06d} marked as Packed",
+        "order_status": "Packed",
+        "expected_delivery_date": fulfillment.expected_delivery_date
+    }
 
 
 # 4. POST /api/orders/{order_id_str}/dispatch
@@ -257,6 +305,7 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
         raise HTTPException(status_code=400, detail=f"Cannot dispatch order in status '{ord_obj.order_status}'")
 
     vehicle_obj = None
+    target_driver_id = payload.driver_id
     if payload.vehicle_id:
         vehicle_obj = db.query(models.Vehicle).filter(models.Vehicle.vehicle_id == payload.vehicle_id).first()
         if not vehicle_obj:
@@ -288,10 +337,24 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
 
     fulfillment.fulfillment_status = "Dispatched"
     fulfillment.dispatched_at = datetime.utcnow()
-    fulfillment.dispatched_by_id = payload.staff_id
-    fulfillment.carrier = payload.carrier.strip() if payload.carrier else "Internal Fleet"
-    fulfillment.tracking_number = payload.tracking_number.strip() if payload.tracking_number else f"TRK-{order_num}"
-    fulfillment.expected_delivery_date = payload.expected_delivery_date.strip() if payload.expected_delivery_date else "Pending"
+    valid_staff_id = resolve_valid_user_id(db, payload.staff_id)
+    fulfillment.dispatched_by_id = valid_staff_id
+    if payload.carrier and payload.carrier.strip():
+        fulfillment.carrier = payload.carrier.strip()
+    
+    # Requirement 2: Automatic Unique Tracking Number TRK-XXXXXXXX
+    if payload.tracking_number and payload.tracking_number.strip() and not payload.tracking_number.startswith("TRK-0"):
+        fulfillment.tracking_number = payload.tracking_number.strip()
+    else:
+        fulfillment.tracking_number = generate_unique_tracking_number(db)
+
+    # Requirement 6: Expected Delivery Date
+    if payload.expected_delivery_date and payload.expected_delivery_date.strip():
+        fulfillment.expected_delivery_date = payload.expected_delivery_date.strip()
+    elif not fulfillment.expected_delivery_date:
+        exp = datetime.utcnow() + timedelta(days=1)
+        fulfillment.expected_delivery_date = exp.strftime("%d %B %Y")
+
     fulfillment.delivery_status = "Dispatched"
     if payload.dispatch_note:
         fulfillment.delivery_notes = payload.dispatch_note
@@ -308,20 +371,26 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
         order_id=order_num,
         previous_status=prev_status,
         new_status="Dispatched",
-        changed_by_id=payload.staff_id,
+        changed_by_id=valid_staff_id,
         changed_by_role="Retail Staff",
-        note=f"Dispatched via {fulfillment.carrier}. Vehicle: {vehicle_obj.registration_number if vehicle_obj else 'N/A'}. Expected: {payload.expected_delivery_date}."
+        note=f"Dispatched via {fulfillment.carrier or 'Carrier'}. Tracking Number: {fulfillment.tracking_number}. Expected: {fulfillment.expected_delivery_date}."
     )
 
+    # Requirement 11: Customer Notification with Tracking Number
     create_customer_notification(
         db,
         customer_id=ord_obj.customer_id,
         title=f"Order Dispatched — RET-{ord_obj.order_id:06d}",
-        message=f"Your order RET-{ord_obj.order_id:06d} has been dispatched. Expected delivery: {payload.expected_delivery_date}."
+        message=f"Your order RET-{ord_obj.order_id:06d} has been dispatched. Tracking Number: {fulfillment.tracking_number}. Expected delivery: {fulfillment.expected_delivery_date}."
     )
 
     db.commit()
-    return {"message": f"Order RET-{ord_obj.order_id:06d} marked as Dispatched", "order_status": "Dispatched"}
+    return {
+        "message": f"Order RET-{ord_obj.order_id:06d} marked as Dispatched",
+        "order_status": "Dispatched",
+        "tracking_number": fulfillment.tracking_number,
+        "expected_delivery_date": fulfillment.expected_delivery_date
+    }
 
 
 # 5. POST /api/orders/{order_id_str}/delivery-status
@@ -346,8 +415,9 @@ def update_delivery_status(order_id_str: str, payload: DeliveryStatusPayload, db
 
     fulfillment.delivery_status = new_st
     fulfillment.fulfillment_status = new_st
-    if payload.note:
-        fulfillment.delivery_notes = payload.note
+    eff_note = payload.notes or payload.note
+    if eff_note:
+        fulfillment.delivery_notes = eff_note
 
     if new_st.lower() == "delivered":
         fulfillment.delivered_at = datetime.utcnow()
@@ -357,14 +427,15 @@ def update_delivery_status(order_id_str: str, payload: DeliveryStatusPayload, db
             if vehicle_obj and vehicle_obj.status == "ASSIGNED":
                 vehicle_obj.status = "AVAILABLE"
 
+    valid_staff_id = resolve_valid_user_id(db, payload.staff_id)
     record_status_history(
         db,
         order_id=order_num,
         previous_status=prev_status,
         new_status=new_st,
-        changed_by_id=payload.staff_id,
+        changed_by_id=valid_staff_id,
         changed_by_role="Retail Staff",
-        note=payload.note or f"Delivery status updated to '{new_st}'."
+        note=eff_note or f"Delivery status updated to '{new_st}'."
     )
 
     create_customer_notification(

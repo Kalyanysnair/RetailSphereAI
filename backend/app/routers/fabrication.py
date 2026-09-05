@@ -147,19 +147,39 @@ def pay_fabrication_request(fabrication_id: int, db: Session = Depends(get_db)):
     if not fab:
         raise HTTPException(status_code=404, detail="Fabrication request not found")
 
+    rzp_id = f"pay_Rzp{int(time.time())}{fabrication_id:02d}"
+
     fab.payment_status = "Paid"
     fab.status = "PAID"
 
-    # Record payment
-    new_payment = models.Payment(
-        order_type="Fabrication",
-        order_id=fab.fabrication_id,
-        amount=fab.estimated_price or 0,
-        payment_method="Razorpay",
-        transaction_id=f"PAY-FAB-{fab.fabrication_id}-{int(time.time())}",
-        payment_status="Paid"
-    )
-    db.add(new_payment)
+    # Record or update payment details
+    pmt = db.query(models.Payment).filter(
+        models.Payment.order_type == "Fabrication",
+        models.Payment.order_id == fab.fabrication_id
+    ).first()
+
+    if not pmt:
+        pmt = models.Payment(
+            order_type="Fabrication",
+            order_id=fab.fabrication_id,
+            amount=fab.estimated_price or 0,
+            payment_method="Razorpay",
+            transaction_id=rzp_id,
+            payment_status="Paid",
+            payment_date=datetime.utcnow()
+        )
+        db.add(pmt)
+    else:
+        pmt.payment_status = "Paid"
+        pmt.payment_method = "Razorpay"
+        pmt.transaction_id = rzp_id
+        pmt.amount = fab.estimated_price or 0
+        pmt.payment_date = datetime.utcnow()
 
     db.commit()
-    return {"message": f"Payment recorded for Fabrication Request #{fabrication_id}", "status": "PAID"}
+    return {
+        "message": f"Payment recorded for Fabrication Request #{fabrication_id}",
+        "status": "PAID",
+        "razorpay_payment_id": rzp_id,
+        "transaction_id": rzp_id
+    }

@@ -33,8 +33,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     salesCount: 45,
     status: 'In Stock',
     imageUrl: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
-    rating: 4.9,
-    reviewCount: 38,
+    rating: 0,
+    reviewCount: 0,
     material: 'Italian Velvet & Solid Wood',
     color: 'Emerald Green',
     dimensions: '220cm x 95cm x 85cm',
@@ -404,39 +404,61 @@ export const DashboardPage: React.FC = () => {
       try {
         const dbItems = await fetchInventoryFromDB();
         if (dbItems && dbItems.length > 0) {
-          const mapped: RecommendationProduct[] = dbItems.map((p: any) => {
-            const rawId = p.product_id || p.id;
-            const code = p.productCode || p.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
-            
-            let catId = (p.category || '').toLowerCase().trim();
-            if (catId.includes('living')) catId = 'living-room';
-            else if (catId.includes('dining')) catId = 'dining-room';
-            else if (catId.includes('bed')) catId = 'bedroom';
-            else if (catId.includes('office') || catId.includes('desk') || catId.includes('studio')) catId = 'office';
-            else if (catId.includes('custom')) catId = 'custom-studio';
+          const mapped: RecommendationProduct[] = await Promise.all(
+            dbItems.map(async (p: any) => {
+              const rawId = p.product_id || p.id;
+              const code = p.productCode || p.sku || `SKU-RS-${typeof rawId === 'number' ? String(rawId).padStart(3, '0') : rawId}`;
+              
+              let catId = (p.category || '').toLowerCase().trim();
+              if (catId.includes('living')) catId = 'living-room';
+              else if (catId.includes('dining')) catId = 'dining-room';
+              else if (catId.includes('bed')) catId = 'bedroom';
+              else if (catId.includes('office') || catId.includes('desk') || catId.includes('studio')) catId = 'office';
+              else if (catId.includes('custom')) catId = 'custom-studio';
 
-            return {
-              id: p.id || `inv-${p.product_id}`,
-              productCode: code,
-              name: p.name || p.product_name,
-              category: catId,
-              subcategory: (p.subcategory || 'General').toLowerCase().replace(/\s+/g, '-'),
-              price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
-              originalPrice: (typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0) * 1.15,
-              stock: p.stockCount || 10,
-              salesCount: 45,
-              status: (p.status || 'In Stock') as any,
-              imageUrl: p.image_url || p.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
-              rating: 4.9,
-              reviewCount: 38,
-              material: p.material || 'Solid Teak Wood',
-              color: p.color || 'Natural Wood',
-              dimensions: '200cm x 90cm x 75cm',
-              isCustomizable: true,
-              isTopPick: p.stockCount > 0,
-              badge: code
-            };
-          });
+              let avgRating = 0;
+              let reviewCount = 0;
+              const numId = typeof rawId === 'number' ? rawId : (parseInt(String(rawId).replace(/\D/g, ''), 10) || 0);
+
+              if (numId > 0) {
+                try {
+                  const revRes = await fetch(`/api/reviews/product/${numId}`);
+                  if (revRes.ok) {
+                    const revs = await revRes.json();
+                    if (Array.isArray(revs) && revs.length > 0) {
+                      reviewCount = revs.length;
+                      const sum = revs.reduce((acc: number, r: any) => acc + (r.rating || 0), 0);
+                      avgRating = parseFloat((sum / reviewCount).toFixed(1));
+                    }
+                  }
+                } catch (e) {
+                  // Fallback
+                }
+              }
+
+              return {
+                id: p.id || `inv-${p.product_id}`,
+                productCode: code,
+                name: p.name || p.product_name,
+                category: catId,
+                subcategory: (p.subcategory || 'General').toLowerCase().replace(/\s+/g, '-'),
+                price: typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0,
+                originalPrice: (typeof p.price === 'number' ? p.price : parseFloat(p.price) || 0) * 1.15,
+                stock: p.stockCount || 10,
+                salesCount: 45,
+                status: (p.status || 'In Stock') as any,
+                imageUrl: p.image_url || p.image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80',
+                rating: avgRating,
+                reviewCount: reviewCount,
+                material: p.material || 'Solid Teak Wood',
+                color: p.color || 'Natural Wood',
+                dimensions: '200cm x 90cm x 75cm',
+                isCustomizable: true,
+                isTopPick: avgRating >= 4.0 && reviewCount > 0,
+                badge: code
+              };
+            })
+          );
           setDbProducts(mapped);
         }
       } catch (err) {

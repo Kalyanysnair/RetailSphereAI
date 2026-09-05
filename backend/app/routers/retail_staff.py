@@ -46,7 +46,7 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
     returns_count = db.query(models.OrderReturn).count()
 
     # Request Inbox counts
-    customizations_query = db.query(models.CustomOrder)
+    customizations_query = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
     new_customizations = customizations_query.filter(
         or_(
             models.CustomOrder.review_status == "NEW",
@@ -194,7 +194,7 @@ def get_unified_request_inbox(
 
     # 1. Customization Requests
     if category_filter.upper() in ["ALL", "CUSTOMIZATION"]:
-        q_cust = db.query(models.CustomOrder)
+        q_cust = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
         if status_filter.upper() != "ALL":
             if status_filter.upper() == "MORE_INFORMATION":
                 q_cust = q_cust.filter(models.CustomOrder.review_status == "MORE_INFO_REQUESTED")
@@ -297,45 +297,6 @@ def get_unified_request_inbox(
                 "review_notes": s.review_notes,
                 "reviewed_by_id": s.reviewed_by_id,
                 "reviewed_by_name": get_staff_name(s.reviewed_by_id)
-            })
-
-    # 4. Ready-Made Store Orders
-    if category_filter.upper() in ["ALL", "RETAIL_ORDERS", "STORE_PURCHASES", "READYMADE"]:
-        q_ord = db.query(models.ReadymadeOrder)
-        ords = q_ord.order_by(models.ReadymadeOrder.order_date.desc()).all()
-        for o in ords:
-            cust_name = o.customer_name
-            cust_email = o.customer_email
-            if (not cust_name or not cust_email) and o.customer_id:
-                c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
-                if c and c.user:
-                    cust_name = cust_name or c.user.full_name
-                    cust_email = cust_email or c.user.email
-
-            first_item = o.items[0] if o.items else None
-            title_str = first_item.product_name if first_item else f"Store Order #{o.order_id}"
-            img_url = first_item.image_url if first_item else None
-
-            items.append({
-                "request_id": f"RET-{o.order_id:06d}",
-                "numeric_id": o.order_id,
-                "type": "RETAIL_ORDER",
-                "customer_name": cust_name or "Valued Customer",
-                "customer_email": cust_email or "customer@retailsphere.com",
-                "title": title_str,
-                "material": "Store Inventory Item",
-                "dimensions": f"{len(o.items)} Item(s)",
-                "quantity": sum(i.quantity for i in o.items) if o.items else 1,
-                "description": f"Paid & Placed Retail Store Purchase. Payment ID: {o.payment_id or 'N/A'}",
-                "reference_image": img_url,
-                "estimated_price": float(o.total_amount) if o.total_amount else None,
-                "date": o.order_date.isoformat() if o.order_date else None,
-                "review_status": "APPROVED" if o.payment_status == "Paid" else "NEW",
-                "order_status": o.order_status or "Order Placed",
-                "priority": "HIGH" if o.order_status in ["Order Placed", "Pending"] else "NORMAL",
-                "review_notes": f"Payment Status: {o.payment_status}",
-                "reviewed_by_id": o.retail_staff_id,
-                "reviewed_by_name": get_staff_name(o.retail_staff_id)
             })
 
     # Sort all combined items by date descending
