@@ -60,7 +60,7 @@ const CATEGORY_SPECS: CategorySpec[] = [
       {
         name: 'Recliner Chair',
         desc: 'Recliner Chair - Ergonomic lumbar and reclining options',
-        img: 'https://images.unsplash.com/photo-1580481072645-022f9a6d8310?auto=format&fit=crop&w=300&q=80',
+        img: 'https://images.unsplash.com/photo-1567538096630-e0c55bd6374c?auto=format&fit=crop&w=300&q=80',
       },
     ],
     materials: ['Premium Teak Wood', 'Sheesham Rosewood', 'Dark Walnut', 'Natural Oak', 'Brushed Stainless Steel'],
@@ -834,6 +834,9 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                                 <img
                                   src={cat.heroImage || cat.duoImages?.[0]}
                                   alt={cat.name}
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80';
+                                  }}
                                   className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                                 />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent pointer-events-none" />
@@ -890,6 +893,9 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                               <img
                                 src={typeObj.img}
                                 alt={typeObj.name}
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80';
+                                }}
                                 className="w-14 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0 shadow-2xs"
                               />
                             </div>
@@ -1271,6 +1277,9 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                       <img
                         src={selectedCategory.types.find(t => t.name === furnitureType)?.img || selectedCategory.heroImage}
                         alt={furnitureType}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=300&q=80';
+                        }}
                         className="w-12 h-12 rounded-xl object-cover border border-[#E2D7CB] shrink-0"
                       />
                       <div className="min-w-0">
