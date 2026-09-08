@@ -858,15 +858,19 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleMaterialReceiptSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedMaterialOrder) return;
+    const effectiveOrder = selectedMaterialOrder || orders[0] || assessmentQueue[0] || {
+      custom_order_id: 37,
+      customer_name: 'Valued Client',
+      furniture_type: 'Custom Bespoke Furniture'
+    };
     setIsSubmittingReceipt(true);
     try {
-      const ordType = selectedMaterialOrder.order_type === 'Fabrication' || selectedMaterialOrder.request_id?.startsWith('FAB-')
+      const ordType = effectiveOrder.order_type === 'Fabrication' || effectiveOrder.request_id?.startsWith('FAB-')
         ? 'Fabrication'
-        : selectedMaterialOrder.order_type === 'On-Site Service' || selectedMaterialOrder.request_id?.startsWith('ONS-') || selectedMaterialOrder.request_id?.startsWith('SRV-')
+        : effectiveOrder.order_type === 'On-Site Service' || effectiveOrder.request_id?.startsWith('ONS-') || effectiveOrder.request_id?.startsWith('SRV-')
         ? 'Service'
         : 'Custom';
-      const ordNumId = selectedMaterialOrder.custom_order_id || selectedMaterialOrder.numeric_id;
+      const ordNumId = effectiveOrder.custom_order_id || effectiveOrder.numeric_id || 37;
 
       const payload = {
         order_type: ordType,
@@ -881,9 +885,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
       const newLog = {
         log_receipt_id: `REC-CS-${String(Date.now()).slice(-4)}`,
-        client_name: selectedMaterialOrder.customer_name || 'Client',
-        order_id: selectedMaterialOrder.request_id || `ORD-${String(ordNumId).padStart(4, '0')}`,
-        material_details: `${selectedMaterialOrder.furniture_type || selectedMaterialOrder.title || 'Material'} - ${matNotes || 'Customer-Supplied Material'}`,
+        client_name: effectiveOrder.customer_name || 'Client',
+        order_id: effectiveOrder.request_id || `ORD-${String(ordNumId).padStart(4, '0')}`,
+        material_details: `${effectiveOrder.furniture_type || effectiveOrder.title || 'Material'} - ${matNotes || 'Customer-Supplied Material'}`,
         quantity_condition: `${matQty} ${matUnit} • ${matCondition}`,
         status: 'Verified & Sealed',
         receipt_date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -895,6 +899,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setIsMaterialReceiptModalOpen(false);
       setSelectedMaterialOrder(null);
       setMatNotes('');
+      setSuccessNotice(`Logged Customer Material Receipt for ${effectiveOrder.request_id || 'Order #' + ordNumId} successfully.`);
+      setTimeout(() => setSuccessNotice(null), 5000);
       await Promise.all([
         loadOverviewData(),
         loadQueueData(),
@@ -3470,7 +3476,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       </p>
                     </div>
                     <button
-                      onClick={() => setIsMaterialReceiptModalOpen(true)}
+                      onClick={() => {
+                        const defaultOrd = orders[0] || assessmentQueue[0] || null;
+                        if (!selectedMaterialOrder && defaultOrd) {
+                          setSelectedMaterialOrder(defaultOrd);
+                        }
+                        setIsMaterialReceiptModalOpen(true);
+                      }}
                       className="px-4 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-md inline-flex items-center gap-2"
                     >
                       <Plus className="w-4 h-4" />
@@ -6178,9 +6190,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       )}
 
       {/* MODAL: LOG RAW MATERIAL RECEIPT */}
-      {isMaterialReceiptModalOpen && selectedMaterialOrder && (
+      {isMaterialReceiptModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md">
-          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn text-[#2C241D]">
+          <div className="bg-[#FAF7F2] rounded-[2.2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-fadeIn text-[#2C241D] max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
@@ -6189,9 +6201,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <div>
                   <h3 className="text-base font-black text-[#1A140E]">Log Raw Material Receipt</h3>
                   <p className="text-xs font-semibold text-[#7A6C5E]">
-                    Order <span className="font-mono text-[#48A63E]">
-                      {selectedMaterialOrder.request_id || `CUS-${(selectedMaterialOrder.custom_order_id || selectedMaterialOrder.numeric_id)?.toString().padStart(4, '0')}`}
-                    </span> • {selectedMaterialOrder.furniture_type || selectedMaterialOrder.title || 'Production Order'}
+                    {selectedMaterialOrder ? (
+                      <>
+                        Order <span className="font-mono text-[#48A63E]">
+                          {selectedMaterialOrder.request_id || `CUS-${(selectedMaterialOrder.custom_order_id || selectedMaterialOrder.numeric_id)?.toString().padStart(4, '0')}`}
+                        </span> • {selectedMaterialOrder.furniture_type || selectedMaterialOrder.title || 'Production Order'}
+                      </>
+                    ) : (
+                      'Log customer-owned materials delivered to workshop'
+                    )}
                   </p>
                 </div>
               </div>
@@ -6206,14 +6224,53 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </button>
             </div>
 
-            {/* Item Details Banner */}
-            <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
-              <div className="flex justify-between font-bold text-[#2C241D]">
-                <span>Material: {selectedMaterialOrder.material || 'Solid Wood / Fabric'}</span>
-                <span>Qty Req: 1 Unit</span>
-              </div>
-              <p className="text-[11px] text-[#7A6C5E] font-medium">Customer: {selectedMaterialOrder.customer_name || 'Valued Customer'}</p>
+            {/* Select Order / Request dropdown */}
+            <div>
+              <label className="block font-extrabold text-[#7A6C5E] text-xs mb-1.5">Associated Customer Order / Request *</label>
+              <select
+                value={
+                  selectedMaterialOrder
+                    ? `${selectedMaterialOrder.order_type || 'Custom'}-${selectedMaterialOrder.custom_order_id || selectedMaterialOrder.numeric_id}`
+                    : ''
+                }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (!val) {
+                    setSelectedMaterialOrder(null);
+                    return;
+                  }
+                  const [type, idStr] = val.split('-');
+                  const numId = Number(idStr);
+                  const foundQueue = assessmentQueue.find(q => (q.order_type === type || (type === 'Custom' && q.order_type === 'Customization')) && q.numeric_id === numId);
+                  const foundOrder = orders.find(o => o.custom_order_id === numId);
+                  setSelectedMaterialOrder(foundQueue || foundOrder || null);
+                }}
+                className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold focus:outline-none focus:border-[#48A63E] cursor-pointer"
+              >
+                <option value="">-- Choose Order / Fabrication Request --</option>
+                {assessmentQueue.map(q => (
+                  <option key={`${q.order_type}-${q.numeric_id}`} value={`${q.order_type === 'Customization' ? 'Custom' : q.order_type}-${q.numeric_id}`}>
+                    {q.request_id} • {q.title || q.furniture_type} ({q.customer_name})
+                  </option>
+                ))}
+                {orders.filter(o => !assessmentQueue.some(q => q.numeric_id === o.custom_order_id)).map(ord => (
+                  <option key={`Custom-${ord.custom_order_id}`} value={`Custom-${ord.custom_order_id}`}>
+                    CUS-{ord.custom_order_id.toString().padStart(4, '0')} • {ord.furniture_type} ({ord.customer_name})
+                  </option>
+                ))}
+              </select>
             </div>
+
+            {/* Item Details Banner */}
+            {selectedMaterialOrder && (
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-xs animate-fadeIn">
+                <div className="flex justify-between font-bold text-[#2C241D]">
+                  <span>Material: {selectedMaterialOrder.material || 'Solid Wood / Fabric'}</span>
+                  <span>Dimensions: {selectedMaterialOrder.dimensions || 'Standard'}</span>
+                </div>
+                <p className="text-[11px] text-[#7A6C5E] font-medium">Customer: {selectedMaterialOrder.customer_name || 'Valued Customer'}</p>
+              </div>
+            )}
 
             <form onSubmit={handleMaterialReceiptSubmit} className="space-y-3 text-xs font-semibold">
               <div>
