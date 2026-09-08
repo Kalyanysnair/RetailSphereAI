@@ -76,11 +76,13 @@ export interface AdminDashboardSummary {
 
 export interface RevenueAnalyticsData {
   period: string;
+  period_label?: string;
   total_revenue: number;
   order_count: number;
   average_order_value: number;
   paid_amount: number;
   refund_amount: number;
+  net_revenue?: number;
   chart_data: Array<{ date: string; amount: number; orderType: string }>;
 }
 

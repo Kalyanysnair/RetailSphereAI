@@ -2771,17 +2771,27 @@ export const AdminDashboardPage: React.FC = () => {
 
                       {/* Timeframe Selector Pills */}
                       <div className="flex items-center gap-1.5 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB]">
-                        {['today', '7days', '30days', 'this_month', 'this_year'].map((period) => (
+                        {[
+                          { key: 'today', label: 'Today' },
+                          { key: '7days', label: '7days' },
+                          { key: '30days', label: '30days' },
+                          { key: 'this_month', label: 'This Month' },
+                          { key: 'this_year', label: 'This Year' }
+                        ].map(({ key, label }) => (
                           <button
-                            key={period}
-                            onClick={() => setAnalyticsTimeframe(period)}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-extrabold capitalize transition-all cursor-pointer ${
-                              analyticsTimeframe === period
+                            key={key}
+                            onClick={async () => {
+                              setAnalyticsTimeframe(key);
+                              const rev = await fetchRevenueAnalyticsDB(key);
+                              if (rev) setRevenueAnalytics(rev);
+                            }}
+                            className={`px-3 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
+                              analyticsTimeframe === key
                                 ? 'bg-[#38A132] text-white shadow-xs'
                                 : 'text-[#7A6C5E] hover:text-[#2C241D]'
                             }`}
                           >
-                            {period.replace('_', ' ')}
+                            {label}
                           </button>
                         ))}
                       </div>
@@ -2789,23 +2799,55 @@ export const AdminDashboardPage: React.FC = () => {
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                       <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Today's Revenue</span>
-                        <div className="text-lg font-black text-[#38A132]">₹{(dashboardSummary?.revenue_metrics?.todays_revenue || 0).toLocaleString('en-IN')}</div>
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">
+                          {analyticsTimeframe === 'today' ? "Today's Revenue" :
+                           analyticsTimeframe === '7days' ? '7-Day Revenue' :
+                           analyticsTimeframe === '30days' ? '30-Day Revenue' :
+                           analyticsTimeframe === 'this_month' ? 'This Month Revenue' :
+                           analyticsTimeframe === 'this_year' ? 'This Year Revenue' : 'Period Revenue'}
+                        </span>
+                        <div className="text-lg font-black text-[#38A132]">
+                          ₹{(revenueAnalytics?.total_revenue ?? (analyticsTimeframe === 'today' ? dashboardSummary?.revenue_metrics?.todays_revenue : analyticsTimeframe === 'this_month' ? dashboardSummary?.revenue_metrics?.this_month_revenue : dashboardSummary?.revenue_metrics?.total_revenue) ?? 0).toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[9px] font-bold text-emerald-700 block">
+                          {revenueAnalytics?.order_count ?? 0} Paid Order{(revenueAnalytics?.order_count ?? 0) === 1 ? '' : 's'}
+                        </span>
                       </div>
 
                       <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">This Month Revenue</span>
-                        <div className="text-lg font-black text-[#2C241D]">₹{(dashboardSummary?.revenue_metrics?.this_month_revenue || 0).toLocaleString('en-IN')}</div>
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Net Realized Revenue</span>
+                        <div className="text-lg font-black text-[#2C241D]">
+                          ₹{((revenueAnalytics?.net_revenue ?? ((revenueAnalytics?.total_revenue ?? 0) - (revenueAnalytics?.refund_amount ?? 0))) || 0).toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[9px] font-bold text-[#7A6C5E] block">
+                          After processed refunds
+                        </span>
                       </div>
 
                       <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
                         <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Average Order Value</span>
-                        <div className="text-lg font-black text-purple-700">₹{(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}</div>
+                        <div className="text-lg font-black text-purple-700">
+                          ₹{(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[9px] font-bold text-purple-700 block">
+                          Per completed payment
+                        </span>
                       </div>
 
                       <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Refunds Total</span>
-                        <div className="text-lg font-black text-red-600">₹{(dashboardSummary?.revenue_metrics?.refunds_total_amount || 0).toLocaleString('en-IN')}</div>
+                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">
+                          {analyticsTimeframe === 'today' ? "Today's Refunds" :
+                           analyticsTimeframe === '7days' ? '7-Day Refunds' :
+                           analyticsTimeframe === '30days' ? '30-Day Refunds' :
+                           analyticsTimeframe === 'this_month' ? 'This Month Refunds' :
+                           analyticsTimeframe === 'this_year' ? 'This Year Refunds' : 'Period Refunds'}
+                        </span>
+                        <div className="text-lg font-black text-red-600">
+                          ₹{(revenueAnalytics?.refund_amount || 0).toLocaleString('en-IN')}
+                        </div>
+                        <span className="text-[9px] font-bold text-red-600 block">
+                          Approved returns
+                        </span>
                       </div>
                     </div>
                   </div>

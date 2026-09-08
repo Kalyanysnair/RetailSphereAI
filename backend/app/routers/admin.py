@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Union, List
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import string
 import secrets
 import random
@@ -1481,18 +1481,51 @@ def get_revenue_analytics(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
-    payments = db.query(models.Payment).filter(models.Payment.payment_status == "Paid").all()
+    now = datetime.utcnow()
     
-    total_paid_amount = sum(float(p.amount or 0) for p in payments)
-    paid_count = len(payments)
-    avg_order_val = total_paid_amount / paid_count if paid_count > 0 else 0.0
+    if period == "today":
+        period_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        period_label = "Today"
+    elif period == "7days":
+        period_start = now - timedelta(days=7)
+        period_label = "Last 7 Days"
+    elif period == "30days":
+        period_start = now - timedelta(days=30)
+        period_label = "Last 30 Days"
+    elif period == "this_month":
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        period_label = "This Month"
+    elif period == "this_year":
+        period_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        period_label = "This Year"
+    else:
+        period_start = now - timedelta(days=30)
+        period_label = "Last 30 Days"
 
-    returns_paid = db.query(models.OrderReturn).filter(models.OrderReturn.refund_status == "Refunded").all()
-    refund_amount = sum(float(r.refund_amount or 0) for r in returns_paid)
+    all_paid_payments = db.query(models.Payment).filter(models.Payment.payment_status == "Paid").all()
+    
+    # Filter payments for this specific period
+    period_payments = [
+        p for p in all_paid_payments 
+        if p.payment_date and p.payment_date >= period_start
+    ]
+    
+    period_total_revenue = sum(float(p.amount or 0) for p in period_payments)
+    period_paid_count = len(period_payments)
+    avg_order_val = period_total_revenue / period_paid_count if period_paid_count > 0 else 0.0
+
+    all_returns_paid = db.query(models.OrderReturn).filter(models.OrderReturn.refund_status == "Refunded").all()
+    period_returns = [
+        r for r in all_returns_paid
+        if r.return_date and r.return_date >= period_start
+    ]
+    period_refund_amount = sum(float(r.refund_amount or 0) for r in period_returns)
+    net_revenue = period_total_revenue - period_refund_amount
 
     # Time series breakdown
     revenue_chart = []
-    for p in sorted(payments, key=lambda x: x.payment_date or datetime.min)[-10:]:
+    sorted_period_payments = sorted(period_payments, key=lambda x: x.payment_date or datetime.min)
+    for p in sorted_period_payments:
         revenue_chart.append({
             "date": p.payment_date.strftime("%d %b") if p.payment_date else "Recent",
             "amount": float(p.amount or 0),
@@ -1501,11 +1534,13 @@ def get_revenue_analytics(
 
     return {
         "period": period,
-        "total_revenue": total_paid_amount,
-        "order_count": paid_count,
+        "period_label": period_label,
+        "total_revenue": period_total_revenue,
+        "order_count": period_paid_count,
         "average_order_value": round(avg_order_val, 2),
-        "paid_amount": total_paid_amount,
-        "refund_amount": refund_amount,
+        "paid_amount": period_total_revenue,
+        "refund_amount": period_refund_amount,
+        "net_revenue": net_revenue,
         "chart_data": revenue_chart
     }
 
