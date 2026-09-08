@@ -1060,13 +1060,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         current_password: currentPassword,
         new_password: newPassword
       });
-      setPasswordNotice({ type: 'success', text: 'Password updated successfully in database!' });
+      setPasswordNotice({ type: 'success', text: 'Password updated successfully!' });
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => setPasswordNotice(null), 5000);
     } catch (err: any) {
-      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password in database.' });
+      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password.' });
     }
   };
 
@@ -1869,11 +1869,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Review Retail Staff-approved customer requests, evaluate technical feasibility, estimate manufacturing costs, and publish official customer quotations.'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Track stage-by-stage build progression and assign technicians based on required stage skills.'}
                   {activeTab === 'workers' && 'Manage workshop craftsmen, specializations, availability, and active build task loads.'}
-                  {(activeTab === 'materials' || activeTab === 'raw_materials') && 'Manage raw timber/fabric inventory and log customer-supplied materials.'}
+                  {(activeTab === 'materials' || activeTab === 'raw_materials') && 'Manage raw timber, fabrics, finishes, and hardware inventory.'}
                   {activeTab === 'quality' && 'Inspect completed builds against specifications, approve for fulfillment, or assign rework jobs.'}
                   {activeTab === 'completed' && 'View completed custom furniture builds and initiate handover to Retail Staff fulfillment.'}
                   {activeTab === 'onsite' && 'Technical coordination and scheduling for on-site services.'}
-                  {activeTab === 'reports' && 'PostgreSQL-calculated manufacturing metrics, pass rates, and worker utilization.'}
+                  {activeTab === 'reports' && 'Manufacturing metrics, pass rates, and worker utilization.'}
                   {activeTab === 'machines' && 'Monitor workshop machinery equipment status, maintenance, and allocation.'}
                   {activeTab === 'ai_insights' && 'AI-driven manufacturing recommendations, material estimation, and shop floor optimization.'}
                   {activeTab === 'queries' && 'Submit email change requests or system queries directly to system Admin.'}
@@ -2183,7 +2183,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
                       <div>
                         <h3 className="text-sm font-black text-[#2C241D]">Active Manufacturing Overview</h3>
-                        <p className="text-[11px] text-[#7A6C5E] font-medium">Real PostgreSQL production pipeline status.</p>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Live production pipeline status.</p>
                       </div>
                       <button
                         onClick={() => setActiveTab('active_production')}
@@ -3101,7 +3101,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     </div>
                     <div className="text-2xl font-black text-[#2C241D]">{reportsData?.summary?.total_customizations ?? orders.length} Orders</div>
                     <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
-                      PostgreSQL Logged Orders
+                      Live Logged Orders
                     </span>
                   </div>
 

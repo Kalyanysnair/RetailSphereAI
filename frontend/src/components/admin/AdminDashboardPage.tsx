@@ -270,10 +270,10 @@ export const AdminDashboardPage: React.FC = () => {
     setIsExportingExcel(true);
     try {
       await exportDatabaseExcel();
-      setSuccessBanner('PostgreSQL database export (.xlsx) generated successfully!');
+      setSuccessBanner('System data export (.xlsx) generated successfully!');
       setTimeout(() => setSuccessBanner(null), 5000);
     } catch (err: any) {
-      setStaffFormError(err.message || 'Failed to generate Excel database export.');
+      setStaffFormError(err.message || 'Failed to generate Excel export.');
       setTimeout(() => setStaffFormError(null), 5000);
     } finally {
       setIsExportingExcel(false);
@@ -1370,7 +1370,7 @@ export const AdminDashboardPage: React.FC = () => {
             <div class="kpi-card">
               <div class="kpi-label">Gross Revenue</div>
               <div class="kpi-val">₹${realGrossRevenue.toLocaleString('en-IN')}</div>
-              <div class="kpi-sub">PostgreSQL Synced</div>
+              <div class="kpi-sub">Live Synced</div>
             </div>
             <div class="kpi-card">
               <div class="kpi-label">Total Orders</div>
@@ -1984,7 +1984,7 @@ export const AdminDashboardPage: React.FC = () => {
         target_user_email: targetEmail || undefined
       });
 
-      setSuccessBanner(`Coupon "${code}" created and saved to database successfully!`);
+      setSuccessBanner(`Coupon "${code}" created successfully!`);
       await refreshCoupons();
       setNewCouponCode('');
       setNewCouponDesc('');
@@ -1999,7 +1999,7 @@ export const AdminDashboardPage: React.FC = () => {
     try {
       await deleteCouponApi(id);
       await refreshCoupons();
-      setSuccessBanner(`Coupon "${code}" removed from database!`);
+      setSuccessBanner(`Coupon "${code}" deactivated successfully!`);
     } catch (err: any) {
       alert(err.message || 'Failed to remove coupon.');
     }
@@ -2066,7 +2066,7 @@ export const AdminDashboardPage: React.FC = () => {
       setSuccessBanner('Admin profile & security credentials updated successfully!');
       setTimeout(() => setSuccessBanner(null), 5000);
     } catch (err: any) {
-      setPasswordError(err.message || 'Failed to update profile credentials in database.');
+      setPasswordError(err.message || 'Failed to update profile credentials.');
     }
   };
 
@@ -2515,7 +2515,7 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'broadcast' && 'Admin Directives & Official Announcements'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                    {activeTab === 'overview' && 'Complete real-time business visibility, sales performance, production bottlenecks, and operational status calculated live from PostgreSQL.'}
+                    {activeTab === 'overview' && 'Complete real-time business visibility, sales performance, production bottlenecks, and operational status.'}
                     {activeTab === 'analytics' && 'Track overall store revenue, order volume, category sales share, and custom build performance across RetailSphere AI.'}
                     {activeTab === 'users' && 'View, search, edit, activate, or deactivate registered customer accounts across RetailSphere AI.'}
                     {activeTab === 'staff' && 'Create and manage Retail Staff, Production Staff, and Artisan Worker accounts.'}
@@ -2569,15 +2569,15 @@ export const AdminDashboardPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Export DB Excel Button */}
+                  {/* Export Excel Button */}
                   <button
                     onClick={handleExportDatabaseExcel}
                     disabled={isExportingExcel}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                    title="Export all PostgreSQL database tables and actual records to an Excel (.xlsx) workbook for inspection"
+                    title="Export system records to an Excel (.xlsx) spreadsheet"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>{isExportingExcel ? 'Exporting...' : 'Export DB (.xlsx)'}</span>
+                    <span>{isExportingExcel ? 'Exporting...' : 'Export Data (.xlsx)'}</span>
                   </button>
 
                   {/* Notification Bell Dropdown */}
@@ -2714,7 +2714,7 @@ export const AdminDashboardPage: React.FC = () => {
                         ₹{(dashboardSummary?.revenue_metrics?.total_revenue || 0).toLocaleString('en-IN')}
                       </div>
                       <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
-                        PostgreSQL Paid Payments
+                        Verified Payments
                       </span>
                     </div>
 
@@ -2766,7 +2766,7 @@ export const AdminDashboardPage: React.FC = () => {
                           <DollarSign className="w-4 h-4 text-[#38A132]" />
                           <span>Revenue & Financial Performance Overview</span>
                         </h4>
-                        <p className="text-[11px] text-[#7A6C5E] font-medium">Calculated strictly from paid PostgreSQL transactions. Excludes cart values and unpaid quotes.</p>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Calculated strictly from verified completed payments. Excludes cart values and unpaid quotes.</p>
                       </div>
 
                       {/* Timeframe Selector Pills */}
@@ -5247,7 +5247,7 @@ export const AdminDashboardPage: React.FC = () => {
                       <span>System-Wide Chronological Audit Log</span>
                     </h2>
                     <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
-                      Real-time activity audit trail capturing user actions, orders, inventory updates, and dispatches directly from PostgreSQL.
+                      Real-time activity audit trail capturing user actions, orders, inventory updates, and dispatches.
                     </p>
                   </div>
                   <button
