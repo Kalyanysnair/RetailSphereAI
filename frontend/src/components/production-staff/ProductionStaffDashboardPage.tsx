@@ -102,6 +102,8 @@ import {
   fetchQueriesFromDB,
   createStaffQueryInDB,
   fetchNotificationsFromDB,
+  markNotificationReadInDB,
+  markAllNotificationsReadInDB,
   updateUserProfile
 } from '../../services/api';
 import { StaffQuery, addStaffQuery } from '../../utils/staffQueriesStorage';
@@ -1901,37 +1903,51 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </button>
 
                   {isNotificationsOpen && (
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-3 z-[100] animate-fadeIn space-y-2">
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-3 z-[100] animate-fadeIn space-y-2">
                       <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
                         <span className="font-extrabold text-xs text-[#2C241D]">System Notifications</span>
                         {unreadNotifCount > 0 && (
                           <button
-                            onClick={() => setNotifications(prev => prev.map(n => ({ ...n, unread: false })))}
-                            className="text-[10px] font-bold text-[#48A63E] hover:underline"
+                            onClick={async () => {
+                              setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+                              await markAllNotificationsReadInDB();
+                            }}
+                            className="text-[10px] font-bold text-[#48A63E] hover:underline cursor-pointer"
                           >
                             Mark all read
                           </button>
                         )}
                       </div>
 
-                      <div className="space-y-1.5 max-h-60 overflow-y-auto text-xs">
-                        {notifications.length === 0 ? (
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto text-xs">
+                        {notifications.filter(n => n.unread).length === 0 ? (
                           <div className="p-4 text-center text-[#8C7C6D]">
-                            <p className="text-xs font-extrabold">No new notifications</p>
-                            <p className="text-[10px] text-[#A09080]">System notifications from PostgreSQL will appear here</p>
+                            <CheckCircle2 className="w-6 h-6 text-[#48A63E] mx-auto opacity-70 mb-1" />
+                            <p className="text-xs font-extrabold text-[#2C241D]">No new notifications</p>
+                            <p className="text-[10px] text-[#A09080]">You are all caught up!</p>
                           </div>
                         ) : (
-                          notifications.map(n => (
+                          notifications.filter(n => n.unread).map(n => (
                             <div
                               key={n.id}
-                              className={`p-2.5 rounded-xl border transition-colors ${n.unread ? 'bg-[#F3EDE5] border-[#48A63E]/40 font-bold' : 'bg-[#FAF7F2] border-[#E2D7CB] text-[#6B5C4D]'
-                                }`}
+                              className="p-2.5 rounded-xl border border-[#48A63E]/40 bg-[#F3EDE5] font-bold transition-all space-y-1 relative"
                             >
                               <div className="flex items-center justify-between text-[11px] mb-0.5">
-                                <span className="font-extrabold text-[#2C241D]">{n.title}</span>
-                                <span className="text-[10px] text-[#8C7C6D]">{n.time}</span>
+                                <span className="font-extrabold text-[#2C241D] pr-2">{n.title}</span>
+                                <span className="text-[10px] text-[#8C7C6D] flex-shrink-0">{n.time}</span>
                               </div>
-                              <p className="text-[11px] text-[#5C4E42] leading-snug">{n.message}</p>
+                              <p className="text-[11px] text-[#5C4E42] leading-snug font-normal">{n.message}</p>
+                              <div className="pt-1 flex items-center justify-end">
+                                <button
+                                  onClick={async () => {
+                                    setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, unread: false } : item));
+                                    await markNotificationReadInDB(n.notification_id || n.id);
+                                  }}
+                                  className="text-[10px] font-extrabold text-[#48A63E] hover:text-[#387A46] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Check className="w-3 h-3" /> Mark as read
+                                </button>
+                              </div>
                             </div>
                           ))
                         )}

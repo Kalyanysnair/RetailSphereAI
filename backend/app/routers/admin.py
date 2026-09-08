@@ -780,12 +780,29 @@ def get_user_notifications(db: Session = Depends(get_db)):
     for n in notifs:
         res.append({
             "id": f"notif-{n.notification_id}",
+            "notification_id": n.notification_id,
             "title": n.title,
             "message": n.message,
             "time": n.created_at.strftime("%Y-%m-%d %H:%M") if n.created_at else "",
             "unread": not n.is_read
         })
     return res
+
+@router.put("/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: int, db: Session = Depends(get_db)):
+    notif = db.query(models.Notification).filter(models.Notification.notification_id == notification_id).first()
+    if notif:
+        notif.is_read = True
+        db.commit()
+        return {"status": "success", "message": f"Notification {notification_id} marked as read"}
+    return {"status": "not_found", "message": "Notification not found"}
+
+@router.put("/notifications/mark-all-read")
+def mark_all_notifications_read(db: Session = Depends(get_db)):
+    db.query(models.Notification).filter(models.Notification.is_read == False).update({models.Notification.is_read: True})
+    db.commit()
+    return {"status": "success", "message": "All notifications marked as read"}
+
 
 
 class SupplierCreateRequest(BaseModel):

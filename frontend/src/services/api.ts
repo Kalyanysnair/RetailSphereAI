@@ -492,6 +492,31 @@ export async function fetchNotificationsFromDB(): Promise<any[]> {
   return [];
 }
 
+export async function markNotificationReadInDB(notificationId: number | string): Promise<boolean> {
+  try {
+    const numericId = typeof notificationId === 'string' ? notificationId.replace('notif-', '') : notificationId;
+    const response = await fetch(`${BASE_URL}/admin/notifications/${numericId}/read`, {
+      method: 'PUT',
+    });
+    return response.ok;
+  } catch (err) {
+    console.warn('API error marking notification read in DB:', err);
+    return false;
+  }
+}
+
+export async function markAllNotificationsReadInDB(): Promise<boolean> {
+  try {
+    const response = await fetch(`${BASE_URL}/admin/notifications/mark-all-read`, {
+      method: 'PUT',
+    });
+    return response.ok;
+  } catch (err) {
+    console.warn('API error marking all notifications read in DB:', err);
+    return false;
+  }
+}
+
 export async function fetchSuppliersFromDB(): Promise<any[]> {
   try {
     const response = await fetch(`${BASE_URL}/admin/suppliers`);
