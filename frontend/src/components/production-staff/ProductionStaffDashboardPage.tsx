@@ -3437,14 +3437,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                   <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
                     <div className="flex items-center justify-between text-[#8C8275]">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Customer-Supplied Stock</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Finishes & Adhesives</span>
                       <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
                     </div>
                     <div className="text-2xl font-black text-[#2C241D]">
-                      {materialLogs.length} Verified Log{materialLogs.length === 1 ? '' : 's'}
+                      340 Liters
                     </div>
                     <span className="text-[10px] font-bold text-[#15803D] bg-[#E6F4EA] px-2 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
-                      Client Timber & Fabrics
+                      Polish, Primer & Lacquer
                     </span>
                   </div>
 
@@ -3462,76 +3462,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                 {/* Raw Manufacturing Materials Stock Grid */}
                 <RawMaterialsTab />
-
-                {/* Customer-Supplied Material Stock Logs & Verification Table */}
-                <div className="ultra-glass-card rounded-3xl p-6 shadow-xl border border-[#E2D7CB] bg-white/80 space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
-                    <div>
-                      <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
-                        <PackageCheck className="w-5 h-5 text-amber-700" />
-                        <span>Customer-Supplied Material Stock Logs & Receipt Verification</span>
-                      </h3>
-                      <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
-                        Logged customer-supplied raw materials (wood timber, custom fabrics, brass fittings) with initial condition, photos, and verification.
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const defaultOrd = orders[0] || assessmentQueue[0] || null;
-                        if (!selectedMaterialOrder && defaultOrd) {
-                          setSelectedMaterialOrder(defaultOrd);
-                        }
-                        setIsMaterialReceiptModalOpen(true);
-                      }}
-                      className="px-4 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl transition-all cursor-pointer shadow-md inline-flex items-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Log Customer Material Receipt</span>
-                    </button>
-                  </div>
-
-                  {materialLogs.length === 0 ? (
-                    <div className="p-8 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl space-y-1.5">
-                      <p className="font-extrabold text-sm text-[#2C241D]">No Customer Material Receipts Logged Yet</p>
-                      <p className="text-[11px] text-[#7A6C5E] max-w-md mx-auto">
-                        Log customer-supplied materials (wood timber, custom fabrics, brass fittings) with condition inspection, photos, and receipt verification.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse text-xs">
-                        <thead>
-                          <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
-                            <th className="py-3 px-4 rounded-l-xl">Log Receipt #</th>
-                            <th className="py-3 px-4">Client Name</th>
-                            <th className="py-3 px-4">Order ID</th>
-                            <th className="py-3 px-4">Material Details</th>
-                            <th className="py-3 px-4">Quantity / Condition</th>
-                            <th className="py-3 px-4">Verification Status</th>
-                            <th className="py-3 px-4 rounded-r-xl text-right">Receipt Date</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#EFE7DE]">
-                          {materialLogs.map((log: any, idx: number) => (
-                            <tr key={idx} className="hover:bg-[#F5ECE1]/40 transition-colors">
-                              <td className="py-3.5 px-4 font-mono font-extrabold text-[#38A132]">{log.log_receipt_id}</td>
-                              <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">{log.client_name}</td>
-                              <td className="py-3.5 px-4 font-mono text-xs font-bold text-amber-800">{log.order_id}</td>
-                              <td className="py-3.5 px-4 font-medium text-[#4A3E32]">{log.material_details}</td>
-                              <td className="py-3.5 px-4 font-bold text-[#2C241D]">{log.quantity_condition}</td>
-                              <td className="py-3.5 px-4">
-                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  {log.status}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 text-right font-mono text-[11px] text-[#7A6C5E]">{log.receipt_date}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
               </div>
             )}
 
