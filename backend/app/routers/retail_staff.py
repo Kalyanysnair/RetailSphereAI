@@ -21,119 +21,124 @@ def notify_user(db: Session, user_id: int, title: str, message: str):
 
 
 # 1. GET /api/retail-staff/dashboard/summary
+# 1. GET /api/retail-staff/dashboard/summary
 @router.get("/dashboard/summary")
 def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
-    # Ready-made orders counts
+    # 1. Ready-made orders counts
     all_readymade = db.query(models.ReadymadeOrder).all()
     to_pack = 0
     ready_to_dispatch = 0
     out_for_delivery = 0
-    new_orders = 0
+    new_orders = len(all_readymade)  # Total Ready-made Purchases in DB
 
     for o in all_readymade:
         st = (o.order_status or "").strip().lower()
-        if st in ["order placed", "payment confirmed", "order confirmed", "pending"]:
-            new_orders += 1
+        if st in ["order placed", "payment confirmed", "order confirmed", "pending", "paid", "paid & placed", "processing"]:
             to_pack += 1
-        elif st == "processing":
-            to_pack += 1
-        elif st == "packed":
+        elif st in ["packed", "ready to dispatch", "ready_to_dispatch"]:
             ready_to_dispatch += 1
-        elif st in ["out for delivery", "out_for_delivery"]:
+        elif st in ["dispatched", "out for delivery", "out_for_delivery", "in transit", "shipped"]:
             out_for_delivery += 1
 
-    # Return requests count
+    # Return requests count from DB
     returns_count = db.query(models.OrderReturn).count()
 
-    # Request Inbox counts
+    # 2. Request Inbox counts from DB
     customizations_query = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
-    new_customizations = customizations_query.filter(
-        or_(
-            models.CustomOrder.review_status == "NEW",
-            models.CustomOrder.review_status == "UNDER_REVIEW",
-            models.CustomOrder.review_status.is_(None)
-        )
-    ).count()
+    new_customizations = customizations_query.count()
 
     fabrication_query = db.query(models.FabricationRequest)
-    new_fabrications = fabrication_query.filter(
-        or_(
-            models.FabricationRequest.review_status == "NEW",
-            models.FabricationRequest.review_status == "UNDER_REVIEW",
-            models.FabricationRequest.review_status.is_(None)
-        )
-    ).count()
+    new_fabrications = fabrication_query.count()
 
     services_query = db.query(models.ServiceRequest)
-    new_services = services_query.filter(
-        or_(
-            models.ServiceRequest.review_status == "NEW",
-            models.ServiceRequest.review_status == "UNDER_REVIEW",
-            models.ServiceRequest.review_status.is_(None)
-        )
-    ).count()
+    new_services = services_query.count()
 
-    pending_reviews = new_customizations + new_fabrications + new_services
+    # Count items needing initial review or active coordination
+    pending_reviews = (
+        customizations_query.filter(or_(models.CustomOrder.review_status.in_(["NEW", "UNDER_REVIEW"]), models.CustomOrder.review_status.is_(None))).count() +
+        fabrication_query.filter(or_(models.FabricationRequest.review_status.in_(["NEW", "UNDER_REVIEW"]), models.FabricationRequest.review_status.is_(None))).count() +
+        services_query.filter(or_(models.ServiceRequest.review_status.in_(["NEW", "UNDER_REVIEW"]), models.ServiceRequest.review_status.is_(None))).count()
+    )
+    if pending_reviews == 0 and (new_customizations + new_fabrications + new_services) > 0:
+        pending_reviews = new_customizations + new_fabrications + new_services
 
-    # Priority Items
+    # 3. Priority Action Items (Real DB Items needing staff attention)
     priority_items = []
     
-    # Check urgent customizations
-    high_customs = customizations_query.filter(
-        or_(
-            models.CustomOrder.priority.in_(["HIGH", "URGENT"]),
-            models.CustomOrder.review_status == "MORE_INFO_REQUESTED"
-        )
-    ).limit(5).all()
-    for c in high_customs:
-        priority_items.append({
-            "id": f"CUS-{c.custom_order_id:04d}",
-            "type": "Customization",
-            "customer_name": c.customer.user.full_name if c.customer and c.customer.user else "Customer",
-            "title": f"Custom {c.furniture_type}",
-            "status": c.review_status or "NEW",
-            "priority": c.priority or "NORMAL",
-            "action": "Needs Review" if c.review_status in ["NEW", "UNDER_REVIEW", None] else "Awaiting Customer Info"
-        })
-
-    # Check urgent fabrications
-    high_fabs = fabrication_query.filter(
-        or_(
-            models.FabricationRequest.priority.in_(["HIGH", "URGENT"]),
-            models.FabricationRequest.review_status == "MORE_INFO_REQUESTED"
-        )
-    ).limit(5).all()
-    for f in high_fabs:
-        priority_items.append({
-            "id": f"FAB-{f.fabrication_id:04d}",
-            "type": "Fabrication",
-            "customer_name": f.customer.user.full_name if f.customer and f.customer.user else "Customer",
-            "title": f"{f.service_type} ({f.dimensions})",
-            "status": f.review_status or "NEW",
-            "priority": f.priority or "NORMAL",
-            "action": "Needs Technical Review"
-        })
-
-    # Check urgent readymade orders to pack
-    urgent_orders = [o for o in all_readymade if (o.order_status or "").lower() in ["order placed", "processing", "pending", "paid", "paid & placed"]]
-    for o in urgent_orders:
+    # Priority Ready-made Orders (Packed or To Pack)
+    for o in all_readymade:
+        st = (o.order_status or "").strip()
+        st_lower = st.lower()
         cust_name = o.customer_name
         if not cust_name and o.customer_id:
             c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
             if c and c.user:
                 cust_name = c.user.full_name
+
+        if st_lower in ["packed", "ready to dispatch"]:
+            priority_items.append({
+                "id": f"RET-{o.order_id:06d}",
+                "type": "Retail Order",
+                "customer_name": cust_name or "Valued Customer",
+                "title": f"Store Order #{o.order_id}",
+                "status": "Packed & Ready",
+                "priority": "HIGH",
+                "action": "Assign Dispatch Courier"
+            })
+        elif st_lower in ["order placed", "paid", "paid & placed", "processing"]:
+            priority_items.append({
+                "id": f"RET-{o.order_id:06d}",
+                "type": "Retail Order",
+                "customer_name": cust_name or "Valued Customer",
+                "title": f"Store Order #{o.order_id}",
+                "status": o.order_status or "Order Placed",
+                "priority": "HIGH",
+                "action": "Complete 5-pt Packing"
+            })
+
+    # Priority Customizations
+    for c in customizations_query.limit(4).all():
+        cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
         priority_items.append({
-            "id": f"RET-{o.order_id:06d}",
-            "type": "Retail Order",
-            "customer_name": cust_name or "Valued Customer",
-            "title": f"Store Order #{o.order_id}",
-            "status": o.order_status or "Order Placed",
-            "priority": "HIGH",
-            "action": "Ready for Packing"
+            "id": f"CUS-{c.custom_order_id:04d}",
+            "type": "Customization",
+            "customer_name": cust_name,
+            "title": f"Custom {c.furniture_type}",
+            "status": c.order_status or c.review_status or "NEW",
+            "priority": c.priority or "NORMAL",
+            "action": "Review Specs & Pricing" if c.review_status in ["NEW", "UNDER_REVIEW", None] else "Staff Coordination"
         })
 
-    # Recent Activity (Live log from real customer order events)
+    # Priority Fabrications
+    for f in fabrication_query.limit(4).all():
+        cust_name = f.customer.user.full_name if f.customer and f.customer.user else "Customer"
+        priority_items.append({
+            "id": f"FAB-{f.fabrication_id:04d}",
+            "type": "Fabrication",
+            "customer_name": cust_name,
+            "title": f"{f.service_type} ({f.dimensions})",
+            "status": f.status or f.review_status or "NEW",
+            "priority": f.priority or "NORMAL",
+            "action": "Technical Sizing & Quote"
+        })
+
+    # Priority Services
+    for s in services_query.limit(4).all():
+        cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
+        priority_items.append({
+            "id": f"SRV-{s.service_id:04d}",
+            "type": "On-Site Service",
+            "customer_name": cust_name,
+            "title": f"{s.service_category} ({s.city})",
+            "status": s.status or s.review_status or "NEW",
+            "priority": s.priority or "NORMAL",
+            "action": "Coordinate Carpenter Visit"
+        })
+
+    # 4. Recent Activity (Live log from all real customer operations in DB)
     recent_activity = []
+    
+    # Store Orders
     latest_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_date.desc()).all()
     for o in latest_orders:
         cust_n = o.customer_name
@@ -147,6 +152,7 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "category": "Retail Order"
         })
 
+    # Custom Orders
     latest_customs = db.query(models.CustomOrder).order_by(models.CustomOrder.order_date.desc()).all()
     for c in latest_customs:
         cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
@@ -155,6 +161,29 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "text": f"Customization request CUS-{c.custom_order_id:04d} ({c.furniture_type}) submitted by {cust_name}",
             "category": "Customization"
         })
+
+    # Fabrication Requests
+    latest_fabs = db.query(models.FabricationRequest).order_by(models.FabricationRequest.created_at.desc()).all()
+    for f in latest_fabs:
+        cust_name = f.customer.user.full_name if f.customer and f.customer.user else "Customer"
+        recent_activity.append({
+            "time": f.created_at.isoformat() if f.created_at else None,
+            "text": f"Wood fabrication request FAB-{f.fabrication_id:04d} ({f.service_type}) submitted by {cust_name}",
+            "category": "Fabrication"
+        })
+
+    # Service Requests
+    latest_srvs = db.query(models.ServiceRequest).order_by(models.ServiceRequest.created_at.desc()).all()
+    for s in latest_srvs:
+        cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
+        recent_activity.append({
+            "time": s.created_at.isoformat() if s.created_at else None,
+            "text": f"On-site service booking SRV-{s.service_id:04d} ({s.service_category}) submitted by {cust_name}",
+            "category": "On-Site Service"
+        })
+
+    # Sort recent activity by timestamp descending
+    recent_activity.sort(key=lambda x: x["time"] or "", reverse=True)
 
     return {
         "today": {
@@ -171,7 +200,7 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "new_onsite_requests": new_services
         },
         "priority_items": priority_items,
-        "recent_activity": recent_activity
+        "recent_activity": recent_activity[:15]
     }
 
 
