@@ -315,7 +315,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   };
 
   // New & Edit Customization Order Inline Form State
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(true);
   const [editingOrderId, setEditingOrderId] = useState<number | null>(null);
   const [modalStep, setModalStep] = useState<1 | 2 | 3>(1);
   const [submittingOrder, setSubmittingOrder] = useState(false);
@@ -450,11 +450,13 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
       } else {
         setUserOrders([]);
         setSelectedOrderId(null);
+        setIsFormOpen(true);
       }
     } catch (err) {
       console.error('Error loading custom order tracking:', err);
       setUserOrders([]);
       setSelectedOrderId(null);
+      setIsFormOpen(true);
     } finally {
       setLoading(false);
     }
@@ -1328,14 +1330,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                 {/* Stepper Navigation Action Buttons */}
                 <div className="space-y-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleCloseAndRedirectToShop}
-                    className="w-full py-2.5 bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] text-[#5C4E42] hover:text-[#1C1814] text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
-                  >
-                    Save for Later
-                  </button>
-
                   {modalStep < 3 ? (
                     <button
                       type="button"
@@ -1362,81 +1356,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
         </div>
       )}
 
-      {/* EMPTY STATE & BESPOKE STUDIO HERO (When user has no active custom requests) */}
-      {userOrders.length === 0 && !isFormOpen && (
-        <div className="relative bg-gradient-to-br from-[#FAF8F5] via-[#F6F1EA] to-[#EEE8DF] border-2 border-[#D6C9B9] rounded-[2.2rem] p-8 sm:p-12 shadow-xl overflow-hidden text-[#2C241D]">
-          {/* Subtle decorative background elements */}
-          <div className="absolute top-0 right-0 w-96 h-96 bg-[#48A63E]/5 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-80 h-80 bg-[#B89768]/10 rounded-full blur-2xl pointer-events-none" />
-
-          <div className="relative z-10 max-w-3xl mx-auto text-center space-y-6">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#E1EAD6] border border-[#A6C495] text-[#2D6338] text-xs font-black shadow-xs">
-              <Sparkles className="w-3.5 h-3.5 text-[#48A63E]" />
-              <span>Artisan Craftsmanship & Tailored Living</span>
-            </div>
-
-            <h2 className="font-serif italic text-3xl sm:text-4xl text-[#9C7A4B] font-normal tracking-wide">
-              Bespoke Custom Furniture Studio
-            </h2>
-
-            <p className="text-sm text-[#6B5C4D] leading-relaxed max-w-xl mx-auto font-medium">
-              You currently have no active custom furniture requests. Commission a one-of-a-kind handcrafted piece tailored precisely to your floorplan, timber preferences, fabrics, and artisan finishes.
-            </p>
-
-            {/* 3 Luxury Value Props */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-left pt-2 pb-2">
-              <div className="bg-white/80 backdrop-blur-sm border border-[#E2D7CB] rounded-2xl p-4.5 space-y-2 shadow-xs hover:shadow-md transition-shadow">
-                <div className="w-9 h-9 rounded-xl bg-[#48A63E]/15 border border-[#48A63E]/30 flex items-center justify-center text-[#48A63E]">
-                  <Ruler className="w-4.5 h-4.5" />
-                </div>
-                <h4 className="text-xs font-black text-[#2C241D]">Exact Dimensions</h4>
-                <p className="text-[11px] text-[#6E6458] leading-normal font-medium">
-                  Custom length, depth, and layout specifications designed for your sanctuary.
-                </p>
-              </div>
-
-              <div className="bg-white/80 backdrop-blur-sm border border-[#E2D7CB] rounded-2xl p-4.5 space-y-2 shadow-xs hover:shadow-md transition-shadow">
-                <div className="w-9 h-9 rounded-xl bg-[#9C7A4B]/15 border border-[#9C7A4B]/30 flex items-center justify-center text-[#9C7A4B]">
-                  <Palette className="w-4.5 h-4.5" />
-                </div>
-                <h4 className="text-xs font-black text-[#2C241D]">Master Timbers & Fabrics</h4>
-                <p className="text-[11px] text-[#6E6458] leading-normal font-medium">
-                  Choose from Solid Teak, Rosewood, Walnut, Cream Bouclé, Velvet, or Custom Hues.
-                </p>
-              </div>
-
-              <div className="bg-white/80 backdrop-blur-sm border border-[#E2D7CB] rounded-2xl p-4.5 space-y-2 shadow-xs hover:shadow-md transition-shadow">
-                <div className="w-9 h-9 rounded-xl bg-[#38A132]/15 border border-[#38A132]/30 flex items-center justify-center text-[#38A132]">
-                  <Layers className="w-4.5 h-4.5" />
-                </div>
-                <h4 className="text-xs font-black text-[#2C241D]">Live Workshop Tracking</h4>
-                <p className="text-[11px] text-[#6E6458] leading-normal font-medium">
-                  Follow 5-stage workshop milestones, artisan remarks, and photo progress in real-time.
-                </p>
-              </div>
-            </div>
-
-            {/* CTA Button */}
-            <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-3">
-              <button
-                onClick={() => {
-                  setEditingOrderId(null);
-                  setIsFormOpen(true);
-                  setModalStep(1);
-                  setTimeout(() => {
-                    const el = document.getElementById('custom-order-form');
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                  }, 100);
-                }}
-                className="w-full sm:w-auto py-3.5 px-8 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-black flex items-center justify-center gap-2.5 shadow-lg shadow-[#38A132]/25 hover:shadow-xl transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Start Custom Furniture Request</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* SINGLE UNIFIED GLASS CARD CONTAINER FOR TRACKER (Rendered when user has active custom orders) */}
       {userOrders.length > 0 && activeOrder && (

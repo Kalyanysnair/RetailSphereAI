@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Palette, ArrowUpRight, Check } from 'lucide-react';
 
@@ -19,7 +19,30 @@ interface FabricOption {
 export const CustomizationSection: React.FC = () => {
   const navigate = useNavigate();
 
-  const isLoggedIn = Boolean(typeof localStorage !== 'undefined' && localStorage.getItem('access_token'));
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    return Boolean(
+      typeof localStorage !== 'undefined' &&
+      localStorage.getItem('access_token') &&
+      localStorage.getItem('user')
+    );
+  });
+
+  useEffect(() => {
+    const checkSession = () => {
+      const hasToken = Boolean(localStorage.getItem('access_token'));
+      const hasUser = Boolean(localStorage.getItem('user'));
+      setIsLoggedIn(hasToken && hasUser);
+    };
+    checkSession();
+    window.addEventListener('storage', checkSession);
+    window.addEventListener('user-logged-in', checkSession);
+    window.addEventListener('user-logout', checkSession);
+    return () => {
+      window.removeEventListener('storage', checkSession);
+      window.removeEventListener('user-logged-in', checkSession);
+      window.removeEventListener('user-logout', checkSession);
+    };
+  }, []);
 
   const woodFinishes: WoodOption[] = [
     { id: 'walnut', name: 'American Walnut', color: '#4A3B32', priceAddon: 450 },
@@ -39,10 +62,12 @@ export const CustomizationSection: React.FC = () => {
   const [selectedFabric, setSelectedFabric] = useState<FabricOption>(fabrics[0]);
 
   const handleLaunchStudio = () => {
-    if (isLoggedIn) {
-      navigate('/dashboard');
+    const hasToken = localStorage.getItem('access_token');
+    const hasUser = localStorage.getItem('user');
+    if (hasToken && hasUser) {
+      navigate('/dashboard#custom-order-form');
     } else {
-      navigate('/login');
+      navigate('/login?redirect=/dashboard#custom-order-form');
     }
   };
 

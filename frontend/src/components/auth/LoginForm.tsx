@@ -80,6 +80,9 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
       const isWorker = roleName === 'Worker' || usernameClean.includes('worker');
       const isProductionStaff = roleName === 'Production Staff' || usernameClean.includes('production');
 
+      const searchParams = new URLSearchParams(location.search);
+      const redirectUrl = searchParams.get('redirect');
+
       if (isAdmin) {
         navigate('/admin');
       } else if (isRetailStaff) {
@@ -88,6 +91,8 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
         navigate('/worker');
       } else if (isProductionStaff) {
         navigate('/production-staff');
+      } else if (redirectUrl && redirectUrl.startsWith('/')) {
+        navigate(redirectUrl);
       } else {
         navigate('/dashboard');
       }

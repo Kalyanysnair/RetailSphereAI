@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 
 export const FabricationShowcaseSection: React.FC = () => {
   return (
-    <section id="fabrication" className="scroll-mt-24 space-y-8">
+    <section id="fabrication" className="scroll-mt-24 space-y-8 relative">
+      <div id="fabricate" className="absolute -top-24 left-0" />
       {/* Header Badge & Title */}
       <div className="text-center space-y-3 max-w-3xl mx-auto">
         <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#48A63E]/10 border border-[#48A63E]/30 text-[#48A63E] text-xs font-mono font-bold uppercase tracking-wider">
@@ -68,7 +69,7 @@ export const FabricationShowcaseSection: React.FC = () => {
           <p className="text-xs text-[#D9CEBF] mt-1">Submit your specifications or drawings to get an instant fabrication quote.</p>
         </div>
         <Link
-          to="/signup"
+          to="/login?redirect=/dashboard"
           className="px-6 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
         >
           <span>Request Fabrication</span>

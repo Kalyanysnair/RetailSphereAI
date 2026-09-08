@@ -442,7 +442,7 @@ export const MyActivityTab: React.FC = () => {
     addToCart({
       id: `fab_${f.fabrication_id}`,
       name: `Fabrication: ${f.service_type} (#${f.fabrication_id})`,
-      material: `${f.material_source} (${f.dimensions}) - Qty: ${f.quantity}`,
+      material: `${f.material_source} (${f.dimensions})`,
       price: Number(f.estimated_price),
       imageUrl: f.drawing_image || 'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=500&q=80'
     });

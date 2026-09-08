@@ -266,14 +266,21 @@ export const CategorySection: React.FC = () => {
   });
 
   return (
-    <section id="categories" className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <section id="shop" className="scroll-mt-24 py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto relative">
+      {/* Anchor targets for both shop and categories */}
+      <div id="categories" className="absolute -top-24 left-0" />
+      <div id="readymade" className="absolute -top-24 left-0" />
+
       {/* Section Header */}
       <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#38A132]/15 border border-[#38A132]/30 text-[#38A132] text-[11px] font-extrabold uppercase tracking-wider">
+          READY-MADE FURNITURE CATALOG
+        </span>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight">
-          Explore Spatial Collections
+          Explore Ready-Made & Spatial Collections
         </h2>
         <p className="text-xs sm:text-sm text-[#524538] font-bold">
-          Handcrafted furniture pieces designed for comfort, longevity, and modern spatial harmony.
+          Ready-to-ship handcrafted furniture pieces designed for comfort, longevity, and modern spatial harmony.
         </p>
       </div>
 

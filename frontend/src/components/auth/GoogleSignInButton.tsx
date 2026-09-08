@@ -40,8 +40,13 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         window.dispatchEvent(new Event('storage'));
       }
 
+      const searchParams = new URLSearchParams(window.location.search);
+      const redirectUrl = searchParams.get('redirect');
+
       if (onSuccess) {
         onSuccess();
+      } else if (redirectUrl && redirectUrl.startsWith('/')) {
+        navigate(redirectUrl);
       } else {
         navigate('/dashboard');
       }
@@ -75,8 +80,13 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         window.dispatchEvent(new Event('storage'));
       }
 
+      const searchParams = new URLSearchParams(window.location.search);
+      const redirectUrl = searchParams.get('redirect');
+
       if (onSuccess) {
         onSuccess();
+      } else if (redirectUrl && redirectUrl.startsWith('/')) {
+        navigate(redirectUrl);
       } else {
         navigate('/dashboard');
       }

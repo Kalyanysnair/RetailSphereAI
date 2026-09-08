@@ -67,7 +67,19 @@ const renderSpecBadges = (materialStr?: string) => {
 
   parts.forEach((part) => {
     const uppercase = part.toUpperCase();
-    if (uppercase.includes('ASPECTS') || uppercase.includes('REQUIREMENTS') || uppercase.includes('NONE') || uppercase === 'CUSTOM') return;
+    if (
+      uppercase.includes('ASPECTS') ||
+      uppercase.includes('REQUIREMENTS') ||
+      uppercase.includes('NONE') ||
+      uppercase === 'CUSTOM' ||
+      uppercase.includes('QTY') ||
+      uppercase.includes('QUANTITY') ||
+      uppercase.includes('PRECISION') ||
+      uppercase.includes('SANDING') ||
+      uppercase.includes('TRIMMING') ||
+      uppercase.includes('REQUIRED') ||
+      part.length > 35
+    ) return;
 
     let label = '';
     let textVal = part;
@@ -79,15 +91,14 @@ const renderSpecBadges = (materialStr?: string) => {
       textVal = part.trim();
     }
 
-    if (textVal && textVal.length < 60 && !badges.some(b => b.text.toLowerCase() === textVal.toLowerCase())) {
+    if (textVal && textVal.length < 40 && !badges.some(b => b.text.toLowerCase() === textVal.toLowerCase())) {
       let icon = '✨';
       const upperVal = (label + ' ' + textVal).toUpperCase();
       if (upperVal.includes('STEEL') || upperVal.includes('METAL') || upperVal.includes('IRON') || upperVal.includes('BRASS') || upperVal.includes('ALUMINUM')) icon = '🔩';
       else if (upperVal.includes('TEAK') || upperVal.includes('WOOD') || upperVal.includes('TIMBER') || upperVal.includes('OAK') || upperVal.includes('WALNUT') || upperVal.includes('PLY') || upperVal.includes('MDF') || upperVal.includes('SHEET') || upperVal.includes('LUMBER')) icon = '🪵';
       else if (upperVal.includes('UPHOLSTERY') || upperVal.includes('FABRIC') || upperVal.includes('LEATHER') || upperVal.includes('COTTON') || upperVal.includes('VELVET') || upperVal.includes('LINEN')) icon = '🛋️';
       else if (upperVal.includes('COLOR') || upperVal.includes('FINISH') || upperVal.includes('GREEN') || upperVal.includes('BLACK') || upperVal.includes('WHITE') || upperVal.includes('BROWN') || upperVal.includes('POLISH') || upperVal.includes('GOLD')) icon = '🎨';
-      else if (upperVal.includes('CM') || upperVal.includes('INCH') || upperVal.includes('MM') || upperVal.includes('SPECS') || upperVal.includes('DIMENSIONS') || upperVal.includes('X') || upperVal.includes('SIZE')) icon = '📐';
-      else if (upperVal.includes('QTY') || upperVal.includes('QUANTITY') || upperVal.includes('UNIT') || upperVal.includes('PIECE')) icon = '🔢';
+      else if (/\b(CM|INCH|INCHES|MM|FT|FEET|SPECS|DIMENSIONS|SIZE)\b/i.test(upperVal) || /\d+\s*[xX*]\s*\d+/.test(upperVal)) icon = '📐';
       else if (upperVal.includes('ROAD') || upperVal.includes('STREET') || upperVal.includes('NAGAR') || upperVal.includes('JUNCTION') || upperVal.includes('APTS') || upperVal.includes('HOUSE') || upperVal.includes('KOTTAYAM') || upperVal.includes('ERNAKULAM') || upperVal.includes('KOCHI')) icon = '📍';
       else if (upperVal.includes('202') || upperVal.includes('DATE') || upperVal.includes('APPOINTMENT') || upperVal.includes('MORNING') || upperVal.includes('AFTERNOON') || upperVal.includes('EVENING')) icon = '📅';
 

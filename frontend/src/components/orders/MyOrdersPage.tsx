@@ -365,7 +365,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
       price: fab.estimated_price || 0,
       quantity: fab.quantity || 1,
       imageUrl: fab.drawing_image || 'https://images.unsplash.com/photo-1540555700478-4be289fbecef?auto=format&fit=crop&w=600&q=80',
-      material: `Wood: ${fab.material_source} • Specs: ${fab.dimensions} • Qty: ${fab.quantity}${fab.requirements ? ` • ${fab.requirements}` : ''}`,
+      material: `Wood: ${fab.material_source} • Specs: ${fab.dimensions}`,
       category: 'Fabrication Service'
     });
     navigate('/cart');
@@ -708,6 +708,48 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
 
   const totalItemsCount = filteredOrders.length + filteredFabrications.length + filteredServices.length + filteredMaterials.length;
 
+  const parseToTimestamp = (val: any, fallbackId?: number): number => {
+    if (typeof val === 'number' && val > 1000000000) return val;
+    if (typeof val === 'string' && val.trim()) {
+      const t = new Date(val).getTime();
+      if (!isNaN(t) && t > 1000000000) return t;
+    }
+    if (fallbackId && fallbackId > 0) return fallbackId * 1000;
+    return 0;
+  };
+
+  type UnifiedItem =
+    | { kind: 'order'; data: OrderData; timestamp: number }
+    | { kind: 'fabrication'; data: FabricationItem; timestamp: number }
+    | { kind: 'service'; data: ServiceItem; timestamp: number }
+    | { kind: 'material'; data: MaterialItem; timestamp: number };
+
+  const unifiedItems: UnifiedItem[] = [
+    ...filteredOrders.map((o) => ({
+      kind: 'order' as const,
+      data: o,
+      timestamp: parseToTimestamp(o.sortTimestamp || o.date, o.numericId),
+    })),
+    ...filteredFabrications.map((f) => ({
+      kind: 'fabrication' as const,
+      data: f,
+      timestamp: parseToTimestamp(f.created_at, f.fabrication_id),
+    })),
+    ...filteredServices.map((s) => ({
+      kind: 'service' as const,
+      data: s,
+      timestamp: parseToTimestamp(s.created_at, s.service_id),
+    })),
+    ...filteredMaterials.map((m) => ({
+      kind: 'material' as const,
+      data: m,
+      timestamp: parseToTimestamp(m.created_at, m.material_id),
+    })),
+  ];
+
+  // Sort descending: most recent / last requested items at the top
+  unifiedItems.sort((a, b) => b.timestamp - a.timestamp);
+
   const renderSpecBadges = (specs: string) => {
     if (!specs) return null;
     const parts = specs.split('•').map((s) => s.trim()).filter(Boolean);
@@ -947,702 +989,719 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                   </div>
                 )}
 
-                {/* Quick Items List - Fully Expanded */}
+                {/* Quick Items List - Fully Expanded in Unified Chronological Order */}
                 <div className="space-y-2">
-                  {/* Retail & Custom Orders */}
-                  {filteredOrders
-                    .filter((ord) => {
+                  {unifiedItems
+                    .filter((item) => {
                       if (!glanceQuery.trim()) return true;
                       const q = glanceQuery.toLowerCase();
-                      const matchId = String(ord.orderId).toLowerCase().includes(q);
-                      const matchItem = ord.items.some((i) => i.name.toLowerCase().includes(q));
-                      return matchId || matchItem;
+                      if (item.kind === 'order') {
+                        const matchId = String(item.data.orderId).toLowerCase().includes(q);
+                        const matchItem = item.data.items.some((i) => i.name.toLowerCase().includes(q));
+                        return matchId || matchItem;
+                      }
+                      if (item.kind === 'fabrication') {
+                        return String(item.data.fabrication_id).includes(q) || (item.data.service_type || '').toLowerCase().includes(q);
+                      }
+                      if (item.kind === 'service') {
+                        return String(item.data.service_id).includes(q) || (item.data.service_category || '').toLowerCase().includes(q) || (item.data.address || '').toLowerCase().includes(q);
+                      }
+                      if (item.kind === 'material') {
+                        return String(item.data.material_id).includes(q) || (item.data.material_type || '').toLowerCase().includes(q) || (item.data.wood_type || '').toLowerCase().includes(q);
+                      }
+                      return true;
                     })
-                    .map((ord) => {
-                      const firstItem = ord.items[0];
-                      return (
-                        <div
-                          key={ord.orderId}
-                          onClick={() => scrollToOrder(ord.orderId)}
-                          className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-[#B89768] hover:shadow-2xs group space-y-1.5"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-mono font-bold text-[#2C241D] bg-[#E8DFC8] px-2 py-0.5 rounded-md border border-[#C8BCAC]">
-                              Order #{ord.orderId}
-                            </span>
-                            <span className="text-[9px] font-extrabold text-[#2D6338] bg-[#E8F5E9] px-2 py-0.5 rounded-full border border-[#A6C495] truncate max-w-[100px]">
-                              {formatStatusLabel(ord.status)}
-                            </span>
-                          </div>
+                    .map((item) => {
+                      if (item.kind === 'order') {
+                        const ord = item.data;
+                        const firstItem = ord.items[0];
+                        return (
+                          <div
+                            key={`glance-ord-${ord.orderId}`}
+                            onClick={() => scrollToOrder(ord.orderId)}
+                            className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-[#B89768] hover:shadow-2xs group space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono font-bold text-[#2C241D] bg-[#E8DFC8] px-2 py-0.5 rounded-md border border-[#C8BCAC]">
+                                Order #{ord.orderId}
+                              </span>
+                              <span className="text-[9px] font-extrabold text-[#2D6338] bg-[#E8F5E9] px-2 py-0.5 rounded-full border border-[#A6C495] truncate max-w-[100px]">
+                                {formatStatusLabel(ord.status)}
+                              </span>
+                            </div>
 
-                          <div className="flex items-center gap-2.5">
-                            {firstItem?.image ? (
-                              <img src={firstItem.image} alt={firstItem.name} className="w-9 h-9 rounded-lg object-cover border border-[#D6C9B9] shrink-0" />
-                            ) : (
-                              <div className="w-9 h-9 rounded-lg bg-[#E8DFC8] border border-[#D6C9B9] flex items-center justify-center shrink-0">
-                                <Package className="w-3.5 h-3.5 text-[#5C4E42]" />
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-[#48A63E] transition-colors truncate">
-                                {firstItem?.name || 'Furniture Item'}
-                              </h4>
-                              {ord.items.length > 1 && (
-                                <p className="text-[9px] font-semibold text-[#7A6C5E]">
-                                  + {ord.items.length - 1} more item(s)
-                                </p>
+                            <div className="flex items-center gap-2.5">
+                              {firstItem?.image ? (
+                                <img src={firstItem.image} alt={firstItem.name} className="w-9 h-9 rounded-lg object-cover border border-[#D6C9B9] shrink-0" />
+                              ) : (
+                                <div className="w-9 h-9 rounded-lg bg-[#E8DFC8] border border-[#D6C9B9] flex items-center justify-center shrink-0">
+                                  <Package className="w-3.5 h-3.5 text-[#5C4E42]" />
+                                </div>
                               )}
-                              <div className="text-[10px] font-extrabold text-[#48A63E] mt-0.5">
-                                ₹{ord.totalPrice.toLocaleString('en-IN')}
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-[#48A63E] transition-colors truncate">
+                                  {firstItem?.name || 'Furniture Item'}
+                                </h4>
+                                {ord.items.length > 1 && (
+                                  <p className="text-[9px] font-semibold text-[#7A6C5E]">
+                                    + {ord.items.length - 1} more item(s)
+                                  </p>
+                                )}
+                                <div className="text-[10px] font-extrabold text-[#48A63E] mt-0.5">
+                                  ₹{ord.totalPrice.toLocaleString('en-IN')}
+                                </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      );
+                        );
+                      }
+                      if (item.kind === 'fabrication') {
+                        const f = item.data;
+                        return (
+                          <div
+                            key={`glance-fab-${f.fabrication_id}`}
+                            onClick={() => scrollToOrder(`FAB-${f.fabrication_id}`)}
+                            className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-amber-500 hover:shadow-2xs group space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300">
+                                #FAB-{String(f.fabrication_id).padStart(4, '0')}
+                              </span>
+                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border truncate max-w-[100px] ${
+                                f.payment_status === 'Paid' ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]' : getStatusBadgeColor(f.status)
+                              }`}>
+                                {f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-300 flex items-center justify-center shrink-0 text-amber-800">
+                                <Scissors className="w-4 h-4 text-amber-700" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-amber-800 transition-colors truncate">
+                                  {f.service_type || 'Wood Sizing'}
+                                </h4>
+                                <div className="text-[10px] font-extrabold text-amber-700 mt-0.5">
+                                  {f.estimated_price ? `₹${f.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (item.kind === 'service') {
+                        const s = item.data;
+                        return (
+                          <div
+                            key={`glance-srv-${s.service_id}`}
+                            onClick={() => scrollToOrder(`SRV-${s.service_id}`)}
+                            className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-blue-500 hover:shadow-2xs group space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono font-bold text-blue-900 bg-blue-100/90 px-2 py-0.5 rounded-md border border-blue-300">
+                                #SRV-{String(s.service_id).padStart(4, '0')}
+                              </span>
+                              <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border truncate max-w-[100px] ${
+                                s.payment_status === 'Paid' ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]' : getStatusBadgeColor(s.status)
+                              }`}>
+                                {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                              <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-300 flex items-center justify-center shrink-0 text-blue-800">
+                                <Wrench className="w-4 h-4 text-blue-700" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-blue-800 transition-colors truncate">
+                                  {s.service_category || 'Skilled Service'}
+                                </h4>
+                                <div className="text-[10px] font-extrabold text-blue-700 mt-0.5">
+                                  {s.estimated_price ? `₹${s.estimated_price.toLocaleString('en-IN')}` : 'Visit Scheduled'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (item.kind === 'material') {
+                        const m = item.data;
+                        return (
+                          <div
+                            key={`glance-mat-${m.material_id}`}
+                            onClick={() => scrollToOrder(`MAT-${m.material_id}`)}
+                            className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-[#48A63E] hover:shadow-2xs group space-y-1.5"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[10px] font-mono font-bold text-[#4A3E32] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
+                                #MAT-{m.material_id}
+                              </span>
+                              <span className="text-[9px] font-bold text-[#48A63E] bg-[#E8F5E9] px-2 py-0.5 rounded-full">
+                                {m.status}
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-bold text-[#1C1814] truncate">
+                              🪵 {m.material_type} ({m.wood_type || 'Timber'})
+                            </div>
+                          </div>
+                        );
+                      }
+                      return null;
                     })}
-
-                  {/* Fabrication Requests */}
-                  {filteredFabrications
-                    .filter((f) => {
-                      if (!glanceQuery.trim()) return true;
-                      const q = glanceQuery.toLowerCase();
-                      return String(f.fabrication_id).includes(q) || (f.service_type || '').toLowerCase().includes(q);
-                    })
-                    .map((f) => (
-                      <div
-                        key={`glance-fab-${f.fabrication_id}`}
-                        onClick={() => scrollToOrder(`FAB-${f.fabrication_id}`)}
-                        className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-amber-500 hover:shadow-2xs group space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-mono font-bold text-amber-900 bg-amber-100/90 px-2 py-0.5 rounded-md border border-amber-300">
-                            #FAB-{String(f.fabrication_id).padStart(4, '0')}
-                          </span>
-                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border truncate max-w-[100px] ${
-                            f.payment_status === 'Paid' ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]' : getStatusBadgeColor(f.status)
-                          }`}>
-                            {f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-300 flex items-center justify-center shrink-0 text-amber-800">
-                            <Scissors className="w-4 h-4 text-amber-700" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-amber-800 transition-colors truncate">
-                              {f.service_type || 'Wood Sizing'}
-                            </h4>
-                            <div className="text-[10px] font-extrabold text-amber-700 mt-0.5">
-                              {f.estimated_price ? `₹${f.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                  {/* Service Appointments */}
-                  {filteredServices
-                    .filter((s) => {
-                      if (!glanceQuery.trim()) return true;
-                      const q = glanceQuery.toLowerCase();
-                      return String(s.service_id).includes(q) || (s.service_category || '').toLowerCase().includes(q) || (s.address || '').toLowerCase().includes(q);
-                    })
-                    .map((s) => (
-                      <div
-                        key={`glance-srv-${s.service_id}`}
-                        onClick={() => scrollToOrder(`SRV-${s.service_id}`)}
-                        className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-blue-500 hover:shadow-2xs group space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-[10px] font-mono font-bold text-blue-900 bg-blue-100/90 px-2 py-0.5 rounded-md border border-blue-300">
-                            #SRV-{String(s.service_id).padStart(4, '0')}
-                          </span>
-                          <span className={`text-[9px] font-extrabold px-2 py-0.5 rounded-full border truncate max-w-[100px] ${
-                            s.payment_status === 'Paid' ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]' : getStatusBadgeColor(s.status)
-                          }`}>
-                            {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-300 flex items-center justify-center shrink-0 text-blue-800">
-                            <Wrench className="w-4 h-4 text-blue-700" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h4 className="text-[11px] font-bold text-[#1C1814] group-hover:text-blue-800 transition-colors truncate">
-                              {s.service_category || 'Skilled Service'}
-                            </h4>
-                            <div className="text-[10px] font-extrabold text-blue-700 mt-0.5">
-                              {s.estimated_price ? `₹${s.estimated_price.toLocaleString('en-IN')}` : 'Visit Scheduled'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-
-                  {/* Materials */}
-                  {filteredMaterials.map((m) => (
-                    <div
-                      key={`glance-mat-${m.material_id}`}
-                      onClick={() => scrollToOrder(`MAT-${m.material_id}`)}
-                      className="p-2.5 bg-[#FAF7F2] hover:bg-white rounded-xl border border-[#D6C9B9] cursor-pointer transition-all hover:border-[#48A63E] hover:shadow-2xs group space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px] font-mono font-bold text-[#4A3E32] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
-                          #MAT-{m.material_id}
-                        </span>
-                        <span className="text-[9px] font-bold text-[#48A63E] bg-[#E8F5E9] px-2 py-0.5 rounded-full">
-                          {m.status}
-                        </span>
-                      </div>
-                      <div className="text-[11px] font-bold text-[#1C1814] truncate">
-                        🪵 {m.material_type} ({m.wood_type || 'Timber'})
-                      </div>
-                    </div>
-                  ))}
                 </div>
               </div>
 
-              {/* RIGHT COLUMN: Main Detailed Order Cards List (8 cols) */}
+              {/* RIGHT COLUMN: Main Detailed Cards List (8 cols) - Unified Chronological Order */}
               <div className="lg:col-span-8 space-y-4">
-                {filteredOrders.map((order) => {
-                  const isEditable = order.status === 'Pending' || order.status === 'Pending Approval';
-                  const firstItem = order.items[0];
+                {unifiedItems.map((item) => {
+                  if (item.kind === 'order') {
+                    const order = item.data;
+                    const isEditable = order.status === 'Pending' || order.status === 'Pending Approval';
+                    const firstItem = order.items[0];
 
-                  return (
-                    <div
-                      id={`order-card-${order.orderId}`}
-                      key={order.orderId}
-                      className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
-                    >
-                      {/* TOP ROW: Order Info & Status / Action Buttons */}
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-                        <div className="flex items-center gap-3 flex-wrap">
-                          <span className="text-xs font-mono font-bold text-[#1C1814] bg-[#FAF7F2] px-3 py-1 rounded-xl border border-[#D6C9B9]">
-                            Order #{order.orderId}
-                          </span>
-                          <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
-                            <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
-                          </span>
-                        </div>
-
-                        {/* Status Badges & Quick Actions Cluster */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {order.status === 'Cancelled' ? (
-                            <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 text-[11px] font-extrabold flex items-center gap-1">
-                              Status: Cancelled
+                    return (
+                      <div
+                        id={`order-card-${order.orderId}`}
+                        key={order.orderId}
+                        className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
+                      >
+                        {/* TOP ROW: Order Info & Status / Action Buttons */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-mono font-bold text-[#1C1814] bg-[#FAF7F2] px-3 py-1 rounded-xl border border-[#D6C9B9]">
+                              Order #{order.orderId}
                             </span>
-                          ) : (order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') ? (
-                            <span className="px-3 py-1 rounded-full bg-[#E8F5E9] text-[#2D6338] border border-[#A6C495] text-[11px] font-extrabold flex items-center gap-1.5">
-                              <CheckCircle2 className="w-3.5 h-3.5 text-[#48A63E]" />
-                              Status: Paid & Placed
+                            <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(order.date)}
                             </span>
-                          ) : (
-                            <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${getStatusBadgeColor(order.status)}`}>
-                              Status: {formatStatusLabel(order.status)}
-                            </span>
-                          )}
+                          </div>
 
-                          {/* Download Receipt Button */}
-                          {(order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') && (
-                            <button
-                              onClick={() => {
-                                const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-                                const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
-                                const ordObj: CustomOrderData = {
-                                  custom_order_id: order.numericId,
-                                  customer_id: 1,
-                                  customer_name: 'Valued Customer',
-                                  customer_email: '',
-                                  customer_phone: '',
-                                  furniture_type: firstItem?.name || 'Artisan Furniture',
-                                  material: firstItem?.specifications || 'Premium Build',
-                                  dimensions: 'Standard Specs',
-                                  color: 'Custom Finish',
-                                  estimated_price: order.totalPrice,
-                                  order_status: 'Paid',
-                                  payment_status: 'Paid',
-                                  order_date: order.date || new Date().toISOString(),
-                                  assigned_workers: [],
-                                  current_stage: 'Paid',
-                                  progress_percentage: 100,
-                                  originalSubtotal: calculatedSubtotal,
-                                  couponCode: order.couponCode || (calculatedDiscount > 0 ? 'PROMO APPLIED' : undefined),
-                                  discountType: order.discountType || (calculatedDiscount > 0 ? 'Discount Deducted' : undefined),
-                                  discountDeducted: calculatedDiscount,
-                                  shippingFee: order.shippingFee || 0
-                                };
-                                downloadPaymentReceipt(ordObj);
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                              title="Download official paid invoice receipt"
-                            >
-                              <Download className="w-3.5 h-3.5 text-white" />
-                              <span>Receipt</span>
-                            </button>
-                          )}
-
-                          {/* Track Delivery Button */}
-                          <button
-                            onClick={() => handleOpenTrackingModal(order)}
-                            className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                            title="Track delivery status timeline"
-                          >
-                            <Truck className="w-3.5 h-3.5 text-[#48A63E]" />
-                            <span>Track Delivery</span>
-                          </button>
-
-                          {/* Order Messaging Button */}
-                          <button
-                            onClick={() => handleOpenMessagingModal(order)}
-                            className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#D6C9B9] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                            title="Message workshop staff regarding this order"
-                          >
-                            <MessageSquare className="w-3.5 h-3.5 text-[#48A63E]" />
-                            <span>Message Staff</span>
-                          </button>
-
-                          {/* Customer Rate & Review Button for Completed / Delivered Orders */}
-                          {(order.status === 'Completed' || order.status === 'Delivered') && (
-                            <button
-                              onClick={() => {
-                                setFeedbackModalOrder(order);
-                                const existingRating = submittedRatings[order.orderId];
-                                if (existingRating) {
-                                  setRating(existingRating.rating || 5);
-                                  setFeedbackText(existingRating.feedbackText || '');
-                                } else {
-                                  setRating(5);
-                                  setFeedbackText('');
-                                }
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                              title="Rate & add review feedback for this completed order"
-                            >
-                              <Star className="w-3.5 h-3.5 fill-white text-white" />
-                              <span>{order.feedbackGiven || submittedRatings[order.orderId] ? `Rated ${order.rating || submittedRatings[order.orderId]?.rating}/5` : 'Rate & Review'}</span>
-                            </button>
-                          )}
-
-                          {/* Cancel Button */}
-                          {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
-                            <button
-                              onClick={() => setCancelModalOrder({ id: order.isCustomBuild ? order.numericId : order.orderId, isCustom: !!order.isCustomBuild })}
-                              className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
-                              title="Cancel Order"
-                            >
-                              <X className="w-3.5 h-3.5 text-rose-600" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* MAIN CONTENT ROW: Product Items List vs Payment Breakdown Box */}
-                      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-                        {/* Left Column: Product Items & Rating Summary (Lg: 8 cols) */}
-                        <div className="lg:col-span-8 space-y-2.5">
-                          {/* Customer Rating Card - Displays ONLY in Customer Dashboard */}
-                          {(order.feedbackGiven || order.rating || submittedRatings[order.orderId]) && (
-                            <div className="bg-[#FFFDF9] border border-amber-200 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-2xs">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <div className="flex text-amber-400">
-                                  {[1, 2, 3, 4, 5].map((star) => (
-                                    <Star
-                                      key={star}
-                                      className={`w-4 h-4 ${
-                                        star <= (order.rating || submittedRatings[order.orderId]?.rating || 5)
-                                          ? 'fill-amber-400 text-amber-400'
-                                          : 'text-amber-200'
-                                      }`}
-                                    />
-                                  ))}
-                                </div>
-                                <span className="font-extrabold text-[#2C241D]">
-                                  {order.rating || submittedRatings[order.orderId]?.rating || 5} / 5 Rating
-                                </span>
-                                {(order.feedbackText || submittedRatings[order.orderId]?.feedbackText) && (
-                                  <span className="text-[#6E6458] font-medium italic text-[11px]">
-                                    &ldquo;{order.feedbackText || submittedRatings[order.orderId]?.feedbackText}&rdquo;
-                                  </span>
-                                )}
-                              </div>
-                              <span className="text-[10px] text-amber-800 font-extrabold bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-200/80 shrink-0">
-                                Your Customer Rating
+                          {/* Status Badges & Quick Actions Cluster */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {order.status === 'Cancelled' ? (
+                              <span className="px-3 py-1 rounded-full bg-rose-50 text-rose-800 border border-rose-300 text-[11px] font-extrabold flex items-center gap-1">
+                                Status: Cancelled
                               </span>
-                            </div>
-                          )}
-                          {order.items.map((item, idx) => (
-                            <div key={item.id || idx} className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3 rounded-xl border border-[#EFE7DE]">
-                              {item.image && item.image.trim() !== '' ? (
-                                <img
-                                  src={item.image}
-                                  alt={item.name}
-                                  className="w-14 h-14 rounded-lg object-cover border border-[#E2D7CB] shrink-0"
-                                  onError={(e) => {
-                                    (e.target as HTMLElement).style.display = 'none';
-                                  }}
-                                />
-                              ) : (
-                                <div className="w-14 h-14 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] shrink-0 flex items-center justify-center font-bold text-[#48A63E]">
-                                  <FileText className="w-5 h-5 text-[#48A63E]" />
-                                </div>
-                              )}
+                            ) : (order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') ? (
+                              <span className="px-3 py-1 rounded-full bg-[#E8F5E9] text-[#2D6338] border border-[#A6C495] text-[11px] font-extrabold flex items-center gap-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-[#48A63E]" />
+                                Status: Paid & Placed
+                              </span>
+                            ) : (
+                              <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${getStatusBadgeColor(order.status)}`}>
+                                Status: {formatStatusLabel(order.status)}
+                              </span>
+                            )}
 
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <div className="flex items-center justify-between gap-2 flex-wrap">
-                                  <h4 className="text-xs font-bold text-[#1C1814] truncate">
-                                    {item.name}
-                                  </h4>
-                                  <span className="text-xs font-black text-[#48A63E]">
-                                    ₹{((item.price || order.totalPrice) * (item.quantity || 1)).toLocaleString('en-IN')}
-                                  </span>
-                                </div>
+                            {/* Download Receipt Button */}
+                            {(order.status === 'Paid' || order.status === 'Order Placed' || order.status === 'In Production' || order.status === 'Completed' || order.status === 'Delivered') && (
+                              <button
+                                onClick={() => {
+                                  const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                                  const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
+                                  const ordObj: CustomOrderData = {
+                                    custom_order_id: order.numericId,
+                                    customer_id: 1,
+                                    customer_name: 'Valued Customer',
+                                    customer_email: '',
+                                    customer_phone: '',
+                                    furniture_type: firstItem?.name || 'Artisan Furniture',
+                                    material: firstItem?.specifications || 'Premium Build',
+                                    dimensions: 'Standard Specs',
+                                    color: 'Custom Finish',
+                                    estimated_price: order.totalPrice,
+                                    order_status: 'Paid',
+                                    payment_status: 'Paid',
+                                    order_date: order.date || new Date().toISOString(),
+                                    assigned_workers: [],
+                                    current_stage: 'Paid',
+                                    progress_percentage: 100,
+                                    originalSubtotal: calculatedSubtotal,
+                                    couponCode: order.couponCode || (calculatedDiscount > 0 ? 'PROMO APPLIED' : undefined),
+                                    discountType: order.discountType || (calculatedDiscount > 0 ? 'Discount Deducted' : undefined),
+                                    discountDeducted: calculatedDiscount,
+                                    shippingFee: order.shippingFee || 0
+                                  };
+                                  downloadPaymentReceipt(ordObj);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                title="Download official paid invoice receipt"
+                              >
+                                <Download className="w-3.5 h-3.5 text-white" />
+                                <span>Receipt</span>
+                              </button>
+                            )}
 
-                                {item.specifications ? (
-                                  <div className="pt-0.5">
-                                    {renderSpecBadges(item.specifications)}
+                            {/* Track Delivery Button */}
+                            <button
+                              onClick={() => handleOpenTrackingModal(order)}
+                              className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                              title="Track delivery status timeline"
+                            >
+                              <Truck className="w-3.5 h-3.5 text-[#48A63E]" />
+                              <span>Track Delivery</span>
+                            </button>
+
+                            {/* Order Messaging Button */}
+                            <button
+                              onClick={() => handleOpenMessagingModal(order)}
+                              className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] border border-[#D6C9B9] hover:bg-[#F4ECE1] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                              title="Message workshop staff regarding this order"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-[#48A63E]" />
+                              <span>Message Staff</span>
+                            </button>
+
+                            {/* Customer Rate & Review Button for Completed / Delivered Orders */}
+                            {(order.status === 'Completed' || order.status === 'Delivered') && (
+                              <button
+                                onClick={() => {
+                                  setFeedbackModalOrder(order);
+                                  const existingRating = submittedRatings[order.orderId];
+                                  if (existingRating) {
+                                    setRating(existingRating.rating || 5);
+                                    setFeedbackText(existingRating.feedbackText || '');
+                                  } else {
+                                    setRating(5);
+                                    setFeedbackText('');
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                title="Rate & add review feedback for this completed order"
+                              >
+                                <Star className="w-3.5 h-3.5 fill-white text-white" />
+                                <span>{order.feedbackGiven || submittedRatings[order.orderId] ? `Rated ${order.rating || submittedRatings[order.orderId]?.rating}/5` : 'Rate & Review'}</span>
+                              </button>
+                            )}
+
+                            {/* Cancel Button */}
+                            {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
+                              <button
+                                onClick={() => setCancelModalOrder({ id: order.isCustomBuild ? order.numericId : order.orderId, isCustom: !!order.isCustomBuild })}
+                                className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
+                                title="Cancel Order"
+                              >
+                                <X className="w-3.5 h-3.5 text-rose-600" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* MAIN CONTENT ROW: Product Items List vs Payment Breakdown Box */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                          {/* Left Column: Product Items & Rating Summary (Lg: 8 cols) */}
+                          <div className="lg:col-span-8 space-y-2.5">
+                            {/* Customer Rating Card - Displays ONLY in Customer Dashboard */}
+                            {(order.feedbackGiven || order.rating || submittedRatings[order.orderId]) && (
+                              <div className="bg-[#FFFDF9] border border-amber-200 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-2xs">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <div className="flex text-amber-400">
+                                    {[1, 2, 3, 4, 5].map((star) => (
+                                      <Star
+                                        key={star}
+                                        className={`w-4 h-4 ${
+                                          star <= (order.rating || submittedRatings[order.orderId]?.rating || 5)
+                                            ? 'fill-amber-400 text-amber-400'
+                                            : 'text-amber-200'
+                                        }`}
+                                      />
+                                    ))}
                                   </div>
+                                  <span className="font-extrabold text-[#2C241D]">
+                                    {order.rating || submittedRatings[order.orderId]?.rating || 5} / 5 Rating
+                                  </span>
+                                  {(order.feedbackText || submittedRatings[order.orderId]?.feedbackText) && (
+                                    <span className="text-[#6E6458] font-medium italic text-[11px]">
+                                      &ldquo;{order.feedbackText || submittedRatings[order.orderId]?.feedbackText}&rdquo;
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[10px] text-amber-800 font-extrabold bg-amber-100/90 px-2.5 py-1 rounded-lg border border-amber-200/80 shrink-0">
+                                  Your Customer Rating
+                                </span>
+                              </div>
+                            )}
+                            {order.items.map((item, idx) => (
+                              <div key={item.id || idx} className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3 rounded-xl border border-[#EFE7DE]">
+                                {item.image && item.image.trim() !== '' ? (
+                                  <img
+                                    src={item.image}
+                                    alt={item.name}
+                                    className="w-14 h-14 rounded-lg object-cover border border-[#E2D7CB] shrink-0"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
                                 ) : (
-                                  <div className="text-[10px] font-bold text-[#6E6458] flex items-center gap-2 flex-wrap">
-                                    <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE]">
-                                      📦 {item.quantity || 1} Unit(s)
-                                    </span>
-                                    <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE]">
-                                      🛒 {order.isCustomBuild ? 'Custom Order Build' : 'Ready-Made Store Purchase'}
-                                    </span>
-                                    {(order as any).paymentId && (
-                                      <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE] font-mono text-[10px]">
-                                        💳 Pay ID: {(order as any).paymentId}
-                                      </span>
-                                    )}
+                                  <div className="w-14 h-14 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] shrink-0 flex items-center justify-center font-bold text-[#48A63E]">
+                                    <FileText className="w-5 h-5 text-[#48A63E]" />
                                   </div>
                                 )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
 
-                        {/* Right Column: Pricing & Invoice Breakdown Box (Lg: 4 cols) */}
-                        <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
-                          <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
-                            Payment & Invoice Breakdown
+                                <div className="min-w-0 flex-1 space-y-1">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <h4 className="text-xs font-bold text-[#1C1814] truncate">
+                                      {item.name}
+                                    </h4>
+                                    <span className="text-xs font-black text-[#48A63E]">
+                                      ₹{((item.price || order.totalPrice) * (item.quantity || 1)).toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
+
+                                  {item.specifications ? (
+                                    <div className="pt-0.5">
+                                      {renderSpecBadges(item.specifications)}
+                                    </div>
+                                  ) : (
+                                    <div className="text-[10px] font-bold text-[#6E6458] flex items-center gap-2 flex-wrap">
+                                      <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE]">
+                                        📦 {item.quantity || 1} Unit(s)
+                                      </span>
+                                      <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE]">
+                                        🛒 {order.isCustomBuild ? 'Custom Order Build' : 'Ready-Made Store Purchase'}
+                                      </span>
+                                      {(order as any).paymentId && (
+                                        <span className="bg-white px-2 py-0.5 rounded-md border border-[#EFE7DE] font-mono text-[10px]">
+                                          💳 Pay ID: {(order as any).paymentId}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
                           </div>
 
-                          {(() => {
-                            const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-                            const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
-                            const hasDiscount = calculatedDiscount > 0 || !!order.couponCode;
+                          {/* Right Column: Pricing & Invoice Breakdown Box (Lg: 4 cols) */}
+                          <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
+                            <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
+                              Payment & Invoice Breakdown
+                            </div>
 
-                            return (
-                              <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
-                                {hasDiscount && (
-                                  <>
-                                    <div className="flex justify-between items-center text-[11px]">
-                                      <span>Original Subtotal:</span>
-                                      <span className="line-through font-extrabold text-[#7A6C5E]">₹{calculatedSubtotal.toLocaleString('en-IN')}</span>
-                                    </div>
+                            {(() => {
+                              const calculatedSubtotal = order.originalSubtotal || order.items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+                              const calculatedDiscount = order.discountDeducted || (calculatedSubtotal > order.totalPrice ? calculatedSubtotal - order.totalPrice : 0);
+                              const hasDiscount = calculatedDiscount > 0 || !!order.couponCode;
 
-                                    <div className="flex justify-between items-center text-[11px] text-[#2D6338] font-extrabold bg-[#E8F5E9] px-2.5 py-1 rounded-lg border border-[#A6C495]">
-                                      <span>🏷️ {order.couponCode || 'PROMO APPLIED'}:</span>
-                                      <span>-₹{calculatedDiscount.toLocaleString('en-IN')}</span>
-                                    </div>
-                                  </>
-                                )}
+                              return (
+                                <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
+                                  {hasDiscount && (
+                                    <>
+                                      <div className="flex justify-between items-center text-[11px]">
+                                        <span>Original Subtotal:</span>
+                                        <span className="line-through font-extrabold text-[#7A6C5E]">₹{calculatedSubtotal.toLocaleString('en-IN')}</span>
+                                      </div>
 
-                                <div className="flex justify-between items-center text-[11px]">
-                                  <span>Shipping Fee:</span>
-                                  <span className="font-extrabold text-[#48A63E]">
-                                    {order.shippingFee === 0 || !order.shippingFee ? 'FREE' : `₹${order.shippingFee}`}
-                                  </span>
+                                      <div className="flex justify-between items-center text-[11px] text-[#2D6338] font-extrabold bg-[#E8F5E9] px-2.5 py-1 rounded-lg border border-[#A6C495]">
+                                        <span>🏷️ {order.couponCode || 'PROMO APPLIED'}:</span>
+                                        <span>-₹{calculatedDiscount.toLocaleString('en-IN')}</span>
+                                      </div>
+                                    </>
+                                  )}
+
+                                  <div className="flex justify-between items-center text-[11px]">
+                                    <span>Shipping Fee:</span>
+                                    <span className="font-extrabold text-[#48A63E]">
+                                      {order.shippingFee === 0 || !order.shippingFee ? 'FREE' : `₹${order.shippingFee}`}
+                                    </span>
+                                  </div>
+
+                                  <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
+                                    <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Final Amount Paid:</span>
+                                    <span className="text-lg font-black text-[#48A63E] tracking-tight">
+                                      ₹{order.totalPrice.toLocaleString('en-IN')}
+                                    </span>
+                                  </div>
                                 </div>
-
-                                <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
-                                  <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Final Amount Paid:</span>
-                                  <span className="text-lg font-black text-[#48A63E] tracking-tight">
-                                    ₹{order.totalPrice.toLocaleString('en-IN')}
-                                  </span>
-                                </div>
-                              </div>
-                            );
-                          })()}
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
+                    );
+                  }
+
+                  if (item.kind === 'fabrication') {
+                    const f = item.data;
+                    return (
+                      <div
+                        id={`order-card-FAB-${f.fabrication_id}`}
+                        key={`fab-${f.fabrication_id}`}
+                        className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
+                      >
+                        {/* TOP ROW: Fabrication Info & Status / Action Buttons */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-mono font-bold text-amber-900 bg-amber-50 px-3 py-1 rounded-xl border border-amber-200">
+                              Fabrication #FAB-{String(f.fabrication_id).padStart(4, '0')}
+                            </span>
+                            <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(f.created_at || '')}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${
+                              f.payment_status === 'Paid' || f.status === 'PAID'
+                                ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]'
+                                : getStatusBadgeColor(f.status)
+                            }`}>
+                              Status: {f.payment_status === 'Paid' ? 'Paid & Scheduled' : formatStatusLabel(f.status)}
+                            </span>
+
+                            {/* Pay Now and Add to Cart Buttons */}
+                            {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' && f.status !== 'Cancelled' && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleAddFabricationToCart(f)}
+                                  className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                  title="Add to Shopping Cart"
+                                >
+                                  <ShoppingCart className="w-3.5 h-3.5 text-[#48A63E]" />
+                                  <span>Add to Cart</span>
+                                </button>
+                                <button
+                                  onClick={() => handlePayNowFabrication(f)}
+                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                >
+                                  <CreditCard className="w-3.5 h-3.5 text-white" />
+                                  <span>Pay Now</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Cancel Button */}
+                            {f.status !== 'Cancelled' && f.status !== 'Completed' && f.payment_status !== 'Paid' && (
+                              <button
+                                onClick={() => handleCancelFabrication(f.fabrication_id)}
+                                className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
+                                title="Cancel Fabrication Request"
+                              >
+                                <X className="w-3.5 h-3.5 text-rose-600" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Content Row */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                          <div className="lg:col-span-8 space-y-2.5">
+                            <div className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3.5 rounded-xl border border-[#EFE7DE]">
+                              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/15 to-orange-500/20 border-2 border-amber-300 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+                                <Scissors className="w-6 h-6" />
+                              </div>
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <h4 className="text-xs font-bold text-[#1C1814]">
+                                  Wood Fabrication & Sizing — {f.service_type}
+                                </h4>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                    <span>🪵</span>
+                                    <span>Source: {f.material_source}</span>
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                    <span>📐</span>
+                                    <span>Dimensions: {f.dimensions}</span>
+                                  </span>
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                    <span>🔢</span>
+                                    <span>Quantity: {f.quantity} sheet(s)</span>
+                                  </span>
+                                  {f.requirements && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                      <span>📝</span>
+                                      <span>{f.requirements}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right Column: Pricing & Status Box */}
+                          <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
+                            <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
+                              Fabrication Quotation
+                            </div>
+                            <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
+                              <div className="flex justify-between items-center text-[11px]">
+                                <span>Service Status:</span>
+                                <span className="font-extrabold text-[#2C241D]">{f.payment_status === 'Paid' ? 'Paid & Active' : 'Quoted'}</span>
+                              </div>
+                              <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
+                                <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Quotation:</span>
+                                <span className="text-lg font-black text-[#48A63E] tracking-tight">
+                                  {f.estimated_price ? `₹${f.estimated_price.toLocaleString('en-IN')}` : 'Under Review'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (item.kind === 'service') {
+                    const s = item.data;
+                    return (
+                      <div
+                        id={`order-card-SRV-${s.service_id}`}
+                        key={`srv-${s.service_id}`}
+                        className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
+                      >
+                        {/* TOP ROW: Service Info & Status */}
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                          <div className="flex items-center gap-3 flex-wrap">
+                            <span className="text-xs font-mono font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
+                              Service #SRV-{String(s.service_id).padStart(4, '0')}
+                            </span>
+                            <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(s.created_at || '')}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${
+                              s.payment_status === 'Paid' || s.status === 'PAID'
+                                ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]'
+                                : getStatusBadgeColor(s.status)
+                            }`}>
+                              Status: {s.payment_status === 'Paid' ? 'Paid & Confirmed' : formatStatusLabel(s.status)}
+                            </span>
+
+                            {/* Pay Now and Add to Cart */}
+                            {s.estimated_price && s.payment_status !== 'Paid' && s.status !== 'PAID' && s.status !== 'Paid' && s.status !== 'Cancelled' && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleAddServiceToCart(s)}
+                                  className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                  title="Add to Shopping Cart"
+                                >
+                                  <ShoppingCart className="w-3.5 h-3.5 text-[#48A63E]" />
+                                  <span>Add to Cart</span>
+                                </button>
+                                <button
+                                  onClick={() => handlePayNowService(s)}
+                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                >
+                                  <CreditCard className="w-3.5 h-3.5 text-white" />
+                                  <span>Pay Now</span>
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Cancel Button */}
+                            {s.status !== 'Cancelled' && s.status !== 'Completed' && s.payment_status !== 'Paid' && (
+                              <button
+                                onClick={() => handleCancelService(s.service_id)}
+                                className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
+                                title="Cancel Service Appointment"
+                              >
+                                <X className="w-3.5 h-3.5 text-rose-600" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Content Row */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+                          <div className="lg:col-span-8 space-y-2.5">
+                            <div className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3.5 rounded-xl border border-[#EFE7DE]">
+                              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/15 to-indigo-500/20 border-2 border-blue-300 flex items-center justify-center text-blue-700 shrink-0 shadow-2xs">
+                                <Wrench className="w-6 h-6" />
+                              </div>
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <h4 className="text-xs font-bold text-[#1C1814]">
+                                  On-Site Service — {s.service_category}
+                                </h4>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                    <MapPin className="w-3 h-3 text-[#48A63E]" />
+                                    <span>{s.address}, {s.city}</span>
+                                  </span>
+                                  {s.preferred_date && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                      <span>📅</span>
+                                      <span>Date: {s.preferred_date} {s.preferred_time || ''}</span>
+                                    </span>
+                                  )}
+                                  {s.description && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
+                                      <span>📝</span>
+                                      <span>{s.description}</span>
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Right Column: Pricing & Status Box */}
+                          <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
+                            <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
+                              Service Estimation
+                            </div>
+                            <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
+                              <div className="flex justify-between items-center text-[11px]">
+                                <span>Appointment:</span>
+                                <span className="font-extrabold text-[#2C241D]">{s.preferred_date || 'Scheduled'}</span>
+                              </div>
+                              <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
+                                <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Estimated Cost:</span>
+                                <span className="text-lg font-black text-[#48A63E] tracking-tight">
+                                  {s.estimated_price ? `₹${s.estimated_price.toLocaleString('en-IN')}` : 'Quote on Visit'}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  if (item.kind === 'material') {
+                    const m = item.data;
+                    return (
+                      <div
+                        id={`order-card-MAT-${m.material_id}`}
+                        key={`mat-${m.material_id}`}
+                        className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-mono font-bold text-[#4A3E32] bg-[#FAF7F2] px-3 py-1 rounded-xl border border-[#E2D7CB]">
+                              Material #MAT-{m.material_id}
+                            </span>
+                            <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
+                              <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(m.created_at || '')}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-extrabold text-[#48A63E] bg-[#E8F5E9] border border-[#A6C495] px-3 py-1 rounded-full">
+                            {m.status}
+                          </span>
+                        </div>
+
+                        <div className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3.5 rounded-xl border border-[#EFE7DE]">
+                          <div className="w-14 h-14 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-800 shrink-0 text-xl font-bold">
+                            🪵
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-1 text-xs">
+                            <h4 className="font-bold text-[#1C1814]">
+                              {m.material_type} — {m.wood_type || 'Customer Timber'}
+                            </h4>
+                            <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#5C4E42]">
+                              <span>Available: <strong>{m.remaining_quantity ?? m.quantity} {m.unit}</strong></span>
+                              <span>•</span>
+                              <span>Condition: <strong>{m.condition || 'Seasoned'}</strong></span>
+                              {m.dimensions && <span>• Size: <strong>{m.dimensions}</strong></span>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return null;
                 })}
-
-                {/* FABRICATION WORK CARDS */}
-                {filteredFabrications.map((f) => (
-                  <div
-                    id={`order-card-FAB-${f.fabrication_id}`}
-                    key={`fab-${f.fabrication_id}`}
-                    className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
-                  >
-                    {/* TOP ROW: Fabrication Info & Status / Action Buttons */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs font-mono font-bold text-amber-900 bg-amber-50 px-3 py-1 rounded-xl border border-amber-200">
-                          Fabrication #FAB-{String(f.fabrication_id).padStart(4, '0')}
-                        </span>
-                        <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(f.created_at || '')}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${
-                          f.payment_status === 'Paid' || f.status === 'PAID'
-                            ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]'
-                            : getStatusBadgeColor(f.status)
-                        }`}>
-                          Status: {f.payment_status === 'Paid' ? 'Paid & Scheduled' : formatStatusLabel(f.status)}
-                        </span>
-
-                        {/* Pay Now and Add to Cart Buttons */}
-                        {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' && f.status !== 'Cancelled' && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleAddFabricationToCart(f)}
-                              className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                              title="Add to Shopping Cart"
-                            >
-                              <ShoppingCart className="w-3.5 h-3.5 text-[#48A63E]" />
-                              <span>Add to Cart</span>
-                            </button>
-                            <button
-                              onClick={() => handlePayNowFabrication(f)}
-                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                            >
-                              <CreditCard className="w-3.5 h-3.5 text-white" />
-                              <span>Pay Now</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Cancel Button */}
-                        {f.status !== 'Cancelled' && f.status !== 'Completed' && f.payment_status !== 'Paid' && (
-                          <button
-                            onClick={() => handleCancelFabrication(f.fabrication_id)}
-                            className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
-                            title="Cancel Fabrication Request"
-                          >
-                            <X className="w-3.5 h-3.5 text-rose-600" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Content Row */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-                      <div className="lg:col-span-8 space-y-2.5">
-                        <div className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3.5 rounded-xl border border-[#EFE7DE]">
-                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/15 to-orange-500/20 border-2 border-amber-300 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
-                            <Scissors className="w-6 h-6" />
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <h4 className="text-xs font-bold text-[#1C1814]">
-                              Wood Fabrication & Sizing — {f.service_type}
-                            </h4>
-                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                <span>🪵</span>
-                                <span>Source: {f.material_source}</span>
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                <span>📐</span>
-                                <span>Dimensions: {f.dimensions}</span>
-                              </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                <span>🔢</span>
-                                <span>Quantity: {f.quantity} sheet(s)</span>
-                              </span>
-                              {f.requirements && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                  <span>📝</span>
-                                  <span>{f.requirements}</span>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Right Column: Pricing & Status Box */}
-                      <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
-                        <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
-                          Fabrication Quotation
-                        </div>
-                        <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
-                          <div className="flex justify-between items-center text-[11px]">
-                            <span>Service Status:</span>
-                            <span className="font-extrabold text-[#2C241D]">{f.payment_status === 'Paid' ? 'Paid & Active' : 'Quoted'}</span>
-                          </div>
-                          <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
-                            <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Quotation:</span>
-                            <span className="text-lg font-black text-[#48A63E] tracking-tight">
-                              {f.estimated_price ? `₹${f.estimated_price.toLocaleString('en-IN')}` : 'Under Review'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* ON-SITE SERVICE APPOINTMENT CARDS */}
-                {filteredServices.map((s) => (
-                  <div
-                    id={`order-card-SRV-${s.service_id}`}
-                    key={`srv-${s.service_id}`}
-                    className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
-                  >
-                    {/* TOP ROW: Service Info & Status */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <span className="text-xs font-mono font-bold text-blue-900 bg-blue-50 px-3 py-1 rounded-xl border border-blue-200">
-                          Service #SRV-{String(s.service_id).padStart(4, '0')}
-                        </span>
-                        <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(s.created_at || '')}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-[11px] font-extrabold px-3 py-1 rounded-full border ${
-                          s.payment_status === 'Paid' || s.status === 'PAID'
-                            ? 'bg-[#E8F5E9] text-[#2D6338] border-[#A6C495]'
-                            : getStatusBadgeColor(s.status)
-                        }`}>
-                          Status: {s.payment_status === 'Paid' ? 'Paid & Confirmed' : formatStatusLabel(s.status)}
-                        </span>
-
-                        {/* Pay Now and Add to Cart */}
-                        {s.estimated_price && s.payment_status !== 'Paid' && s.status !== 'PAID' && s.status !== 'Paid' && s.status !== 'Cancelled' && (
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => handleAddServiceToCart(s)}
-                              className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                              title="Add to Shopping Cart"
-                            >
-                              <ShoppingCart className="w-3.5 h-3.5 text-[#48A63E]" />
-                              <span>Add to Cart</span>
-                            </button>
-                            <button
-                              onClick={() => handlePayNowService(s)}
-                              className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                            >
-                              <CreditCard className="w-3.5 h-3.5 text-white" />
-                              <span>Pay Now</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Cancel Button */}
-                        {s.status !== 'Cancelled' && s.status !== 'Completed' && s.payment_status !== 'Paid' && (
-                          <button
-                            onClick={() => handleCancelService(s.service_id)}
-                            className="w-7 h-7 rounded-full bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 flex items-center justify-center transition-all cursor-pointer shadow-2xs shrink-0"
-                            title="Cancel Service Appointment"
-                          >
-                            <X className="w-3.5 h-3.5 text-rose-600" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Content Row */}
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-                      <div className="lg:col-span-8 space-y-2.5">
-                        <div className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3.5 rounded-xl border border-[#EFE7DE]">
-                          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500/15 to-indigo-500/20 border-2 border-blue-300 flex items-center justify-center text-blue-700 shrink-0 shadow-2xs">
-                            <Wrench className="w-6 h-6" />
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-1">
-                            <h4 className="text-xs font-bold text-[#1C1814]">
-                              On-Site Service — {s.service_category}
-                            </h4>
-                            <div className="flex items-center gap-1.5 flex-wrap mt-1">
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                <MapPin className="w-3 h-3 text-[#48A63E]" />
-                                <span>{s.address}, {s.city}</span>
-                              </span>
-                              {s.preferred_date && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                  <span>📅</span>
-                                  <span>Date: {s.preferred_date} {s.preferred_time || ''}</span>
-                                </span>
-                              )}
-                              {s.description && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-[#E2D7CB] text-[10px] font-bold text-[#4A3E32]">
-                                  <span>📝</span>
-                                  <span>{s.description}</span>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Right Column: Pricing & Status Box */}
-                      <div className="lg:col-span-4 bg-[#FAF7F2] rounded-xl p-3.5 border border-[#EAE0D4] space-y-2">
-                        <div className="text-[11px] font-extrabold text-[#7A6C5E] border-b border-[#E4DCD0] pb-1.5 uppercase tracking-wider">
-                          Service Estimation
-                        </div>
-                        <div className="space-y-1.5 text-xs font-bold text-[#5C4E42]">
-                          <div className="flex justify-between items-center text-[11px]">
-                            <span>Appointment:</span>
-                            <span className="font-extrabold text-[#2C241D]">{s.preferred_date || 'Scheduled'}</span>
-                          </div>
-                          <div className="pt-2 border-t border-[#E4DCD0] flex justify-between items-baseline">
-                            <span className="text-[11px] font-extrabold uppercase text-[#1C1814] tracking-wider">Estimated Cost:</span>
-                            <span className="text-lg font-black text-[#48A63E] tracking-tight">
-                              {s.estimated_price ? `₹${s.estimated_price.toLocaleString('en-IN')}` : 'Quote on Visit'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* STORED MATERIALS CARDS */}
-                {filteredMaterials.map((m) => (
-                  <div
-                    id={`order-card-MAT-${m.material_id}`}
-                    key={`mat-${m.material_id}`}
-                    className="bg-white rounded-2xl p-4 sm:p-5 transition-all border border-[#E2D7CB] shadow-2xs hover:shadow-xs space-y-4"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono font-bold text-[#4A3E32] bg-[#FAF7F2] px-3 py-1 rounded-xl border border-[#E2D7CB]">
-                          Material #MAT-{m.material_id}
-                        </span>
-                        <span className="text-xs font-medium text-[#7A6C5E] flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-[#8C7C6D]" /> {formatOrderDate(m.created_at || '')}
-                        </span>
-                      </div>
-                      <span className="text-[11px] font-extrabold text-[#48A63E] bg-[#E8F5E9] border border-[#A6C495] px-3 py-1 rounded-full">
-                        {m.status}
-                      </span>
-                    </div>
-
-                    <div className="flex items-start gap-3 bg-[#FAF7F2]/60 p-3.5 rounded-xl border border-[#EFE7DE]">
-                      <div className="w-14 h-14 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-800 shrink-0 text-xl font-bold">
-                        🪵
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-1 text-xs">
-                        <h4 className="font-bold text-[#1C1814]">
-                          {m.material_type} — {m.wood_type || 'Customer Timber'}
-                        </h4>
-                        <div className="flex items-center gap-2 flex-wrap text-[11px] text-[#5C4E42]">
-                          <span>Available: <strong>{m.remaining_quantity ?? m.quantity} {m.unit}</strong></span>
-                          <span>•</span>
-                          <span>Condition: <strong>{m.condition || 'Seasoned'}</strong></span>
-                          {m.dimensions && <span>• Size: <strong>{m.dimensions}</strong></span>}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           )}

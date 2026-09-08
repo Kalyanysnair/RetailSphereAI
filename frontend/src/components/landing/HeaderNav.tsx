@@ -12,7 +12,7 @@ export const HeaderNav: React.FC = () => {
   const location = useLocation();
 
   const navLinks = [
-    { name: 'SHOP', hash: '#categories' },
+    { name: 'SHOP', hash: '#shop' },
     { name: 'FABRICATE', hash: '#fabrication' },
     { name: 'ABOUT', hash: '#about' },
     { name: 'CONTACT', hash: '#contact' },
@@ -40,31 +40,36 @@ export const HeaderNav: React.FC = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  const scrollToTarget = (hash: string) => {
+    const targetId = hash.replace(/^#/, '');
+    const element = document.getElementById(targetId) || document.querySelector(hash);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
   const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, hash: string) => {
     e.preventDefault();
     setMobileMenuOpen(false);
 
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      navigate('/dashboard');
-      return;
-    }
-
     if (location.pathname !== '/') {
       navigate(`/${hash}`);
       setTimeout(() => {
-        const el = document.querySelector(hash);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-        }
+        scrollToTarget(hash);
       }, 150);
     } else {
-      const el = document.querySelector(hash);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth' });
-      }
+      window.history.replaceState(null, '', hash);
+      scrollToTarget(hash);
     }
   };
+
+  useEffect(() => {
+    if (location.hash) {
+      setTimeout(() => {
+        scrollToTarget(location.hash);
+      }, 150);
+    }
+  }, [location.hash, location.pathname]);
 
   return (
     <header
