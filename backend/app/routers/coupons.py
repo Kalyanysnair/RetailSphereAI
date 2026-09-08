@@ -204,9 +204,10 @@ def delete_coupon(
     if not coupon:
         raise HTTPException(status_code=404, detail="Coupon not found.")
 
-    db.delete(coupon)
+    coupon.status = "Inactive"
     db.commit()
-    return {"message": "Coupon deleted successfully."}
+    db.refresh(coupon)
+    return {"message": f"Coupon {coupon.code} marked as Inactive.", "status": coupon.status}
 
 
 @router.post("/{coupon_id}/regenerate", status_code=status.HTTP_200_OK)

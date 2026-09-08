@@ -5784,8 +5784,8 @@ export const AdminDashboardPage: React.FC = () => {
                                     <span className="text-[#7A6C5E] truncate">
                                       {c.targetUserEmail ? `🎯 ${c.targetUserEmail}` : '🌐 All Customers'}
                                     </span>
-                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${isExhausted ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>
-                                      {isExhausted ? 'Expired' : 'Active'}
+                                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold ${c.status === 'Inactive' || isExhausted ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                                      {c.status === 'Inactive' ? 'Inactive' : (isExhausted ? 'Expired' : 'Active')}
                                     </span>
                                   </div>
                                 )}

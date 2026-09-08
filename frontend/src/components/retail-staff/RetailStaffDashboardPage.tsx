@@ -4037,18 +4037,39 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                       ? 'bg-[#48A63E]/15 text-[#48A63E]'
                                       : 'bg-rose-100 text-rose-700'
                                   }`}>
-                                    {limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status}
+                                    {coupon.status === 'Inactive' ? 'Inactive' : (limitN > 0 && redeemed >= limitN ? 'Exhausted' : coupon.status)}
                                   </span>
                                 </td>
 
                                 <td className="py-4 px-4 text-right space-x-2">
-                                  <button
-                                    onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
-                                    className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                    <span>Remove</span>
-                                  </button>
+                                  {coupon.status === 'Inactive' ? (
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          await regenerateCouponApi(coupon.id);
+                                          await refreshCoupons();
+                                          setSuccessNotice(`Coupon "${coupon.code}" reactivated successfully!`);
+                                          setTimeout(() => setSuccessNotice(null), 5000);
+                                        } catch (err: any) {
+                                          alert(err.message || 'Failed to reactivate coupon.');
+                                        }
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all border border-emerald-200 shadow-xs cursor-pointer"
+                                      title="Reactivate Inactive Coupon"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                      <span>Reactivate</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleRemoveCoupon(coupon.id, coupon.code)}
+                                      className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-600 hover:text-white transition-all border border-rose-200 shadow-xs cursor-pointer"
+                                      title="Set Coupon to Inactive"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                      <span>Remove</span>
+                                    </button>
+                                  )}
                                 </td>
                               </tr>
                             );
