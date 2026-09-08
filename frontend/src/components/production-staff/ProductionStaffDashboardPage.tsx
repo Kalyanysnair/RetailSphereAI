@@ -160,7 +160,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<WorkerLeaveItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'planning' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave'>('dashboard');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [approvalFilter, setApprovalFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -1535,13 +1535,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     icon: FileText
                   },
                   {
-                    id: 'planning',
-                    label: 'Production Planning',
-                    icon: Layers,
-                    badge: overviewData?.metrics?.customer_approved,
-                    badgeColor: 'bg-emerald-600'
-                  },
-                  {
                     id: 'active_production',
                     label: 'Active Production',
                     icon: Clock,
@@ -1850,7 +1843,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
                   {(activeTab === 'dashboard') && 'Production Dashboard Overview'}
                   {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Assessment & Quotation Workspace'}
-                  {activeTab === 'planning' && 'Production Planning & Stage Setup'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Active Production & Stage Assignments'}
                   {activeTab === 'workers' && 'Artisan Technicians Directory'}
                   {(activeTab === 'materials' || activeTab === 'raw_materials') && 'Raw Materials & Customer Stock Log'}
@@ -1867,7 +1859,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                   {activeTab === 'dashboard' && 'Real-time manufacturing metrics, shop floor priorities, and active build progress.'}
                   {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Review Retail Staff-approved customer requests, evaluate technical feasibility, estimate manufacturing costs, and publish official customer quotations.'}
-                  {activeTab === 'planning' && 'Setup stage sequences and log customer-owned raw material receipts before starting production.'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Track stage-by-stage build progression and assign technicians based on required stage skills.'}
                   {activeTab === 'workers' && 'Manage workshop craftsmen, specializations, availability, and active build task loads.'}
                   {(activeTab === 'materials' || activeTab === 'raw_materials') && 'Manage raw timber/fabric inventory and log customer-supplied materials.'}
@@ -2029,7 +2020,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   </div>
 
                   <div
-                    onClick={() => setActiveTab('planning')}
+                    onClick={() => setActiveTab('assessment_queue')}
                     className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-xl hover:bg-white/85 cursor-pointer group"
                   >
                     <div className="flex items-center justify-between text-[#8C8275]">
@@ -2040,7 +2031,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       {overviewData?.metrics?.customer_approved ?? 0}
                     </div>
                     <span className="text-[11px] font-extrabold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full inline-block border border-emerald-300">
-                      Paid & Ready for Planning →
+                      Approved Quotations →
                     </span>
                   </div>
 
@@ -3036,284 +3027,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         </div>
                       )}
                     </>
-                  );
-                })()}
-              </div>
-            )}
-
-            {/* PRODUCTION PLANNING VIEW (activeTab === 'planning') */}
-            {activeTab === 'planning' && (
-              <div className="space-y-6 relative z-10">
-                {(() => {
-                  // Unify both Custom Orders and Fabrication Requests ready for production planning
-                  const planningOrders: any[] = [];
-                  const seenKeys = new Set<string>();
-
-                  // 1. From live assessmentQueue (all customer-approved, paid, or quotation-completed requests in DB)
-                  assessmentQueue.forEach((q) => {
-                    const isPaid = (q.payment_status || '').toLowerCase() === 'paid' || (q.order_status || '').toLowerCase() === 'paid';
-                    const isCustomerApproved = (q.order_status || '').toUpperCase() === 'CUSTOMER_APPROVED' || (q.order_status || '').toUpperCase() === 'APPROVED';
-                    const isQuotedOrAssessed = q.assessment_status === 'ASSESSMENT_COMPLETE' || (q.order_status || '').toLowerCase().includes('quote');
-
-                    if (isPaid || isCustomerApproved || isQuotedOrAssessed) {
-                      const key = `${q.order_type}-${q.numeric_id || q.request_id}`;
-                      if (!seenKeys.has(key)) {
-                        seenKeys.add(key);
-                        const matchCustom = (q.order_type === 'Customization' || q.order_type === 'Custom')
-                          ? orders.find(o => o.custom_order_id === q.numeric_id)
-                          : null;
-
-                        planningOrders.push({
-                          id_label: q.request_id || `${q.order_type === 'Fabrication' ? 'FAB' : 'CUS'}-${String(q.numeric_id).padStart(4, '0')}`,
-                          custom_order_id: q.numeric_id,
-                          numeric_id: q.numeric_id,
-                          order_type: q.order_type === 'Customization' ? 'Custom' : q.order_type,
-                          furniture_type: q.title || q.furniture_type || 'Custom Production Job',
-                          customer_name: q.customer_name || 'Valued Customer',
-                          customer_email: q.customer_email || '',
-                          dimensions: q.dimensions || 'Standard Specs',
-                          material: q.material || 'Raw Timber / Material',
-                          color: q.color || '',
-                          payment_status: q.payment_status || (isPaid ? 'Paid' : 'Pending'),
-                          order_status: q.order_status || (isPaid ? 'PAID' : 'Approved'),
-                          estimated_price: q.estimated_price,
-                          design_description: q.description || '',
-                          assigned_workers: matchCustom?.assigned_workers || [],
-                          raw: q
-                        });
-                      }
-                    }
-                  });
-
-                  // 2. From orders state (in case any custom order is not in assessmentQueue)
-                  orders.forEach((ord) => {
-                    const isPaid = isPaidCustomOrder(ord);
-                    const isApproved = ord.order_status === 'Approved' || ord.order_status === 'Quote Provided' || ord.order_status === 'CUSTOMER_APPROVED';
-                    if (isPaid || isApproved) {
-                      const key = `Custom-${ord.custom_order_id}`;
-                      if (!seenKeys.has(key)) {
-                        seenKeys.add(key);
-                        planningOrders.push({
-                          id_label: `CUS-${ord.custom_order_id.toString().padStart(4, '0')}`,
-                          custom_order_id: ord.custom_order_id,
-                          numeric_id: ord.custom_order_id,
-                          order_type: 'Custom',
-                          furniture_type: ord.furniture_type,
-                          customer_name: ord.customer_name,
-                          customer_email: ord.customer_email,
-                          dimensions: ord.dimensions || 'Standard Specs',
-                          material: ord.material,
-                          color: ord.color,
-                          payment_status: ord.payment_status || 'Pending',
-                          order_status: ord.order_status || 'Approved',
-                          estimated_price: ord.estimated_price,
-                          design_description: ord.design_description,
-                          assigned_workers: ord.assigned_workers || [],
-                          raw: ord
-                        });
-                      }
-                    }
-                  });
-
-                  if (planningOrders.length === 0) {
-                    return (
-                      <div className="bg-white/80 backdrop-blur-md rounded-3xl p-12 text-center border-2 border-dashed border-[#E2D7CB] space-y-4 shadow-sm">
-                        <div className="w-14 h-14 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto shadow-sm border border-blue-200">
-                          <Layers className="w-8 h-8" />
-                        </div>
-                        <div>
-                          <h3 className="text-base font-extrabold text-[#2C241D]">No Orders Pending Production Planning</h3>
-                          <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                            Orders with approved quotations and verified customer payments will appear here for stage sequence definition and material receipts.
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                      {planningOrders.map(ord => {
-                        const reqStages = getRequiredProductionStages(ord.furniture_type, ord.material, ord.design_description);
-                        const isPaid = (ord.payment_status || '').toLowerCase() === 'paid' || (ord.order_status || '').toLowerCase() === 'paid';
-                        return (
-                          <div key={`${ord.order_type}-${ord.numeric_id || ord.id_label}`} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm space-y-4 flex flex-col justify-between transition-all">
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-                                <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
-                                  {ord.id_label}
-                                </span>
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
-                                    isPaid 
-                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
-                                      : 'bg-blue-100 text-blue-800 border-blue-300'
-                                  }`}>
-                                    {isPaid ? 'PAID & APPROVED' : (ord.order_status || 'APPROVED')}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div>
-                                <h4 className="text-sm font-extrabold text-[#2C241D]">{ord.furniture_type}</h4>
-                                <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5">
-                                  Customer: {ord.customer_name} {ord.customer_email ? `(${ord.customer_email})` : ''}
-                                </p>
-                              </div>
-
-                              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
-                                <div className="flex justify-between">
-                                  <span className="text-[#7A6C5E]">Dimensions:</span>
-                                  <span className="font-bold text-[#2C241D]">{ord.dimensions || 'Standard Specs'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-[#7A6C5E]">Material:</span>
-                                  <span className="font-bold text-[#2C241D]">{ord.material}</span>
-                                </div>
-                                {ord.color && (
-                                  <div className="flex justify-between">
-                                    <span className="text-[#7A6C5E]">Finish/Color:</span>
-                                    <span className="font-bold text-[#38A132]">{ord.color}</span>
-                                  </div>
-                                )}
-                                {ord.estimated_price && ord.estimated_price > 0 && (
-                                  <div className="flex justify-between pt-1 border-t border-[#EFE7DE]">
-                                    <span className="text-[#7A6C5E]">Price Quote:</span>
-                                    <span className="font-mono font-black text-[#48A63E]">₹{ord.estimated_price.toLocaleString('en-IN')}</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Assigned Worker Status Banner */}
-                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
-                                <div className="bg-[#EBF7EB] p-2.5 rounded-2xl border border-[#38A132]/30 space-y-1">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-extrabold text-[#2E8729] uppercase tracking-wider flex items-center gap-1">
-                                      <UserCheck className="w-3.5 h-3.5" />
-                                      <span>Assigned Artisan ({ord.assigned_workers.length}):</span>
-                                    </span>
-                                    <span className="text-[9px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded-full border border-emerald-200">
-                                      Active Task
-                                    </span>
-                                  </div>
-                                  <div className="space-y-1.5 pt-0.5">
-                                    {ord.assigned_workers.map((w: any, idx: number) => {
-                                      const isDone = w.task_status?.toLowerCase().includes('completed');
-                                      return (
-                                        <div
-                                          key={idx}
-                                          className={`p-2 px-3 rounded-xl border text-xs shadow-2xs flex items-center justify-between gap-2 flex-wrap sm:flex-nowrap ${
-                                            isDone ? 'bg-emerald-50/90 border-emerald-300 text-emerald-900' : 'bg-white border-[#38A132]/30 text-[#2C241D]'
-                                          }`}
-                                        >
-                                          <div className="flex items-center gap-2 min-w-0 flex-wrap sm:flex-nowrap">
-                                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${isDone ? 'bg-emerald-600' : 'bg-[#38A132] animate-pulse'}`}></span>
-                                            <span className="font-extrabold text-[#2C241D] whitespace-nowrap">👷 {w.worker_name}</span>
-                                            {w.specialization && (
-                                              <span className="text-[10px] text-[#7A6C5E] font-medium truncate max-w-[150px] sm:max-w-none">
-                                                ({w.specialization})
-                                              </span>
-                                            )}
-                                          </div>
-
-                                          <div className="flex items-center gap-2 flex-shrink-0 ml-auto sm:ml-0">
-                                            {isDone ? (
-                                              <span className="text-[10px] bg-emerald-600 text-white font-extrabold px-2 py-0.5 rounded-md flex items-center gap-1 shadow-2xs whitespace-nowrap">
-                                                <CheckCircle2 className="w-3 h-3 text-white" />
-                                                <span>Completed</span>
-                                              </span>
-                                            ) : (
-                                              w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono font-bold whitespace-nowrap">📞 {w.worker_phone}</span>
-                                            )}
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleUnassignWorker(ord.custom_order_id || ord.numeric_id, w.worker_id, w.worker_name);
-                                              }}
-                                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer flex-shrink-0"
-                                              title={`Remove ${w.worker_name}`}
-                                            >
-                                              <X className="w-3.5 h-3.5" />
-                                            </button>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="bg-amber-50/70 p-2 rounded-xl border border-amber-200 text-[11px] font-semibold text-amber-800 flex items-center gap-1.5">
-                                  <User className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                                  <span>No artisan assigned yet — pending worker assignment</span>
-                                </div>
-                              )}
-
-                              <div className="space-y-1 pt-1">
-                                <span className="text-[11px] font-extrabold text-[#7A6C5E]">Production Pipeline Stages:</span>
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {reqStages.map(s => {
-                                    const asgnForStage = ord.assigned_workers?.find((w: any) => 
-                                      w.specialization?.toLowerCase().includes(s.label.toLowerCase()) ||
-                                      s.label.toLowerCase().includes(w.specialization?.toLowerCase() || '') ||
-                                      w.task_status?.toLowerCase().includes(s.label.toLowerCase())
-                                    );
-                                    const isCompleted = asgnForStage?.task_status?.toLowerCase().includes('completed') || ord.order_status === 'Completed';
-
-                                    return (
-                                      <span
-                                        key={s.key}
-                                        className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border flex items-center gap-1.5 whitespace-nowrap transition-all ${
-                                          isCompleted
-                                            ? 'bg-emerald-50 border-emerald-300 text-emerald-900 shadow-2xs font-extrabold'
-                                            : 'bg-white border-[#E2D7CB] text-[#2C241D]'
-                                        }`}
-                                      >
-                                        <span>{s.icon} {s.label}</span>
-                                        {isCompleted && (
-                                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 ml-0.5" />
-                                        )}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between gap-2">
-                              <button
-                                onClick={() => {
-                                  setSelectedMaterialOrder(ord.raw || ord);
-                                  setIsMaterialReceiptModalOpen(true);
-                                }}
-                                className="px-3 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#F3EDE5] border border-[#E2D7CB] text-[#5C4E42] text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1"
-                              >
-                                <PackageCheck className="w-3.5 h-3.5 text-amber-700" />
-                                <span>Log Receipt</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedOrderForWorker(ord.raw || ord);
-                                }}
-                                className="px-3 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold transition-all shadow-sm cursor-pointer flex items-center gap-1"
-                              >
-                                {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
-                                  <>
-                                    <UserCheck className="w-3.5 h-3.5" />
-                                    <span>Reassign Worker →</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <UserPlus className="w-3.5 h-3.5" />
-                                    <span>Assign Worker →</span>
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
                   );
                 })()}
               </div>
