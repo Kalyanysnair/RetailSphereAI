@@ -1088,6 +1088,7 @@ export interface AssessmentQueueItem {
   assessment_status: 'PENDING_ASSESSMENT' | 'IN_ASSESSMENT' | 'ASSESSMENT_COMPLETE';
   order_status: string;
   payment_status?: string;
+  estimated_price?: number;
   is_assessed: boolean;
 }
 

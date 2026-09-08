@@ -623,7 +623,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [approvalPrice, setApprovalPrice] = useState<string>('');
   const [approvalRemarks, setApprovalRemarks] = useState<string>('');
 
-  const [selectedOrderForWorker, setSelectedOrderForWorker] = useState<CustomOrderData | null>(null);
+  const [selectedOrderForWorker, setSelectedOrderForWorker] = useState<any | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(null);
 
   const [selectedOrderForProgress, setSelectedOrderForProgress] = useState<CustomOrderData | null>(null);
@@ -861,9 +861,16 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     if (!selectedMaterialOrder) return;
     setIsSubmittingReceipt(true);
     try {
+      const ordType = selectedMaterialOrder.order_type === 'Fabrication' || selectedMaterialOrder.request_id?.startsWith('FAB-')
+        ? 'Fabrication'
+        : selectedMaterialOrder.order_type === 'On-Site Service' || selectedMaterialOrder.request_id?.startsWith('ONS-') || selectedMaterialOrder.request_id?.startsWith('SRV-')
+        ? 'Service'
+        : 'Custom';
+      const ordNumId = selectedMaterialOrder.custom_order_id || selectedMaterialOrder.numeric_id;
+
       const payload = {
-        order_type: 'Custom',
-        order_id: selectedMaterialOrder.custom_order_id,
+        order_type: ordType,
+        order_id: ordNumId,
         received_by_id: userProfile?.user_id || 3,
         condition: matCondition,
         quantity: Number(matQty) || 1,
@@ -875,8 +882,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       const newLog = {
         log_receipt_id: `REC-CS-${String(Date.now()).slice(-4)}`,
         client_name: selectedMaterialOrder.customer_name || 'Client',
-        order_id: `ORD-${String(selectedMaterialOrder.custom_order_id).padStart(4, '0')}`,
-        material_details: `${selectedMaterialOrder.furniture_type} - ${matNotes || 'Customer-Supplied Material'}`,
+        order_id: selectedMaterialOrder.request_id || `ORD-${String(ordNumId).padStart(4, '0')}`,
+        material_details: `${selectedMaterialOrder.furniture_type || selectedMaterialOrder.title || 'Material'} - ${matNotes || 'Customer-Supplied Material'}`,
         quantity_condition: `${matQty} ${matUnit} • ${matCondition}`,
         status: 'Verified & Sealed',
         receipt_date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -890,6 +897,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setMatNotes('');
       await Promise.all([
         loadOverviewData(),
+        loadQueueData(),
         loadData()
       ]);
     } catch (err: any) {
@@ -1205,9 +1213,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     if (!selectedOrderForWorker || !selectedWorkerId) return;
     const workerObj = workers.find(w => w.worker_id === selectedWorkerId);
     const workerName = workerObj ? workerObj.full_name : 'Artisan Worker';
+    const ordId = selectedOrderForWorker.custom_order_id || selectedOrderForWorker.numeric_id;
 
     setOrders(prev => prev.map(ord => {
-      if (ord.custom_order_id === selectedOrderForWorker.custom_order_id) {
+      if (ord.custom_order_id === ordId) {
         const existing = ord.assigned_workers || [];
         const updated = [...existing.filter(w => w.worker_id !== selectedWorkerId), {
           assignment_id: Date.now(),
@@ -1224,12 +1233,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       return ord;
     }));
 
-    await assignWorkerTask(selectedOrderForWorker.custom_order_id, selectedWorkerId, selectedDepartment);
+    if (ordId) {
+      await assignWorkerTask(ordId, selectedWorkerId, selectedDepartment);
+    }
     setSelectedOrderForWorker(null);
     setSelectedWorkerId(null);
-    setSuccessNotice(`Technician assigned to ${selectedDepartment} for Order #${selectedOrderForWorker.custom_order_id}.`);
+    setSuccessNotice(`Technician assigned to ${selectedDepartment} for Order #${selectedOrderForWorker.request_id || ordId}.`);
     setTimeout(() => setSuccessNotice(null), 5000);
-    loadData();
+    await Promise.all([loadOverviewData(), loadQueueData(), loadData()]);
   };
 
   const handleUnassignWorker = async (orderId: number, workerId: number, workerName: string) => {
@@ -3034,7 +3045,75 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {activeTab === 'planning' && (
               <div className="space-y-6 relative z-10">
                 {(() => {
-                  const planningOrders = orders.filter(isPaidCustomOrder);
+                  // Unify both Custom Orders and Fabrication Requests ready for production planning
+                  const planningOrders: any[] = [];
+                  const seenKeys = new Set<string>();
+
+                  // 1. From live assessmentQueue (all customer-approved, paid, or quotation-completed requests in DB)
+                  assessmentQueue.forEach((q) => {
+                    const isPaid = (q.payment_status || '').toLowerCase() === 'paid' || (q.order_status || '').toLowerCase() === 'paid';
+                    const isCustomerApproved = (q.order_status || '').toUpperCase() === 'CUSTOMER_APPROVED' || (q.order_status || '').toUpperCase() === 'APPROVED';
+                    const isQuotedOrAssessed = q.assessment_status === 'ASSESSMENT_COMPLETE' || (q.order_status || '').toLowerCase().includes('quote');
+
+                    if (isPaid || isCustomerApproved || isQuotedOrAssessed) {
+                      const key = `${q.order_type}-${q.numeric_id || q.request_id}`;
+                      if (!seenKeys.has(key)) {
+                        seenKeys.add(key);
+                        const matchCustom = (q.order_type === 'Customization' || q.order_type === 'Custom')
+                          ? orders.find(o => o.custom_order_id === q.numeric_id)
+                          : null;
+
+                        planningOrders.push({
+                          id_label: q.request_id || `${q.order_type === 'Fabrication' ? 'FAB' : 'CUS'}-${String(q.numeric_id).padStart(4, '0')}`,
+                          custom_order_id: q.numeric_id,
+                          numeric_id: q.numeric_id,
+                          order_type: q.order_type === 'Customization' ? 'Custom' : q.order_type,
+                          furniture_type: q.title || q.furniture_type || 'Custom Production Job',
+                          customer_name: q.customer_name || 'Valued Customer',
+                          customer_email: q.customer_email || '',
+                          dimensions: q.dimensions || 'Standard Specs',
+                          material: q.material || 'Raw Timber / Material',
+                          color: q.color || '',
+                          payment_status: q.payment_status || (isPaid ? 'Paid' : 'Pending'),
+                          order_status: q.order_status || (isPaid ? 'PAID' : 'Approved'),
+                          estimated_price: q.estimated_price,
+                          design_description: q.description || '',
+                          assigned_workers: matchCustom?.assigned_workers || [],
+                          raw: q
+                        });
+                      }
+                    }
+                  });
+
+                  // 2. From orders state (in case any custom order is not in assessmentQueue)
+                  orders.forEach((ord) => {
+                    const isPaid = isPaidCustomOrder(ord);
+                    const isApproved = ord.order_status === 'Approved' || ord.order_status === 'Quote Provided' || ord.order_status === 'CUSTOMER_APPROVED';
+                    if (isPaid || isApproved) {
+                      const key = `Custom-${ord.custom_order_id}`;
+                      if (!seenKeys.has(key)) {
+                        seenKeys.add(key);
+                        planningOrders.push({
+                          id_label: `CUS-${ord.custom_order_id.toString().padStart(4, '0')}`,
+                          custom_order_id: ord.custom_order_id,
+                          numeric_id: ord.custom_order_id,
+                          order_type: 'Custom',
+                          furniture_type: ord.furniture_type,
+                          customer_name: ord.customer_name,
+                          customer_email: ord.customer_email,
+                          dimensions: ord.dimensions || 'Standard Specs',
+                          material: ord.material,
+                          color: ord.color,
+                          payment_status: ord.payment_status || 'Pending',
+                          order_status: ord.order_status || 'Approved',
+                          estimated_price: ord.estimated_price,
+                          design_description: ord.design_description,
+                          assigned_workers: ord.assigned_workers || [],
+                          raw: ord
+                        });
+                      }
+                    }
+                  });
 
                   if (planningOrders.length === 0) {
                     return (
@@ -3056,21 +3135,30 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                       {planningOrders.map(ord => {
                         const reqStages = getRequiredProductionStages(ord.furniture_type, ord.material, ord.design_description);
+                        const isPaid = (ord.payment_status || '').toLowerCase() === 'paid' || (ord.order_status || '').toLowerCase() === 'paid';
                         return (
-                          <div key={ord.custom_order_id} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm space-y-4 flex flex-col justify-between transition-all">
+                          <div key={`${ord.order_type}-${ord.numeric_id || ord.id_label}`} className="bg-white border-2 border-[#E2D7CB] hover:border-[#48A63E] rounded-3xl p-5 shadow-sm space-y-4 flex flex-col justify-between transition-all">
                             <div className="space-y-3">
                               <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
                                 <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-md border border-[#48A63E]/20">
-                                  CUS-{ord.custom_order_id.toString().padStart(4, '0')}
+                                  {ord.id_label}
                                 </span>
-                                <span className="text-[10px] font-extrabold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                  {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? 'PAID & APPROVED' : (ord.order_status || 'APPROVED')}
-                                </span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full border ${
+                                    isPaid 
+                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300' 
+                                      : 'bg-blue-100 text-blue-800 border-blue-300'
+                                  }`}>
+                                    {isPaid ? 'PAID & APPROVED' : (ord.order_status || 'APPROVED')}
+                                  </span>
+                                </div>
                               </div>
 
                               <div>
                                 <h4 className="text-sm font-extrabold text-[#2C241D]">{ord.furniture_type}</h4>
-                                <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5">Customer: {ord.customer_name}</p>
+                                <p className="text-xs text-[#7A6C5E] font-semibold mt-0.5">
+                                  Customer: {ord.customer_name} {ord.customer_email ? `(${ord.customer_email})` : ''}
+                                </p>
                               </div>
 
                               <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5 font-medium">
@@ -3088,6 +3176,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                     <span className="font-bold text-[#38A132]">{ord.color}</span>
                                   </div>
                                 )}
+                                {ord.estimated_price && ord.estimated_price > 0 && (
+                                  <div className="flex justify-between pt-1 border-t border-[#EFE7DE]">
+                                    <span className="text-[#7A6C5E]">Price Quote:</span>
+                                    <span className="font-mono font-black text-[#48A63E]">₹{ord.estimated_price.toLocaleString('en-IN')}</span>
+                                  </div>
+                                )}
                               </div>
 
                               {/* Assigned Worker Status Banner */}
@@ -3103,7 +3197,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                     </span>
                                   </div>
                                   <div className="space-y-1.5 pt-0.5">
-                                    {ord.assigned_workers.map((w, idx) => {
+                                    {ord.assigned_workers.map((w: any, idx: number) => {
                                       const isDone = w.task_status?.toLowerCase().includes('completed');
                                       return (
                                         <div
@@ -3135,10 +3229,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                               type="button"
                                               onClick={(e) => {
                                                 e.stopPropagation();
-                                                handleUnassignWorker(ord.custom_order_id, w.worker_id, w.worker_name);
+                                                handleUnassignWorker(ord.custom_order_id || ord.numeric_id, w.worker_id, w.worker_name);
                                               }}
                                               className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer flex-shrink-0"
-                                              title={`Remove ${w.worker_name} from Order #${ord.custom_order_id}`}
+                                              title={`Remove ${w.worker_name}`}
                                             >
                                               <X className="w-3.5 h-3.5" />
                                             </button>
@@ -3159,7 +3253,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 <span className="text-[11px] font-extrabold text-[#7A6C5E]">Production Pipeline Stages:</span>
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {reqStages.map(s => {
-                                    const asgnForStage = ord.assigned_workers?.find(w => 
+                                    const asgnForStage = ord.assigned_workers?.find((w: any) => 
                                       w.specialization?.toLowerCase().includes(s.label.toLowerCase()) ||
                                       s.label.toLowerCase().includes(w.specialization?.toLowerCase() || '') ||
                                       w.task_status?.toLowerCase().includes(s.label.toLowerCase())
@@ -3189,7 +3283,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-between gap-2">
                               <button
                                 onClick={() => {
-                                  setSelectedMaterialOrder(ord);
+                                  setSelectedMaterialOrder(ord.raw || ord);
                                   setIsMaterialReceiptModalOpen(true);
                                 }}
                                 className="px-3 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#F3EDE5] border border-[#E2D7CB] text-[#5C4E42] text-xs font-extrabold transition-all cursor-pointer flex items-center gap-1"
@@ -3199,7 +3293,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               </button>
                               <button
                                 onClick={() => {
-                                  setSelectedOrderForWorker(ord);
+                                  setSelectedOrderForWorker(ord.raw || ord);
                                 }}
                                 className="px-3 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold transition-all shadow-sm cursor-pointer flex items-center gap-1"
                               >
@@ -5631,7 +5725,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-lg font-extrabold text-[#2C241D]">Assign Artisan by Department</h3>
-                <p className="text-xs text-[#7A6C5E]">Order #{selectedOrderForWorker.custom_order_id} ({selectedOrderForWorker.furniture_type})</p>
+                <p className="text-xs text-[#7A6C5E]">
+                  Order #{selectedOrderForWorker.request_id || selectedOrderForWorker.custom_order_id || selectedOrderForWorker.numeric_id} ({selectedOrderForWorker.furniture_type || selectedOrderForWorker.title})
+                </p>
               </div>
             </div>
 
@@ -5642,7 +5738,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   Currently Assigned Artisans ({selectedOrderForWorker.assigned_workers.length}):
                 </span>
                 <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                  {selectedOrderForWorker.assigned_workers.map((w, idx) => (
+                  {selectedOrderForWorker.assigned_workers.map((w: any, idx: number) => (
                     <div key={idx} className="flex items-center justify-between bg-white p-2 px-3 rounded-xl border border-[#E2D7CB] text-xs shadow-2xs">
                       <div className="flex items-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-[#38A132] animate-pulse"></span>
@@ -5652,12 +5748,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={async () => {
-                          await handleUnassignWorker(selectedOrderForWorker.custom_order_id, w.worker_id, w.worker_name);
-                          setSelectedOrderForWorker(prev => {
+                          const ordNumId = selectedOrderForWorker.custom_order_id || selectedOrderForWorker.numeric_id;
+                          await handleUnassignWorker(ordNumId, w.worker_id, w.worker_name);
+                          setSelectedOrderForWorker((prev: any) => {
                             if (!prev) return null;
                             return {
                               ...prev,
-                              assigned_workers: (prev.assigned_workers || []).filter(item => item.worker_id !== w.worker_id)
+                              assigned_workers: (prev.assigned_workers || []).filter((item: any) => item.worker_id !== w.worker_id)
                             };
                           });
                         }}
@@ -6379,7 +6476,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <div>
                   <h3 className="text-base font-black text-[#1A140E]">Log Raw Material Receipt</h3>
                   <p className="text-xs font-semibold text-[#7A6C5E]">
-                    Order <span className="font-mono text-[#48A63E]">CUS-{selectedMaterialOrder.custom_order_id?.toString().padStart(4, '0')}</span> • {selectedMaterialOrder.furniture_type}
+                    Order <span className="font-mono text-[#48A63E]">
+                      {selectedMaterialOrder.request_id || `CUS-${(selectedMaterialOrder.custom_order_id || selectedMaterialOrder.numeric_id)?.toString().padStart(4, '0')}`}
+                    </span> • {selectedMaterialOrder.furniture_type || selectedMaterialOrder.title || 'Production Order'}
                   </p>
                 </div>
               </div>
