@@ -68,6 +68,8 @@ class UserResponse(BaseModel):
     role_name: str
     status: bool
     must_change_password: Optional[bool] = False
+    is_driver: Optional[bool] = False
+    specialization: Optional[str] = None
     created_at: datetime
     customer: Optional[CustomerBase] = None
 

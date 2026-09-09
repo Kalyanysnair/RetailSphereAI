@@ -76,13 +76,11 @@ def get_worker_summary(
         models.ReworkJob.status != "RESOLVED"
     ).count()
 
-    # Driver deliveries (if worker is driver)
-    driver_deliveries = 0
-    if current_user.is_driver:
-        driver_deliveries = db.query(models.OrderFulfillment).filter(
-            models.OrderFulfillment.driver_id == worker_id,
-            models.OrderFulfillment.fulfillment_status != "Delivered"
-        ).count()
+    # Driver deliveries (if worker is assigned as driver or has fulfillments)
+    driver_deliveries = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.driver_id == worker_id,
+        models.OrderFulfillment.fulfillment_status != "Delivered"
+    ).count()
 
     # Pending leaves count
     pending_leaves = db.query(models.WorkerLeave).filter(
@@ -90,12 +88,14 @@ def get_worker_summary(
         models.WorkerLeave.status == "Pending"
     ).count()
 
+    is_driver_val = bool(current_user.is_driver or driver_deliveries > 0)
+
     return {
         "worker_id": worker_id,
         "worker_name": current_user.full_name,
         "role": current_user.role.role_name if current_user.role else "Worker",
         "specialization": current_user.specialization or "Woodwork & Carpentry",
-        "is_driver": bool(current_user.is_driver),
+        "is_driver": is_driver_val,
         "active_tasks_count": active_count,
         "pending_tasks_count": pending_count,
         "completed_today_count": completed_today,
@@ -780,12 +780,13 @@ def get_worker_deliveries(
     db: Session = Depends(get_db)
 ):
     worker_id = current_user.user_id
-    if not current_user.is_driver:
-        return []
 
     fulfillments = db.query(models.OrderFulfillment).filter(
         models.OrderFulfillment.driver_id == worker_id
     ).order_by(models.OrderFulfillment.fulfillment_id.desc()).all()
+
+    if not fulfillments and not current_user.is_driver:
+        return []
 
     res = []
     for f in fulfillments:
@@ -799,23 +800,25 @@ def get_worker_deliveries(
             for item in ord_obj.items:
                 items_summary.append(f"{item.product_name or 'Furniture'} (x{item.quantity})")
 
+        order_code = f"RET-{f.order_id:06d}"
+
         res.append({
             "fulfillment_id": f.fulfillment_id,
-            "order_id": f"ORD-{f.order_id:04d}",
+            "order_id": order_code,
             "raw_order_id": f.order_id,
             "customer_name": ord_obj.customer_name if ord_obj and ord_obj.customer_name else (cust_user.full_name if cust_user else "Valued Customer"),
             "customer_phone": cust_user.phone if cust_user else (ord_obj.customer_email if ord_obj else ""),
             "customer_email": ord_obj.customer_email if ord_obj else (cust_user.email if cust_user else ""),
             "delivery_address": ord_obj.delivery_address if ord_obj and ord_obj.delivery_address else (f"{cust.address}, {cust.city}" if cust else "Standard Delivery Address"),
-            "vehicle_reg": veh.registration_number if veh else "Assigned Vehicle",
-            "vehicle_type": veh.vehicle_type if veh else "Mini Truck",
+            "vehicle_reg": veh.registration_number if veh else "Assigned Delivery Vehicle",
+            "vehicle_type": veh.vehicle_type if veh else "Delivery Vehicle",
             "fulfillment_status": f.fulfillment_status or "Dispatched",
             "delivery_status": f.delivery_status or f.fulfillment_status or "Assigned to Driver",
             "expected_delivery_date": f.expected_delivery_date or (f.dispatch_date.strftime("%d %b %Y") if f.dispatch_date else "Scheduled"),
             "dispatched_at": f.dispatched_at.isoformat() if f.dispatched_at else None,
             "delivered_at": f.delivered_at.isoformat() if f.delivered_at else None,
             "items_count": len(ord_obj.items) if ord_obj and ord_obj.items else 1,
-            "items_description": ", ".join(items_summary) if items_summary else "Furniture Delivery Items",
+            "items_description": ", ".join(items_summary) if items_summary else "Furniture Delivery Package",
             "total_amount": float(ord_obj.total_amount) if ord_obj and ord_obj.total_amount else 0.0,
             "delivery_notes": f.delivery_notes or f.dispatch_note or ""
         })
@@ -830,13 +833,16 @@ def update_worker_delivery_status(
     db: Session = Depends(get_db)
 ):
     worker_id = current_user.user_id
-    if not current_user.is_driver:
-        raise HTTPException(status_code=403, detail="Only registered driver workers can update delivery status.")
 
     f = db.query(models.OrderFulfillment).filter(
         models.OrderFulfillment.fulfillment_id == fulfillment_id,
         models.OrderFulfillment.driver_id == worker_id
     ).first()
+
+    if not f and current_user.is_driver:
+        f = db.query(models.OrderFulfillment).filter(
+            models.OrderFulfillment.fulfillment_id == fulfillment_id
+        ).first()
 
     if not f:
         raise HTTPException(status_code=404, detail="Delivery fulfillment record not found or unauthorized.")
@@ -846,11 +852,71 @@ def update_worker_delivery_status(
     if payload.notes:
         f.delivery_notes = payload.notes.strip()
 
+    prev_status = f.order.order_status if f.order else "Dispatched"
+
     if st.lower() in ["delivered", "complete", "completed"]:
         f.fulfillment_status = "Delivered"
+        f.delivery_status = "Delivered"
         f.delivered_at = datetime.utcnow()
         if f.order:
             f.order.order_status = "Delivered"
+            if hasattr(f.order, "completion_status"):
+                f.order.completion_status = "Delivered"
+
+        # If vehicle was assigned, check if all deliveries done to free up
+        if f.vehicle_id:
+            active_left = db.query(models.OrderFulfillment).filter(
+                models.OrderFulfillment.vehicle_id == f.vehicle_id,
+                models.OrderFulfillment.fulfillment_id != f.fulfillment_id,
+                models.OrderFulfillment.fulfillment_status != "Delivered"
+            ).count()
+            if active_left == 0 and f.vehicle:
+                f.vehicle.status = "AVAILABLE"
+
+        # Record Status History
+        if f.order:
+            history = models.OrderStatusHistory(
+                order_id=f.order_id,
+                previous_status=prev_status,
+                new_status="Delivered",
+                changed_by_id=worker_id,
+                changed_by_role="Delivery Driver",
+                note=f"Order safely delivered to destination by Driver {current_user.full_name}. {payload.notes or ''}".strip()
+            )
+            db.add(history)
+
+            if f.order.customer_id:
+                notif = models.CustomerNotification(
+                    customer_id=f.order.customer_id,
+                    title=f"Order Delivered — RET-{f.order_id:06d}",
+                    message=f"Your order RET-{f.order_id:06d} has been successfully delivered to your address. Thank you for choosing RetailSphere AI!"
+                )
+                db.add(notif)
+
+    elif st.lower() in ["out for delivery", "out_for_delivery"]:
+        f.delivery_status = "Out for Delivery"
+        if f.order:
+            f.order.order_status = "Out for Delivery"
+            if hasattr(f.order, "completion_status"):
+                f.order.completion_status = "Out for Delivery"
+
+            history = models.OrderStatusHistory(
+                order_id=f.order_id,
+                previous_status=prev_status,
+                new_status="Out for Delivery",
+                changed_by_id=worker_id,
+                changed_by_role="Delivery Driver",
+                note=f"Driver {current_user.full_name} has loaded the vehicle and is out for delivery. {payload.notes or ''}".strip()
+            )
+            db.add(history)
+
+            if f.order.customer_id:
+                notif = models.CustomerNotification(
+                    customer_id=f.order.customer_id,
+                    title=f"Out for Delivery — RET-{f.order_id:06d}",
+                    message=f"Your order RET-{f.order_id:06d} is currently out for delivery with driver {current_user.full_name}. Expected today."
+                )
+                db.add(notif)
 
     db.commit()
     return {"message": f"Delivery status updated to {st}.", "delivery_status": st}

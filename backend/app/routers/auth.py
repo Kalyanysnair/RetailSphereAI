@@ -38,6 +38,8 @@ def build_user_response(user: models.User) -> schemas.UserResponse:
         role_name=user.role.role_name if user.role else "Customer",
         status=user.status,
         must_change_password=getattr(user, "must_change_password", False) or False,
+        is_driver=bool(getattr(user, "is_driver", False)),
+        specialization=getattr(user, "specialization", None),
         created_at=user.created_at,
         customer=customer_info
     )

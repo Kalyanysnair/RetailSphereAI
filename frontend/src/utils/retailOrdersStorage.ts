@@ -18,7 +18,7 @@ export interface RetailOrder {
   discountType?: string;
   discountDeducted?: number;
   shippingFee?: number;
-  orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Cancelled';
+  orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Completed' | 'Cancelled';
   paymentStatus: 'Paid' | 'Pending' | 'Cancelled';
   paymentId?: string;
   completionStatus?: string;

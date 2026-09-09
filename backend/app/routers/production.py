@@ -2139,15 +2139,26 @@ def get_onsite_jobs_for_production(db: Session = Depends(get_db)):
         
         # Check assigned jobs
         jobs_list = []
-        assigned_team_str = "On-Site Skilled Artisan Team"
+        assigned_workers_list = []
+        assigned_team_str = "No Artisan Assigned"
         for j in s.jobs:
             w_user = db.query(models.User).filter(models.User.user_id == j.worker_id).first()
             if w_user:
-                assigned_team_str = f"Artisan: {w_user.full_name}"
+                assigned_team_str = f"{w_user.full_name} ({getattr(w_user, 'specialization', 'Artisan') or 'Artisan'})"
+                assigned_workers_list.append({
+                    "worker_id": w_user.user_id,
+                    "worker_name": w_user.full_name,
+                    "worker_email": w_user.email,
+                    "worker_phone": getattr(w_user, "phone", "") or "",
+                    "specialization": getattr(w_user, "specialization", "On-Site Installation & Assembly") or "On-Site Installation & Assembly",
+                    "task_status": j.status or "Assigned"
+                })
             jobs_list.append({
                 "job_id": j.job_id,
                 "worker_id": j.worker_id,
                 "worker_name": w_user.full_name if w_user else "Artisan Worker",
+                "worker_phone": getattr(w_user, "phone", "") if w_user else "",
+                "specialization": getattr(w_user, "specialization", "Artisan") if w_user else "Artisan",
                 "status": j.status,
                 "scheduled_time": j.scheduled_time.isoformat() if j.scheduled_time else None
             })
@@ -2155,7 +2166,7 @@ def get_onsite_jobs_for_production(db: Session = Depends(get_db)):
         prod_status = "Approved & Ready"
         if s.status == "COMPLETED":
             prod_status = "Ready for Dispatch"
-        elif s.status in ["IN_PROGRESS", "WORKER_ASSIGNED"]:
+        elif s.status in ["IN_PROGRESS", "WORKER_ASSIGNED"] or len(assigned_workers_list) > 0:
             prod_status = "In Production"
         elif s.status == "PAID":
             prod_status = "Approved & Ready"
@@ -2171,6 +2182,7 @@ def get_onsite_jobs_for_production(db: Session = Depends(get_db)):
             "required_installation_date": s.preferred_date.strftime("%d %b %Y") if s.preferred_date else "Flexible",
             "priority": s.priority or "High",
             "assigned_production_team": assigned_team_str,
+            "assigned_workers": assigned_workers_list,
             "production_status": prod_status,
             "store_contact": f"{cust_u.full_name if cust_u else 'Customer'} • {cust_u.phone if cust_u and cust_u.phone else 'Client'}",
             "special_instructions": s.description or "Standard on-site carpentry/upholstery service requirements.",
@@ -2191,6 +2203,206 @@ def get_onsite_jobs_for_production(db: Session = Depends(get_db)):
             "jobs": jobs_list
         })
     return res
+
+
+# 20. FABRICATION JOBS FOR TECHNICAL PRODUCTION WORKSPACE
+@router.get("/fabrication-jobs")
+def get_fabrication_jobs_for_production(db: Session = Depends(get_db)):
+    fabs = db.query(models.FabricationRequest).order_by(models.FabricationRequest.created_at.desc()).all()
+    res = []
+    for f in fabs:
+        rev_st = (getattr(f, "review_status", None) or "").upper().strip()
+        fst = (f.status or "").upper().strip()
+        
+        # Only show approved / active / paid fabrication requests
+        is_valid = (rev_st in ["APPROVED", "APPROVED_BY_RETAIL"]) or (fst in ["APPROVED", "APPROVED_BY_RETAIL", "APPROVED_BY_RETAIL_STAFF", "PAID", "IN_PRODUCTION", "IN PRODUCTION", "QC_PENDING", "COMPLETED", "QUOTED", "ASSESSED"])
+        if not is_valid:
+            continue
+
+        cust_u = f.customer.user if f.customer and f.customer.user else None
+
+        # Fetch production stages for this fabrication job
+        stages = db.query(models.ProductionStage).filter(
+            models.ProductionStage.order_type == "Fabrication",
+            models.ProductionStage.order_id == f.fabrication_id
+        ).order_by(models.ProductionStage.sequence_order.asc()).all()
+
+        assigned_workers_list = []
+        stages_list = []
+        total_progress = 0
+        assigned_worker_names = []
+
+        for s in stages:
+            w_user = None
+            if s.assigned_worker_id:
+                w_user = db.query(models.User).filter(models.User.user_id == s.assigned_worker_id).first()
+                if w_user and w_user.full_name not in assigned_worker_names:
+                    assigned_worker_names.append(w_user.full_name)
+                    assigned_workers_list.append({
+                        "stage_id": s.stage_id,
+                        "worker_id": w_user.user_id,
+                        "worker_name": w_user.full_name,
+                        "worker_email": w_user.email,
+                        "worker_phone": getattr(w_user, "phone", "") or "",
+                        "specialization": getattr(w_user, "specialization", s.stage_name) or s.stage_name,
+                        "stage_name": s.stage_name,
+                        "task_status": f"{s.stage_name}: {s.status.replace('_', ' ').title()}"
+                    })
+
+            stages_list.append({
+                "stage_id": s.stage_id,
+                "stage_name": s.stage_name,
+                "sequence_order": s.sequence_order,
+                "required_skill": s.required_skill,
+                "assigned_worker_id": s.assigned_worker_id,
+                "assigned_worker_name": w_user.full_name if w_user else None,
+                "assigned_worker_phone": getattr(w_user, "phone", "") if w_user else "",
+                "status": s.status,
+                "progress_percentage": s.progress_percentage or 0,
+                "remarks": s.remarks
+            })
+            total_progress += (s.progress_percentage or 0)
+
+        calc_progress = int(total_progress / len(stages)) if stages else (65 if fst == "IN_PRODUCTION" else 0)
+
+        card_status = "Pending"
+        if fst == "COMPLETED" or (len(stages) > 0 and all(st.status == "COMPLETED" for st in stages)):
+            card_status = "Completed"
+        elif fst in ["QC_PENDING", "QUALITY CHECK"] or any(st.status == "QC_PENDING" for st in stages):
+            card_status = "Quality Check"
+        elif fst in ["IN_PRODUCTION", "IN PRODUCTION", "PAID"] or any(st.status in ["ASSIGNED", "IN_PROGRESS"] for st in stages) or len(assigned_workers_list) > 0:
+            card_status = "In Progress"
+
+        res.append({
+            "fabrication_id": f"FAB-{f.fabrication_id:04d}",
+            "numeric_id": f.fabrication_id,
+            "order_id": f"REQ-{f.fabrication_id:04d}",
+            "product_name": f.service_type,
+            "product_thumbnail": f.drawing_image or "https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?w=300&auto=format&fit=crop&q=60",
+            "quantity": f"{f.quantity} Units" if f.quantity > 1 else "1 Unit",
+            "material_required": f.material_source if f.material_source else "Hardwood / Timber",
+            "assigned_team": ", ".join(assigned_worker_names) if assigned_worker_names else "No Artisan Assigned",
+            "assigned_workers": assigned_workers_list,
+            "priority": f.priority or "High",
+            "expected_completion_date": f.deadline.strftime("%d %b %Y") if f.deadline else "Flexible",
+            "status": card_status,
+            "progress_percentage": calc_progress,
+            "customer_name": cust_u.full_name if cust_u else "Customer",
+            "customer_email": cust_u.email if cust_u else "",
+            "customer_phone": cust_u.phone if cust_u else "",
+            "dimensions": f.dimensions,
+            "requirements": f.requirements,
+            "stages": stages_list
+        })
+    return res
+
+
+class AssignOnsiteWorkerPayload(BaseModel):
+    service_id: int
+    worker_id: int
+    scheduled_time: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.post("/onsite/assign-worker")
+def assign_worker_to_onsite_job(payload: AssignOnsiteWorkerPayload, db: Session = Depends(get_db)):
+    srv = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == payload.service_id).first()
+    if not srv:
+        raise HTTPException(status_code=404, detail="Service request not found")
+
+    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    # Check if job already exists or create new
+    existing_job = db.query(models.ServiceJob).filter(models.ServiceJob.service_id == payload.service_id).first()
+    if existing_job:
+        existing_job.worker_id = payload.worker_id
+        existing_job.status = "ASSIGNED"
+        if payload.notes:
+            existing_job.customer_notes = payload.notes
+    else:
+        new_job = models.ServiceJob(
+            service_id=payload.service_id,
+            worker_id=payload.worker_id,
+            status="ASSIGNED",
+            customer_notes=payload.notes
+        )
+        db.add(new_job)
+
+    srv.status = "WORKER_ASSIGNED"
+    models.Notification(
+        user_id=payload.worker_id,
+        title="New On-Site Field Job Assigned",
+        message=f"You have been assigned to On-Site Service Job #{srv.service_id:04d} ({srv.service_category}) in {srv.city}.",
+        created_at=datetime.utcnow()
+    )
+    db.commit()
+    return {"message": f"Worker {worker.full_name} assigned successfully to On-Site Job #{srv.service_id:04d}"}
+
+
+class AssignFabricationWorkerPayload(BaseModel):
+    fabrication_id: int
+    worker_id: int
+    stage_id: Optional[int] = None
+    notes: Optional[str] = None
+
+
+@router.post("/fabrication/assign-worker")
+def assign_worker_to_fabrication(payload: AssignFabricationWorkerPayload, db: Session = Depends(get_db)):
+    fab = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.fabrication_id).first()
+    if not fab:
+        raise HTTPException(status_code=404, detail="Fabrication request not found")
+
+    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    if payload.stage_id:
+        stage = db.query(models.ProductionStage).filter(
+            models.ProductionStage.stage_id == payload.stage_id,
+            models.ProductionStage.order_type == "Fabrication",
+            models.ProductionStage.order_id == payload.fabrication_id
+        ).first()
+    else:
+        # Get first stage or create default stage
+        stage = db.query(models.ProductionStage).filter(
+            models.ProductionStage.order_type == "Fabrication",
+            models.ProductionStage.order_id == payload.fabrication_id
+        ).order_by(models.ProductionStage.sequence_order.asc()).first()
+        
+        if not stage:
+            stage = models.ProductionStage(
+                order_type="Fabrication",
+                order_id=payload.fabrication_id,
+                stage_name=f"Precision {fab.service_type}",
+                sequence_order=1,
+                required_skill=worker.specialization or "Woodwork & Carpentry",
+                assigned_worker_id=payload.worker_id,
+                status="ASSIGNED",
+                progress_percentage=0,
+                remarks=payload.notes
+            )
+            db.add(stage)
+            db.flush()
+
+    if stage:
+        stage.assigned_worker_id = payload.worker_id
+        stage.status = "ASSIGNED"
+        if payload.notes:
+            stage.remarks = payload.notes
+
+    if fab.status in ["APPROVED", "PAID"]:
+        fab.status = "IN_PRODUCTION"
+
+    models.Notification(
+        user_id=payload.worker_id,
+        title=f"Fabrication Job Assigned — {fab.service_type}",
+        message=f"You have been assigned to Fabrication Job #{fab.fabrication_id:04d} ({fab.service_type}).",
+        created_at=datetime.utcnow()
+    )
+    db.commit()
+    return {"message": f"Worker {worker.full_name} assigned to Fabrication Job #{fab.fabrication_id:04d}"}
 
 
 # 20. PRODUCTION ANALYTICS & REPORTS

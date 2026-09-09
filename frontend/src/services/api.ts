@@ -59,6 +59,8 @@ export interface UserProfile {
   role_name: string;
   status: boolean;
   must_change_password?: boolean;
+  is_driver?: boolean;
+  specialization?: string;
   created_at: string;
   customer?: {
     customer_id: number;

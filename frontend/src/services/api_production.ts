@@ -1437,3 +1437,58 @@ export async function assignProductionSupervisor(orderId: number, supervisorId: 
     return false;
   }
 }
+
+// 20. Fetch Fabrication Jobs from DB
+export async function fetchFabricationJobsForProduction(): Promise<any[]> {
+  try {
+    const res = await safeFetchProd('/fabrication-jobs');
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (err) {
+    console.error('Error fetching fabrication jobs from DB:', err);
+    return [];
+  }
+}
+
+// 21. Assign Worker to Fabrication Job
+export async function assignWorkerToFabrication(fabricationId: number, workerId: number, stageId?: number, notes?: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const res = await safeFetchProd('/fabrication/assign-worker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fabrication_id: fabricationId,
+        worker_id: workerId,
+        stage_id: stageId,
+        notes: notes
+      })
+    });
+    const data = await res.json();
+    return { ok: res.ok, message: data?.message };
+  } catch (err: any) {
+    console.error('Error assigning worker to fabrication job:', err);
+    return { ok: false, message: err?.message || 'Failed to assign worker' };
+  }
+}
+
+// 22. Assign Worker to On-Site Job
+export async function assignWorkerToOnsiteJob(serviceId: number, workerId: number, scheduledTime?: string, notes?: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const res = await safeFetchProd('/onsite/assign-worker', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        service_id: serviceId,
+        worker_id: workerId,
+        scheduled_time: scheduledTime,
+        notes: notes
+      })
+    });
+    const data = await res.json();
+    return { ok: res.ok, message: data?.message };
+  } catch (err: any) {
+    console.error('Error assigning worker to onsite job:', err);
+    return { ok: false, message: err?.message || 'Failed to assign worker' };
+  }
+}
+

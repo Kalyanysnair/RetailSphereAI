@@ -161,12 +161,14 @@ export const WorkerDashboardPage: React.FC = () => {
   const [reworkResolveNotes, setReworkResolveNotes] = useState('');
   const [isSubmittingRework, setIsSubmittingRework] = useState(false);
 
-  // Delivery Modal State
+  // Delivery Modal & Filter State
   const [selectedDelivery, setSelectedDelivery] = useState<WorkerDeliveryItem | null>(null);
   const [isDeliveryModalOpen, setIsDeliveryModalOpen] = useState(false);
   const [deliveryStatusInput, setDeliveryStatusInput] = useState('Out for Delivery');
   const [deliveryNotesInput, setDeliveryNotesInput] = useState('');
   const [isSubmittingDelivery, setIsSubmittingDelivery] = useState(false);
+  const [deliveryFilter, setDeliveryFilter] = useState<'All' | 'Dispatched' | 'Out for Delivery' | 'Delivered'>('All');
+  const [deliverySearchQuery, setDeliverySearchQuery] = useState('');
 
   // Profile / Password Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -211,8 +213,6 @@ export const WorkerDashboardPage: React.FC = () => {
       );
       setStaffQueries(userQueries);
 
-      const isDriver = Boolean((currentUser as any).is_driver);
-
       const [summary, tasks, history, onsite, leaves, reworks, deliveries] = await Promise.all([
         fetchWorkerSummaryDB(),
         fetchWorkerTasksDB(taskStatusFilter),
@@ -220,10 +220,22 @@ export const WorkerDashboardPage: React.FC = () => {
         fetchWorkerOnsiteJobsDB(),
         fetchMyLeaveApplications(),
         fetchWorkerReworkJobsDB(),
-        isDriver ? fetchWorkerDeliveriesDB() : Promise.resolve([])
+        fetchWorkerDeliveriesDB()
       ]);
 
-      if (summary) setSummaryData(summary);
+      const isDriver = Boolean(
+        (currentUser as any).is_driver || 
+        summary?.is_driver || 
+        (deliveries && deliveries.length > 0)
+      );
+
+      setUserProfile({
+        ...currentUser,
+        is_driver: isDriver,
+        specialization: summary?.specialization || (currentUser as any).specialization || 'Joinery & Assembly'
+      });
+
+      if (summary) setSummaryData({ ...summary, is_driver: isDriver });
       setTasksList(tasks || []);
       setCompletedHistory(history || []);
       setOnsiteJobsList(onsite || []);
@@ -281,6 +293,27 @@ export const WorkerDashboardPage: React.FC = () => {
       return true;
     });
   }, [tasksList, taskStatusFilter, taskTypeFilter, searchQuery]);
+
+  // Filtered Deliveries for Driver Deliveries Tab
+  const filteredDeliveries = useMemo(() => {
+    return deliveriesList.filter((d) => {
+      if (deliveryFilter !== 'All') {
+        const st = (d.delivery_status || d.fulfillment_status || '').toLowerCase();
+        if (deliveryFilter === 'Dispatched' && !st.includes('dispatched') && st !== 'assigned to driver') return false;
+        if (deliveryFilter === 'Out for Delivery' && !st.includes('out for delivery') && !st.includes('out_for_delivery')) return false;
+        if (deliveryFilter === 'Delivered' && !st.includes('delivered')) return false;
+      }
+      if (deliverySearchQuery.trim()) {
+        const q = deliverySearchQuery.toLowerCase();
+        const matchId = (d.order_id || '').toLowerCase().includes(q);
+        const matchName = (d.customer_name || '').toLowerCase().includes(q);
+        const matchAddr = (d.delivery_address || '').toLowerCase().includes(q);
+        const matchVeh = (d.vehicle_reg || '').toLowerCase().includes(q);
+        return matchId || matchName || matchAddr || matchVeh;
+      }
+      return true;
+    });
+  }, [deliveriesList, deliveryFilter, deliverySearchQuery]);
 
   // Handlers for Task Actions
   const handleStartTask = async (taskId: string) => {
@@ -852,8 +885,9 @@ export const WorkerDashboardPage: React.FC = () => {
                   {userProfile?.is_driver && (
                     <>
                       <span>•</span>
-                      <span className="px-2 py-0.5 rounded-md bg-amber-500 text-white font-bold text-[10px]">
-                        Driver Capable
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-900 border border-amber-400 font-extrabold text-[10px]">
+                        <Truck className="w-3 h-3 text-amber-700" />
+                        <span>Internal Delivery Driver</span>
                       </span>
                     </>
                   )}
@@ -1342,6 +1376,86 @@ export const WorkerDashboardPage: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* D. ASSIGNED DELIVERY DISPATCHES (FOR INTERNAL DELIVERY DRIVERS) */}
+                {userProfile?.is_driver && (
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-[#EFE7DE]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-700 font-bold">
+                          <Truck className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="text-sm sm:text-base font-black text-[#2C241D]">
+                            Assigned Delivery Orders (Driver Route)
+                          </h3>
+                          <p className="text-[11px] text-[#7A6C5E] font-medium">
+                            Orders assigned for field delivery & customer handover
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('deliveries')}
+                        className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-xl transition-all"
+                      >
+                        <span>Manage Deliveries ({deliveriesList.length})</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {deliveriesList.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-[#7A6C5E] bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB]">
+                        No active retail delivery orders currently assigned to your vehicle queue.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {deliveriesList.slice(0, 6).map((del) => (
+                          <div
+                            key={del.fulfillment_id}
+                            className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] hover:border-indigo-300 transition-all space-y-2.5 flex flex-col justify-between shadow-2xs hover:shadow-xs"
+                          >
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                                  {del.order_id}
+                                </span>
+                                <span className={`px-2 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                                  del.fulfillment_status === 'Delivered'
+                                    ? 'bg-[#E8F5E9] text-[#2D6338]'
+                                    : del.delivery_status === 'Out for Delivery'
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'bg-indigo-100 text-indigo-800'
+                                }`}>
+                                  {del.delivery_status || del.fulfillment_status}
+                                </span>
+                              </div>
+                              <div>
+                                <div className="font-extrabold text-xs text-[#2C241D] truncate">{del.customer_name}</div>
+                                <div className="text-[11px] text-[#7A6C5E] truncate flex items-center gap-1 mt-0.5">
+                                  <MapPin className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span className="truncate">{del.delivery_address}</span>
+                                </div>
+                              </div>
+                              <div className="text-[10px] text-[#7A6C5E] font-medium truncate">
+                                {del.items_description}
+                              </div>
+                            </div>
+
+                            <div className="text-[10px] font-bold text-[#7A6C5E] flex items-center justify-between pt-2 border-t border-[#EFE7DE]">
+                              <span className="truncate max-w-[120px]">{del.vehicle_reg}</span>
+                              <button
+                                onClick={() => handleOpenDeliveryModal(del)}
+                                className="text-indigo-600 hover:text-indigo-800 hover:underline font-extrabold cursor-pointer"
+                              >
+                                Update Status &rarr;
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1621,58 +1735,133 @@ export const WorkerDashboardPage: React.FC = () => {
             {/* ===================================================================== */}
             {activeTab === 'deliveries' && userProfile?.is_driver && (
               <div className="space-y-4 relative z-10 animate-fadeIn">
-                {deliveriesList.length === 0 ? (
+                {/* Search & Filter Ribbon */}
+                <div className="bg-white/95 p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={deliverySearchQuery}
+                      onChange={(e) => setDeliverySearchQuery(e.target.value)}
+                      placeholder="Search delivery orders by customer, order ref, address, or vehicle..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] placeholder:text-[#7A6C5E] focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {(['All', 'Dispatched', 'Out for Delivery', 'Delivered'] as const).map((filter) => {
+                      const count = filter === 'All'
+                        ? deliveriesList.length
+                        : deliveriesList.filter(d => {
+                            const st = (d.delivery_status || d.fulfillment_status || '').toLowerCase();
+                            if (filter === 'Dispatched') return st.includes('dispatched') || st === 'assigned to driver';
+                            if (filter === 'Out for Delivery') return st.includes('out for delivery') || st.includes('out_for_delivery');
+                            if (filter === 'Delivered') return st.includes('delivered');
+                            return true;
+                          }).length;
+
+                      const isActive = deliveryFilter === filter;
+                      return (
+                        <button
+                          key={filter}
+                          onClick={() => setDeliveryFilter(filter)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                            isActive
+                              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                              : 'bg-[#FAF7F2] text-[#5C4E42] border border-[#E2D7CB] hover:bg-[#EFE8DC]'
+                          }`}
+                        >
+                          {filter} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {filteredDeliveries.length === 0 ? (
                   <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
                     <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
-                      <Truck className="w-6 h-6 opacity-40" />
+                      <Truck className="w-6 h-6 opacity-40 text-indigo-600" />
                     </div>
-                    <h4 className="text-sm font-extrabold text-[#2C241D]">No Deliveries Assigned</h4>
-                    <p className="text-xs text-[#7A6C5E]">Orders dispatched for your delivery vehicle will appear here.</p>
+                    <h4 className="text-sm font-extrabold text-[#2C241D]">
+                      {deliveriesList.length === 0 ? 'No Deliveries Assigned' : 'No Deliveries Match Filter'}
+                    </h4>
+                    <p className="text-xs text-[#7A6C5E]">
+                      {deliveriesList.length === 0
+                        ? 'Orders dispatched for your delivery vehicle or driver account will appear here in real-time.'
+                        : 'Try selecting a different status filter or clearing your search term.'}
+                    </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {deliveriesList.map((del) => (
+                    {filteredDeliveries.map((del) => (
                       <div
                         key={del.fulfillment_id}
-                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all space-y-4"
+                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all space-y-4 flex flex-col justify-between"
                       >
-                        <div className="flex items-start justify-between">
-                          <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
-                            {del.order_id}
-                          </span>
-                          <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
-                            del.fulfillment_status === 'Delivered' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-indigo-100 text-indigo-800'
-                          }`}>
-                            {del.delivery_status || del.fulfillment_status}
-                          </span>
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2.5 py-0.5 rounded-md border border-[#D6C9B9]">
+                              {del.order_id}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                              del.fulfillment_status === 'Delivered'
+                                ? 'bg-[#E8F5E9] text-[#2D6338] border border-emerald-200'
+                                : del.delivery_status === 'Out for Delivery'
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                            }`}>
+                              {del.delivery_status || del.fulfillment_status}
+                            </span>
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-black text-[#2C241D]">{del.customer_name}</h4>
+                            <p className="text-xs text-[#7A6C5E] mt-0.5">{del.items_description}</p>
+                          </div>
+
+                          <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1.5 text-xs">
+                            <div className="flex items-start gap-2 text-[#2C241D] font-extrabold">
+                              <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                              <span>{del.delivery_address}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
+                              <Truck className="w-3.5 h-3.5 text-[#B89768] shrink-0" />
+                              <span>Vehicle: {del.vehicle_reg} ({del.vehicle_type})</span>
+                            </div>
+                            {del.customer_phone && (
+                              <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
+                                <Phone className="w-3.5 h-3.5 text-[#38A132] shrink-0" />
+                                <a href={`tel:${del.customer_phone}`} className="hover:underline text-[#2C241D]">
+                                  {del.customer_phone}
+                                </a>
+                              </div>
+                            )}
+                            <div className="flex items-center justify-between text-[11px] font-bold text-[#7A6C5E] pt-1 border-t border-[#EFE7DE]">
+                              <span>Expected: <strong className="text-[#2C241D]">{del.expected_delivery_date}</strong></span>
+                              {del.total_amount > 0 && (
+                                <span className="text-[#38A132] font-black">₹{del.total_amount.toLocaleString('en-IN')}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {del.delivery_notes && (
+                            <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900">
+                              <strong className="block font-black text-[10px] uppercase text-amber-800">Delivery Instructions / Notes:</strong>
+                              {del.delivery_notes}
+                            </div>
+                          )}
                         </div>
 
-                        <div>
-                          <h4 className="text-sm font-black text-[#2C241D]">{del.customer_name}</h4>
-                          <p className="text-xs text-[#7A6C5E] mt-0.5">{del.items_description}</p>
+                        <div className="space-y-2 pt-2">
+                          <button
+                            onClick={() => handleOpenDeliveryModal(del)}
+                            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-md shadow-indigo-600/20 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
+                          >
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Update Delivery Status</span>
+                          </button>
                         </div>
-
-                        <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
-                          <div className="flex items-center gap-2 text-[#2C241D] font-extrabold">
-                            <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                            <span>{del.delivery_address}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
-                            <Truck className="w-3.5 h-3.5 shrink-0" />
-                            <span>Vehicle: {del.vehicle_reg} ({del.vehicle_type})</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
-                            <Phone className="w-3.5 h-3.5 shrink-0" />
-                            <span>Phone: {del.customer_phone}</span>
-                          </div>
-                        </div>
-
-                        <button
-                          onClick={() => handleOpenDeliveryModal(del)}
-                          className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-xs cursor-pointer"
-                        >
-                          Update Delivery Status
-                        </button>
                       </div>
                     ))}
                   </div>
@@ -2314,28 +2503,58 @@ export const WorkerDashboardPage: React.FC = () => {
               </button>
             </div>
 
+            <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1 text-xs">
+              <div className="flex items-center justify-between font-extrabold text-[#2C241D]">
+                <span>{selectedDelivery.customer_name}</span>
+                <span className="text-[#38A132] font-black">₹{selectedDelivery.total_amount.toLocaleString('en-IN')}</span>
+              </div>
+              <div className="text-[#7A6C5E] flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <span className="truncate">{selectedDelivery.delivery_address}</span>
+              </div>
+              <div className="text-[#7A6C5E] flex items-center gap-1.5 font-bold">
+                <Truck className="w-3.5 h-3.5 text-[#B89768] shrink-0" />
+                <span>{selectedDelivery.vehicle_reg} ({selectedDelivery.vehicle_type})</span>
+              </div>
+            </div>
+
             <div className="space-y-3 text-xs">
               <div>
-                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Status</label>
-                <select
-                  value={deliveryStatusInput}
-                  onChange={(e) => setDeliveryStatusInput(e.target.value)}
-                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                >
-                  <option value="Dispatched">Dispatched from Hub</option>
-                  <option value="Out for Delivery">Out for Delivery</option>
-                  <option value="Delivered">Delivered & Handed Over</option>
-                </select>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1.5">Update Status to:</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'Dispatched', label: 'Dispatched' },
+                    { id: 'Out for Delivery', label: 'Out for Delivery' },
+                    { id: 'Delivered', label: 'Delivered' }
+                  ].map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => setDeliveryStatusInput(st.id)}
+                      className={`py-2 px-1 rounded-xl text-center font-extrabold text-[11px] transition-all cursor-pointer border ${
+                        deliveryStatusInput === st.id
+                          ? st.id === 'Delivered'
+                            ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-400 shadow-xs'
+                            : st.id === 'Out for Delivery'
+                            ? 'bg-amber-100 text-amber-900 border-amber-400 shadow-xs'
+                            : 'bg-indigo-100 text-indigo-900 border-indigo-400 shadow-xs'
+                          : 'bg-[#FAF7F2] text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#EFE8DC]'
+                      }`}
+                    >
+                      {st.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Delivery Handover Notes</label>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Delivery Handover Notes (Optional)</label>
                 <textarea
                   rows={2}
                   value={deliveryNotesInput}
                   onChange={(e) => setDeliveryNotesInput(e.target.value)}
-                  placeholder="Customer signature received, placed in living room..."
-                  className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium"
+                  placeholder="e.g. Delivered to customer living room, customer confirmed good condition..."
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-indigo-500"
                 />
               </div>
             </div>
@@ -2350,9 +2569,9 @@ export const WorkerDashboardPage: React.FC = () => {
               <button
                 onClick={handleConfirmUpdateDelivery}
                 disabled={isSubmittingDelivery}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md shadow-indigo-600/20 cursor-pointer transition-all"
               >
-                {isSubmittingDelivery ? 'Updating...' : 'Save Delivery Status'}
+                {isSubmittingDelivery ? 'Updating...' : `Confirm Status: ${deliveryStatusInput}`}
               </button>
             </div>
           </div>

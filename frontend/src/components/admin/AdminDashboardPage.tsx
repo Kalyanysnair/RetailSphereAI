@@ -184,7 +184,7 @@ export interface RetailOrder {
   email: string;
   itemsCount: number;
   totalAmount: number;
-  orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Cancelled';
+  orderStatus: 'Order Placed' | 'Pending' | 'Processing' | 'Shipped' | 'Delivered' | 'Paid' | 'Completed' | 'Cancelled';
   paymentStatus?: 'Paid' | 'Pending' | 'Cancelled';
   paymentId?: string;
   completionStatus?: string;
@@ -323,12 +323,17 @@ export const AdminDashboardPage: React.FC = () => {
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
 
-  // Custom Orders Admin Studio State
+  // Customer Requests Admin Studio State (Customizations, Fabrications, On-Site Services)
   const [allAdminCustomOrders, setAllAdminCustomOrders] = useState<CustomOrderData[]>([]);
-  const [customOrderSubTab, setCustomOrderSubTab] = useState<'all' | 'requests' | 'paid'>('all');
+  const [allAdminFabrications, setAllAdminFabrications] = useState<any[]>([]);
+  const [allAdminServices, setAllAdminServices] = useState<any[]>([]);
+  const [customerRequestCategoryFilter, setCustomerRequestCategoryFilter] = useState<'all' | 'custom' | 'fabrication' | 'onsite'>('all');
+  const [customOrderSubTab, setCustomOrderSubTab] = useState<'all' | 'requests' | 'paid' | 'completed'>('all');
   const [customOrderSearchQuery, setCustomOrderSearchQuery] = useState('');
   const [selectedCustomForAdminDetails, setSelectedCustomForAdminDetails] = useState<CustomOrderData | null>(null);
   const [selectedCustomForAdminReview, setSelectedCustomForAdminReview] = useState<CustomOrderData | null>(null);
+  const [selectedFabForAdminDetails, setSelectedFabForAdminDetails] = useState<any | null>(null);
+  const [selectedServiceForAdminDetails, setSelectedServiceForAdminDetails] = useState<any | null>(null);
   const [adminPriceInput, setAdminPriceInput] = useState('');
   const [adminReviewRemarks, setAdminReviewRemarks] = useState('');
 
@@ -1075,9 +1080,15 @@ export const AdminDashboardPage: React.FC = () => {
 
   const loadAllOrdersForAdmin = async () => {
     try {
-      const dbStoreOrders = await fetchRetailOrdersFromDB();
-      const allCustomOrders = await fetchCustomOrders('All', true);
+      const [dbStoreOrders, allCustomOrders, fabs, srvs] = await Promise.all([
+        fetchRetailOrdersFromDB(),
+        fetchCustomOrders('All', true),
+        fetch('/api/fabrication/requests').then(r => r.ok ? r.json() : []).catch(() => []),
+        fetch('/api/services/requests').then(r => r.ok ? r.json() : []).catch(() => [])
+      ]);
       setAllAdminCustomOrders(allCustomOrders || []);
+      setAllAdminFabrications(Array.isArray(fabs) ? fabs : []);
+      setAllAdminServices(Array.isArray(srvs) ? srvs : []);
 
       const paidCustomOrders = (allCustomOrders || []).filter(
         (c) => (c.payment_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'in production' || (c.order_status || '').toLowerCase() === 'completed'
@@ -1123,13 +1134,79 @@ export const AdminDashboardPage: React.FC = () => {
     };
   }, []);
 
-  const handleUpdateOrderStatus = (orderId: string, newStatus: 'Pending' | 'Processing' | 'Shipped' | 'Delivered') => {
-    const updated = orderList.map(o => o.orderId === orderId ? { ...o, orderStatus: newStatus } : o);
-    setOrderList(updated);
+  const handleUpdateOrderStatus = async (
+    orderId: string,
+    newStatus: string,
+    customPct?: number
+  ) => {
+    let pct = customPct;
+    if (pct === undefined) {
+      switch (newStatus) {
+        case 'Delivered':
+          pct = 100;
+          break;
+        case 'Out for Delivery':
+          pct = 90;
+          break;
+        case 'Shipped & In Transit':
+        case 'Shipped':
+          pct = 85;
+          break;
+        case 'Completed & Ready for Dispatch':
+        case 'Packed':
+          pct = 80;
+          break;
+        case 'In Production':
+          pct = 60;
+          break;
+        case 'Processing Order':
+        case 'Processing':
+          pct = 25;
+          break;
+        case 'Order Placed & Processing':
+        case 'Order Placed':
+        case 'Pending':
+          pct = 15;
+          break;
+        case 'Cancelled':
+          pct = 0;
+          break;
+        default:
+          pct = 50;
+      }
+    }
+
+    if (orderId.startsWith('CUSTOM-')) {
+      const customId = parseInt(orderId.replace('CUSTOM-', ''), 10);
+      try {
+        let backendStatus = 'In Production';
+        if (newStatus === 'Delivered') backendStatus = 'Completed';
+        else if (newStatus === 'Cancelled') backendStatus = 'Cancelled';
+        else if (newStatus === 'Pending' || newStatus === 'Order Placed') backendStatus = 'Pending';
+        await updateOrderStatus(customId, backendStatus as any);
+      } catch (err) {
+        console.warn('Could not update custom order status:', err);
+      }
+    } else {
+      updateStoredRetailOrderCompletionStatus(orderId, newStatus, pct);
+    }
+
+    const updated = orderList.map(o =>
+      o.orderId === orderId
+        ? {
+            ...o,
+            orderStatus: (newStatus === 'Delivered' ? 'Delivered' : (newStatus === 'Cancelled' ? 'Cancelled' : 'Processing')) as any,
+            completionStatus: newStatus,
+            completionPercentage: pct
+          }
+        : o
+    );
+    setOrderList(updated as any);
     localStorage.setItem('retailsphere_retail_orders_v1', JSON.stringify(updated));
+    localStorage.setItem('retail_orders_list', JSON.stringify(updated));
     window.dispatchEvent(new Event('retail-orders-updated'));
-    setSuccessBanner(`Order #${orderId} status updated to ${newStatus}!`);
-    setTimeout(() => setSuccessBanner(null), 5000);
+    setSuccessBanner(`Order #${orderId} completion status updated to "${newStatus}" (${pct}%)!`);
+    setTimeout(() => setSuccessBanner(null), 4000);
   };
 
   const handleAdminToggleLock = async (ord: CustomOrderData) => {
@@ -1162,26 +1239,43 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const handleExportAnalyticsReport = () => {
-    const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-'));
+    const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-') && o.orderStatus !== 'Cancelled' && o.paymentStatus !== 'Cancelled');
     const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
       (co: any) => (co.payment_status || '').toLowerCase() === 'paid' || 
                    (co.order_status || '').toLowerCase() === 'paid' || 
                    (co.order_status || '').toLowerCase() === 'in production' || 
                    (co.order_status || '').toLowerCase() === 'completed'
     );
+    const paidFabricationsList = (allAdminFabrications || []).filter(
+      (f: any) => (f.status || f.review_status || '').toUpperCase() === 'PAID' ||
+                   (f.status || f.review_status || '').toUpperCase() === 'IN_PRODUCTION' ||
+                   (f.status || f.review_status || '').toUpperCase() === 'COMPLETED'
+    );
+    const paidServicesList = (allAdminServices || []).filter(
+      (s: any) => (s.status || '').toUpperCase() === 'COMPLETED' ||
+                   (s.status || '').toUpperCase() === 'PAID' ||
+                   (s.status || '').toUpperCase() === 'WORKER_ASSIGNED'
+    );
 
     const realStoreRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
     const realCustomRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
-    const realGrossRevenue = realStoreRevenue + realCustomRevenue;
+    const realFabRevenue = paidFabricationsList.reduce((sum: number, f: any) => sum + (parseFloat(f.estimated_price) || 0), 0);
+    const realServiceRevenue = paidServicesList.reduce((sum: number, s: any) => sum + (parseFloat(s.estimated_price) || 0), 0);
+    const realGrossRevenue = realStoreRevenue + realCustomRevenue + realFabRevenue + realServiceRevenue;
 
-    const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length;
+    const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length + paidFabricationsList.length + paidServicesList.length;
     const completedOrdersCount = readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
-      paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+      paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length +
+      paidFabricationsList.filter((f: any) => (f.status || '').toUpperCase() === 'COMPLETED').length +
+      paidServicesList.filter((s: any) => (s.status || '').toUpperCase() === 'COMPLETED').length;
+
     const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
       (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
+    ).length + (allAdminFabrications || []).filter(
+      (f: any) => (f.status || '').toUpperCase() === 'IN_PRODUCTION'
     ).length;
 
-    const csvContent = `Metric,Value\nGross Revenue,₹${realGrossRevenue}\nTotal Store & Custom Orders,${totalOrdersCount}\nCompleted Orders,${completedOrdersCount}\nActive Bespoke Builds,${activeCustomBuildsCount}\nTotal Registered System Accounts,${(allUsersList || []).length}\nReport Export Date,${new Date().toLocaleString()}\n`;
+    const csvContent = `Metric,Value\nGross Revenue,₹${realGrossRevenue}\nCatalog Revenue,₹${realStoreRevenue}\nCustomization Revenue,₹${realCustomRevenue}\nFabrication Revenue,₹${realFabRevenue}\nOn-Site Services Revenue,₹${realServiceRevenue}\nTotal Customer Orders & Requests,${totalOrdersCount}\nCompleted Orders & Visits,${completedOrdersCount}\nActive Workshop Builds,${activeCustomBuildsCount}\nTotal Registered System Accounts,${(allUsersList || []).length}\nReport Export Date,${new Date().toLocaleString()}\n`;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -1193,21 +1287,36 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   const handleExportAnalyticsPDF = () => {
-    const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-'));
+    const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-') && o.orderStatus !== 'Cancelled' && o.paymentStatus !== 'Cancelled');
     const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
       (co: any) => (co.payment_status || '').toLowerCase() === 'paid' || 
                    (co.order_status || '').toLowerCase() === 'paid' || 
                    (co.order_status || '').toLowerCase() === 'in production' || 
                    (co.order_status || '').toLowerCase() === 'completed'
     );
+    const paidFabricationsList = (allAdminFabrications || []).filter(
+      (f: any) => (f.status || f.review_status || '').toUpperCase() === 'PAID' ||
+                   (f.status || f.review_status || '').toUpperCase() === 'IN_PRODUCTION' ||
+                   (f.status || f.review_status || '').toUpperCase() === 'COMPLETED'
+    );
+    const paidServicesList = (allAdminServices || []).filter(
+      (s: any) => (s.status || '').toUpperCase() === 'COMPLETED' ||
+                   (s.status || '').toUpperCase() === 'PAID' ||
+                   (s.status || '').toUpperCase() === 'WORKER_ASSIGNED'
+    );
 
     const realStoreRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
     const realCustomRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
-    const realGrossRevenue = realStoreRevenue + realCustomRevenue;
+    const realFabRevenue = paidFabricationsList.reduce((sum: number, f: any) => sum + (parseFloat(f.estimated_price) || 0), 0);
+    const realServiceRevenue = paidServicesList.reduce((sum: number, s: any) => sum + (parseFloat(s.estimated_price) || 0), 0);
+    const realGrossRevenue = realStoreRevenue + realCustomRevenue + realFabRevenue + realServiceRevenue;
 
-    const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length;
+    const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length + paidFabricationsList.length + paidServicesList.length;
     const completedOrdersCount = readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
-      paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+      paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length +
+      paidFabricationsList.filter((f: any) => (f.status || '').toUpperCase() === 'COMPLETED').length +
+      paidServicesList.filter((s: any) => (s.status || '').toUpperCase() === 'COMPLETED').length;
+
     const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
       (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
     ).length;
@@ -1226,7 +1335,7 @@ export const AdminDashboardPage: React.FC = () => {
     });
 
     const ordersRowsHTML = [
-      ...(orderList || []).map((o: any) => `
+      ...(readymadeStoreOrders || []).map((o: any) => `
         <tr>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; font-weight: 700;">Catalog: ${(o.items && o.items[0]) ? o.items[0].name : 'Store Order'}</td>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${o.orderId}</td>
@@ -1235,13 +1344,31 @@ export const AdminDashboardPage: React.FC = () => {
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${o.orderStatus || 'Completed'}</td>
         </tr>
       `),
-      ...(allAdminCustomOrders || []).map((co: any) => `
+      ...(paidCustomOrdersList || []).map((co: any) => `
         <tr>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; font-weight: 700;">Custom ${co.furniture_type} (${co.material || 'Wood'})</td>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">CUSTOM-${co.custom_order_id}</td>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">Bespoke Build</td>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; color: #2E7D32; font-weight: 800;">₹${(co.estimated_price || 0).toLocaleString('en-IN')}</td>
           <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${co.order_status || 'In Production'}</td>
+        </tr>
+      `),
+      ...(paidFabricationsList || []).map((f: any) => `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; font-weight: 700;">Fabrication: ${f.service_type || 'Custom Joinery'}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">FAB-${f.fabrication_id}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">Workshop Fabrication</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; color: #B45309; font-weight: 800;">₹${(parseFloat(f.estimated_price) || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${f.status || 'In Production'}</td>
+        </tr>
+      `),
+      ...(paidServicesList || []).map((s: any) => `
+        <tr>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; font-weight: 700;">Service: ${s.service_category || 'On-Site Service'}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">ONS-${s.service_id}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">On-Site Installation</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE; color: #1D4ED8; font-weight: 800;">₹${(parseFloat(s.estimated_price) || 0).toLocaleString('en-IN')}</td>
+          <td style="padding: 10px; border-bottom: 1px solid #EFE7DE;">${s.status || 'Completed'}</td>
         </tr>
       `)
     ].join('');
@@ -2256,19 +2383,6 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
           </button>
 
-          <button
-            onClick={() => setActiveTab('production')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'production'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Wrench className="w-4 h-4" />
-              <span className="text-xs">Production & Bottlenecks</span>
-            </div>
-          </button>
 
           <button
             onClick={() => setActiveTab('inventory')}
@@ -2507,7 +2621,6 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
                     {activeTab === 'orders' && 'Customer Orders & Requests'}
                     {activeTab === 'custom_orders' && 'Bespoke Customization & Customer Requests'}
-                    {activeTab === 'production' && 'Production Control & Stage Bottlenecks'}
                     {activeTab === 'alerts' && 'Needs Attention & Operational Alerts'}
                     {activeTab === 'audit' && 'System-Wide Audit Log & Activity Feed'}
                     {activeTab === 'queries' && 'Queries & Request Communications'}
@@ -2521,7 +2634,6 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'staff' && 'Create and manage Retail Staff, Production Staff, and Artisan Worker accounts.'}
                     {activeTab === 'inventory' && 'Monitor finished furniture products and raw material timber/fabric inventory.'}
                     {activeTab === 'orders' && 'Track ready-made and custom furniture orders across the complete live fulfillment pipeline.'}
-                    {activeTab === 'production' && 'Monitor stage progression, active build loads, and workstation bottleneck risks.'}
                     {activeTab === 'alerts' && 'Operational alerts requiring immediate administrative attention.'}
                     {activeTab === 'audit' && 'Complete chronological audit log of all system actions.'}
                   </p>
@@ -2569,16 +2681,7 @@ export const AdminDashboardPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Export Excel Button */}
-                  <button
-                    onClick={handleExportDatabaseExcel}
-                    disabled={isExportingExcel}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-xs hover:shadow-md cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                    title="Export system records to an Excel (.xlsx) spreadsheet"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>{isExportingExcel ? 'Exporting...' : 'Export Data (.xlsx)'}</span>
-                  </button>
+
 
                   {/* Notification Bell Dropdown */}
                   <div className="relative">
@@ -3092,219 +3195,278 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB ANALYTICS: EXECUTIVE BUSINESS ANALYTICS */}
+              {/* TAB ANALYTICS: EXECUTIVE BUSINESS ANALYTICS & PERFORMANCE REPORTS */}
               {activeTab === 'analytics' && (() => {
-                // Precise DB Computations - Deduplicated across store and custom orders
-                const readymadeStoreOrders = (orderList || []).filter(o => !String(o.orderId).startsWith('CUSTOM-'));
-                const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
-                  (co: any) => (co.payment_status || '').toLowerCase() === 'paid' || 
-                               (co.order_status || '').toLowerCase() === 'paid' || 
-                               (co.order_status || '').toLowerCase() === 'in production' || 
-                               (co.order_status || '').toLowerCase() === 'completed'
+                // 1. Filter Orders by Timeframe
+                const now = new Date();
+                const getTimeframeStartDate = () => {
+                  if (analyticsTimeframe === 'today') {
+                    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                  }
+                  if (analyticsTimeframe === '7days') {
+                    return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                  }
+                  if (analyticsTimeframe === '30days') {
+                    return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                  }
+                  if (analyticsTimeframe === 'this_month') {
+                    return new Date(now.getFullYear(), now.getMonth(), 1);
+                  }
+                  if (analyticsTimeframe === 'this_year') {
+                    return new Date(now.getFullYear(), 0, 1);
+                  }
+                  return new Date(0); // All time
+                };
+
+                const filterStartDate = getTimeframeStartDate();
+
+                const isDateInTimeframe = (dateStr?: string | null) => {
+                  if (analyticsTimeframe === 'all') return true;
+                  if (!dateStr) return true;
+                  const d = new Date(dateStr);
+                  if (isNaN(d.getTime())) return true;
+                  return d >= filterStartDate;
+                };
+
+                // Stream 1: Catalog Store Orders
+                const readymadeStoreOrders = (orderList || []).filter(
+                  o => !String(o.orderId).startsWith('CUSTOM-') && 
+                       o.orderStatus !== 'Cancelled' && 
+                       o.paymentStatus !== 'Cancelled' &&
+                       isDateInTimeframe((o as any).createdAt || o.orderDate)
                 );
 
-                const realStoreRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
-                const realCustomRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
-                const realGrossRevenue = realStoreRevenue + realCustomRevenue;
+                // Stream 2: Bespoke Custom Furniture Orders
+                const paidCustomOrdersList = (allAdminCustomOrders || []).filter(
+                  (co: any) => ((co.payment_status || '').toLowerCase() === 'paid' || 
+                               (co.order_status || '').toLowerCase() === 'paid' || 
+                               (co.order_status || '').toLowerCase() === 'in production' || 
+                               (co.order_status || '').toLowerCase() === 'completed') &&
+                               isDateInTimeframe(co.order_date || co.created_at)
+                );
 
-                const totalOrdersCount = readymadeStoreOrders.length + paidCustomOrdersList.length;
-                const completedOrdersCount = readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length + 
-                  paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length;
+                // Stream 3: Timber & Metal Fabrications
+                const paidFabricationsList = (allAdminFabrications || []).filter(
+                  (f: any) => ((f.status || f.review_status || '').toUpperCase() === 'PAID' ||
+                               (f.status || f.review_status || '').toUpperCase() === 'IN_PRODUCTION' ||
+                               (f.status || f.review_status || '').toUpperCase() === 'COMPLETED') &&
+                               isDateInTimeframe(f.created_at || f.date)
+                );
 
-                const activeCustomBuildsCount = (allAdminCustomOrders || []).filter(
-                  (co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved'
-                ).length;
+                // Stream 4: On-Site Skilled Services
+                const paidServicesList = (allAdminServices || []).filter(
+                  (s: any) => ((s.status || '').toUpperCase() === 'COMPLETED' ||
+                               (s.status || '').toUpperCase() === 'PAID' ||
+                               (s.status || '').toUpperCase() === 'WORKER_ASSIGNED') &&
+                               isDateInTimeframe(s.created_at || s.preferred_date)
+                );
 
-                const totalUsersCount = (allUsersList || []).length;
+                // Revenue Computations across all 4 streams
+                const catalogRevenue = readymadeStoreOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || o.total_price || o.price || 0), 0);
+                const customRevenue = paidCustomOrdersList.reduce((sum: number, co: any) => sum + (co.estimated_price || 0), 0);
+                const fabricationRevenue = paidFabricationsList.reduce((sum: number, f: any) => sum + (parseFloat(f.estimated_price) || 0), 0);
+                const serviceRevenue = paidServicesList.reduce((sum: number, s: any) => sum + (parseFloat(s.estimated_price) || 0), 0);
+                const grossRealizedRevenue = catalogRevenue + customRevenue + fabricationRevenue + serviceRevenue;
 
-                // Dynamic Last 6 Months Revenue Grouping from Real DB Timestamps
+                // Total Orders & Bookings
+                const totalTransactionsCount = readymadeStoreOrders.length + paidCustomOrdersList.length + paidFabricationsList.length + paidServicesList.length;
+                const completedTransactionsCount = 
+                  readymadeStoreOrders.filter((o: any) => o.orderStatus === 'Completed' || o.orderStatus === 'Delivered').length +
+                  paidCustomOrdersList.filter((co: any) => (co.order_status || '').toLowerCase() === 'completed').length +
+                  paidFabricationsList.filter((f: any) => (f.status || '').toUpperCase() === 'COMPLETED').length +
+                  paidServicesList.filter((s: any) => (s.status || '').toUpperCase() === 'COMPLETED').length;
+
+                // Active Workshop Builds & Scheduled Visits
+                const activeWorkshopBuilds = 
+                  (allAdminCustomOrders || []).filter((co: any) => (co.order_status || '').toLowerCase() === 'in production' || (co.order_status || '').toLowerCase() === 'approved').length +
+                  (allAdminFabrications || []).filter((f: any) => (f.status || '').toUpperCase() === 'IN_PRODUCTION').length;
+
+                const activeOnsiteVisits = (allAdminServices || []).filter((s: any) => (s.status || '').toUpperCase() === 'WORKER_ASSIGNED' || (s.status || '').toUpperCase() === 'SCHEDULED' || (s.status || '').toUpperCase() === 'IN_PROGRESS').length;
+
+                // System Accounts
+                const totalSystemUsers = (allUsersList || []).length;
+                const customerUsersCount = (allUsersList || []).filter(u => u.role === 'Customer' || (!u.role && !u.role_name)).length;
+                const staffUsersCount = totalSystemUsers - customerUsersCount;
+
+                // Average Order Value (AOV)
+                const overallAOV = totalTransactionsCount > 0 ? Math.round(grossRealizedRevenue / totalTransactionsCount) : 0;
+
+                // 6-Month Multi-Stream Grouping
                 const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                const now = new Date();
                 const last6Months = Array.from({ length: 6 }).map((_, i) => {
                   const d = new Date(now.getFullYear(), now.getMonth() - 5 + i, 1);
                   return {
                     monthLabel: monthNames[d.getMonth()],
                     mIdx: d.getMonth(),
                     yNum: d.getFullYear(),
-                    storeVal: 0,
-                    customVal: 0,
+                    catalogVal: 0,
+                    bespokeVal: 0,
+                    fabAndServiceVal: 0
                   };
                 });
 
-                // Calculate store revenue per month (without duplicating custom orders)
-                readymadeStoreOrders.forEach((ord: any) => {
-                  let d: Date | null = null;
-                  if (ord.createdAt) d = new Date(ord.createdAt);
-                  else if (ord.orderDate) d = new Date(ord.orderDate);
-                  
+                (orderList || []).forEach((ord: any) => {
+                  if (ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled') return;
+                  const d = ord.createdAt ? new Date(ord.createdAt) : ord.orderDate ? new Date(ord.orderDate) : null;
                   if (d && !isNaN(d.getTime())) {
                     const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
-                    if (found) {
-                      found.storeVal += (ord.totalAmount || 0);
-                    }
+                    if (found) found.catalogVal += (ord.totalAmount || ord.total_price || 0);
                   }
                 });
 
-                // Calculate custom revenue per month
-                paidCustomOrdersList.forEach((co: any) => {
-                  let d: Date | null = null;
-                  if (co.order_date) d = new Date(co.order_date);
-                  else if (co.created_at) d = new Date(co.created_at);
-                  
+                (allAdminCustomOrders || []).forEach((co: any) => {
+                  const d = co.order_date ? new Date(co.order_date) : co.created_at ? new Date(co.created_at) : null;
                   if (d && !isNaN(d.getTime())) {
                     const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
-                    if (found) {
-                      found.customVal += (co.estimated_price || 0);
-                    }
+                    if (found) found.bespokeVal += (co.estimated_price || 0);
                   }
                 });
 
-                const maxMonthVal = Math.max(
-                  ...last6Months.map(m => Math.max(m.storeVal, m.customVal)),
+                (allAdminFabrications || []).forEach((f: any) => {
+                  const d = f.created_at ? new Date(f.created_at) : null;
+                  if (d && !isNaN(d.getTime())) {
+                    const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
+                    if (found) found.fabAndServiceVal += (parseFloat(f.estimated_price) || 0);
+                  }
+                });
+
+                (allAdminServices || []).forEach((s: any) => {
+                  const d = s.created_at ? new Date(s.created_at) : s.preferred_date ? new Date(s.preferred_date) : null;
+                  if (d && !isNaN(d.getTime())) {
+                    const found = last6Months.find(m => m.mIdx === d.getMonth() && m.yNum === d.getFullYear());
+                    if (found) found.fabAndServiceVal += (parseFloat(s.estimated_price) || 0);
+                  }
+                });
+
+                const maxChartMonthVal = Math.max(
+                  ...last6Months.map(m => Math.max(m.catalogVal, m.bespokeVal + m.fabAndServiceVal)),
                   1
                 );
 
-                // Dynamic Category Distribution from Real DB (deduplicated)
-                const catTotalsMap: Record<string, number> = {};
+                // Category Revenue Breakdown
+                const categoryBreakdownMap: Record<string, { revenue: number; count: number; icon: string }> = {};
+
                 readymadeStoreOrders.forEach((ord: any) => {
                   (ord.items || []).forEach((it: any) => {
-                    const catName = it.category || 'General Store Product';
-                    catTotalsMap[catName] = (catTotalsMap[catName] || 0) + ((it.price || 0) * (it.quantity || 1));
+                    const catName = it.category || 'Retail Furniture';
+                    if (!categoryBreakdownMap[catName]) {
+                      categoryBreakdownMap[catName] = { revenue: 0, count: 0, icon: '🛋️' };
+                    }
+                    categoryBreakdownMap[catName].revenue += ((it.price || 0) * (it.quantity || 1));
+                    categoryBreakdownMap[catName].count += (it.quantity || 1);
                   });
                 });
+
                 paidCustomOrdersList.forEach((co: any) => {
-                  const catName = `Bespoke ${co.furniture_type || 'Custom Build'}`;
-                  catTotalsMap[catName] = (catTotalsMap[catName] || 0) + (co.estimated_price || 0);
+                  const catName = `Custom ${co.furniture_type || 'Furniture'}`;
+                  if (!categoryBreakdownMap[catName]) {
+                    categoryBreakdownMap[catName] = { revenue: 0, count: 0, icon: '📐' };
+                  }
+                  categoryBreakdownMap[catName].revenue += (co.estimated_price || 0);
+                  categoryBreakdownMap[catName].count += 1;
                 });
 
-                const catList = Object.entries(catTotalsMap).sort((a, b) => b[1] - a[1]);
-                const overallCatSum = catList.reduce((acc, curr) => acc + curr[1], 0) || 1;
+                paidFabricationsList.forEach((f: any) => {
+                  const catName = f.service_type || 'Timber/Metal Fabrication';
+                  if (!categoryBreakdownMap[catName]) {
+                    categoryBreakdownMap[catName] = { revenue: 0, count: 0, icon: '🪵' };
+                  }
+                  categoryBreakdownMap[catName].revenue += (parseFloat(f.estimated_price) || 0);
+                  categoryBreakdownMap[catName].count += (f.quantity || 1);
+                });
 
-                // Merge Real Orders for Performance Table (deduplicated)
-                const combinedRealOrders = [
+                paidServicesList.forEach((s: any) => {
+                  const catName = s.service_category || 'Skilled On-Site Service';
+                  if (!categoryBreakdownMap[catName]) {
+                    categoryBreakdownMap[catName] = { revenue: 0, count: 0, icon: '🔧' };
+                  }
+                  categoryBreakdownMap[catName].revenue += (parseFloat(s.estimated_price) || 0);
+                  categoryBreakdownMap[catName].count += 1;
+                });
+
+                const topCategoriesList = Object.entries(categoryBreakdownMap)
+                  .sort((a, b) => b[1].revenue - a[1].revenue)
+                  .slice(0, 6);
+
+                const totalCategoryRevenueSum = topCategoriesList.reduce((sum, [, d]) => sum + d.revenue, 0) || 1;
+
+                // Combined Recent Feed (Deduplicated across all 4 streams)
+                const combinedRecentTransactions = [
                   ...readymadeStoreOrders.map((o: any) => ({
-                    id: o.orderId,
-                    name: (o.items && o.items[0]) ? o.items[0].name : `Store Order #${o.orderId}`,
-                    type: 'Catalog Order',
-                    customer: o.customerName || 'Store Customer',
-                    qty: o.itemsCount || 1,
-                    value: o.totalAmount || 0,
-                    amount: o.totalAmount || 0,
+                    id: String(o.orderId),
+                    title: (o.items && o.items[0]) ? o.items[0].name : `Store Order #${o.orderId}`,
+                    stream: 'Retail Catalog',
+                    streamIcon: '🛍️',
+                    customer: o.customerName || 'Customer',
+                    amount: o.totalAmount || o.total_price || 0,
                     status: o.orderStatus || 'Processing',
-                    date: o.orderDate || 'Recent'
+                    date: o.orderDate || (o as any).createdAt || 'Recent'
                   })),
                   ...paidCustomOrdersList.map((co: any) => ({
-                    id: `CUSTOM-${co.custom_order_id}`,
-                    name: `Custom ${co.furniture_type || 'Furniture Build'}`,
-                    type: 'Bespoke Custom',
-                    customer: co.customer_name || 'Bespoke Customer',
-                    qty: 1,
-                    value: co.estimated_price || 0,
+                    id: `CUS-${co.custom_order_id}`,
+                    title: `Custom ${co.furniture_type}`,
+                    stream: 'Bespoke Custom',
+                    streamIcon: '🛋️',
+                    customer: co.customer_name || 'Client',
                     amount: co.estimated_price || 0,
                     status: co.order_status || 'In Production',
-                    date: co.order_date || 'Recent'
+                    date: co.order_date || co.created_at || 'Recent'
+                  })),
+                  ...paidFabricationsList.map((f: any) => ({
+                    id: `FAB-${f.fabrication_id}`,
+                    title: f.service_type || 'Custom Joinery & Fabrication',
+                    stream: 'Fabrication',
+                    streamIcon: '🪵',
+                    customer: f.customer_name || 'Client',
+                    amount: parseFloat(f.estimated_price) || 0,
+                    status: f.status || f.review_status || 'In Workshop',
+                    date: f.created_at || 'Recent'
+                  })),
+                  ...paidServicesList.map((s: any) => ({
+                    id: `ONS-${s.service_id}`,
+                    title: s.service_category || 'Skilled On-Site Service',
+                    stream: 'On-Site Service',
+                    streamIcon: '🔧',
+                    customer: s.customer_name || 'Client',
+                    amount: parseFloat(s.estimated_price) || 0,
+                    status: s.status || 'Active',
+                    date: s.created_at || s.preferred_date || 'Recent'
                   }))
-                ];
+                ].sort((a, b) => {
+                  const dateA = a.date ? new Date(a.date).getTime() : 0;
+                  const dateB = b.date ? new Date(b.date).getTime() : 0;
+                  return dateB - dateA;
+                });
 
                 return (
                   <div className="space-y-6 animate-fadeIn relative z-10">
-                    {/* Key Performance Metrics KPI Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-                      {/* KPI 1: Real Gross Revenue */}
-                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">Gross Revenue</span>
-                          <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                            <DollarSign className="w-4 h-4" />
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
-                            ₹{realGrossRevenue.toLocaleString('en-IN')}
-                          </span>
-                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-emerald-700">
-                            <TrendingUp className="w-3.5 h-3.5" />
-                            <span>Calculated from live orders</span>
-                          </div>
-                        </div>
+                    {/* TOP CONTROLS & TIMEFRAME SELECTOR BAR */}
+                    <div className="relative z-40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white/90 backdrop-blur-xl p-4 sm:p-5 rounded-3xl border border-[#E2D7CB] shadow-sm">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider mr-1">Timeframe:</span>
+                        {[
+                          { key: '7days', label: 'Last 7 Days' },
+                          { key: '30days', label: 'Last 30 Days' },
+                          { key: 'this_month', label: 'This Month' },
+                          { key: 'this_year', label: 'This Year (2026)' },
+                          { key: 'all', label: 'All Time' }
+                        ].map((tf) => (
+                          <button
+                            key={tf.key}
+                            onClick={() => setAnalyticsTimeframe(tf.key)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                              analyticsTimeframe === tf.key
+                                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25'
+                                : 'bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1] hover:text-[#2C241D]'
+                            }`}
+                          >
+                            {tf.label}
+                          </button>
+                        ))}
                       </div>
 
-                      {/* KPI 2: Real Total Orders */}
-                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">Total Orders</span>
-                          <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
-                            <ShoppingBag className="w-4 h-4" />
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
-                            {totalOrdersCount} Orders
-                          </span>
-                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-blue-700">
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>{completedOrdersCount} Completed</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* KPI 3: Active Custom Builds */}
-                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">Bespoke Builds</span>
-                          <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
-                            <Wrench className="w-4 h-4" />
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
-                            {activeCustomBuildsCount} Active
-                          </span>
-                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-amber-800">
-                            <Clock className="w-3.5 h-3.5" />
-                            <span>In Production / Approved</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* KPI 4: Total System Accounts */}
-                      <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-extrabold text-[#7A6C5E] uppercase tracking-wider">System Users</span>
-                          <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
-                            <ShieldCheck className="w-4 h-4" />
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
-                            {totalUsersCount} Accounts
-                          </span>
-                          <div className="flex items-center gap-1.5 mt-1 text-[11px] font-extrabold text-purple-700">
-                            <Users className="w-3.5 h-3.5" />
-                            <span>Live System Accounts</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Timeframe Filter & Export Controls Bar */}
-                    <div className="flex items-center justify-end gap-3 relative z-30 pt-1 pb-1">
-                      <div className="relative">
-                        <select
-                          value={analyticsTimeframe}
-                          onChange={(e) => setAnalyticsTimeframe(e.target.value)}
-                          className="pl-4 pr-9 py-2 text-xs bg-[#FAF7F2] border border-[#E2D7CB] hover:border-[#38A132] rounded-xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:ring-2 focus:ring-[#38A132]/30 focus:border-[#38A132] shadow-xs cursor-pointer transition-all"
-                        >
-                          <option value="30days" className="bg-white text-[#2C241D]">Last 30 Days</option>
-                          <option value="quarter" className="bg-white text-[#2C241D]">This Quarter</option>
-                          <option value="ytd" className="bg-white text-[#2C241D]">Year to Date (2026)</option>
-                          <option value="all" className="bg-white text-[#2C241D]">All Time</option>
-                        </select>
-                        <ChevronDown className="w-3.5 h-3.5 text-[#8C7C6D] absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                      </div>
-
-                      {/* Single Export Dropdown Button */}
-                      <div className="relative z-50">
+                      {/* Export Dropdown Button with Elevated Stacking */}
+                      <div className="relative z-50 self-end sm:self-auto">
                         <button
                           onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
                           className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F872A] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer whitespace-nowrap"
@@ -3315,83 +3477,249 @@ export const AdminDashboardPage: React.FC = () => {
                         </button>
 
                         {isExportMenuOpen && (
-                          <div className="absolute right-0 top-full mt-2 w-52 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
-                            <button
-                              onClick={() => {
-                                setIsExportMenuOpen(false);
-                                handleExportAnalyticsPDF();
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left"
-                            >
-                              <FileText className="w-4 h-4 text-[#38A132]" />
-                              <div>
-                                <span className="block font-black">Download PDF</span>
-                                <span className="text-[10px] text-[#7A6C5E] font-medium block">Printable Audit Document</span>
-                              </div>
-                            </button>
+                          <>
+                            {/* Click-away backdrop */}
+                            <div
+                              className="fixed inset-0 z-40"
+                              onClick={() => setIsExportMenuOpen(false)}
+                            />
+                            <div className="absolute right-0 top-full mt-2 w-56 bg-white border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-50 animate-fadeIn space-y-1">
+                              <button
+                                onClick={() => {
+                                  setIsExportMenuOpen(false);
+                                  handleExportAnalyticsPDF();
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#FAF7F2] transition-colors text-left cursor-pointer"
+                              >
+                                <FileText className="w-4 h-4 text-[#38A132]" />
+                                <div>
+                                  <span className="block font-black">Download PDF</span>
+                                  <span className="text-[10px] text-[#7A6C5E] font-medium block">Printable Executive Summary</span>
+                                </div>
+                              </button>
 
-                            <button
-                              onClick={() => {
-                                setIsExportMenuOpen(false);
-                                handleExportAnalyticsReport();
-                              }}
-                              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left"
-                            >
-                              <Download className="w-4 h-4 text-[#38A132]" />
-                              <div>
-                                <span className="block font-black">Export CSV</span>
-                                <span className="text-[10px] text-[#7A6C5E] font-medium block">Spreadsheet Data File</span>
-                              </div>
-                            </button>
-                          </div>
+                              <button
+                                onClick={() => {
+                                  setIsExportMenuOpen(false);
+                                  handleExportAnalyticsReport();
+                                }}
+                                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#FAF7F2] transition-colors text-left cursor-pointer"
+                              >
+                                <Download className="w-4 h-4 text-[#38A132]" />
+                                <div>
+                                  <span className="block font-black">Export CSV</span>
+                                  <span className="text-[10px] text-[#7A6C5E] font-medium block">Spreadsheet Raw Data</span>
+                                </div>
+                              </button>
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
 
-                    {/* Monthly Revenue Trend Visual Bar Chart */}
-                    <div className="w-full bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
-                      <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
-                        <div>
-                          <h4 className="font-extrabold text-base text-[#2C241D]">6-Month Revenue Trend</h4>
-                          <p className="text-xs text-[#6B5C4D]">Real comparison between Catalog Orders and Bespoke Custom Orders</p>
+                    {/* TOP 4 EXECUTIVE KPI CARDS */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* KPI 1: Gross Realized Revenue */}
+                      <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden hover:border-[#38A132]/50 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Gross Realized Revenue</span>
+                          <div className="w-9 h-9 rounded-2xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center justify-center font-black">
+                            <DollarSign className="w-4 h-4" />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 text-xs font-bold">
-                          <span className="flex items-center gap-1.5 text-[#38A132]">
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            ₹{grossRealizedRevenue.toLocaleString('en-IN')}
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-[11px] font-extrabold text-[#38A132]">
+                            <TrendingUp className="w-3.5 h-3.5" />
+                            <span>Across all 4 retail & workshop streams</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* KPI 2: Total Orders & Bookings */}
+                      <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden hover:border-blue-300 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Total Orders & Bookings</span>
+                          <div className="w-9 h-9 rounded-2xl bg-blue-50 text-blue-700 border border-blue-200 flex items-center justify-center font-black">
+                            <ShoppingBag className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            {totalTransactionsCount} Orders
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-[11px] font-extrabold text-blue-700">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{completedTransactionsCount} Delivered & Completed</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* KPI 3: Active Builds & Service Visits */}
+                      <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden hover:border-amber-300 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Active Workshop Builds</span>
+                          <div className="w-9 h-9 rounded-2xl bg-amber-50 text-amber-800 border border-amber-200 flex items-center justify-center font-black">
+                            <Wrench className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            {activeWorkshopBuilds} Active
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-[11px] font-extrabold text-amber-800">
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>{activeOnsiteVisits} Scheduled On-Site Visits</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* KPI 4: System User Accounts */}
+                      <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-5 shadow-sm space-y-3 relative overflow-hidden hover:border-purple-300 transition-all">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">System User Accounts</span>
+                          <div className="w-9 h-9 rounded-2xl bg-purple-50 text-purple-700 border border-purple-200 flex items-center justify-center font-black">
+                            <ShieldCheck className="w-4 h-4" />
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-2xl sm:text-3xl font-black text-[#2C241D] tracking-tight block">
+                            {totalSystemUsers} Accounts
+                          </span>
+                          <div className="flex items-center gap-1.5 mt-1.5 text-[11px] font-extrabold text-purple-700">
+                            <Users className="w-3.5 h-3.5" />
+                            <span>{customerUsersCount} Customers • {staffUsersCount} Staff/Workers</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 4 SERVICE REVENUE STREAMS BREAKDOWN */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Stream 1: Ready-Made Catalog */}
+                      <div className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-emerald-900 flex items-center gap-1.5">
+                            <span>🛍️</span> Ready-Made Store
+                          </span>
+                          <span className="text-[10px] font-mono font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md">
+                            {grossRealizedRevenue > 0 ? Math.round((catalogRevenue / grossRealizedRevenue) * 100) : 0}% Share
+                          </span>
+                        </div>
+                        <div className="text-xl font-black text-emerald-800">
+                          ₹{catalogRevenue.toLocaleString('en-IN')}
+                        </div>
+                        <div className="text-[11px] text-emerald-700 font-bold">
+                          {readymadeStoreOrders.length} Completed Catalog Orders
+                        </div>
+                      </div>
+
+                      {/* Stream 2: Bespoke Customizations */}
+                      <div className="bg-purple-50/60 p-4 rounded-2xl border border-purple-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-purple-900 flex items-center gap-1.5">
+                            <span>🛋️</span> Bespoke Studio
+                          </span>
+                          <span className="text-[10px] font-mono font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-md">
+                            {grossRealizedRevenue > 0 ? Math.round((customRevenue / grossRealizedRevenue) * 100) : 0}% Share
+                          </span>
+                        </div>
+                        <div className="text-xl font-black text-purple-800">
+                          ₹{customRevenue.toLocaleString('en-IN')}
+                        </div>
+                        <div className="text-[11px] text-purple-700 font-bold">
+                          {paidCustomOrdersList.length} Bespoke Furniture Builds
+                        </div>
+                      </div>
+
+                      {/* Stream 3: Workshop Fabrications */}
+                      <div className="bg-amber-50/60 p-4 rounded-2xl border border-amber-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-amber-900 flex items-center gap-1.5">
+                            <span>🪵</span> Workshop Fabrication
+                          </span>
+                          <span className="text-[10px] font-mono font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
+                            {grossRealizedRevenue > 0 ? Math.round((fabricationRevenue / grossRealizedRevenue) * 100) : 0}% Share
+                          </span>
+                        </div>
+                        <div className="text-xl font-black text-amber-800">
+                          ₹{fabricationRevenue.toLocaleString('en-IN')}
+                        </div>
+                        <div className="text-[11px] text-amber-700 font-bold">
+                          {paidFabricationsList.length} Timber & Metal Jobs
+                        </div>
+                      </div>
+
+                      {/* Stream 4: On-Site Skilled Services */}
+                      <div className="bg-blue-50/60 p-4 rounded-2xl border border-blue-200 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black text-blue-900 flex items-center gap-1.5">
+                            <span>🔧</span> On-Site Services
+                          </span>
+                          <span className="text-[10px] font-mono font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-md">
+                            {grossRealizedRevenue > 0 ? Math.round((serviceRevenue / grossRealizedRevenue) * 100) : 0}% Share
+                          </span>
+                        </div>
+                        <div className="text-xl font-black text-blue-800">
+                          ₹{serviceRevenue.toLocaleString('en-IN')}
+                        </div>
+                        <div className="text-[11px] text-blue-700 font-bold">
+                          {paidServicesList.length} Technician Service Visits
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 6-MONTH MULTI-STREAM REVENUE TREND CHART */}
+                    <div className="w-full bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
+                        <div>
+                          <h4 className="font-extrabold text-base text-[#2C241D] flex items-center gap-2">
+                            <TrendingUp className="w-4 h-4 text-[#38A132]" />
+                            <span>6-Month Multi-Stream Revenue Trend</span>
+                          </h4>
+                          <p className="text-xs text-[#6B5C4D] mt-0.5">Real-time comparison across Catalog Products vs Bespoke Studio & Workshop Fabrications</p>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs font-extrabold">
+                          <span className="flex items-center gap-1.5 text-emerald-700">
                             <span className="w-3 h-3 rounded-full bg-[#38A132] inline-block" /> Catalog Orders
                           </span>
                           <span className="flex items-center gap-1.5 text-amber-700">
-                            <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Bespoke Custom
+                            <span className="w-3 h-3 rounded-full bg-amber-500 inline-block" /> Custom & Workshop
                           </span>
                         </div>
                       </div>
 
                       {/* Animated Bars */}
                       <div className="pt-4 pb-2">
-                        <div className="h-48 flex items-end justify-between gap-2 sm:gap-4 px-2">
+                        <div className="h-52 flex items-end justify-between gap-2 sm:gap-4 px-2">
                           {last6Months.map((m, idx) => {
-                            const storePct = maxMonthVal > 0 ? Math.min(100, Math.max(8, (m.storeVal / maxMonthVal) * 100)) : 8;
-                            const customPct = maxMonthVal > 0 ? Math.min(100, Math.max(8, (m.customVal / maxMonthVal) * 100)) : 8;
+                            const catalogPct = maxChartMonthVal > 0 ? Math.min(100, Math.max(6, (m.catalogVal / maxChartMonthVal) * 100)) : 6;
+                            const customPct = maxChartMonthVal > 0 ? Math.min(100, Math.max(6, ((m.bespokeVal + m.fabAndServiceVal) / maxChartMonthVal) * 100)) : 6;
 
                             return (
-                              <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 group relative">
+                              <div key={idx} className="flex-1 flex flex-col items-center gap-2 group relative">
                                 {/* Hover Tooltip */}
-                                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full mb-2 bg-[#2C241D] text-white text-[10px] p-2 rounded-xl shadow-xl z-20 pointer-events-none whitespace-nowrap text-center">
-                                  <p className="font-extrabold">{m.monthLabel} {m.yNum}</p>
-                                  <p className="text-emerald-400">Catalog: ₹{m.storeVal.toLocaleString('en-IN')}</p>
-                                  <p className="text-amber-300">Custom: ₹{m.customVal.toLocaleString('en-IN')}</p>
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full mb-2 bg-[#2C241D] text-white text-[10px] p-2.5 rounded-xl shadow-xl z-20 pointer-events-none whitespace-nowrap text-center">
+                                  <p className="font-extrabold text-[#FAF7F2]">{m.monthLabel} {m.yNum}</p>
+                                  <p className="text-emerald-400">Catalog: ₹{m.catalogVal.toLocaleString('en-IN')}</p>
+                                  <p className="text-amber-300">Custom/Fab: ₹{(m.bespokeVal + m.fabAndServiceVal).toLocaleString('en-IN')}</p>
                                 </div>
 
-                                <div className="w-full flex items-end justify-center gap-1 h-36 bg-[#EFE7DE]/50 rounded-2xl p-1 relative">
+                                <div className="w-full flex items-end justify-center gap-1.5 h-40 bg-[#FAF7F2] rounded-2xl p-1.5 border border-[#E2D7CB]/60 relative">
                                   <div
                                     className="w-1/2 bg-[#38A132] rounded-xl transition-all duration-500 group-hover:bg-[#2F872A]"
-                                    style={{ height: `${storePct}%` }}
+                                    style={{ height: `${catalogPct}%` }}
+                                    title={`Catalog: ₹${m.catalogVal.toLocaleString('en-IN')}`}
                                   />
                                   <div
                                     className="w-1/2 bg-amber-500 rounded-xl transition-all duration-500 group-hover:bg-amber-600"
                                     style={{ height: `${customPct}%` }}
+                                    title={`Custom & Fab: ₹${(m.bespokeVal + m.fabAndServiceVal).toLocaleString('en-IN')}`}
                                   />
                                 </div>
-                                <span className="text-[11px] font-extrabold text-[#524538]">{m.monthLabel}</span>
+                                <span className="text-xs font-black text-[#524538]">{m.monthLabel}</span>
                               </div>
                             );
                           })}
@@ -3399,49 +3727,150 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Top Selling Products & Workshop Roster Feed */}
-                    <div className="bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
-                      <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                    {/* CATEGORY DISTRIBUTION & FINANCIAL SUMMARY */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Category Sales Share */}
+                      <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
+                        <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                          <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                            <Tag className="w-4 h-4 text-[#38A132]" />
+                            <span>Top Category Sales Share</span>
+                          </h4>
+                          <span className="text-[10px] font-extrabold text-[#7A6C5E]">By Realized Value</span>
+                        </div>
+
+                        {topCategoriesList.length === 0 ? (
+                          <div className="p-6 text-center text-[#7A6C5E] text-xs italic">
+                            No categorized transactions recorded yet.
+                          </div>
+                        ) : (
+                          <div className="space-y-3.5">
+                            {topCategoriesList.map(([catName, data], idx) => {
+                              const pct = Math.round((data.revenue / totalCategoryRevenueSum) * 100);
+                              return (
+                                <div key={idx} className="space-y-1.5">
+                                  <div className="flex items-center justify-between text-xs">
+                                    <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                                      <span>{data.icon}</span>
+                                      <span>{catName}</span>
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] text-[#7A6C5E] font-medium">{data.count} units/jobs</span>
+                                      <span className="font-black text-[#38A132]">₹{data.revenue.toLocaleString('en-IN')}</span>
+                                      <span className="text-[10px] font-bold text-[#7A6C5E] bg-[#FAF7F2] px-1.5 py-0.5 rounded border border-[#E2D7CB]">
+                                        {pct}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="w-full bg-[#FAF7F2] h-2 rounded-full overflow-hidden border border-[#E2D7CB]/60">
+                                    <div
+                                      className="h-full bg-[#38A132] rounded-full transition-all duration-500"
+                                      style={{ width: `${Math.max(5, pct)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Financial Health & Overview */}
+                      <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
+                        <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                          <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                            <DollarSign className="w-4 h-4 text-[#38A132]" />
+                            <span>Financial Performance Summary</span>
+                          </h4>
+                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                            Verified Realized
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                            <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Gross Realized</span>
+                            <span className="text-lg font-black text-[#2C241D] block">₹{grossRealizedRevenue.toLocaleString('en-IN')}</span>
+                            <span className="text-[9px] text-[#38A132] font-bold">100% completed receipts</span>
+                          </div>
+
+                          <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                            <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Average Order Value</span>
+                            <span className="text-lg font-black text-purple-800 block">₹{overallAOV.toLocaleString('en-IN')}</span>
+                            <span className="text-[9px] text-purple-700 font-bold">Per customer transaction</span>
+                          </div>
+
+                          <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                            <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Completed Volume</span>
+                            <span className="text-lg font-black text-blue-800 block">{completedTransactionsCount} Items</span>
+                            <span className="text-[9px] text-blue-700 font-bold">Fulfilled customer orders</span>
+                          </div>
+
+                          <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1">
+                            <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase block">Active Pipeline</span>
+                            <span className="text-lg font-black text-amber-800 block">{activeWorkshopBuilds + activeOnsiteVisits} In Works</span>
+                            <span className="text-[9px] text-amber-700 font-bold">Under active processing</span>
+                          </div>
+                        </div>
+
+                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-[11px] text-[#6B5C4D] flex items-center justify-between">
+                          <span>Realized Net Revenue:</span>
+                          <span className="font-extrabold text-[#2C241D]">₹{grossRealizedRevenue.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* LIVE TRANSACTION & ORDERS FEED TABLE */}
+                    <div className="bg-white/90 backdrop-blur-xl border border-[#E2D7CB] rounded-3xl p-6 shadow-sm space-y-4">
+                      <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
                         <div>
-                          <h4 className="font-extrabold text-base text-[#2C241D]">Store & Custom Orders Feed</h4>
-                          <p className="text-xs text-[#6B5C4D]">Live order and custom build fulfillment status</p>
+                          <h4 className="font-extrabold text-base text-[#2C241D] flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-[#38A132]" />
+                            <span>Live Transactions & Orders Feed</span>
+                          </h4>
+                          <p className="text-xs text-[#6B5C4D]">Unified stream of real catalog orders, custom studio builds, fabrications, and technician bookings</p>
                         </div>
                         <span className="px-3 py-1 bg-[#38A132]/10 border border-[#38A132]/30 text-[#38A132] rounded-full text-[11px] font-extrabold">
-                          Live Synced
+                          {combinedRecentTransactions.length} Total Records
                         </span>
                       </div>
 
                       <div className="overflow-x-auto">
-                        {combinedRealOrders.length === 0 ? (
+                        {combinedRecentTransactions.length === 0 ? (
                           <div className="py-8 text-center text-[#8C7C6D]">
-                            <p className="text-xs font-bold">No orders recorded yet.</p>
+                            <p className="text-xs font-bold">No transactions found for the selected timeframe.</p>
                           </div>
                         ) : (
                           <table className="w-full text-left text-xs">
                             <thead>
                               <tr className="border-b border-[#E2D7CB] text-[#7A6C5E] uppercase text-[10px] font-black tracking-wider">
-                                <th className="py-2.5 px-3">Order ID / Item Name</th>
-                                <th className="py-2.5 px-3">Order Type</th>
-                                <th className="py-2.5 px-3">Quantity</th>
-                                <th className="py-2.5 px-3">Valuation</th>
+                                <th className="py-2.5 px-3">Transaction ID / Item</th>
+                                <th className="py-2.5 px-3">Service Stream</th>
+                                <th className="py-2.5 px-3">Customer</th>
+                                <th className="py-2.5 px-3">Amount</th>
                                 <th className="py-2.5 px-3">Status</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[#EFE7DE] text-[#2C241D] font-bold">
-                              {combinedRealOrders.slice(0, 10).map((row, idx) => (
-                                <tr key={idx} className="hover:bg-white/60 transition-colors">
+                              {combinedRecentTransactions.slice(0, 10).map((row, idx) => (
+                                <tr key={idx} className="hover:bg-[#FAF7F2] transition-colors">
                                   <td className="py-3 px-3">
-                                    <span className="block font-extrabold text-[#2C241D]">{row.name}</span>
+                                    <span className="block font-extrabold text-[#2C241D]">{row.title}</span>
                                     <span className="text-[10px] text-[#7A6C5E] font-mono">{row.id}</span>
                                   </td>
-                                  <td className="py-3 px-3 text-[#7A6C5E]">{row.type}</td>
-                                  <td className="py-3 px-3">{row.qty} Unit{row.qty > 1 ? 's' : ''}</td>
-                                  <td className="py-3 px-3 text-[#38A132] font-extrabold">₹{(row.value || 0).toLocaleString('en-IN')}</td>
+                                  <td className="py-3 px-3">
+                                    <span className="inline-flex items-center gap-1 text-[11px] text-[#6B5C4D]">
+                                      <span>{row.streamIcon}</span>
+                                      <span>{row.stream}</span>
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-[#5C4E42]">{row.customer}</td>
+                                  <td className="py-3 px-3 text-[#38A132] font-extrabold">₹{(row.amount || 0).toLocaleString('en-IN')}</td>
                                   <td className="py-3 px-3">
                                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
                                       row.status === 'Completed' || row.status === 'Delivered'
                                         ? 'bg-emerald-100 text-emerald-800'
-                                        : row.status === 'In Production' || row.status === 'Processing'
+                                        : row.status === 'In Production' || row.status === 'Processing' || row.status === 'WORKER_ASSIGNED'
                                         ? 'bg-amber-100 text-amber-800'
                                         : 'bg-blue-100 text-blue-800'
                                     }`}>
@@ -4826,7 +5255,10 @@ export const AdminDashboardPage: React.FC = () => {
                         <Clock className="w-4 h-4 text-amber-600" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {orderList.filter(o => o.orderStatus === 'Pending' || o.orderStatus === 'Order Placed').length}
+                        {orderList.filter(o => {
+                          const c = computeLogicalCompletionStatus(o);
+                          return c.status.toLowerCase().includes('pending') || o.orderStatus === 'Pending';
+                        }).length}
                       </div>
                       <div className="text-[10px] text-amber-700 font-bold mt-1">Awaiting Processing</div>
                     </div>
@@ -4837,7 +5269,11 @@ export const AdminDashboardPage: React.FC = () => {
                         <Truck className="w-4 h-4 text-blue-600" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {orderList.filter(o => o.orderStatus === 'Processing' || o.orderStatus === 'Shipped').length}
+                        {orderList.filter(o => {
+                          const c = computeLogicalCompletionStatus(o);
+                          const pct = o.completionPercentage !== undefined ? o.completionPercentage : c.percentage;
+                          return pct > 0 && pct < 100 && !c.status.toLowerCase().includes('pending') && o.orderStatus !== 'Cancelled';
+                        }).length}
                       </div>
                       <div className="text-[10px] text-blue-700 font-bold mt-1">Fulfillment Active</div>
                     </div>
@@ -4848,7 +5284,11 @@ export const AdminDashboardPage: React.FC = () => {
                         <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {orderList.filter(o => o.orderStatus === 'Delivered' || o.orderStatus === 'Paid').length}
+                        {orderList.filter(o => {
+                          const c = computeLogicalCompletionStatus(o);
+                          const pct = o.completionPercentage !== undefined ? o.completionPercentage : c.percentage;
+                          return pct >= 100 || o.orderStatus === 'Delivered' || o.orderStatus === 'Completed' || (o.completionStatus && o.completionStatus.toLowerCase().includes('delivered'));
+                        }).length}
                       </div>
                       <div className="text-[10px] text-emerald-700 font-bold mt-1">Successfully Fulfilled</div>
                     </div>
@@ -4861,13 +5301,15 @@ export const AdminDashboardPage: React.FC = () => {
                       <select
                         value={orderStatusFilter}
                         onChange={(e) => setOrderStatusFilter(e.target.value)}
-                        className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                        className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E] shadow-2xs"
                       >
-                        <option value="All">All Orders</option>
-                        <option value="Pending">Pending</option>
-                        <option value="Processing">Processing</option>
-                        <option value="Shipped">Shipped</option>
-                        <option value="Delivered">Delivered</option>
+                        <option value="All">All Orders ({orderList.length})</option>
+                        <option value="Pending">Pending / Awaiting</option>
+                        <option value="Processing">Order Placed & Processing</option>
+                        <option value="In Production">In Production / Workshop</option>
+                        <option value="Shipped">Shipped & In Transit</option>
+                        <option value="Delivered">Delivered & Completed</option>
+                        <option value="Cancelled">Cancelled Orders</option>
                       </select>
                     </div>
 
@@ -4884,117 +5326,276 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
 
                   {/* Orders Table */}
-                  <div className="overflow-x-auto">
+                  <div className="w-full">
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Order & Razorpay ID</th>
-                          <th className="py-3 px-4">Customer Details</th>
-                          <th className="py-3 px-4">Items & Product Code</th>
-                          <th className="py-3 px-4">Total Amount</th>
-                          <th className="py-3 px-4">Payment Time</th>
+                          <th className="py-2.5 px-3">Order & Customer</th>
+                          <th className="py-2.5 px-3">Items Purchased</th>
+                          <th className="py-2.5 px-3">Amount & Payment</th>
+                          <th className="py-2.5 px-3">Completion Status</th>
+                          <th className="py-2.5 px-3 text-right">Update Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
                         {orderList
-                          .filter((o) => {
-                            if (!orderSearchQuery.trim()) return true;
-                            const q = orderSearchQuery.toLowerCase();
-                            return (
-                              o.orderId.toLowerCase().includes(q) ||
-                              o.customerName.toLowerCase().includes(q) ||
-                              o.email.toLowerCase().includes(q) ||
-                              (o.paymentId && o.paymentId.toLowerCase().includes(q))
-                            );
+                          .filter((ord) => {
+                            if (orderSearchQuery.trim()) {
+                              const q = orderSearchQuery.toLowerCase();
+                              const matches =
+                                ord.orderId.toLowerCase().includes(q) ||
+                                ord.customerName.toLowerCase().includes(q) ||
+                                ord.email.toLowerCase().includes(q) ||
+                                (ord.paymentId && ord.paymentId.toLowerCase().includes(q)) ||
+                                (ord.items && ord.items.some(it => it.name.toLowerCase().includes(q) || ((it as any).productCode && (it as any).productCode.toLowerCase().includes(q))));
+                              if (!matches) return false;
+                            }
+                            if (orderStatusFilter === 'All') return true;
+                            const comp = computeLogicalCompletionStatus(ord);
+                            const statusStr = (ord.completionStatus || comp.status || ord.orderStatus || '').toLowerCase();
+                            const pct = ord.completionPercentage !== undefined ? ord.completionPercentage : comp.percentage;
+
+                            if (orderStatusFilter === 'Pending') {
+                              return statusStr.includes('pending') || ord.orderStatus === 'Pending';
+                            }
+                            if (orderStatusFilter === 'Processing') {
+                              return statusStr.includes('processing') || statusStr.includes('placed');
+                            }
+                            if (orderStatusFilter === 'In Production') {
+                              return statusStr.includes('production') || statusStr.includes('progress') || (Array.isArray(ord.assignedWorkers) && ord.assignedWorkers.length > 0);
+                            }
+                            if (orderStatusFilter === 'Shipped') {
+                              return statusStr.includes('shipped') || statusStr.includes('transit') || statusStr.includes('dispatched') || statusStr.includes('delivery');
+                            }
+                            if (orderStatusFilter === 'Delivered') {
+                              return statusStr.includes('delivered') || statusStr.includes('completed') || pct >= 100 || ord.orderStatus === 'Delivered';
+                            }
+                            if (orderStatusFilter === 'Cancelled') {
+                              return statusStr.includes('cancelled') || ord.orderStatus === 'Cancelled';
+                            }
+                            return true;
                           }).length === 0 ? (
                           <tr>
-                            <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
+                            <td colSpan={5} className="py-8 text-center text-[#7A6C5E]">
                               <ShoppingBag className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-1" />
                               <p className="font-extrabold text-xs text-[#2C241D]">No customer orders found</p>
-                              <p className="text-[11px] text-[#8C7C6D]">When customers place ready-made furniture orders, they will appear here.</p>
+                              <p className="text-[11px] text-[#8C7C6D]">When customers place ready-made or custom furniture orders, they will appear here.</p>
                             </td>
                           </tr>
                         ) : (
                           orderList
-                            .filter((o) => {
-                              if (!orderSearchQuery.trim()) return true;
-                              const q = orderSearchQuery.toLowerCase();
-                              return (
-                                o.orderId.toLowerCase().includes(q) ||
-                                o.customerName.toLowerCase().includes(q) ||
-                                o.email.toLowerCase().includes(q) ||
-                                (o.paymentId && o.paymentId.toLowerCase().includes(q))
-                              );
+                            .filter((ord) => {
+                              if (orderSearchQuery.trim()) {
+                                const q = orderSearchQuery.toLowerCase();
+                                const matches =
+                                  ord.orderId.toLowerCase().includes(q) ||
+                                  ord.customerName.toLowerCase().includes(q) ||
+                                  ord.email.toLowerCase().includes(q) ||
+                                  (ord.paymentId && ord.paymentId.toLowerCase().includes(q)) ||
+                                  (ord.items && ord.items.some(it => it.name.toLowerCase().includes(q) || ((it as any).productCode && (it as any).productCode.toLowerCase().includes(q))));
+                                if (!matches) return false;
+                              }
+                              if (orderStatusFilter === 'All') return true;
+                              const comp = computeLogicalCompletionStatus(ord);
+                              const statusStr = (ord.completionStatus || comp.status || ord.orderStatus || '').toLowerCase();
+                              const pct = ord.completionPercentage !== undefined ? ord.completionPercentage : comp.percentage;
+
+                              if (orderStatusFilter === 'Pending') {
+                                return statusStr.includes('pending') || ord.orderStatus === 'Pending';
+                              }
+                              if (orderStatusFilter === 'Processing') {
+                                return statusStr.includes('processing') || statusStr.includes('placed');
+                              }
+                              if (orderStatusFilter === 'In Production') {
+                                return statusStr.includes('production') || statusStr.includes('progress') || (Array.isArray(ord.assignedWorkers) && ord.assignedWorkers.length > 0);
+                              }
+                              if (orderStatusFilter === 'Shipped') {
+                                return statusStr.includes('shipped') || statusStr.includes('transit') || statusStr.includes('dispatched') || statusStr.includes('delivery');
+                              }
+                              if (orderStatusFilter === 'Delivered') {
+                                return statusStr.includes('delivered') || statusStr.includes('completed') || pct >= 100 || ord.orderStatus === 'Delivered';
+                              }
+                              if (orderStatusFilter === 'Cancelled') {
+                                return statusStr.includes('cancelled') || ord.orderStatus === 'Cancelled';
+                              }
+                              return true;
                             })
-                            .map((ord) => (
-                              <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                                <td className="py-4 px-4">
-                                  <div className="font-mono font-extrabold text-[#48A63E] text-xs">{ord.orderId}</div>
-                                  {ord.paymentId && (
-                                    <div className="text-[10px] font-mono text-[#7A6C5E] mt-0.5 font-bold" title="Razorpay Payment ID">
-                                      {ord.paymentId}
+                            .map((ord) => {
+                              const comp = computeLogicalCompletionStatus(ord);
+                              const pct = ord.completionPercentage !== undefined ? ord.completionPercentage : comp.percentage;
+                              const currentCompletionStatus = ord.completionStatus || comp.status;
+                              const isDelivered = pct >= 100 || currentCompletionStatus.toLowerCase().includes('delivered');
+
+                              let badgeBg = 'bg-sky-50 text-sky-800 border-sky-200';
+                              let barColor = 'bg-sky-500';
+                              if (pct >= 100 || currentCompletionStatus.toLowerCase().includes('delivered') || currentCompletionStatus.toLowerCase().includes('completed')) {
+                                badgeBg = 'bg-emerald-50 text-emerald-800 border-emerald-300';
+                                barColor = 'bg-emerald-600';
+                              } else if (currentCompletionStatus.toLowerCase().includes('out for delivery')) {
+                                badgeBg = 'bg-indigo-50 text-indigo-800 border-indigo-200';
+                                barColor = 'bg-indigo-600';
+                              } else if (currentCompletionStatus.toLowerCase().includes('shipped') || currentCompletionStatus.toLowerCase().includes('transit')) {
+                                badgeBg = 'bg-purple-50 text-purple-800 border-purple-200';
+                                barColor = 'bg-purple-600';
+                              } else if (currentCompletionStatus.toLowerCase().includes('production')) {
+                                badgeBg = 'bg-blue-50 text-blue-800 border-blue-200';
+                                barColor = 'bg-blue-600';
+                              } else if (currentCompletionStatus.toLowerCase().includes('cancelled')) {
+                                badgeBg = 'bg-rose-50 text-rose-800 border-rose-200';
+                                barColor = 'bg-rose-500';
+                              } else if (currentCompletionStatus.toLowerCase().includes('pending')) {
+                                badgeBg = 'bg-amber-50 text-amber-800 border-amber-200';
+                                barColor = 'bg-amber-500';
+                              }
+
+                              return (
+                                <tr key={ord.orderId} className="hover:bg-[#F5ECE1]/60 transition-colors">
+                                  {/* 1. Order & Customer Details */}
+                                  <td className="py-3 px-3 align-top">
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-mono font-extrabold text-[#48A63E] text-xs">{ord.orderId}</span>
+                                      {ord.orderId.startsWith('CUSTOM-') && (
+                                        <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[9px] font-extrabold">Custom</span>
+                                      )}
                                     </div>
-                                  )}
-                                </td>
-                                <td className="py-4 px-4">
-                                   <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName}</div>
-                                   <div className="text-[11px] text-[#6B5C4D] font-semibold">{ord.email}</div>
-                                   {ord.assignedWorkers && ord.assignedWorkers.length > 0 && (
-                                     <div className="mt-1 font-extrabold text-[10px] text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded-md border border-[#38A132]/20 inline-flex items-center gap-1">
-                                       <span>👷 {ord.assignedWorkers.map((w: any) => w.worker_name).join(', ')}</span>
-                                     </div>
-                                   )}
-                                </td>
-                                <td className="py-4 px-4">
-                                  {ord.items && ord.items.length > 0 ? (
-                                    <div className="space-y-2">
-                                      {ord.items.map((item, idx) => (
-                                        <div key={idx} className="flex items-center gap-2.5">
-                                          <img
-                                            src={item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"}
-                                            alt={item.name}
-                                            onError={(e) => {
-                                              (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80";
-                                            }}
-                                            className="w-9 h-9 rounded-lg object-cover border border-[#E2D7CB] shrink-0 bg-white shadow-xs"
-                                          />
-                                          <div>
-                                            <span className="font-mono text-[10px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 border border-[#48A63E]/20 px-1.5 py-0.2 rounded inline-block">
-                                              {(item as any).productCode || (item as any).sku || `SKU-RS-${item.id}`}
-                                            </span>
-                                            <div className="text-xs font-bold text-[#2C241D] line-clamp-1">{item.name} (x{item.quantity})</div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span className="text-[#6B5C4D] text-xs font-medium">{ord.itemsCount} Item(s)</span>
-                                  )}
-                                </td>
-                                <td className="py-4 px-4 font-extrabold text-[#2C241D] text-sm">
-                                  ₹{ord.totalAmount.toLocaleString('en-IN')}
-                                </td>
-                                <td className="py-4 px-4 whitespace-nowrap">
-                                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#2C241D]">
-                                    <Clock className="w-3.5 h-3.5 text-[#48A63E]" />
-                                    <span>{formatPaymentTime(ord)}</span>
-                                  </div>
-                                  <div className="text-[10px] text-[#7A6C5E] font-semibold mt-0.5">
-                                    {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
-                                      <span className="text-rose-600 font-extrabold flex items-center gap-1">
-                                        <X className="w-3 h-3 text-rose-600" />
-                                        Payment Cancelled
-                                      </span>
-                                    ) : (
-                                      <span className="text-emerald-700 font-extrabold flex items-center gap-1">
-                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                        Paid & Verified
-                                      </span>
+                                    <div className="font-extrabold text-[#2C241D] text-xs mt-0.5 leading-tight">{ord.customerName}</div>
+                                    <div className="text-[10px] text-[#6B5C4D] truncate max-w-[140px]">{ord.email}</div>
+                                    {ord.assignedWorkers && ord.assignedWorkers.length > 0 && (
+                                      <div className="mt-1 font-extrabold text-[9px] text-[#38A132] bg-[#38A132]/10 px-1.5 py-0.5 rounded border border-[#38A132]/20 inline-flex items-center gap-1">
+                                        <span>👷 {ord.assignedWorkers.map((w: any) => w.worker_name).join(', ')}</span>
+                                      </div>
                                     )}
-                                  </div>
-                                </td>
-                              </tr>
-                            )))}
+                                  </td>
+
+                                  {/* 2. Items Purchased */}
+                                  <td className="py-3 px-3 align-top">
+                                    {ord.items && ord.items.length > 0 ? (
+                                      <div className="space-y-1.5 max-w-[200px]">
+                                        {ord.items.map((item, idx) => (
+                                          <div key={idx} className="flex items-center gap-2">
+                                            <img
+                                              src={item.imageUrl || "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"}
+                                              alt={item.name}
+                                              onError={(e) => {
+                                                (e.target as HTMLImageElement).src = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80";
+                                              }}
+                                              className="w-8 h-8 rounded-lg object-cover border border-[#E2D7CB] shrink-0 bg-white shadow-2xs"
+                                            />
+                                            <div className="min-w-0 flex-1">
+                                              <div className="text-xs font-bold text-[#2C241D] truncate">{item.name} <span className="text-[#7A6C5E] font-normal">(x{item.quantity})</span></div>
+                                              <span className="font-mono text-[9px] font-extrabold text-[#48A63E] bg-[#48A63E]/10 border border-[#48A63E]/20 px-1 py-0.2 rounded inline-block">
+                                                {(item as any).productCode || (item as any).sku || `SKU-RS-${item.id}`}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-[#6B5C4D] text-xs font-medium">{ord.itemsCount} Item(s)</span>
+                                    )}
+                                  </td>
+
+                                  {/* 3. Amount & Payment Info */}
+                                  <td className="py-3 px-3 align-top whitespace-nowrap">
+                                    <div className="font-extrabold text-[#2C241D] text-xs sm:text-sm">
+                                      ₹{ord.totalAmount.toLocaleString('en-IN')}
+                                    </div>
+                                    <div className="text-[10px] text-[#7A6C5E] font-semibold mt-0.5">
+                                      {ord.orderStatus === 'Cancelled' || ord.paymentStatus === 'Cancelled' ? (
+                                        <span className="text-rose-600 font-extrabold flex items-center gap-1">
+                                          <X className="w-3 h-3 text-rose-600" /> Cancelled
+                                        </span>
+                                      ) : (
+                                        <span className="text-emerald-700 font-extrabold flex items-center gap-1">
+                                          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Paid & Verified
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[9px] text-[#8C7C6D] mt-0.5">
+                                      {formatPaymentTime(ord)}
+                                    </div>
+                                  </td>
+
+                                  {/* 4. Completion Status */}
+                                  <td className="py-3 px-3 align-top">
+                                    <div className="space-y-1 max-w-[180px]">
+                                      <div className="flex items-center justify-between gap-1.5">
+                                        <span className={`px-2 py-0.5 rounded-full text-[9px] font-black border uppercase tracking-wider inline-flex items-center gap-1 truncate ${badgeBg}`}>
+                                          {pct >= 100 ? '✓' : '●'} {currentCompletionStatus}
+                                        </span>
+                                        <span className="font-mono text-[10px] font-black text-[#2C241D] shrink-0">
+                                          {pct}%
+                                        </span>
+                                      </div>
+                                      
+                                      <div className="w-full bg-[#EFE7DE] h-1.5 rounded-full overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                                          style={{ width: `${Math.min(100, Math.max(5, pct))}%` }}
+                                        />
+                                      </div>
+
+                                      <div className="text-[9px] text-[#7A6C5E] font-medium truncate">
+                                        Stage: <strong className="text-[#2C241D]">{comp.stage || 'Fulfillment'}</strong>
+                                      </div>
+                                    </div>
+                                  </td>
+
+                                  {/* 5. Update Status & Quick Actions */}
+                                  <td className="py-3 px-3 align-top text-right">
+                                    <div className="flex flex-col items-end gap-1.5">
+                                      <select
+                                        value={currentCompletionStatus}
+                                        onChange={(e) => handleUpdateOrderStatus(ord.orderId, e.target.value)}
+                                        className="w-full max-w-[160px] px-2 py-1 bg-white border border-[#E2D7CB] rounded-lg text-[10px] font-extrabold text-[#2C241D] focus:outline-none focus:border-[#48A63E] shadow-2xs cursor-pointer"
+                                      >
+                                        <option value="Order Placed & Processing">📦 Placed (15%)</option>
+                                        <option value="Processing Order">⚙️ Processing (25%)</option>
+                                        <option value="In Production">🔨 In Production (60%)</option>
+                                        <option value="Completed & Ready for Dispatch">✅ Ready (80%)</option>
+                                        <option value="Shipped & In Transit">🚚 Shipped (85%)</option>
+                                        <option value="Out for Delivery">🛵 Out for Delivery (90%)</option>
+                                        <option value="Delivered">🎉 Delivered (100%)</option>
+                                        <option value="Cancelled">❌ Cancelled (0%)</option>
+                                      </select>
+
+                                      <div className="flex items-center gap-1.5">
+                                        {!isDelivered ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleUpdateOrderStatus(ord.orderId, 'Delivered', 100)}
+                                            className="px-2 py-0.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md font-extrabold text-[9px] shadow-xs flex items-center gap-1 transition-all cursor-pointer"
+                                            title="Mark 100% Delivered"
+                                          >
+                                            <CheckCircle2 className="w-2.5 h-2.5" />
+                                            <span>Mark Delivered</span>
+                                          </button>
+                                        ) : (
+                                          <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-300 text-emerald-800 rounded-md font-bold text-[9px] flex items-center gap-0.5">
+                                            <Check className="w-2.5 h-2.5 text-emerald-600" />
+                                            Delivered
+                                          </span>
+                                        )}
+
+                                        {ord.orderId.startsWith('CUSTOM-') && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              const customId = parseInt(ord.orderId.replace('CUSTOM-', ''), 10);
+                                              const found = allAdminCustomOrders.find(c => c.custom_order_id === customId);
+                                              if (found) setSelectedCustomForAdminDetails(found);
+                                            }}
+                                            className="px-2 py-0.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#5C4E42] rounded-md font-bold text-[9px] transition-colors cursor-pointer"
+                                          >
+                                            Specs
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            }))}
                       </tbody>
                     </table>
                   </div>
@@ -5002,281 +5603,818 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
             )}
 
-              {/* TAB 5b: BESPOKE CUSTOMIZATION ORDERS & APPROVAL REQUESTS STUDIO */}
+              {/* TAB 5b: BESPOKE CUSTOMIZATION, FABRICATION & ON-SITE REQUESTS STUDIO */}
             {activeTab === 'custom_orders' && (
               <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl">
                 {/* Top Stats Overview Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
-                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Total Customization Requests</span>
-                    <span className="text-2xl font-black text-[#2C241D] block">{allAdminCustomOrders.length}</span>
-                    <span className="text-[10px] text-[#48A63E] font-bold">All custom studio builds</span>
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Total Customer Requests</span>
+                    <span className="text-2xl font-black text-[#2C241D] block">
+                      {allAdminCustomOrders.length + allAdminFabrications.length + allAdminServices.length}
+                    </span>
+                    <span className="text-[10px] text-[#48A63E] font-bold">Across 3 specialized service lines</span>
                   </div>
 
                   <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
-                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Approval Requests & Quotes Pending</span>
-                    <span className="text-2xl font-black text-amber-600 block">
-                      {allAdminCustomOrders.filter(c => c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved').length}
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">🛋️ Custom Furniture</span>
+                    <span className="text-2xl font-black text-purple-700 block">
+                      {allAdminCustomOrders.length}
                     </span>
-                    <span className="text-[10px] text-amber-700 font-bold">Awaiting quotation or customer payment</span>
+                    <span className="text-[10px] text-purple-700 font-bold">
+                      {allAdminCustomOrders.filter(c => c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved').length} quotes / approval pending
+                    </span>
                   </div>
 
                   <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
-                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Custom Orders Placed & Paid</span>
-                    <span className="text-2xl font-black text-emerald-600 block">
-                      {allAdminCustomOrders.filter(c => c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production' || c.order_status === 'Completed').length}
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">🪵 Fabrications</span>
+                    <span className="text-2xl font-black text-amber-700 block">
+                      {allAdminFabrications.length}
                     </span>
-                    <span className="text-[10px] text-emerald-700 font-bold">Paid & verified custom builds</span>
+                    <span className="text-[10px] text-amber-700 font-bold">
+                      {allAdminFabrications.filter(f => f.status === 'IN_PRODUCTION' || f.status === 'PAID' || f.review_status === 'APPROVED').length} active / in workshop
+                    </span>
                   </div>
 
                   <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs space-y-1">
-                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Completed Artisan Builds</span>
-                    <span className="text-2xl font-black text-purple-600 block">
-                      {allAdminCustomOrders.filter(c => c.order_status === 'Completed').length}
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">🔧 On-Site Services</span>
+                    <span className="text-2xl font-black text-blue-700 block">
+                      {allAdminServices.length}
                     </span>
-                    <span className="text-[10px] text-purple-700 font-bold">Delivered to customer</span>
+                    <span className="text-[10px] text-blue-700 font-bold">
+                      {allAdminServices.filter(s => s.status === 'COMPLETED').length} fulfilled visits
+                    </span>
                   </div>
                 </div>
 
                 {/* Filter & Search Header */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                  <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                <div className="space-y-3 border-b border-[#EFE7DE] pb-4">
+                  {/* Category Filter Tabs */}
+                  <div className="flex items-center justify-between gap-4 flex-wrap">
+                    <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
+                      {[
+                        { key: 'all', label: `All Requests (${allAdminCustomOrders.length + allAdminFabrications.length + allAdminServices.length})` },
+                        { key: 'custom', label: `🛋️ Customizations (${allAdminCustomOrders.length})` },
+                        { key: 'fabrication', label: `🪵 Fabrications (${allAdminFabrications.length})` },
+                        { key: 'onsite', label: `🔧 On-Site Services (${allAdminServices.length})` }
+                      ].map((tb) => (
+                        <button
+                          key={tb.key}
+                          onClick={() => setCustomerRequestCategoryFilter(tb.key as any)}
+                          className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer shrink-0 ${
+                            customerRequestCategoryFilter === tb.key
+                              ? 'bg-[#38A132] text-white shadow-md'
+                              : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                          }`}
+                        >
+                          {tb.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative w-full sm:w-72">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search ID, customer, service, material..."
+                        value={customOrderSearchQuery}
+                        onChange={(e) => setCustomOrderSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D] shadow-xs"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Status Filter Pills */}
+                  <div className="flex items-center gap-2 overflow-x-auto pt-1">
+                    <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Status:</span>
                     {[
-                      { key: 'all', label: `All Custom Orders (${allAdminCustomOrders.length})` },
-                      { key: 'requests', label: `Approval Requests (${allAdminCustomOrders.filter(c => c.order_status === 'Pending' || c.order_status === 'Pending Approval').length})` },
-                      { key: 'paid', label: `Orders Placed (${allAdminCustomOrders.filter(c => c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production').length})` }
-                    ].map((tb) => (
+                      { key: 'all', label: 'All Statuses' },
+                      { key: 'requests', label: 'Pending & Quotes' },
+                      { key: 'paid', label: 'Orders Placed & Active' },
+                      { key: 'completed', label: 'Completed' }
+                    ].map((st) => (
                       <button
-                        key={tb.key}
-                        onClick={() => setCustomOrderSubTab(tb.key as any)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-colors cursor-pointer shrink-0 ${
-                          customOrderSubTab === tb.key
-                            ? 'bg-[#38A132] text-white shadow-md'
-                            : 'bg-[#F9F6F0] text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                        key={st.key}
+                        onClick={() => setCustomOrderSubTab(st.key as any)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 ${
+                          customOrderSubTab === st.key
+                            ? 'bg-[#2C241D] text-white'
+                            : 'bg-white text-[#6B5C4D] border border-[#E2D7CB] hover:bg-[#F9F6F0]'
                         }`}
                       >
-                        {tb.label}
+                        {st.label}
                       </button>
                     ))}
                   </div>
-
-                  <div className="relative w-full sm:w-72">
-                    <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search custom order #, furniture, client..."
-                      value={customOrderSearchQuery}
-                      onChange={(e) => setCustomOrderSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D] shadow-xs"
-                    />
-                  </div>
                 </div>
 
-                {/* Custom Orders List Grid */}
+                {/* Unified Customer Requests List Grid */}
                 <div className="space-y-4">
-                  {allAdminCustomOrders
-                    .filter((c) => {
-                      if (customOrderSubTab === 'requests') {
-                        return c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved';
-                      }
-                      if (customOrderSubTab === 'paid') {
-                        return c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production' || c.order_status === 'Completed';
-                      }
-                      return true;
-                    })
-                    .filter((c) => {
-                      if (!customOrderSearchQuery.trim()) return true;
-                      const q = customOrderSearchQuery.toLowerCase();
-                      return (
-                        c.custom_order_id.toString().includes(q) ||
-                        c.furniture_type.toLowerCase().includes(q) ||
-                        c.customer_name.toLowerCase().includes(q) ||
-                        (c.customer_email && c.customer_email.toLowerCase().includes(q)) ||
-                        c.material.toLowerCase().includes(q) ||
-                        c.color.toLowerCase().includes(q)
-                      );
-                    }).length === 0 ? (
-                    <div className="p-8 text-center bg-white rounded-2xl border border-[#E2D7CB] text-[#7A6C5E]">
-                      <Sliders className="w-10 h-10 text-[#9E9082] mx-auto opacity-50 mb-2" />
-                      <p className="font-extrabold text-sm text-[#2C241D]">No custom orders found</p>
-                      <p className="text-xs text-[#8C7C6D] mt-0.5">Customization requests submitted by customers will be displayed here.</p>
-                    </div>
-                  ) : (
-                    allAdminCustomOrders
+                  {(() => {
+                    const q = customOrderSearchQuery.toLowerCase().trim();
+
+                    // 1. Filter Customizations
+                    const filteredCustoms = allAdminCustomOrders
+                      .filter(() => customerRequestCategoryFilter === 'all' || customerRequestCategoryFilter === 'custom')
                       .filter((c) => {
                         if (customOrderSubTab === 'requests') {
                           return c.order_status === 'Pending' || c.order_status === 'Pending Approval' || c.order_status === 'Approved';
                         }
                         if (customOrderSubTab === 'paid') {
-                          return c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production' || c.order_status === 'Completed';
+                          return c.payment_status === 'Paid' || c.order_status === 'Paid' || c.order_status === 'In Production';
+                        }
+                        if (customOrderSubTab === 'completed') {
+                          return c.order_status === 'Completed';
                         }
                         return true;
                       })
                       .filter((c) => {
-                        if (!customOrderSearchQuery.trim()) return true;
-                        const q = customOrderSearchQuery.toLowerCase();
+                        if (!q) return true;
                         return (
                           c.custom_order_id.toString().includes(q) ||
                           c.furniture_type.toLowerCase().includes(q) ||
                           c.customer_name.toLowerCase().includes(q) ||
                           (c.customer_email && c.customer_email.toLowerCase().includes(q)) ||
-                          c.material.toLowerCase().includes(q) ||
-                          c.color.toLowerCase().includes(q)
+                          (c.material && c.material.toLowerCase().includes(q)) ||
+                          (c.color && c.color.toLowerCase().includes(q))
                         );
                       })
-                      .map((ord) => (
-                        <div
-                          key={ord.custom_order_id}
-                          className="rounded-2xl p-3.5 shadow-sm border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-2.5 hover:border-[#38A132]/50 hover:bg-white transition-all"
-                        >
-                          {/* Compact Top Header Bar */}
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-[11px] font-mono font-extrabold text-[#38A132] px-2.5 py-0.5 rounded-md bg-[#38A132]/10 border border-[#38A132]/25">
-                                ORDER #{ord.custom_order_id}
+                      .map((c) => ({
+                        type: 'CUSTOMIZATION' as const,
+                        id: `CUS-${c.custom_order_id}`,
+                        numeric_id: c.custom_order_id,
+                        date: c.order_date,
+                        raw: c
+                      }));
+
+                    // 2. Filter Fabrications
+                    const filteredFabs = allAdminFabrications
+                      .filter(() => customerRequestCategoryFilter === 'all' || customerRequestCategoryFilter === 'fabrication')
+                      .filter((f) => {
+                        const st = (f.status || f.review_status || '').toUpperCase();
+                        if (customOrderSubTab === 'requests') {
+                          return st === 'NEW' || st === 'UNDER_REVIEW' || st === 'MORE_INFO_REQUESTED' || st === 'QUOTED' || st === 'PENDING';
+                        }
+                        if (customOrderSubTab === 'paid') {
+                          return st === 'PAID' || st === 'IN_PRODUCTION' || st === 'APPROVED' || st === 'APPROVED_BY_RETAIL' || st === 'ASSESSED';
+                        }
+                        if (customOrderSubTab === 'completed') {
+                          return st === 'COMPLETED';
+                        }
+                        return true;
+                      })
+                      .filter((f) => {
+                        if (!q) return true;
+                        return (
+                          (f.fabrication_id && f.fabrication_id.toString().includes(q)) ||
+                          (f.service_type && f.service_type.toLowerCase().includes(q)) ||
+                          (f.customer_name && f.customer_name.toLowerCase().includes(q)) ||
+                          (f.customer_email && f.customer_email.toLowerCase().includes(q)) ||
+                          (f.material_source && f.material_source.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((f) => ({
+                        type: 'FABRICATION' as const,
+                        id: `FAB-${f.fabrication_id}`,
+                        numeric_id: f.fabrication_id,
+                        date: f.created_at || f.date,
+                        raw: f
+                      }));
+
+                    // 3. Filter Onsite Services
+                    const filteredServices = allAdminServices
+                      .filter(() => customerRequestCategoryFilter === 'all' || customerRequestCategoryFilter === 'onsite')
+                      .filter((s) => {
+                        const st = (s.status || s.review_status || '').toUpperCase();
+                        if (customOrderSubTab === 'requests') {
+                          return st === 'PENDING' || st === 'NEW' || st === 'QUOTED' || st === 'UNDER_REVIEW' || st === 'MORE_INFO_REQUESTED';
+                        }
+                        if (customOrderSubTab === 'paid') {
+                          return st === 'PAID' || st === 'APPROVED' || st === 'WORKER_ASSIGNED' || st === 'SCHEDULED' || st === 'IN_PROGRESS';
+                        }
+                        if (customOrderSubTab === 'completed') {
+                          return st === 'COMPLETED';
+                        }
+                        return true;
+                      })
+                      .filter((s) => {
+                        if (!q) return true;
+                        return (
+                          (s.service_id && s.service_id.toString().includes(q)) ||
+                          (s.service_category && s.service_category.toLowerCase().includes(q)) ||
+                          (s.customer_name && s.customer_name.toLowerCase().includes(q)) ||
+                          (s.customer_email && s.customer_email.toLowerCase().includes(q)) ||
+                          (s.address && s.address.toLowerCase().includes(q)) ||
+                          (s.city && s.city.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((s) => ({
+                        type: 'ON_SITE_SERVICES' as const,
+                        id: `ONS-${s.service_id}`,
+                        numeric_id: s.service_id,
+                        date: s.created_at || s.preferred_date,
+                        raw: s
+                      }));
+
+                    // Combine & Sort by Date
+                    const combinedList = [...filteredCustoms, ...filteredFabs, ...filteredServices];
+                    combinedList.sort((a, b) => {
+                      const dateA = a.date ? new Date(a.date).getTime() : 0;
+                      const dateB = b.date ? new Date(b.date).getTime() : 0;
+                      return dateB - dateA;
+                    });
+
+                    if (combinedList.length === 0) {
+                      return (
+                        <div className="p-8 text-center bg-white rounded-2xl border border-[#E2D7CB] text-[#7A6C5E]">
+                          <Sliders className="w-10 h-10 text-[#9E9082] mx-auto opacity-50 mb-2" />
+                          <p className="font-extrabold text-sm text-[#2C241D]">No customer requests found</p>
+                          <p className="text-xs text-[#8C7C6D] mt-0.5">Custom furniture, fabrication, or onsite service bookings will appear here.</p>
+                        </div>
+                      );
+                    }
+
+                    return combinedList.map((item) => {
+                      // -------------------------------------------------------------
+                      // RENDER 1: CUSTOMIZATION (BESPOKE FURNITURE)
+                      // -------------------------------------------------------------
+                      if (item.type === 'CUSTOMIZATION') {
+                        const ord = item.raw;
+                        return (
+                          <div
+                            key={`custom-${ord.custom_order_id}`}
+                            className="rounded-2xl p-3.5 shadow-sm border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-2.5 hover:border-[#38A132]/50 hover:bg-white transition-all"
+                          >
+                            {/* Top Header Bar */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-mono font-extrabold text-purple-800 px-2.5 py-0.5 rounded-md bg-purple-50 border border-purple-200">
+                                  🛋️ CUSTOM #{ord.custom_order_id}
+                                </span>
+
+                                {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
+                                  <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                    <span>Paid in Full</span>
+                                  </span>
+                                ) : (
+                                  <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                    ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                    ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+                                    ord.order_status === 'In Production' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                                    ord.order_status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
+                                    'bg-rose-50 text-rose-800 border border-rose-200'
+                                  }`}>
+                                    Status: {ord.order_status}
+                                  </span>
+                                )}
+
+                                <h3 className="text-sm font-black text-[#2C241D] tracking-tight ml-1">
+                                  Custom {ord.furniture_type}
+                                </h3>
+                              </div>
+
+                              <div className="text-xs font-black text-[#38A132] bg-[#38A132]/10 px-3 py-0.5 rounded-lg border border-[#38A132]/20 shrink-0">
+                                {ord.estimated_price ? `₹${ord.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}
+                              </div>
+                            </div>
+
+                            {/* Specifications Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-xs">
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Details</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {ord.customer_name}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || 'N/A'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">📐 {ord.dimensions}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">🪵 {ord.material}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
+                                <span className="font-extrabold text-[#38A132] block truncate text-[11px]">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                              </div>
+                            </div>
+
+                            {/* Reference Images Thumbnails */}
+                            {ord.reference_image && parseReferenceImages(ord.reference_image).length > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block shrink-0">Reference Images:</span>
+                                {parseReferenceImages(ord.reference_image).map((imgUrl, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => openImageInNewTab(imgUrl)}
+                                    className="w-7 h-7 rounded-md overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0 cursor-pointer"
+                                  >
+                                    <img
+                                      src={imgUrl}
+                                      alt={`Ref ${i + 1}`}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                                    />
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Footer: Worker Banner + Action Buttons */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-1 border-t border-[#EFE7DE]">
+                              <div className="flex items-center gap-1.5 text-[11px]">
+                                <Wrench className="w-3.5 h-3.5 text-[#38A132] shrink-0" />
+                                <span className="font-extrabold text-[#7A6C5E]">Assigned Artisan:</span>
+                                {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                  <div className="flex items-center gap-1 flex-wrap">
+                                    {ord.assigned_workers.map((w, idx) => (
+                                      <span key={idx} className="font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB] text-[10px]">
+                                        👷 {w.worker_name}
+                                      </span>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <span className="font-bold text-amber-800 italic bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 text-[10px]">
+                                    No Artisan Worker Assigned Yet
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+                                <button
+                                  onClick={() => setSelectedCustomForAdminDetails(ord)}
+                                  className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-200"
+                                >
+                                  <Eye className="w-3 h-3 text-slate-600" />
+                                  <span>View Full Specs</span>
+                                </button>
+
+                                <button
+                                  onClick={() => handleAdminOpenPriceModal(ord)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
+                                >
+                                  <DollarSign className="w-3 h-3 text-amber-600" />
+                                  <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
+                                </button>
+
+                                {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
+                                  <button
+                                    onClick={() => handleAdminToggleLock(ord)}
+                                    className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
+                                    title="Specs Unlocked. Click to Lock Specs."
+                                  >
+                                    <Unlock className="w-3.5 h-3.5 text-amber-600" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    disabled
+                                    className="p-1.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
+                                    title="Specs Locked"
+                                  >
+                                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                  </button>
+                                )}
+                                {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') && (
+                                  <button
+                                    onClick={() => downloadPaymentReceipt(ord)}
+                                    className="px-2.5 py-1 rounded-lg bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-[11px] flex items-center gap-1 shadow-xs cursor-pointer"
+                                  >
+                                    <Download className="w-3 h-3 text-white" />
+                                    <span>Download Receipt</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // -------------------------------------------------------------
+                      // RENDER 2: FABRICATION REQUEST
+                      // -------------------------------------------------------------
+                      if (item.type === 'FABRICATION') {
+                        const fab = item.raw;
+                        return (
+                          <div
+                            key={`fab-${fab.fabrication_id}`}
+                            className="rounded-2xl p-3.5 shadow-sm border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-2.5 hover:border-amber-500/50 hover:bg-white transition-all"
+                          >
+                            {/* Top Header Bar */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-mono font-extrabold text-amber-800 px-2.5 py-0.5 rounded-md bg-amber-50 border border-amber-200">
+                                  🪵 FABRICATION #{fab.fabrication_id}
+                                </span>
+
+                                <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-md ${
+                                  fab.status === 'PAID' || fab.status === 'IN_PRODUCTION'
+                                    ? 'bg-purple-50 text-purple-800 border border-purple-200'
+                                    : fab.status === 'COMPLETED'
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                }`}>
+                                  Status: {fab.status || fab.review_status || 'Under Review'}
+                                </span>
+
+                                <h3 className="text-sm font-black text-[#2C241D] tracking-tight ml-1">
+                                  {fab.service_type || 'Custom Joinery & Fabrication'}
+                                </h3>
+                              </div>
+
+                              <div className="text-xs font-black text-amber-700 bg-amber-50 px-3 py-0.5 rounded-lg border border-amber-200 shrink-0">
+                                {fab.estimated_price ? `₹${parseFloat(fab.estimated_price).toLocaleString('en-IN')}` : 'Quote Pending'}
+                              </div>
+                            </div>
+
+                            {/* Specifications Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-xs">
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Details</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {fab.customer_name || 'Customer'}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{fab.customer_email || 'N/A'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">📐 {fab.dimensions || 'Custom Size'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Material Source</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">🪵 {fab.material_source || 'Customer / In-House'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Quantity & Specs</span>
+                                <span className="font-extrabold text-amber-800 block truncate text-[11px]">📦 {fab.quantity || 1} Piece(s)</span>
+                              </div>
+                            </div>
+
+                            {/* Requirements / Notes */}
+                            {fab.requirements && (
+                              <div className="text-[11px] text-[#5C4E42] bg-white p-2 rounded-xl border border-[#EFE7DE] flex items-center gap-1.5">
+                                <FileText className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                <span className="line-clamp-1"><strong>Notes:</strong> {fab.requirements}</span>
+                              </div>
+                            )}
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#EFE7DE]">
+                              <span className="text-[10px] text-[#7A6C5E] font-medium">
+                                Submitted: {fab.created_at ? new Date(fab.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
                               </span>
 
-                              {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
-                                <span className="text-[11px] font-extrabold px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1">
-                                  <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                  <span>Paid in Full</span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setSelectedFabForAdminDetails(fab)}
+                                  className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-amber-200"
+                                >
+                                  <Eye className="w-3 h-3 text-amber-600" />
+                                  <span>View Fabrication Details</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
+                      // -------------------------------------------------------------
+                      // RENDER 3: ON-SITE SERVICE REQUEST
+                      // -------------------------------------------------------------
+                      if (item.type === 'ON_SITE_SERVICES') {
+                        const srv = item.raw;
+                        return (
+                          <div
+                            key={`service-${srv.service_id}`}
+                            className="rounded-2xl p-3.5 shadow-sm border border-[#E2D7CB] bg-white/90 text-[#2C241D] space-y-2.5 hover:border-blue-500/50 hover:bg-white transition-all"
+                          >
+                            {/* Top Header Bar */}
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] font-mono font-extrabold text-blue-800 px-2.5 py-0.5 rounded-md bg-blue-50 border border-blue-200">
+                                  🔧 ON-SITE SERVICE #{srv.service_id}
                                 </span>
-                              ) : (
+
                                 <span className={`text-[11px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
-                                  ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
-                                  ord.order_status === 'In Production' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
-                                  ord.order_status === 'Completed' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
-                                  'bg-rose-50 text-rose-800 border border-rose-200'
+                                  srv.status === 'COMPLETED'
+                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-300'
+                                    : srv.status === 'WORKER_ASSIGNED' || srv.status === 'SCHEDULED' || srv.status === 'IN_PROGRESS'
+                                    ? 'bg-purple-50 text-purple-800 border border-purple-200'
+                                    : 'bg-blue-50 text-blue-800 border border-blue-200'
                                 }`}>
-                                  Status: {ord.order_status}
+                                  Status: {srv.status || 'PENDING'}
                                 </span>
-                              )}
 
-                              <h3 className="text-sm font-black text-[#2C241D] tracking-tight ml-1">
-                                {ord.furniture_type}
-                              </h3>
+                                <h3 className="text-sm font-black text-[#2C241D] tracking-tight ml-1">
+                                  {srv.service_category || 'On-Site Skilled Service'}
+                                </h3>
+                              </div>
+
+                              <div className="text-xs font-black text-blue-700 bg-blue-50 px-3 py-0.5 rounded-lg border border-blue-200 shrink-0">
+                                {srv.estimated_price ? `₹${parseFloat(srv.estimated_price).toLocaleString('en-IN')}` : 'Quote Pending'}
+                              </div>
                             </div>
 
-                            <div className="text-xs font-black text-[#38A132] bg-[#38A132]/10 px-3 py-0.5 rounded-lg border border-[#38A132]/20 shrink-0">
-                              {ord.estimated_price ? `₹${ord.estimated_price.toLocaleString('en-IN')}` : 'Quote Pending'}
-                            </div>
-                          </div>
-
-                          {/* Compact Specifications Grid */}
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-xs">
-                            <div className="space-y-0.5 min-w-0">
-                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Name</span>
-                              <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {ord.customer_name}</span>
-                              <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || 'N/A'}</span>
-                            </div>
-                            <div className="space-y-0.5 min-w-0">
-                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
-                              <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">📐 {ord.dimensions}</span>
-                            </div>
-                            <div className="space-y-0.5 min-w-0">
-                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Timber / Material</span>
-                              <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">🪵 {ord.material}</span>
-                            </div>
-                            <div className="space-y-0.5 min-w-0">
-                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Color & Finish</span>
-                              <span className="font-extrabold text-[#38A132] block truncate text-[11px]">🎨 {renderColorSwatchBadge(ord.color)}</span>
-                            </div>
-                          </div>
-
-                          {/* Reference Images Thumbnails */}
-                          {ord.reference_image && parseReferenceImages(ord.reference_image).length > 0 && (
-                            <div className="flex items-center gap-2">
-                              <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block shrink-0">Reference Images:</span>
-                              {parseReferenceImages(ord.reference_image).map((imgUrl, i) => (
-                                <button
-                                  key={i}
-                                  type="button"
-                                  onClick={() => openImageInNewTab(imgUrl)}
-                                  className="w-7 h-7 rounded-md overflow-hidden border border-[#E2D7CB] shadow-2xs block shrink-0 cursor-pointer"
-                                >
-                                  <img
-                                    src={imgUrl}
-                                    alt={`Ref ${i + 1}`}
-                                    className="w-full h-full object-cover"
-                                    onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          )}
-
-                          {/* Compact Footer: Worker Banner + Action Buttons */}
-                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-1 border-t border-[#EFE7DE]">
-                            <div className="flex items-center gap-1.5 text-[11px]">
-                              <Wrench className="w-3.5 h-3.5 text-[#38A132] shrink-0" />
-                              <span className="font-extrabold text-[#7A6C5E]">Assigned Artisan:</span>
-                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
-                                <div className="flex items-center gap-1 flex-wrap">
-                                  {ord.assigned_workers.map((w, idx) => (
-                                    <span key={idx} className="font-extrabold text-[#2C241D] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB] text-[10px]">
-                                      👷 {w.worker_name}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="font-bold text-amber-800 italic bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 text-[10px]">
-                                  No Artisan Worker Assigned Yet
+                            {/* Specifications Grid */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-xs">
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Details</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {srv.customer_name || 'Customer'}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{srv.customer_phone || srv.customer_email || 'N/A'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Service Location</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">📍 {srv.city || 'Kottayam'}, {srv.pincode || ''}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{srv.address || 'Standard Address'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Preferred Schedule</span>
+                                <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">
+                                  📅 {srv.preferred_date ? new Date(srv.preferred_date).toLocaleDateString() : 'Flexible'}
                                 </span>
-                              )}
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">⏰ {srv.preferred_time || 'Morning Slot'}</span>
+                              </div>
+                              <div className="space-y-0.5 min-w-0">
+                                <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Assigned Technician</span>
+                                <span className="font-extrabold text-blue-800 block truncate text-[11px]">
+                                  {srv.jobs && srv.jobs.length > 0 ? `👷 ${srv.jobs.map((j: any) => j.worker_name).join(', ')}` : 'Technician Unassigned'}
+                                </span>
+                              </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5 w-full sm:w-auto justify-end">
-                              <button
-                                onClick={() => setSelectedCustomForAdminDetails(ord)}
-                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-slate-200"
-                              >
-                                <Eye className="w-3 h-3 text-slate-600" />
-                                <span>View Full Specs</span>
-                              </button>
+                            {/* Service Description */}
+                            {srv.description && (
+                              <div className="text-[11px] text-[#5C4E42] bg-white p-2 rounded-xl border border-[#EFE7DE] flex items-center gap-1.5">
+                                <Wrench className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                <span className="line-clamp-1"><strong>Service Request:</strong> {srv.description}</span>
+                              </div>
+                            )}
 
-                              <button
-                                onClick={() => handleAdminOpenPriceModal(ord)}
-                                className="px-2.5 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer shadow-2xs"
-                              >
-                                <DollarSign className="w-3 h-3 text-amber-600" />
-                                <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
-                              </button>
+                            {/* Action Buttons */}
+                            <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#EFE7DE]">
+                              <span className="text-[10px] text-[#7A6C5E] font-medium">
+                                Booked: {srv.created_at ? new Date(srv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'}
+                              </span>
 
-                              {!(ord.is_locked || ord.order_status === 'Approved' || ord.order_status === 'In Production' || ord.order_status === 'Completed' || (ord.estimated_price && ord.estimated_price > 0)) ? (
+                              <div className="flex items-center gap-1.5">
                                 <button
-                                  onClick={() => handleAdminToggleLock(ord)}
-                                  className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 transition-all cursor-pointer shadow-2xs"
-                                  title="Specs Unlocked. Click to Lock Specs."
+                                  onClick={() => setSelectedServiceForAdminDetails(srv)}
+                                  className="px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-900 font-extrabold text-[11px] flex items-center gap-1 transition-all cursor-pointer border border-blue-200"
                                 >
-                                  <Unlock className="w-3.5 h-3.5 text-amber-600" />
+                                  <Eye className="w-3 h-3 text-blue-600" />
+                                  <span>View Service Details</span>
                                 </button>
-                              ) : (
-                                <button
-                                  disabled
-                                  className="p-1.5 rounded-lg bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed"
-                                  title="Specs Locked"
-                                >
-                                  <Lock className="w-3.5 h-3.5 text-slate-400" />
-                                </button>
-                              )}
-                              {(ord.payment_status === 'Paid' || ord.order_status === 'Paid') && (
-                                <button
-                                  onClick={() => downloadPaymentReceipt(ord)}
-                                  className="px-2.5 py-1 rounded-lg bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-[11px] flex items-center gap-1 shadow-xs cursor-pointer"
-                                >
-                                  <Download className="w-3 h-3 text-white" />
-                                  <span>Download Receipt</span>
-                                </button>
-                              )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))
-                  )}
+                        );
+                      }
+
+                      return null;
+                    });
+                  })()}
                 </div>
               </div>
             )}
+
+            {/* TAB: NEEDS ATTENTION & OPERATIONAL ALERTS */}
+            {activeTab === 'alerts' && (() => {
+              // Aggregate live alerts from system sources
+              const dbAlerts = dashboardSummary?.alerts || [];
+              const lowStockAlerts = (productList || [])
+                .filter(p => (((p as any).stockQuantity ?? p.stockCount ?? (p as any).stock ?? 0) <= 5))
+                .map(p => {
+                  const stockVal = (p as any).stockQuantity ?? p.stockCount ?? (p as any).stock ?? 0;
+                  const pid = p.id || (p as any).product_id || p.sku;
+                  return {
+                    id: `stock-${pid}`,
+                    severity: (stockVal === 0 ? 'URGENT' : 'LOW_STOCK') as any,
+                    title: `Low Stock: ${p.name || (p as any).product_name || 'Product'}`,
+                    description: `Current available stock is ${stockVal} units (Reorder threshold: 5).`,
+                    type: 'low_stock',
+                    entityId: pid
+                  };
+                });
+
+              const maintenanceVehicleAlerts = (vehiclesList || [])
+                .filter(v => v.status === 'MAINTENANCE')
+                .map(v => ({
+                  id: `veh-${v.id}`,
+                  severity: 'WARNING',
+                  title: `Vehicle Under Maintenance: ${v.registration_number}`,
+                  description: `${v.vehicle_type} (${v.id}) is currently in maintenance and unavailable for order dispatch.`,
+                  type: 'fleet',
+                  entityId: v.id
+                }));
+
+              const allAggregatedAlerts = [...dbAlerts, ...lowStockAlerts, ...maintenanceVehicleAlerts];
+              const urgentCount = allAggregatedAlerts.filter(a => a.severity === 'URGENT' || a.severity === 'CRITICAL').length;
+              const warningCount = allAggregatedAlerts.filter(a => a.severity === 'WARNING' || a.severity === 'LOW_STOCK').length;
+
+              return (
+                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-6 border border-[#E2D7CB] shadow-xl bg-white/80 backdrop-blur-xl animate-fadeIn">
+                  {/* Header & Stats Bar */}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                    <div>
+                      <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-amber-600" />
+                        <span>Needs Attention & Operational Alerts</span>
+                      </h2>
+                      <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
+                        Real-time operational alerts requiring administrative evaluation or immediate attention.
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={async () => {
+                        setIsLoadingSummary(true);
+                        try {
+                          const summary = await fetchAdminDashboardSummaryDB();
+                          if (summary) setDashboardSummary(summary);
+                          await loadFleetDataFromDB();
+                        } catch (e) {
+                          console.warn('Failed to refresh alert metrics:', e);
+                        } finally {
+                          setIsLoadingSummary(false);
+                        }
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-[#38A132]" />
+                      <span>Refresh Health Check</span>
+                    </button>
+                  </div>
+
+                  {/* Operational Health KPI Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Total Active Alerts</span>
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-black text-[#2C241D]">
+                        {allAggregatedAlerts.length}
+                      </div>
+                      <span className="text-[10px] font-bold text-[#7A6C5E] block">
+                        {allAggregatedAlerts.length === 0 ? 'All parameters normal' : 'Issues requiring review'}
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Urgent Action Items</span>
+                        <AlertTriangle className="w-4 h-4 text-rose-600" />
+                      </div>
+                      <div className={`text-2xl font-black ${urgentCount > 0 ? 'text-rose-600' : 'text-[#2C241D]'}`}>
+                        {urgentCount}
+                      </div>
+                      <span className={`text-[10px] font-bold block ${urgentCount > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+                        {urgentCount > 0 ? 'Requires immediate action' : 'Zero critical blockers'}
+                      </span>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Warnings & Inventory</span>
+                        <Package className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-black text-amber-700">
+                        {warningCount}
+                      </div>
+                      <span className="text-[10px] font-bold text-amber-800 block">
+                        Low stock & fleet servicing
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* ALERTS CONTENT CONTAINER */}
+                  {allAggregatedAlerts.length === 0 ? (
+                    /* BEAUTIFUL EMPTY STATE WHEN NO ALERTS EXIST */
+                    <div className="p-8 sm:p-12 text-center bg-white rounded-3xl border border-[#E2D7CB] shadow-sm space-y-4">
+                      <div className="w-16 h-16 rounded-3xl bg-emerald-50 text-emerald-600 border border-emerald-200 flex items-center justify-center mx-auto shadow-xs">
+                        <ShieldCheck className="w-8 h-8" />
+                      </div>
+
+                      <div className="space-y-1 max-w-md mx-auto">
+                        <h3 className="text-lg font-black text-[#2C241D]">
+                          All Systems Operating Smoothly
+                        </h3>
+                        <p className="text-xs text-[#7A6C5E] font-medium leading-relaxed">
+                          No active operational bottlenecks, delayed builds, quality control failures, or low stock warnings currently require attention.
+                        </p>
+                      </div>
+
+                      {/* Live System Health Check Pills */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 max-w-2xl mx-auto text-left">
+                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] space-y-1">
+                          <span className="text-[10px] font-extrabold text-[#38A132] flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Healthy Stock
+                          </span>
+                          <p className="text-[11px] text-[#2C241D] font-bold">Catalog Inventory</p>
+                        </div>
+
+                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] space-y-1">
+                          <span className="text-[10px] font-extrabold text-[#38A132] flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> On Track
+                          </span>
+                          <p className="text-[11px] text-[#2C241D] font-bold">Custom Workshop</p>
+                        </div>
+
+                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] space-y-1">
+                          <span className="text-[10px] font-extrabold text-[#38A132] flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Fleet Ready
+                          </span>
+                          <p className="text-[11px] text-[#2C241D] font-bold">Order Dispatch</p>
+                        </div>
+
+                        <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] space-y-1">
+                          <span className="text-[10px] font-extrabold text-[#38A132] flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Cleared
+                          </span>
+                          <p className="text-[11px] text-[#2C241D] font-bold">QC Inspections</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* ACTIVE ALERTS LIST */
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-extrabold text-[#2C241D]">Active System Notifications ({allAggregatedAlerts.length})</span>
+                        <span className="text-[11px] text-[#7A6C5E]">Sorted by priority</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3">
+                        {allAggregatedAlerts.map((alt, idx) => {
+                          const isUrgent = alt.severity === 'URGENT' || alt.severity === 'CRITICAL';
+                          const isLowStock = alt.severity === 'LOW_STOCK';
+
+                          return (
+                            <div
+                              key={alt.id || idx}
+                              className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs ${
+                                isUrgent
+                                  ? 'bg-rose-50/70 border-rose-200 hover:border-rose-400'
+                                  : isLowStock
+                                  ? 'bg-amber-50/70 border-amber-200 hover:border-amber-400'
+                                  : 'bg-white border-[#E2D7CB] hover:border-[#38A132]'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className={`p-2 rounded-xl mt-0.5 shrink-0 ${
+                                  isUrgent ? 'bg-rose-100 text-rose-700' : isLowStock ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  <AlertTriangle className="w-4 h-4" />
+                                </div>
+
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-md border ${
+                                      isUrgent
+                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                        : isLowStock
+                                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                        : 'bg-blue-100 text-blue-800 border-blue-200'
+                                    }`}>
+                                      {alt.severity}
+                                    </span>
+                                    <h4 className="text-xs font-black text-[#2C241D]">{alt.title}</h4>
+                                  </div>
+                                  <p className="text-[11px] text-[#5C4E42] font-medium leading-relaxed">{alt.description}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+                                {isLowStock ? (
+                                  <button
+                                    onClick={() => setActiveTab('inventory')}
+                                    className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] shadow-xs cursor-pointer"
+                                  >
+                                    Restock Item
+                                  </button>
+                                ) : alt.type === 'fleet' ? (
+                                  <button
+                                    onClick={() => setActiveTab('fleet')}
+                                    className="px-3 py-1.5 rounded-xl bg-[#2C241D] hover:bg-[#4A3E32] text-white font-extrabold text-[11px] shadow-xs cursor-pointer"
+                                  >
+                                    Manage Fleet
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => setActiveTab('orders')}
+                                    className="px-3 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-[11px] shadow-xs cursor-pointer"
+                                  >
+                                    View Details
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* TAB 7: SYSTEM AUDIT LOG & ACTIVITY FEED */}
             {activeTab === 'audit' && (
@@ -7731,6 +8869,216 @@ export const AdminDashboardPage: React.FC = () => {
                 className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-md cursor-pointer"
               >
                 Approve & Send Quote
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN MODAL 3: Fabrication Request Details Modal */}
+      {selectedFabForAdminDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-2xl shadow-2xl border border-[#E2D7CB] relative z-50 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-black text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-md border border-amber-200">
+                    🪵 FABRICATION #{selectedFabForAdminDetails.fabrication_id}
+                  </span>
+                  <h3 className="text-base font-extrabold text-[#2C241D]">
+                    {selectedFabForAdminDetails.service_type || 'Custom Joinery & Fabrication'}
+                  </h3>
+                </div>
+                <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
+                  Client: {selectedFabForAdminDetails.customer_name} • {selectedFabForAdminDetails.customer_email || 'No email'}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedFabForAdminDetails(null)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Status and Price Banner */}
+            <div className="flex items-center justify-between p-3.5 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB]">
+              <div>
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Status</span>
+                <span className="px-2.5 py-0.5 rounded-md text-xs font-black uppercase inline-block mt-0.5 bg-amber-100 text-amber-900 border border-amber-200">
+                  {selectedFabForAdminDetails.status || selectedFabForAdminDetails.review_status || 'Under Review'}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Estimated Price</span>
+                <span className="text-lg font-black text-amber-700">
+                  {selectedFabForAdminDetails.estimated_price ? `₹${parseFloat(selectedFabForAdminDetails.estimated_price).toLocaleString('en-IN')}` : 'Quotation Pending'}
+                </span>
+              </div>
+            </div>
+
+            {/* Technical Specifications Grid */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Technical Specifications</h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB]">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Dimensions</span>
+                  <span className="font-extrabold text-[#2C241D] mt-0.5 block">{selectedFabForAdminDetails.dimensions || 'Custom Size'}</span>
+                </div>
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB]">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Material Source</span>
+                  <span className="font-extrabold text-[#2C241D] mt-0.5 block">{selectedFabForAdminDetails.material_source || 'Customer Supplied'}</span>
+                </div>
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB]">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Quantity</span>
+                  <span className="font-extrabold text-amber-800 mt-0.5 block">{selectedFabForAdminDetails.quantity || 1} Piece(s)</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Notes / Requirements */}
+            {selectedFabForAdminDetails.requirements && (
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Client Requirements & Notes</h4>
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-xs text-[#4A3E32] font-medium leading-relaxed">
+                  {selectedFabForAdminDetails.requirements}
+                </div>
+              </div>
+            )}
+
+            {/* Technical Drawing Image */}
+            {selectedFabForAdminDetails.drawing_image && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Technical Drawing / CAD Design</h4>
+                <div className="rounded-2xl overflow-hidden border border-[#E2D7CB] bg-[#FAF7F2] p-2 max-h-60 flex items-center justify-center">
+                  <img
+                    src={selectedFabForAdminDetails.drawing_image}
+                    alt="Technical Drawing"
+                    className="max-h-56 object-contain rounded-xl cursor-pointer hover:opacity-95"
+                    onClick={() => {
+                      const w = window.open('');
+                      w?.document.write(`<img src="${selectedFabForAdminDetails.drawing_image}" style="max-width:100%;" />`);
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="pt-2 text-right border-t border-[#EFE7DE]">
+              <button
+                type="button"
+                onClick={() => setSelectedFabForAdminDetails(null)}
+                className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#42372D] text-white font-extrabold text-xs shadow-md cursor-pointer"
+              >
+                Close Details
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADMIN MODAL 4: On-Site Service Details Modal */}
+      {selectedServiceForAdminDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-2xl shadow-2xl border border-[#E2D7CB] relative z-50 space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono font-black text-blue-800 bg-blue-50 px-2.5 py-0.5 rounded-md border border-blue-200">
+                    🔧 ON-SITE SERVICE #{selectedServiceForAdminDetails.service_id}
+                  </span>
+                  <h3 className="text-base font-extrabold text-[#2C241D]">
+                    {selectedServiceForAdminDetails.service_category || 'Skilled On-Site Service'}
+                  </h3>
+                </div>
+                <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
+                  Customer: {selectedServiceForAdminDetails.customer_name} • Phone: {selectedServiceForAdminDetails.customer_phone || 'N/A'}
+                </p>
+              </div>
+              <button
+                onClick={() => setSelectedServiceForAdminDetails(null)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Status and Price Banner */}
+            <div className="flex items-center justify-between p-3.5 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB]">
+              <div>
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Status</span>
+                <span className="px-2.5 py-0.5 rounded-md text-xs font-black uppercase inline-block mt-0.5 bg-blue-100 text-blue-900 border border-blue-200">
+                  {selectedServiceForAdminDetails.status || 'PENDING'}
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Estimated Price</span>
+                <span className="text-lg font-black text-blue-700">
+                  {selectedServiceForAdminDetails.estimated_price ? `₹${parseFloat(selectedServiceForAdminDetails.estimated_price).toLocaleString('en-IN')}` : 'Quotation Pending'}
+                </span>
+              </div>
+            </div>
+
+            {/* Location & Scheduling */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Site Location & Booking Slot</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB]">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Service Address</span>
+                  <span className="font-extrabold text-[#2C241D] mt-0.5 block">{selectedServiceForAdminDetails.address || 'Address not specified'}</span>
+                  <span className="text-[11px] text-[#7A6C5E] block mt-0.5">{selectedServiceForAdminDetails.city || 'Kottayam'}, {selectedServiceForAdminDetails.pincode || ''}</span>
+                </div>
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB]">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Scheduled Date & Slot</span>
+                  <span className="font-extrabold text-[#2C241D] mt-0.5 block">
+                    📅 {selectedServiceForAdminDetails.preferred_date ? new Date(selectedServiceForAdminDetails.preferred_date).toLocaleDateString() : 'Flexible Date'}
+                  </span>
+                  <span className="text-[11px] text-blue-800 font-bold block mt-0.5">⏰ {selectedServiceForAdminDetails.preferred_time || 'Morning Slot'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Description / Scope */}
+            {selectedServiceForAdminDetails.description && (
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Scope of Work / Issue Description</h4>
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-xs text-[#4A3E32] font-medium leading-relaxed">
+                  {selectedServiceForAdminDetails.description}
+                </div>
+              </div>
+            )}
+
+            {/* Assigned Technicians / Jobs */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-extrabold text-[#2C241D] uppercase tracking-wider">Assigned Technicians & Work Status</h4>
+              {selectedServiceForAdminDetails.jobs && selectedServiceForAdminDetails.jobs.length > 0 ? (
+                <div className="space-y-2">
+                  {selectedServiceForAdminDetails.jobs.map((job: any, idx: number) => (
+                    <div key={idx} className="p-3 bg-blue-50/60 rounded-xl border border-blue-200 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-extrabold text-blue-900 block">👷 {job.worker_name || `Technician #${job.worker_id}`}</span>
+                        <span className="text-[10px] text-blue-700">Status: {job.status || 'Assigned'}</span>
+                      </div>
+                      {job.notes && (
+                        <span className="text-[11px] text-[#5C4E42] italic">{job.notes}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-center text-[#7A6C5E] text-xs italic">
+                  No field technician assigned yet.
+                </div>
+              )}
+            </div>
+
+            <div className="pt-2 text-right border-t border-[#EFE7DE]">
+              <button
+                type="button"
+                onClick={() => setSelectedServiceForAdminDetails(null)}
+                className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#42372D] text-white font-extrabold text-xs shadow-md cursor-pointer"
+              >
+                Close Details
               </button>
             </div>
           </div>

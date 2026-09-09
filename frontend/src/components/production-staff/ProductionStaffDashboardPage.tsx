@@ -85,6 +85,9 @@ import {
   receiveCustomerMaterial,
   fetchOrderProductionHistory,
   fetchOnsiteJobsForProduction,
+  fetchFabricationJobsForProduction,
+  assignWorkerToFabrication,
+  assignWorkerToOnsiteJob,
   fetchProductionReports,
   fetchSupervisorWorkload,
   assignProductionSupervisor,
@@ -255,141 +258,31 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [assignFormNotes, setAssignFormNotes] = useState<string>('');
   const [workerDeptFilter, setWorkerDeptFilter] = useState<'All' | 'Woodwork & Carpentry' | 'Upholstery' | 'Assembly'>('All');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('Woodwork & Carpentry');
+  const [prodActiveCategoryFilter, setProdActiveCategoryFilter] = useState<'all' | 'custom' | 'fabrication' | 'onsite'>('all');
 
-  // Feature 1: Fabrication Details State
-  const [fabricationJobs, setFabricationJobs] = useState<any[]>([
-    {
-      fabrication_id: 'FAB-2026-001',
-      order_id: 'REQ-8041',
-      product_name: 'Royal Teak 8-Seater Dining Table',
-      product_thumbnail: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?w=300&auto=format&fit=crop&q=60',
-      quantity: '2 Units',
-      material_required: 'Grade-A Teak Wood, Brass Inlay Hardware',
-      assigned_team: 'Joinery Team Alpha',
-      priority: 'High',
-      expected_completion_date: '05 Sep 2026',
-      status: 'In Progress',
-      progress_percentage: 65
-    },
-    {
-      fabrication_id: 'FAB-2026-002',
-      order_id: '#CUS-104',
-      product_name: 'Chesterfield Velvet Armchair & Ottoman',
-      product_thumbnail: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=300&auto=format&fit=crop&q=60',
-      quantity: '4 Units',
-      material_required: 'Italian Royal Blue Velvet, High-Density Latex Foam',
-      assigned_team: 'Upholstery Crew Beta',
-      priority: 'Medium',
-      expected_completion_date: '09 Sep 2026',
-      status: 'Quality Check',
-      progress_percentage: 90
-    },
-    {
-      fabrication_id: 'FAB-2026-003',
-      order_id: 'REQ-7910',
-      product_name: 'Modular Executive Office Console Desk',
-      product_thumbnail: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?w=300&auto=format&fit=crop&q=60',
-      quantity: '1 Suite',
-      material_required: 'Walnut Veneer, Matte Powder-Coated Steel Frame',
-      assigned_team: 'Metal & Wood Hybrid Crew',
-      priority: 'High',
-      expected_completion_date: '03 Sep 2026',
-      status: 'Pending',
-      progress_percentage: 15
-    },
-    {
-      fabrication_id: 'FAB-2026-004',
-      order_id: '#ORD-992',
-      product_name: 'Acoustic Slatted Timber Wall Panels',
-      product_thumbnail: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?w=300&auto=format&fit=crop&q=60',
-      quantity: '12 Panels',
-      material_required: 'White Oak Slats, Sound-Dampening Felt Backing',
-      assigned_team: 'Paneling & Surface Team',
-      priority: 'Low',
-      expected_completion_date: '14 Sep 2026',
-      status: 'In Progress',
-      progress_percentage: 40
-    },
-    {
-      fabrication_id: 'FAB-2026-005',
-      order_id: 'REQ-8105',
-      product_name: 'Bespoke Marble-Top Buffet Credenza',
-      product_thumbnail: 'https://images.unsplash.com/photo-1538688525198-9b88f6f53126?w=300&auto=format&fit=crop&q=60',
-      quantity: '1 Unit',
-      material_required: 'Carrara White Marble, Solid Oak Base, Soft-Close Hinges',
-      assigned_team: 'Master Carving & Finish Team',
-      priority: 'High',
-      expected_completion_date: '01 Sep 2026',
-      status: 'Completed',
-      progress_percentage: 100
-    }
-  ]);
+  // Feature 1: Fabrication Details State (Strictly DB-Fetched)
+  const [fabricationJobs, setFabricationJobs] = useState<any[]>([]);
   const [fabSearchQuery, setFabSearchQuery] = useState('');
   const [fabStatusFilter, setFabStatusFilter] = useState('All');
   const [selectedFabJobModal, setSelectedFabJobModal] = useState<any | null>(null);
 
-  // Feature 2: Approved On-Site Requests State
-  const [approvedOnsiteRequests, setApprovedOnsiteRequests] = useState<any[]>([
-    {
-      request_id: 'OSR-2026-801',
-      store_name: 'RetailSphere Flagship Store - Downtown',
-      store_location: '742 Evergreen Plaza, Central Business District',
-      product_name: 'Interactive Teak Kiosk & Display Counters',
-      requested_quantity: '3 Units',
-      request_date: '20 Aug 2026',
-      required_installation_date: '06 Sep 2026',
-      priority: 'High',
-      assigned_production_team: 'On-Site Assembly Crew #1',
-      production_status: 'Approved & Ready',
-      store_contact: 'Marcus Vance (Store Manager) - +1 (555) 234-8901',
-      special_instructions: 'Night installation preferred (after 9 PM store closing). Cable conduits required in base frame.'
-    },
-    {
-      request_id: 'OSR-2026-802',
-      store_name: 'Westside Furniture Experience Hub',
-      store_location: '1200 Galleria Mall, West Bay District',
-      product_name: 'Custom LED Backlit Acoustic Feature Wall',
-      requested_quantity: '1 Suite (8 Panels)',
-      request_date: '24 Aug 2026',
-      required_installation_date: '10 Sep 2026',
-      priority: 'Medium',
-      assigned_production_team: 'Joinery & Fitting Team B',
-      production_status: 'In Production',
-      store_contact: 'Elena Rostova (Retail Operations) - +1 (555) 876-5432',
-      special_instructions: 'Integrate 24V LED strip channels with dimmable driver module.'
-    },
-    {
-      request_id: 'OSR-2026-803',
-      store_name: 'Metropolis Design Studio & Outlet',
-      store_location: '88 Tech Park Boulevard, North Sector',
-      product_name: 'Luxury Quartz-Top Reception Desk & Branding Wall',
-      requested_quantity: '1 Set',
-      request_date: '26 Aug 2026',
-      required_installation_date: '15 Sep 2026',
-      priority: 'High',
-      assigned_production_team: 'Millwork Production Crew',
-      production_status: 'Approved & Ready',
-      store_contact: 'David Kim (Brand Director) - +1 (555) 432-1098',
-      special_instructions: 'Modular split assembly needed to fit through standard 36-inch store entry doors.'
-    },
-    {
-      request_id: 'OSR-2026-804',
-      store_name: 'Grand Avenue Flagship Emporium',
-      store_location: '500 Grand Avenue, Financial District',
-      product_name: 'Brass-Trimmed Velvet VIP Lounge Seating Units',
-      requested_quantity: '6 Units',
-      request_date: '18 Aug 2026',
-      required_installation_date: '04 Sep 2026',
-      priority: 'Medium',
-      assigned_production_team: 'Upholstery & Site Fitting Crew',
-      production_status: 'Ready for Dispatch',
-      store_contact: 'Sophia Martinez (Floor Lead) - +1 (555) 654-3210',
-      special_instructions: 'Stain-resistant nano-coat applied. Includes gold-brushed steel base clips.'
-    }
-  ]);
+  // Feature 2: Approved On-Site Requests State (Strictly DB-Fetched)
+  const [approvedOnsiteRequests, setApprovedOnsiteRequests] = useState<any[]>([]);
   const [onsiteSearchQuery, setOnsiteSearchQuery] = useState('');
   const [onsiteStatusFilter, setOnsiteStatusFilter] = useState('All');
   const [selectedOnsiteRequestModal, setSelectedOnsiteRequestModal] = useState<any | null>(null);
+
+  // Feature 3: Universal Worker Assignment Modal State
+  const [assignWorkerModalData, setAssignWorkerModalData] = useState<{
+    type: 'custom' | 'fabrication' | 'onsite';
+    id: number;
+    title: string;
+    currentWorkerId?: number;
+    stageId?: number;
+  } | null>(null);
+  const [assignModalWorkerId, setAssignModalWorkerId] = useState<number | ''>('');
+  const [assignModalNotes, setAssignModalNotes] = useState<string>('');
+  const [isAssigningWorker, setIsAssigningWorker] = useState<boolean>(false);
 
   const handleMarkOnsiteInProduction = (reqId: string) => {
     setApprovedOnsiteRequests(prev => prev.map(item => {
@@ -424,7 +317,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         job.assigned_team.toLowerCase().includes(fabSearchQuery.toLowerCase());
 
       const matchesStatus =
-        fabStatusFilter === 'All' || job.status.toLowerCase() === fabStatusFilter.toLowerCase();
+        fabStatusFilter === 'All' ? job.status !== 'Completed' : job.status.toLowerCase() === fabStatusFilter.toLowerCase();
 
       return matchesSearch && matchesStatus;
     });
@@ -685,15 +578,66 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadQueueData(assessmentCategoryFilter, assessmentTabFilter);
   }, [assessmentCategoryFilter, assessmentTabFilter, activeTab]);
 
+  const loadFabricationData = async () => {
+    try {
+      const fabs = await fetchFabricationJobsForProduction();
+      setFabricationJobs(fabs || []);
+    } catch (err) {
+      console.error('Error fetching fabrication jobs from DB:', err);
+      setFabricationJobs([]);
+    }
+  };
+
   const loadOnsiteData = async () => {
     try {
       const jobs = await fetchOnsiteJobsForProduction();
       setOnsiteJobsList(jobs || []);
-      if (jobs && jobs.length > 0) {
-        setApprovedOnsiteRequests(jobs);
-      }
+      setApprovedOnsiteRequests(jobs || []);
     } catch (err) {
       console.error('Error fetching onsite jobs:', err);
+      setApprovedOnsiteRequests([]);
+    }
+  };
+
+  const handleOpenAssignWorkerModal = (
+    type: 'custom' | 'fabrication' | 'onsite',
+    id: number,
+    title: string,
+    currentWorkerId?: number,
+    stageId?: number
+  ) => {
+    setAssignWorkerModalData({ type, id, title, currentWorkerId, stageId });
+    setAssignModalWorkerId(currentWorkerId || '');
+    setAssignModalNotes('');
+  };
+
+  const handleConfirmAssignWorker = async () => {
+    if (!assignWorkerModalData || !assignModalWorkerId) return;
+    setIsAssigningWorker(true);
+    try {
+      const wId = Number(assignModalWorkerId);
+      if (assignWorkerModalData.type === 'custom') {
+        const res = await assignWorkerTask(assignWorkerModalData.id, wId, undefined);
+        if (res.error) throw new Error(res.error);
+        setSuccessNotice(`Assigned artisan to Custom Order #${assignWorkerModalData.id}`);
+      } else if (assignWorkerModalData.type === 'fabrication') {
+        const res = await assignWorkerToFabrication(assignWorkerModalData.id, wId, assignWorkerModalData.stageId, assignModalNotes);
+        if (!res.ok) throw new Error(res.message);
+        setSuccessNotice(`Assigned artisan to Fabrication Job #${assignWorkerModalData.id}`);
+      } else if (assignWorkerModalData.type === 'onsite') {
+        const res = await assignWorkerToOnsiteJob(assignWorkerModalData.id, wId, undefined, assignModalNotes);
+        if (!res.ok) throw new Error(res.message);
+        setSuccessNotice(`Assigned field artisan to On-Site Job #${assignWorkerModalData.id}`);
+      }
+      setAssignWorkerModalData(null);
+      setAssignModalWorkerId('');
+      setAssignModalNotes('');
+      await loadData();
+    } catch (err: any) {
+      alert(err.message || 'Failed to assign worker.');
+    } finally {
+      setIsAssigningWorker(false);
+      setTimeout(() => setSuccessNotice(null), 5000);
     }
   };
 
@@ -964,6 +908,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       await Promise.all([
         loadOverviewData(),
         loadQueueData(),
+        loadFabricationData(),
         loadOnsiteData(),
         loadReportsData(),
         loadLeaveRequestsData(),
@@ -2593,237 +2538,551 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* KPI Stat Cards (Shown ONLY on Custom Orders section) */}
-            {(activeTab === 'orders' || activeTab === 'active_production') && (
-              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Paid Custom Orders</span>
-                    <DollarSign className="w-4 h-4 text-[#48A63E]" />
+            {/* KPI Stat Cards (Combined Custom Orders, Fabrications & On-Site Requests) */}
+            {(activeTab === 'orders' || activeTab === 'active_production') && (() => {
+              const activePaidCustom = orders.filter(isPaidCustomOrder).length;
+              const activePaidFabs = fabricationJobs.filter(f => f.status === 'In Progress' || f.status === 'Quality Check' || f.status === 'Completed').length;
+              const activePaidOnsites = approvedOnsiteRequests.length;
+              const totalPaidActive = activePaidCustom + activePaidFabs + activePaidOnsites;
+
+              const inProdCustom = inProductionCount;
+              const inProdFabs = fabricationJobs.filter(f => f.status === 'In Progress' || f.status === 'Quality Check').length;
+              const inProdOnsites = approvedOnsiteRequests.filter(r => r.production_status === 'In Production' || r.production_status === 'Approved & Ready').length;
+              const totalInProd = inProdCustom + inProdFabs + inProdOnsites;
+
+              const totalApproved = approvedCount + fabricationJobs.length + approvedOnsiteRequests.length;
+              const totalCompleted = completedCount + fabricationJobs.filter(f => f.status === 'Completed').length + approvedOnsiteRequests.filter(r => r.production_status === 'Ready for Dispatch').length;
+
+              return (
+                <div className="relative z-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Paid Active Works</span>
+                      <DollarSign className="w-4 h-4 text-[#48A63E]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{totalPaidActive} Requests</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                        Custom • Fab • On-Site
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{paidOrdersCount} Orders</div>
-                  <div>
-                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
-                      Customer payment received
-                    </span>
+
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">In Production</span>
+                      <Layers className="w-4 h-4 text-[#2563EB]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{totalInProd} Builds</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-[#1E40AF] bg-[#EBF5FF] px-2.5 py-0.5 rounded-full border border-[#DBEAFE] inline-block">
+                        Active shop-floor execution
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Approved Requests</span>
+                      <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{totalApproved} Total</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                        Staff approved & queued
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
+                    <div className="flex items-center justify-between text-[#8C8275]">
+                      <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Completed Builds</span>
+                      <PackageCheck className="w-4 h-4 text-[#10B981]" />
+                    </div>
+                    <div className="text-2xl font-extrabold text-[#2C241D]">{totalCompleted} Works</div>
+                    <div>
+                      <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                        Ready for dispatch / QA
+                      </span>
+                    </div>
                   </div>
                 </div>
+              );
+            })()}
 
-                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">In Production</span>
-                    <Layers className="w-4 h-4 text-[#2563EB]" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{inProductionCount} Builds</div>
-                  <div>
-                    <span className="text-[11px] font-bold text-[#1E40AF] bg-[#EBF5FF] px-2.5 py-0.5 rounded-full border border-[#DBEAFE] inline-block">
-                      Artisan assigned builds
-                    </span>
-                  </div>
-                </div>
+            {/* TAB 1: Custom Orders, Fabrications & On-Site Active Production Management */}
+            {(activeTab === 'orders' || activeTab === 'active_production' || activeTab === 'assignments') && (() => {
+              const paidCustomOrders = filteredOrders.filter(isPaidCustomOrder);
+              const hasAnyItems = (prodActiveCategoryFilter === 'all' && (paidCustomOrders.length > 0 || filteredFabJobs.length > 0 || filteredOnsiteRequests.length > 0)) ||
+                (prodActiveCategoryFilter === 'custom' && paidCustomOrders.length > 0) ||
+                (prodActiveCategoryFilter === 'fabrication' && filteredFabJobs.length > 0) ||
+                (prodActiveCategoryFilter === 'onsite' && filteredOnsiteRequests.length > 0);
 
-                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Approved Custom Orders</span>
-                    <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{approvedCount} Orders</div>
-                  <div>
-                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
-                      Staff approved & quoted
-                    </span>
-                  </div>
-                </div>
+              return (
+                <div className="space-y-5">
+                  {/* Search & Filter Header Bar */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                    <div className="relative w-full sm:w-80">
+                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search specs, item, or client..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2 text-xs bg-white/80 backdrop-blur-md border border-white/80 rounded-xl text-[#2C241D] font-semibold focus:outline-none focus:border-[#48A63E] shadow-xs"
+                      />
+                    </div>
 
-                <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2.5 transition-all hover:shadow-lg hover:bg-white/75">
-                  <div className="flex items-center justify-between text-[#8C8275]">
-                    <span className="text-xs font-bold uppercase tracking-wider text-[#8C8275]">Completed Builds</span>
-                    <PackageCheck className="w-4 h-4 text-[#10B981]" />
-                  </div>
-                  <div className="text-2xl font-extrabold text-[#2C241D]">{completedCount} Orders</div>
-                  <div>
-                    <span className="text-[11px] font-bold text-[#15803D] bg-[#E6F4EA] px-2.5 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
-                      Ready for dispatch
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 1: Custom Orders & Active Production Management */}
-            {(activeTab === 'orders' || activeTab === 'active_production' || activeTab === 'assignments') && (
-              <div className="space-y-4">
-                {/* Search & Filter Header Bar */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                  <div className="relative w-full sm:w-80">
-                    <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search order specs or client..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 text-xs bg-white/80 backdrop-blur-md border border-white/80 rounded-xl text-[#2C241D] font-semibold focus:outline-none focus:border-[#48A63E] shadow-xs"
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-3 w-full sm:w-auto">
-                    <span className="text-xs font-bold text-[#7A6C5E]">Filter Status:</span>
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="text-xs font-bold text-[#2C241D] bg-white/80 backdrop-blur-md border border-white/80 rounded-xl py-2 px-3 focus:outline-none focus:border-[#48A63E] shadow-xs"
-                    >
-                      <option value="All">All Statuses</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Approved">Approved</option>
-                      <option value="In Production">In Production</option>
-                      <option value="Completed">Completed</option>
-                      <option value="Rejected">Rejected</option>
-                    </select>
-                  </div>
-                </div>
-
-                {filteredOrders.filter(isPaidCustomOrder).length > 0 ? (
-                  filteredOrders
-                    .filter(isPaidCustomOrder)
-                    .map((ord) => (
-                      <div
-                        key={ord.custom_order_id}
-                        className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-white/80 bg-white/60 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-[#38A132]/50 hover:bg-white/70 transition-all"
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <span className="text-xs font-bold text-[#7A6C5E]">Filter Status:</span>
+                      <select
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                        className="text-xs font-bold text-[#2C241D] bg-white/80 backdrop-blur-md border border-white/80 rounded-xl py-2 px-3 focus:outline-none focus:border-[#48A63E] shadow-xs"
                       >
-                        {/* Top Badges & Price Header */}
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
-                          <div className="flex items-center gap-2.5 flex-wrap">
-                            <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
-                              ORDER #{ord.custom_order_id}
-                            </span>
+                        <option value="All">All Statuses</option>
+                        <option value="Pending">Pending</option>
+                        <option value="Approved">Approved</option>
+                        <option value="In Production">In Production</option>
+                        <option value="Completed">Completed</option>
+                        <option value="Rejected">Rejected</option>
+                      </select>
+                    </div>
+                  </div>
 
-                            {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
-                              <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Paid & Verified</span>
-                              </span>
-                            ) : (
-                              <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
-                                  ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
-                                    ord.order_status === 'In Production' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
-                                      ord.order_status === 'Completed' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
-                                        'bg-rose-50 text-rose-800 border border-rose-200'
-                                }`}>
-                                {ord.order_status}
-                              </span>
-                            )}
-                          </div>
+                  {/* Production Category Filter Tabs */}
+                  <div className="flex items-center gap-2 p-1.5 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] overflow-x-auto">
+                    {[
+                      { id: 'all', label: 'All Active Works', count: paidCustomOrders.length + filteredFabJobs.length + filteredOnsiteRequests.length },
+                      { id: 'custom', label: 'Custom Furniture', count: paidCustomOrders.length },
+                      { id: 'fabrication', label: 'Fabrication Works', count: filteredFabJobs.length },
+                      { id: 'onsite', label: 'On-Site Field Jobs', count: filteredOnsiteRequests.length }
+                    ].map((cat) => {
+                      const isSelected = prodActiveCategoryFilter === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          onClick={() => setProdActiveCategoryFilter(cat.id as any)}
+                          className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                            isSelected
+                              ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25'
+                              : 'text-[#6B5C4D] hover:text-[#2C241D] hover:bg-white/60'
+                          }`}
+                        >
+                          <span>{cat.label}</span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                            isSelected ? 'bg-white/20 text-white' : 'bg-[#EFE7DE] text-[#7A6C5E]'
+                          }`}>
+                            {cat.count}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
 
-                          {ord.estimated_price && ord.estimated_price > 0 && (
-                            <div className="text-base font-black text-[#38A132] bg-[#38A132]/10 px-3.5 py-1 rounded-xl border border-[#38A132]/20">
-                              ₹{ord.estimated_price.toLocaleString('en-IN')}
+                  {/* PRODUCTION ITEMS LIST */}
+                  {hasAnyItems ? (
+                    <div className="space-y-6">
+                      {/* 1. CUSTOM FURNITURE BUILDS */}
+                      {(prodActiveCategoryFilter === 'all' || prodActiveCategoryFilter === 'custom') && paidCustomOrders.length > 0 && (
+                        <div className="space-y-3">
+                          {prodActiveCategoryFilter === 'all' && (
+                            <div className="flex items-center justify-between text-xs font-black text-[#2C241D] border-b border-[#EFE7DE] pb-2">
+                              <span className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-[#38A132]" />
+                                Custom Furniture Builds ({paidCustomOrders.length})
+                              </span>
+                              <span className="text-[11px] text-[#7A6C5E] font-medium">Bespoke Workshop Orders</span>
                             </div>
                           )}
-                        </div>
 
-                        {/* Title & Specifications Grid */}
-                        <div className="space-y-3">
-                          <h3 className="text-xl font-black text-[#2C241D] tracking-tight">
-                            {ord.furniture_type}
-                          </h3>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/50 backdrop-blur-md p-3.5 rounded-2xl border border-white/70 text-xs shadow-inner">
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client Name</span>
-                              <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
-                            </div>
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
-                              <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
-                            </div>
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Timber / Material</span>
-                              <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
-                            </div>
-                            <div className="space-y-0.5">
-                              <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
-                              <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
-                            </div>
-                          </div>
-
-                          {/* Assigned Worker Banner */}
-                          <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
-                              <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
-                              {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {ord.assigned_workers.map((w, idx) => (
-                                    <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
-                                      <span>👷 {w.worker_name}</span>
-                                      {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
-                                      {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
-                                  No Artisan Assigned Yet
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Action Buttons Toolbar */}
-                        <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between gap-3 flex-wrap">
-                          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end ml-auto">
-                            <button
-                              onClick={() => setSelectedOrderForDetails(ord)}
-                              className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
-                            >
-                              <Eye className="w-3.5 h-3.5 text-slate-600" />
-                              <span>View Specs</span>
-                            </button>
-
-                            {!(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') && (
-                              <button
-                                onClick={() => handleOpenPriceModal(ord)}
-                                className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                          <div className="grid grid-cols-1 gap-4">
+                            {paidCustomOrders.map((ord) => (
+                              <div
+                                key={ord.custom_order_id}
+                                className="ultra-glass-card rounded-3xl p-5 shadow-xl border border-white/80 bg-white/60 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-[#38A132]/50 hover:bg-white/70 transition-all"
                               >
-                                <DollarSign className="w-4 h-4 text-amber-600" />
-                                <span>{ord.estimated_price ? `Edit Price (₹${ord.estimated_price.toLocaleString()})` : 'Set Price Quote'}</span>
-                              </button>
-                            )}
+                                {/* Top Badges & Price Header */}
+                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-3">
+                                  <div className="flex items-center gap-2.5 flex-wrap">
+                                    <span className="text-xs font-mono font-extrabold text-[#38A132] px-3 py-1 rounded-full bg-[#38A132]/10 border border-[#38A132]/25">
+                                      ORDER #{ord.custom_order_id}
+                                    </span>
 
-                            {(ord.payment_status === 'Paid' || ord.order_status === 'Paid' || ord.order_status === 'In Production' || ord.order_status === 'Completed') && (
-                              <>
-                                <button
-                                  onClick={() => setSelectedOrderForWorker(ord)}
-                                  className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                                >
-                                  <Users className="w-3.5 h-3.5" />
-                                  <span>{ord.assigned_workers && ord.assigned_workers.length > 0 ? 'Reassign Worker' : 'Assign Worker'}</span>
-                                </button>
+                                    {ord.payment_status === 'Paid' || ord.order_status === 'Paid' ? (
+                                      <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Paid & Verified</span>
+                                      </span>
+                                    ) : (
+                                      <span className={`text-xs font-extrabold px-3 py-1 rounded-full ${ord.order_status === 'Pending' ? 'bg-amber-50 text-amber-800 border border-amber-200' :
+                                          ord.order_status === 'Approved' ? 'bg-blue-50 text-blue-800 border border-blue-200' :
+                                            ord.order_status === 'In Production' ? 'bg-emerald-50 text-emerald-800 border border-emerald-300' :
+                                              ord.order_status === 'Completed' ? 'bg-purple-50 text-purple-800 border border-purple-200' :
+                                                'bg-rose-50 text-rose-800 border border-rose-200'
+                                        }`}>
+                                        {ord.order_status}
+                                      </span>
+                                    )}
+                                  </div>
 
-                                <button
-                                  onClick={() => setSelectedOrderForProgress(ord)}
-                                  className="px-3.5 py-2 rounded-xl bg-[#38A132]/10 hover:bg-[#38A132]/20 text-[#38A132] border border-[#38A132]/30 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
-                                >
-                                  <RefreshCw className="w-3.5 h-3.5" />
-                                  <span>Update Build Stage</span>
-                                </button>
-                              </>
-                            )}
+                                  {ord.estimated_price && ord.estimated_price > 0 && (
+                                    <div className="text-base font-black text-[#38A132] bg-[#38A132]/10 px-3.5 py-1 rounded-xl border border-[#38A132]/20">
+                                      ₹{ord.estimated_price.toLocaleString('en-IN')}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Title & Specifications Grid */}
+                                <div className="space-y-3">
+                                  <h3 className="text-xl font-black text-[#2C241D] tracking-tight">
+                                    {ord.furniture_type}
+                                  </h3>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/50 backdrop-blur-md p-3.5 rounded-2xl border border-white/70 text-xs shadow-inner">
+                                    <div className="space-y-0.5">
+                                      <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Client Name</span>
+                                      <span className="font-extrabold text-[#2C241D] block truncate">👤 {ord.customer_name}</span>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Dimensions</span>
+                                      <span className="font-extrabold text-[#2C241D] block truncate">📐 {ord.dimensions}</span>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Timber / Material</span>
+                                      <span className="font-extrabold text-[#2C241D] block truncate">🪵 {ord.material}</span>
+                                    </div>
+                                    <div className="space-y-0.5">
+                                      <span className="text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider block">Color & Finish</span>
+                                      <span className="font-extrabold text-[#38A132] block truncate">🎨 {renderColorSwatchBadge(ord.color)}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Assigned Worker Banner */}
+                                  <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
+                                    <div className="flex items-center gap-2 flex-wrap flex-1">
+                                      <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
+                                      <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
+                                      {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                          {ord.assigned_workers.map((w, idx) => (
+                                            <span key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5">
+                                              <span>👷 {w.worker_name}</span>
+                                              {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                                              {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
+                                            No Artisan Assigned Yet
+                                          </span>
+                                          <button
+                                            onClick={() => handleOpenAssignWorkerModal('custom', ord.custom_order_id, ord.furniture_type)}
+                                            className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] shadow-xs cursor-pointer flex items-center gap-1"
+                                          >
+                                            <UserPlus className="w-3 h-3" />
+                                            <span>+ Assign Worker</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Action Buttons Toolbar */}
+                                <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between gap-3 flex-wrap">
+                                  <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto justify-end ml-auto">
+                                    <button
+                                      onClick={() => setSelectedOrderForDetails(ord)}
+                                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-slate-600" />
+                                      <span>View Specs</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleOpenAssignWorkerModal('custom', ord.custom_order_id, ord.furniture_type, ord.assigned_workers?.[0]?.worker_id)}
+                                      className="px-3.5 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                    >
+                                      <Users className="w-3.5 h-3.5" />
+                                      <span>{ord.assigned_workers && ord.assigned_workers.length > 0 ? 'Reassign Worker' : 'Assign Worker'}</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => setSelectedOrderForProgress(ord)}
+                                      className="px-3.5 py-2 rounded-xl bg-[#38A132]/10 hover:bg-[#38A132]/20 text-[#38A132] border border-[#38A132]/30 font-extrabold text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                                    >
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                      <span>Update Build Stage</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      </div>
-                    ))
-                ) : (
-                  <div className="bg-white p-12 rounded-3xl border border-[#E2D7CB] text-center space-y-3">
-                    <Sliders className="w-10 h-10 text-[#A09080] mx-auto" />
-                    <h4 className="font-extrabold text-base text-[#2C241D]">No Custom Orders Found</h4>
-                    <p className="text-xs text-[#7A6C5E]">No furniture specs matched your current search filters.</p>
-                  </div>
-                )}
-              </div>
-            )}
+                      )}
+
+                      {/* 2. FABRICATION WORKS */}
+                      {(prodActiveCategoryFilter === 'all' || prodActiveCategoryFilter === 'fabrication') && filteredFabJobs.length > 0 && (
+                        <div className="space-y-3">
+                          {prodActiveCategoryFilter === 'all' && (
+                            <div className="flex items-center justify-between text-xs font-black text-[#2C241D] border-b border-[#EFE7DE] pb-2 pt-2">
+                              <span className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-amber-600" />
+                                Fabrication Works ({filteredFabJobs.length})
+                              </span>
+                              <span className="text-[11px] text-[#7A6C5E] font-medium">Precision CNC & Wood Works</span>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {filteredFabJobs.map((job) => (
+                              <div
+                                key={job.fabrication_id}
+                                className="ultra-glass-card rounded-3xl p-5 shadow-lg border border-[#E2D7CB] bg-white/75 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-amber-500/50 hover:bg-white/90 transition-all flex flex-col justify-between"
+                              >
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between gap-2 border-b border-[#EFE7DE] pb-3">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-mono font-extrabold text-amber-800 px-2.5 py-0.5 rounded-full bg-amber-100 border border-amber-300">
+                                        {job.fabrication_id}
+                                      </span>
+                                      <span className="text-[11px] font-bold text-[#7A6C5E]">Ref: {job.order_id}</span>
+                                    </div>
+                                    <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${
+                                      job.status === 'Completed' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                      job.status === 'Quality Check' ? 'bg-purple-100 text-purple-800 border-purple-300' :
+                                      job.status === 'In Progress' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                      'bg-amber-100 text-amber-800 border-amber-300'
+                                    }`}>
+                                      {job.status}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-start gap-3.5">
+                                    {job.product_thumbnail && (
+                                      <img
+                                        src={job.product_thumbnail}
+                                        alt={job.product_name}
+                                        className="w-16 h-16 rounded-2xl object-cover border border-[#E2D7CB] shrink-0 shadow-xs"
+                                      />
+                                    )}
+                                    <div className="space-y-1 min-w-0 flex-1">
+                                      <h4 className="text-sm font-black text-[#2C241D] truncate">{job.product_name}</h4>
+                                      <p className="text-[11px] text-[#5C4E42] font-semibold truncate">🧱 {job.material_required}</p>
+                                      <p className="text-[11px] text-[#7A6C5E] font-medium">📦 Qty: {job.quantity}</p>
+                                    </div>
+                                  </div>
+
+                                  {/* Worker Info Card Section */}
+                                  <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs space-y-1.5">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <span className="font-extrabold text-[#5C4E42] flex items-center gap-1.5">
+                                        <Wrench className="w-3.5 h-3.5 text-[#38A132]" />
+                                        <span>Assigned Artisan:</span>
+                                      </span>
+                                    </div>
+                                    {job.assigned_workers && job.assigned_workers.length > 0 ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        {job.assigned_workers.map((w: any, idx: number) => (
+                                          <div key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5 flex-wrap">
+                                            <span>👷 {w.worker_name}</span>
+                                            {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                                            {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-xl border border-amber-200">
+                                        <span className="font-bold text-amber-800 text-[11px] flex items-center gap-1">
+                                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                          No Artisan Assigned Yet
+                                        </span>
+                                        <button
+                                          onClick={() => handleOpenAssignWorkerModal('fabrication', job.numeric_id, job.product_name, undefined, job.stages?.[0]?.stage_id)}
+                                          className="px-2.5 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] shadow-xs cursor-pointer flex items-center gap-1"
+                                        >
+                                          <UserPlus className="w-3 h-3" />
+                                          <span>+ Assign Worker</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Progress bar */}
+                                  <div>
+                                    <div className="flex justify-between text-[10px] font-extrabold text-[#7A6C5E] mb-1">
+                                      <span>Build Progress</span>
+                                      <span className="text-[#38A132]">{job.progress_percentage}%</span>
+                                    </div>
+                                    <div className="w-full bg-[#E2D7CB] rounded-full h-2 overflow-hidden">
+                                      <div
+                                        className="bg-[#38A132] h-2 rounded-full transition-all duration-500"
+                                        style={{ width: `${job.progress_percentage}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-between text-xs flex-wrap gap-2">
+                                  <span className="text-[10px] font-bold text-[#7A6C5E]">Target: {job.expected_completion_date}</span>
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      onClick={() => handleOpenAssignWorkerModal('fabrication', job.numeric_id, job.product_name, job.assigned_workers?.[0]?.worker_id, job.stages?.[0]?.stage_id)}
+                                      className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs cursor-pointer flex items-center gap-1"
+                                    >
+                                      <Users className="w-3.5 h-3.5" />
+                                      <span>{job.assigned_workers && job.assigned_workers.length > 0 ? 'Reassign' : 'Assign Artisan'}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => setSelectedFabJobModal(job)}
+                                      className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                      <span>Details</span>
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 3. ON-SITE FIELD REQUESTS */}
+                      {(prodActiveCategoryFilter === 'all' || prodActiveCategoryFilter === 'onsite') && filteredOnsiteRequests.length > 0 && (
+                        <div className="space-y-3">
+                          {prodActiveCategoryFilter === 'all' && (
+                            <div className="flex items-center justify-between text-xs font-black text-[#2C241D] border-b border-[#EFE7DE] pb-2 pt-2">
+                              <span className="flex items-center gap-2">
+                                <span className="w-2 h-2 rounded-full bg-blue-600" />
+                                On-Site Field Jobs ({filteredOnsiteRequests.length})
+                              </span>
+                              <span className="text-[11px] text-[#7A6C5E] font-medium">Installation & Assembly Requests</span>
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {filteredOnsiteRequests.map((req) => (
+                              <div
+                                key={req.request_id}
+                                className="ultra-glass-card rounded-3xl p-5 shadow-lg border border-[#E2D7CB] bg-white/75 backdrop-blur-xl text-[#2C241D] space-y-4 hover:border-blue-500/50 hover:bg-white/90 transition-all flex flex-col justify-between"
+                              >
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between gap-2 border-b border-[#EFE7DE] pb-3">
+                                    <span className="text-xs font-mono font-extrabold text-blue-800 px-2.5 py-0.5 rounded-full bg-blue-100 border border-blue-300">
+                                      {req.request_id}
+                                    </span>
+                                    <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border ${
+                                      req.production_status === 'Ready for Dispatch' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                                      req.production_status === 'In Production' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                      'bg-amber-100 text-amber-800 border-amber-300'
+                                    }`}>
+                                      {req.production_status}
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <h4 className="text-sm font-black text-[#2C241D]">{req.product_name}</h4>
+                                    <p className="text-xs font-bold text-[#5C4E42]">📍 {req.store_name}</p>
+                                    <p className="text-[11px] text-[#7A6C5E]">{req.store_location}</p>
+                                    <div className="pt-1 flex items-center gap-2 text-[11px] text-[#7A6C5E] flex-wrap">
+                                      <span className="font-bold text-[#2C241D]">Qty: {req.requested_quantity}</span>
+                                      <span>•</span>
+                                      <span className="font-medium text-[#5C4E42]">Client: <strong>{req.customer_name}</strong></span>
+                                    </div>
+                                  </div>
+
+                                  {/* Worker Info Card Section */}
+                                  <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs space-y-1.5">
+                                    <span className="font-extrabold text-[#5C4E42] flex items-center gap-1.5">
+                                      <Users className="w-3.5 h-3.5 text-blue-600" />
+                                      <span>Assigned Field Artisan:</span>
+                                    </span>
+                                    {req.assigned_workers && req.assigned_workers.length > 0 ? (
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        {req.assigned_workers.map((w: any, idx: number) => (
+                                          <div key={idx} className="font-extrabold text-[#2C241D] bg-white px-2.5 py-1 rounded-xl border border-[#E2D7CB] shadow-2xs flex items-center gap-1.5 flex-wrap">
+                                            <span>👷 {w.worker_name}</span>
+                                            {w.specialization && <span className="text-[10px] text-[#7A6C5E]">({w.specialization})</span>}
+                                            {w.worker_phone && <span className="text-[10px] text-[#38A132] font-mono">📞 {w.worker_phone}</span>}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-xl border border-amber-200">
+                                        <span className="font-bold text-amber-800 text-[11px] flex items-center gap-1">
+                                          <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                          No Field Artisan Assigned
+                                        </span>
+                                        <button
+                                          onClick={() => handleOpenAssignWorkerModal('onsite', req.service_id, req.product_name)}
+                                          className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-[11px] shadow-xs cursor-pointer flex items-center gap-1"
+                                        >
+                                          <UserPlus className="w-3 h-3" />
+                                          <span>+ Assign Worker</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-between gap-2 flex-wrap">
+                                  <div className="flex items-center gap-1.5">
+                                    <button
+                                      onClick={() => handleOpenAssignWorkerModal('onsite', req.service_id, req.product_name, req.assigned_workers?.[0]?.worker_id)}
+                                      className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs cursor-pointer flex items-center gap-1"
+                                    >
+                                      <Users className="w-3.5 h-3.5" />
+                                      <span>{req.assigned_workers && req.assigned_workers.length > 0 ? 'Reassign' : 'Assign Field Artisan'}</span>
+                                    </button>
+                                    <button
+                                      onClick={() => setSelectedOnsiteRequestModal(req)}
+                                      className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs cursor-pointer flex items-center gap-1 shadow-2xs"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                      <span>Details</span>
+                                    </button>
+                                  </div>
+
+                                  <div className="flex items-center gap-1.5">
+                                    {req.production_status !== 'In Production' && req.production_status !== 'Ready for Dispatch' && (
+                                      <button
+                                        onClick={() => handleMarkOnsiteInProduction(req.request_id)}
+                                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[11px] shadow-xs cursor-pointer"
+                                      >
+                                        In Production
+                                      </button>
+                                    )}
+                                    {req.production_status !== 'Ready for Dispatch' && (
+                                      <button
+                                        onClick={() => handleMarkOnsiteReadyForDispatch(req.request_id)}
+                                        className="px-3 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-[11px] shadow-xs cursor-pointer"
+                                      >
+                                        Ready for Dispatch
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-white p-12 rounded-3xl border border-[#E2D7CB] text-center space-y-3">
+                      <Sliders className="w-10 h-10 text-[#A09080] mx-auto" />
+                      <h4 className="font-extrabold text-base text-[#2C241D]">No Active Requests Found</h4>
+                      <p className="text-xs text-[#7A6C5E]">No active works matched your selected category and search filters.</p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* ASSESSMENT QUEUE VIEW (activeTab === 'assessment_queue' || activeTab === 'approvals') */}
             {(activeTab === 'assessment_queue' || activeTab === 'approvals') && (
@@ -6556,6 +6815,132 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 )}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: UNIVERSAL WORKER ASSIGNMENT MODAL */}
+      {assignWorkerModalData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-[130] animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-5 animate-scaleUp">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-blue-500/10 text-blue-700 border border-blue-500/30">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-blue-700">
+                    {assignWorkerModalData.type === 'custom' ? 'Customization Order' :
+                     assignWorkerModalData.type === 'fabrication' ? 'Fabrication Work' : 'On-Site Field Job'}
+                  </span>
+                  <h3 className="font-black text-base text-[#2C241D] mt-0.5">
+                    Assign Artisan / Worker
+                  </h3>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssignWorkerModalData(null)}
+                disabled={isAssigningWorker}
+                className="p-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Task Info Summary */}
+            <div className="p-3.5 rounded-2xl bg-white border border-[#E2D7CB] text-xs space-y-1">
+              <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Task Reference</span>
+              <p className="font-black text-[#2C241D] text-sm truncate">
+                {assignWorkerModalData.title}
+              </p>
+              <p className="text-[11px] font-bold text-[#38A132]">
+                Ref ID: #{assignWorkerModalData.id}
+              </p>
+            </div>
+
+            {/* Form */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleConfirmAssignWorker();
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div>
+                <label className="block font-black text-[#2C241D] mb-1.5">
+                  Select Artisan / Production Worker <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={assignModalWorkerId}
+                  onChange={(e) => setAssignModalWorkerId(Number(e.target.value) || '')}
+                  required
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] font-bold focus:outline-none focus:ring-2 focus:ring-[#38A132] shadow-2xs"
+                >
+                  <option value="">-- Choose Artisan from Database --</option>
+                  {workers
+                    .filter((w) => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1')
+                    .map((w) => (
+                      <option key={w.worker_id} value={w.worker_id}>
+                        {w.full_name} — {w.specialization || 'Skilled Artisan'} ({w.email})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Selected Worker Details Preview */}
+              {assignModalWorkerId && (() => {
+                const sel = workers.find((w) => w.worker_id === Number(assignModalWorkerId));
+                if (!sel) return null;
+                return (
+                  <div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-1 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                        <span>👷 {sel.full_name}</span>
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
+                        {sel.specialization || 'Production Artisan'}
+                      </span>
+                    </div>
+                    {sel.phone && <p className="text-[11px] text-[#5C4E42]">📞 Contact: <strong className="font-mono text-[#2C241D]">{sel.phone}</strong></p>}
+                    <p className="text-[11px] text-[#7A6C5E]">✉️ Email: {sel.email}</p>
+                  </div>
+                );
+              })()}
+
+              <div>
+                <label className="block font-bold text-[#5C4E42] mb-1">
+                  Assignment Notes / Shop Floor Instructions (Optional)
+                </label>
+                <textarea
+                  value={assignModalNotes}
+                  onChange={(e) => setAssignModalNotes(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Prioritize moisture calibration before dimension cutting..."
+                  className="w-full px-3.5 py-2 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#38A132]"
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setAssignWorkerModalData(null)}
+                  disabled={isAssigningWorker}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!assignModalWorkerId || isAssigningWorker}
+                  className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <UserCheck className="w-4 h-4" />
+                  <span>{isAssigningWorker ? 'Saving Assignment...' : 'Confirm Assignment'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

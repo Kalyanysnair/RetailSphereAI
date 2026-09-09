@@ -71,12 +71,8 @@ def seed_admin_user():
 
         # 4. Seed Retail Staff (No dummy retail staff seeded; actual staff registered in DB)
 
-        # 5. Seed Multiple Production Staff Supervisors
-        prod_staff_list = [
-            ("Production Supervisor A", "production.staff@retailsphere.com", "+919800000011"),
-            ("Production Supervisor B", "supervisor.b@retailsphere.com", "+919800000012"),
-            ("Production Supervisor C", "supervisor.c@retailsphere.com", "+919800000013"),
-        ]
+        # 5. Seed Production Staff Supervisors (No dummy production staff seeded)
+        prod_staff_list = []
         for name, email, phone in prod_staff_list:
             u = db.query(models.User).filter(models.User.email == email).first()
             if not u:
@@ -92,15 +88,8 @@ def seed_admin_user():
                 db.commit()
                 print(f"[SEED SUCCESS] Created Production Supervisor account: {email}")
 
-        # 6. Seed Skilled Workers
-        workers_list = [
-            ("Arun", "arun.worker@retailsphere.com", "+919845012341", "Woodwork & Carpentry", False),
-            ("Nimish K", "nimish.worker@retailsphere.com", "+919845012342", "Woodwork & Carpentry", False),
-            ("Suresh", "suresh.worker@retailsphere.com", "+919845012343", "Upholstery", False),
-            ("Geetha Devi", "geetha.worker@retailsphere.com", "+919845012344", "Assembly & QA", False),
-            ("Ajith", "ajith.worker@retailsphere.com", "+919845012345", "Assembly & QA", False),
-            ("Rahul", "rahul.driver@retailsphere.com", "+919845012346", "On-Site Installation", True),
-        ]
+        # 6. Seed Skilled Workers (No dummy workers seeded)
+        workers_list = []
         for name, email, phone, spec, is_drv in workers_list:
             w_u = db.query(models.User).filter(models.User.email == email).first()
             if not w_u:
@@ -166,7 +155,82 @@ def seed_admin_user():
                 )
                 db.add(c_prof)
                 db.commit()
-                print(f"[SEED SUCCESS] Created demo customer account: {c_email}")
+        # 8. Seed assigned production stages & jobs for registered workers if needed
+        workers = db.query(models.User).join(models.Role).filter(models.Role.role_name.in_(["Worker", "Artisan Worker"])).all()
+        for w in workers:
+            existing_stages = db.query(models.ProductionStage).filter(models.ProductionStage.assigned_worker_id == w.user_id).count()
+            if existing_stages == 0:
+                now = datetime.utcnow()
+                db.add(models.ProductionStage(
+                    order_type="Fabrication",
+                    order_id=2,
+                    stage_name="Timber Dimensioning & Precision CNC Cutting",
+                    sequence_order=1,
+                    required_skill=w.specialization or "Woodwork & Carpentry",
+                    assigned_worker_id=w.user_id,
+                    status="IN_PROGRESS",
+                    progress_percentage=65,
+                    remarks="Cut 18mm Teak-faced Plywood panels to tolerance +/- 0.5mm. Verify diagonal squareness before beveling.",
+                    started_at=now - timedelta(hours=3)
+                ))
+                db.add(models.ProductionStage(
+                    order_type="Custom",
+                    order_id=37,
+                    stage_name="Solid Hardwood Framework & Joinery",
+                    sequence_order=1,
+                    required_skill=w.specialization or "Woodwork & Carpentry",
+                    assigned_worker_id=w.user_id,
+                    status="ASSIGNED",
+                    progress_percentage=0,
+                    remarks="Assemble internal base frame for 220cm modular sofa using mortise and tenon reinforced joints.",
+                    started_at=None
+                ))
+                db.add(models.ProductionStage(
+                    order_type="Fabrication",
+                    order_id=4,
+                    stage_name="Precision CNC Drilling & Pocket Milling",
+                    sequence_order=1,
+                    required_skill=w.specialization or "Woodwork & Carpentry",
+                    assigned_worker_id=w.user_id,
+                    status="ASSIGNED",
+                    progress_percentage=0,
+                    remarks="Drill 8mm dowel pockets and 35mm hinge recess holes per technical template specification.",
+                    started_at=None
+                ))
+                db.add(models.ProductionStage(
+                    order_type="Fabrication",
+                    order_id=3,
+                    stage_name="Surface Sanding & Edge Beveling",
+                    sequence_order=2,
+                    required_skill=w.specialization or "Woodwork & Carpentry",
+                    assigned_worker_id=w.user_id,
+                    status="ASSIGNED",
+                    progress_percentage=0,
+                    remarks="Surface preparation and edge beveling per design specs.",
+                    started_at=None,
+                    completed_at=None
+                ))
+                db.commit()
+
+            # Ensure on-site service job
+            existing_sjobs = db.query(models.ServiceJob).filter(models.ServiceJob.worker_id == w.user_id).count()
+            if existing_sjobs == 0:
+                sr1 = db.query(models.ServiceRequest).first()
+                if sr1:
+                    db.add(models.ServiceJob(
+                        service_id=sr1.service_id,
+                        worker_id=w.user_id,
+                        scheduled_time=datetime.utcnow() + timedelta(days=1, hours=2),
+                        status="ASSIGNED",
+                        customer_notes="On-site inspection and alignment of structural joints and drawer runners."
+                    ))
+                    db.commit()
+
+            # Ensure Worker Availability
+            w_avail = db.query(models.WorkerAvailability).filter(models.WorkerAvailability.worker_id == w.user_id).first()
+            if not w_avail:
+                db.add(models.WorkerAvailability(worker_id=w.user_id, status="AVAILABLE", active_jobs_count=2, rating_score=4.9))
+                db.commit()
 
     except Exception as e:
         print(f"[SEED ERROR] Failed to seed admin user: {e}")
