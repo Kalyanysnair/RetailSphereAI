@@ -1677,77 +1677,33 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       {/* RIGHT MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Mobile Top Navigation */}
-        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
+        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-sm text-[#2C241D]">Production Studio</span>
+            <span className="font-extrabold text-xs text-[#2C241D]">Production Studio</span>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'orders' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Orders
-            </button>
-            <button
-              onClick={() => setActiveTab('approvals')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'approvals' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Approvals
-            </button>
-            <button
-              onClick={() => setActiveTab('assignments')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'assignments' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Tasks
-            </button>
-            <button
-              onClick={() => setActiveTab('workers')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'workers' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Workers
-            </button>
-            <button
-              onClick={() => setActiveTab('machines')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'machines' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Machinery
-            </button>
-            <button
-              onClick={() => setActiveTab('raw_materials')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'raw_materials' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Raw Materials
-            </button>
-            <button
-              onClick={() => setActiveTab('quality')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'quality' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Quality & Rework
-            </button>
-            <button
-              onClick={() => setActiveTab('ai_insights')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'ai_insights' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              AI Suite
-            </button>
-            <button
-              onClick={() => setActiveTab('coupons')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'coupons' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Coupons
-            </button>
-            <button
-              onClick={() => setActiveTab('admin_messages')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold relative ${activeTab === 'admin_messages' ? 'bg-[#48A63E] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              <span>Directives</span>
-              {unreadAdminMsgsCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 text-[9px] font-extrabold rounded-full bg-amber-500 text-white">
-                  {unreadAdminMsgsCount}
-                </span>
-              )}
-            </button>
-          </div>
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as any)}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-[#E2D7CB] text-[#2C241D] max-w-[210px]"
+          >
+            <option value="dashboard">📊 Dashboard Overview</option>
+            <option value="assessment_queue">📋 Assessment Queue</option>
+            <option value="approvals">✍️ Price Estimation</option>
+            <option value="quotations">📄 Formal Quotations</option>
+            <option value="active_production">🔨 Active Production</option>
+            <option value="orders">🛋️ Custom Orders</option>
+            <option value="assignments">📋 Stage Tasks</option>
+            <option value="workers">👥 Technicians Directory</option>
+            <option value="machines">⚙️ Machinery & Workstations</option>
+            <option value="raw_materials">🪵 Raw Materials</option>
+            <option value="fabrication">🪚 Fabrication Requests</option>
+            <option value="onsite_services">🔧 On-Site Services</option>
+            <option value="quality">🔍 Quality & QC Rework</option>
+            <option value="ai_insights">✨ AI Recommendations Suite</option>
+            <option value="coupons">🎟️ Coupons & Discounts</option>
+            <option value="admin_messages">📢 Admin Directives</option>
+            <option value="queries">❓ Queries & Feedback</option>
+          </select>
         </div>
 
         <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">

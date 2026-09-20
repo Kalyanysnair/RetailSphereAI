@@ -58,7 +58,8 @@ const STORAGE_KEY = 'retail_orders_list';
 function isExcludedOrderId(idVal: any): boolean {
   if (!idVal) return false;
   const str = String(idVal).toLowerCase().replace(/[^a-z0-9]/g, '');
-  return str === '103' || str === '0103' || str === '40' || str === '040' || str === 'custom40' || str === 'ret40' || str === 'ret000040';
+  if (str.startsWith('custom')) return true;
+  return str === '103' || str === '0103' || str === '40' || str === '040' || str === 'ret40' || str === 'ret000040';
 }
 
 export function getStoredRetailOrders(): RetailOrder[] {

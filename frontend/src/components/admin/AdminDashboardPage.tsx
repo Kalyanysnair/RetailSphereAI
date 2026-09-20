@@ -51,8 +51,34 @@ import {
   UserPlus,
   Edit3,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  CalendarCheck,
+  CalendarDays,
+  Calendar,
+  Layers,
+  Boxes,
+  ClipboardCheck,
+  ShieldAlert,
+  FileCheck2
 } from 'lucide-react';
+
+import {
+  fetchRawMaterialsApi,
+  createRawMaterialApi,
+  updateRawMaterialStockApi,
+  fetchCustomerMaterialsApi,
+  RawMaterialItem,
+  CustomerMaterialItem
+} from '../../services/api_materials';
+
+import {
+  fetchQualityInspectionsApi,
+  recordQualityInspectionApi,
+  fetchReworkJobsApi,
+  resolveReworkJobApi,
+  QualityInspectionItem,
+  ReworkJobItem
+} from '../../services/api_quality';
 
 import { 
   createStaffUser, 
@@ -249,9 +275,9 @@ export const AdminDashboardPage: React.FC = () => {
     | 'communication'
     | 'reports'
     | 'alerts'
-    | 'audit'
     | 'roles'
     | 'staff'
+    | 'leaves'
     | 'suppliers'
     | 'custom_orders'
     | 'queries'
@@ -261,6 +287,8 @@ export const AdminDashboardPage: React.FC = () => {
     | 'analytics'
     | 'fleet'
     | 'carriers'
+    | 'materials'
+    | 'quality'
   >('overview');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -358,11 +386,19 @@ export const AdminDashboardPage: React.FC = () => {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [adminLeaveRequests, setAdminLeaveRequests] = useState<WorkerLeaveItem[]>([]);
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('All');
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState<string>('All');
+  const [leaveSearchQuery, setLeaveSearchQuery] = useState<string>('');
+  const [selectedLeaveForReview, setSelectedLeaveForReview] = useState<WorkerLeaveItem | null>(null);
+  const [reviewNotesInput, setReviewNotesInput] = useState<string>('');
+  const [reviewActionType, setReviewActionType] = useState<'Approved' | 'Rejected'>('Approved');
+  const [isReviewLeaveModalOpen, setIsReviewLeaveModalOpen] = useState<boolean>(false);
+  const [isSubmittingLeaveReview, setIsSubmittingLeaveReview] = useState<boolean>(false);
 
   const loadAdminLeaveRequests = async () => {
     try {
       const leaves = await fetchAllLeaveRequests();
-      setAdminLeaveRequests(leaves);
+      setAdminLeaveRequests(leaves || []);
     } catch (err) {
       console.error('Failed to load admin leave requests:', err);
     }
@@ -371,9 +407,38 @@ export const AdminDashboardPage: React.FC = () => {
   const handleAdminReviewLeave = async (leaveId: number, status: 'Approved' | 'Rejected', notes?: string) => {
     try {
       await reviewLeaveRequest(leaveId, status, notes, 'System Administrator');
+      setSuccessBanner(`Leave application #${leaveId} marked as ${status.toUpperCase()}!`);
       await loadAdminLeaveRequests();
-    } catch (err) {
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
       console.error('Failed to review leave:', err);
+      setStaffFormError(err.message || 'Failed to review leave request.');
+      setTimeout(() => setStaffFormError(null), 4000);
+    }
+  };
+
+  const handleOpenReviewLeaveModal = (leave: WorkerLeaveItem, action: 'Approved' | 'Rejected') => {
+    setSelectedLeaveForReview(leave);
+    setReviewActionType(action);
+    setReviewNotesInput(action === 'Approved' ? 'Approved by System Administrator' : 'Rejected by System Administrator');
+    setIsReviewLeaveModalOpen(true);
+  };
+
+  const handleConfirmReviewLeaveModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedLeaveForReview) return;
+    setIsSubmittingLeaveReview(true);
+    try {
+      await reviewLeaveRequest(selectedLeaveForReview.leave_id, reviewActionType, reviewNotesInput.trim() || undefined, 'System Administrator');
+      setSuccessBanner(`Leave application for ${selectedLeaveForReview.worker_name || `Worker #${selectedLeaveForReview.worker_id}`} set to ${reviewActionType.toUpperCase()}!`);
+      setIsReviewLeaveModalOpen(false);
+      setSelectedLeaveForReview(null);
+      await loadAdminLeaveRequests();
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit leave review.');
+    } finally {
+      setIsSubmittingLeaveReview(false);
+      setTimeout(() => setSuccessBanner(null), 4000);
     }
   };
 
@@ -382,6 +447,237 @@ export const AdminDashboardPage: React.FC = () => {
     window.addEventListener('leave-requests-updated', loadAdminLeaveRequests);
     return () => window.removeEventListener('leave-requests-updated', loadAdminLeaveRequests);
   }, []);
+
+  // Raw Materials Ledger State
+  const [rawMaterialsList, setRawMaterialsList] = useState<RawMaterialItem[]>([]);
+  const [customerMaterialsList, setCustomerMaterialsList] = useState<CustomerMaterialItem[]>([]);
+  const [materialsSubTab, setMaterialsSubTab] = useState<'raw' | 'customer'>('raw');
+  const [materialsSearchQuery, setMaterialsSearchQuery] = useState('');
+  const [materialsCategoryFilter, setMaterialsCategoryFilter] = useState('All');
+  const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
+  
+  // Add Material Modal State
+  const [isAddRawMaterialModalOpen, setIsAddRawMaterialModalOpen] = useState(false);
+  const [newMatCategory, setNewMatCategory] = useState('Timber');
+  const [newMatName, setNewMatName] = useState('');
+  const [newMatUnit, setNewMatUnit] = useState('cu_ft');
+  const [newMatAvailableQty, setNewMatAvailableQty] = useState('');
+  const [newMatReorderLevel, setNewMatReorderLevel] = useState('20');
+  const [newMatUnitCost, setNewMatUnitCost] = useState('');
+  const [isSubmittingNewMaterial, setIsSubmittingNewMaterial] = useState(false);
+
+  // Stock Adjust Modal State
+  const [isStockAdjustModalOpen, setIsStockAdjustModalOpen] = useState(false);
+  const [selectedMatForAdjust, setSelectedMatForAdjust] = useState<RawMaterialItem | null>(null);
+  const [adjustQtyInput, setAdjustQtyInput] = useState('');
+  const [adjustType, setAdjustType] = useState<'Replenish' | 'Usage' | 'Wasted'>('Replenish');
+  const [isSubmittingAdjust, setIsSubmittingAdjust] = useState(false);
+
+  // Quality Assurance & QC State
+  const [qualityInspectionsList, setQualityInspectionsList] = useState<QualityInspectionItem[]>([]);
+  const [reworkJobsList, setReworkJobsList] = useState<ReworkJobItem[]>([]);
+  const [qualitySubTab, setQualitySubTab] = useState<'inspections' | 'rework'>('inspections');
+  const [qualitySearchQuery, setQualitySearchQuery] = useState('');
+  const [qualityResultFilter, setQualityResultFilter] = useState('All');
+  const [qualityOrderTypeFilter, setQualityOrderTypeFilter] = useState('All');
+  const [isLoadingQuality, setIsLoadingQuality] = useState(false);
+
+  // Record QC Modal State
+  const [isRecordQCModalOpen, setIsRecordQCModalOpen] = useState(false);
+  const [qcOrderType, setQcOrderType] = useState<'Custom' | 'Fabrication' | 'Readymade'>('Custom');
+  const [qcOrderId, setQcOrderId] = useState('');
+  const [qcResult, setQcResult] = useState<'PASS' | 'FAIL'>('PASS');
+  const [qcDimensionsCheck, setQcDimensionsCheck] = useState(true);
+  const [qcFinishingCheck, setQcFinishingCheck] = useState(true);
+  const [qcStructureCheck, setQcStructureCheck] = useState(true);
+  const [qcSpecificationsCheck, setQcSpecificationsCheck] = useState(true);
+  const [qcInspectionNotes, setQcInspectionNotes] = useState('');
+  const [qcReworkWorkerId, setQcReworkWorkerId] = useState<number | undefined>(undefined);
+  const [isSubmittingQC, setIsSubmittingQC] = useState(false);
+
+  // Resolve Rework Modal State
+  const [isResolveReworkModalOpen, setIsResolveReworkModalOpen] = useState(false);
+  const [selectedReworkForResolve, setSelectedReworkForResolve] = useState<ReworkJobItem | null>(null);
+  const [reworkResolveNotes, setReworkResolveNotes] = useState('');
+  const [isSubmittingResolveRework, setIsSubmittingResolveRework] = useState(false);
+
+  const loadMaterialsDataFromDB = async () => {
+    setIsLoadingMaterials(true);
+    try {
+      const [raw, cust] = await Promise.all([
+        fetchRawMaterialsApi(),
+        fetchCustomerMaterialsApi()
+      ]);
+      setRawMaterialsList(raw || []);
+      setCustomerMaterialsList(cust || []);
+    } catch (err) {
+      console.error('Error loading materials data:', err);
+    } finally {
+      setIsLoadingMaterials(false);
+    }
+  };
+
+  const loadQualityDataFromDB = async () => {
+    setIsLoadingQuality(true);
+    try {
+      const [insp, rework] = await Promise.all([
+        fetchQualityInspectionsApi(),
+        fetchReworkJobsApi()
+      ]);
+      setQualityInspectionsList(insp || []);
+      setReworkJobsList(rework || []);
+    } catch (err) {
+      console.error('Error loading quality data:', err);
+    } finally {
+      setIsLoadingQuality(false);
+    }
+  };
+
+  const handleCreateRawMaterialSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMatName.trim()) {
+      alert('Please enter a valid material name.');
+      return;
+    }
+    const availQty = parseFloat(newMatAvailableQty) || 0;
+    const reorder = parseFloat(newMatReorderLevel) || 10;
+    const cost = parseFloat(newMatUnitCost) || 0;
+
+    setIsSubmittingNewMaterial(true);
+    try {
+      await createRawMaterialApi({
+        category: newMatCategory,
+        material_name: newMatName.trim(),
+        unit: newMatUnit,
+        available_qty: availQty,
+        reorder_level: reorder,
+        unit_cost: cost
+      });
+      setSuccessBanner(`Raw Material "${newMatName.trim()}" added to inventory ledger!`);
+      setIsAddRawMaterialModalOpen(false);
+      setNewMatName('');
+      setNewMatAvailableQty('');
+      setNewMatUnitCost('');
+      await loadMaterialsDataFromDB();
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to add raw material.');
+    } finally {
+      setIsSubmittingNewMaterial(false);
+    }
+  };
+
+  const handleStockAdjustSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMatForAdjust) return;
+    const qtyChange = parseFloat(adjustQtyInput);
+    if (isNaN(qtyChange) || qtyChange <= 0) {
+      alert('Please enter a valid positive quantity.');
+      return;
+    }
+
+    setIsSubmittingAdjust(true);
+    try {
+      let newAvailable = selectedMatForAdjust.available_qty;
+      let newUsed = selectedMatForAdjust.used_qty;
+      let newWasted = selectedMatForAdjust.wasted_qty;
+
+      if (adjustType === 'Replenish') {
+        newAvailable += qtyChange;
+      } else if (adjustType === 'Usage') {
+        newAvailable = Math.max(0, newAvailable - qtyChange);
+        newUsed += qtyChange;
+      } else if (adjustType === 'Wasted') {
+        newAvailable = Math.max(0, newAvailable - qtyChange);
+        newWasted += qtyChange;
+      }
+
+      await updateRawMaterialStockApi(selectedMatForAdjust.material_id, {
+        available_qty: newAvailable,
+        used_qty: newUsed,
+        wasted_qty: newWasted
+      });
+
+      setSuccessBanner(`Stock updated for ${selectedMatForAdjust.material_name} (${adjustType}: ${qtyChange} ${selectedMatForAdjust.unit})!`);
+      setIsStockAdjustModalOpen(false);
+      setSelectedMatForAdjust(null);
+      setAdjustQtyInput('');
+      await loadMaterialsDataFromDB();
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to update stock.');
+    } finally {
+      setIsSubmittingAdjust(false);
+    }
+  };
+
+  const handleRecordQCSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ordId = parseInt(qcOrderId);
+    if (isNaN(ordId) || ordId <= 0) {
+      alert('Please enter a valid numeric Order ID.');
+      return;
+    }
+
+    setIsSubmittingQC(true);
+    try {
+      await recordQualityInspectionApi({
+        order_type: qcOrderType,
+        order_id: ordId,
+        result: qcResult,
+        dimensions_check: qcDimensionsCheck,
+        finishing_check: qcFinishingCheck,
+        structure_check: qcStructureCheck,
+        specifications_check: qcSpecificationsCheck,
+        inspection_notes: qcInspectionNotes.trim() || undefined,
+        rework_worker_id: qcResult === 'FAIL' ? qcReworkWorkerId : undefined
+      });
+
+      setSuccessBanner(`QC Audit recorded as ${qcResult} for ${qcOrderType} #${ordId}!`);
+      setIsRecordQCModalOpen(false);
+      setQcOrderId('');
+      setQcInspectionNotes('');
+      await loadQualityDataFromDB();
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to record QC audit.');
+    } finally {
+      setIsSubmittingQC(false);
+    }
+  };
+
+  const handleResolveReworkSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedReworkForResolve) return;
+
+    setIsSubmittingResolveRework(true);
+    try {
+      await resolveReworkJobApi(selectedReworkForResolve.rework_id, reworkResolveNotes.trim() || undefined);
+      setSuccessBanner(`Rework Job #${selectedReworkForResolve.rework_id} marked as RESOLVED & ready for re-audit!`);
+      setIsResolveReworkModalOpen(false);
+      setSelectedReworkForResolve(null);
+      setReworkResolveNotes('');
+      await loadQualityDataFromDB();
+      setTimeout(() => setSuccessBanner(null), 4000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to resolve rework job.');
+    } finally {
+      setIsSubmittingResolveRework(false);
+    }
+  };
+
+  useEffect(() => {
+    loadMaterialsDataFromDB();
+    loadQualityDataFromDB();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'materials') {
+      loadMaterialsDataFromDB();
+    } else if (activeTab === 'quality') {
+      loadQualityDataFromDB();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const loadNotifs = async () => {
@@ -1090,33 +1386,11 @@ export const AdminDashboardPage: React.FC = () => {
       setAllAdminFabrications(Array.isArray(fabs) ? fabs : []);
       setAllAdminServices(Array.isArray(srvs) ? srvs : []);
 
-      const paidCustomOrders = (allCustomOrders || []).filter(
-        (c) => (c.payment_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'paid' || (c.order_status || '').toLowerCase() === 'in production' || (c.order_status || '').toLowerCase() === 'completed'
+      const retailStoreOrders = (dbStoreOrders || []).filter(
+        (o: any) => !String(o.orderId || '').toUpperCase().startsWith('CUSTOM-')
       );
-      
-      const formattedCustom: RetailOrder[] = paidCustomOrders.map((c) => ({
-        orderId: `CUSTOM-${c.custom_order_id}`,
-        customerName: c.customer_name || 'Bespoke Customer',
-        email: c.customer_email || 'customer@retailsphere.com',
-        itemsCount: 1,
-        totalAmount: c.estimated_price || 0,
-        orderStatus: c.order_status === 'Paid' ? 'Processing' : (c.order_status === 'Completed' ? 'Delivered' : 'Processing'),
-        paymentStatus: 'Paid',
-        orderDate: c.order_date ? new Date(c.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent',
-        createdAt: c.order_date ? new Date(c.order_date).getTime() : Date.now() + c.custom_order_id * 1000,
-        assignedWorkers: c.assigned_workers || [],
-        items: [{
-          id: `item-custom-${c.custom_order_id}`,
-          name: `Custom ${c.furniture_type} (${c.material}, ${c.color})`,
-          price: c.estimated_price || 0,
-          quantity: 1,
-          imageUrl: c.reference_image ? parseReferenceImages(c.reference_image)[0] || '' : ''
-        }]
-      }));
-
-      const merged = [...formattedCustom, ...dbStoreOrders];
-      merged.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
-      setOrderList(merged as any);
+      retailStoreOrders.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
+      setOrderList(retailStoreOrders as any);
     } catch (err) {
       console.warn('Error loading all orders for admin:', err);
     }
@@ -2394,8 +2668,31 @@ export const AdminDashboardPage: React.FC = () => {
           >
             <div className="flex items-center gap-3">
               <SlidersHorizontal className="w-4 h-4" />
-              <span className="text-xs">Stock & Raw Materials</span>
+              <span className="text-xs">Finished Goods Stock</span>
             </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('materials')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'materials'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <Layers className="w-4 h-4" />
+              <span className="text-xs">Raw Materials Ledger</span>
+            </div>
+            {rawMaterialsList.filter(m => m.available_qty <= m.reorder_level).length > 0 && (
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                activeTab === 'materials'
+                  ? 'bg-white text-[#38A132]'
+                  : 'bg-amber-500 text-white'
+              }`}>
+                {rawMaterialsList.filter(m => m.available_qty <= m.reorder_level).length} low
+              </span>
+            )}
           </button>
 
           <button
@@ -2410,6 +2707,52 @@ export const AdminDashboardPage: React.FC = () => {
               <Users className="w-4 h-4" />
               <span className="text-xs">Workers & Staff</span>
             </div>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('leaves')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'leaves'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <CalendarCheck className="w-4 h-4" />
+              <span className="text-xs">Staff & Worker Leaves</span>
+            </div>
+            {adminLeaveRequests.filter(l => l.status === 'Pending').length > 0 && (
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                activeTab === 'leaves'
+                  ? 'bg-white text-[#38A132]'
+                  : 'bg-amber-500 text-white animate-pulse'
+              }`}>
+                {adminLeaveRequests.filter(l => l.status === 'Pending').length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('quality')}
+            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
+              activeTab === 'quality'
+                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
+                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
+            }`}
+          >
+            <div className="flex items-center gap-3">
+              <ClipboardCheck className="w-4 h-4" />
+              <span className="text-xs">Quality Assurance & QC</span>
+            </div>
+            {reworkJobsList.filter(r => r.status !== 'RESOLVED').length > 0 && (
+              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                activeTab === 'quality'
+                  ? 'bg-white text-[#38A132]'
+                  : 'bg-rose-500 text-white animate-pulse'
+              }`}>
+                {reworkJobsList.filter(r => r.status !== 'RESOLVED').length} rework
+              </span>
+            )}
           </button>
 
           <button
@@ -2511,20 +2854,6 @@ export const AdminDashboardPage: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('audit')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'audit'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Clock className="w-4 h-4" />
-              <span className="text-xs">System Audit Log</span>
-            </div>
-          </button>
-
-          <button
             onClick={() => setActiveTab('queries')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
               activeTab === 'queries'
@@ -2571,23 +2900,34 @@ export const AdminDashboardPage: React.FC = () => {
         {/* MAIN RIGHT CONTENT AREA */}
         <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
           {/* Mobile Top Header */}
-          <div className="md:hidden bg-white border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
+          <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
             <div className="flex items-center gap-2">
-              <span className="font-extrabold text-sm text-[#2C241D]">Admin Control Center</span>
+              <span className="font-extrabold text-xs text-[#2C241D]">Admin Executive</span>
             </div>
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              {['overview', 'orders', 'production', 'inventory'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab as any)}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-bold capitalize ${
-                    activeTab === tab ? 'bg-[#48A63E] text-white' : 'bg-[#F9F6F0] text-[#2C241D]'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+            <select
+              value={activeTab}
+              onChange={(e) => setActiveTab(e.target.value as any)}
+              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-[#E2D7CB] text-[#2C241D] max-w-[210px]"
+            >
+              <option value="overview">📊 Overview</option>
+              <option value="orders">🛒 Orders & Requests</option>
+              <option value="custom_orders">🛋️ Customer Requests</option>
+              <option value="inventory">📦 Finished Goods Stock</option>
+              <option value="materials">🪵 Raw Materials</option>
+              <option value="staff">👥 Workers & Staff</option>
+              <option value="leaves">📅 Staff Leaves</option>
+              <option value="quality">🔍 Quality Assurance & QC</option>
+              <option value="fleet">🚚 Logistics & Fleet</option>
+              <option value="services">🔧 Services & Warranty</option>
+              <option value="users">👤 Customer Accounts</option>
+              <option value="products">🏷️ Product Catalog</option>
+              <option value="suppliers">🏢 Suppliers & Vendors</option>
+              <option value="analytics">📈 Revenue & Analytics</option>
+              <option value="alerts">⚠️ Needs Attention</option>
+              <option value="queries">💬 Queries & Requests</option>
+              <option value="coupons">🎟️ Coupons & Discounts</option>
+              <option value="broadcast">📢 Admin Directives</option>
+            </select>
           </div>
 
           <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">
@@ -2616,26 +2956,64 @@ export const AdminDashboardPage: React.FC = () => {
                     {activeTab === 'analytics' && 'Executive Business Analytics & Performance Reports'}
                     {activeTab === 'users' && 'Customer Directory & Shopper Accounts'}
                     {activeTab === 'staff' && 'Staff Accounts & Workers Management'}
+                    {activeTab === 'leaves' && 'Staff & Artisan Worker Leave Management'}
                     {activeTab === 'products' && 'Retail Product Management'}
                     {activeTab === 'inventory' && 'Stock & Raw Materials Control'}
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
                     {activeTab === 'orders' && 'Customer Orders & Requests'}
                     {activeTab === 'custom_orders' && 'Bespoke Customization & Customer Requests'}
                     {activeTab === 'alerts' && 'Needs Attention & Operational Alerts'}
-                    {activeTab === 'audit' && 'System-Wide Audit Log & Activity Feed'}
                     {activeTab === 'queries' && 'Queries & Request Communications'}
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
                     {activeTab === 'broadcast' && 'Admin Directives & Official Announcements'}
+                    {activeTab === 'materials' && 'Raw Materials & Timber Supply Ledger'}
+                    {activeTab === 'quality' && 'Quality Assurance & Stage Inspection Hub (QC)'}
+                    {activeTab === 'fleet' && 'Fleet & Vehicles Management'}
+                    {activeTab === 'carriers' && 'Carrier Partners & 3PL Logistics'}
+                    {activeTab === 'roles' && 'Role-Based Access Control & User Permissions'}
+                    {activeTab === 'requests' && 'Customer Requests & Quotations'}
+                    {activeTab === 'production' && 'Manufacturing & Production Control'}
+                    {activeTab === 'fabrication' && 'Fabrication & Woodworking Center'}
+                    {activeTab === 'onsite' && 'Onsite Assembly & Installation'}
+                    {activeTab === 'workers' && 'Artisans & Field Workers Directory'}
+                    {activeTab === 'customers' && 'Customer Profiles & CRM Directory'}
+                    {activeTab === 'payments' && 'Financial Settlements & Payments'}
+                    {activeTab === 'fulfillment' && 'Order Fulfillment & Dispatch Hub'}
+                    {activeTab === 'returns' && 'Returns, Replacements & RMA'}
+                    {activeTab === 'communication' && 'Internal & Customer Communication'}
+                    {activeTab === 'reports' && 'Executive Business Analytics & Performance Reports'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                     {activeTab === 'overview' && 'Complete real-time business visibility, sales performance, production bottlenecks, and operational status.'}
                     {activeTab === 'analytics' && 'Track overall store revenue, order volume, category sales share, and custom build performance across RetailSphere AI.'}
                     {activeTab === 'users' && 'View, search, edit, activate, or deactivate registered customer accounts across RetailSphere AI.'}
                     {activeTab === 'staff' && 'Create and manage Retail Staff, Production Staff, and Artisan Worker accounts.'}
-                    {activeTab === 'inventory' && 'Monitor finished furniture products and raw material timber/fabric inventory.'}
-                    {activeTab === 'orders' && 'Track ready-made and custom furniture orders across the complete live fulfillment pipeline.'}
+                    {activeTab === 'leaves' && 'Review, approve, or reject worker leave applications, monitor active absences, and manage workshop shifts.'}
+                    {activeTab === 'products' && 'Manage catalog products, stock levels, variations, pricing, and category hierarchies.'}
+                    {activeTab === 'inventory' && 'Monitor finished furniture products and stock catalog levels.'}
+                    {activeTab === 'materials' && 'Manage timber logs, commercial ply boards, fabrics, hardware components, stock levels, and customer-supplied wood.'}
+                    {activeTab === 'quality' && 'Monitor workshop inspection stages, verify tolerance checklists, record pass/fail audits, and track rework jobs.'}
+                    {activeTab === 'suppliers' && 'Coordinate with raw materials vendors, supply logistics, and procurement channels.'}
+                    {activeTab === 'orders' && 'Track ready-made furniture orders and live store purchases across the complete fulfillment pipeline.'}
+                    {activeTab === 'custom_orders' && 'Review, accept, price, and transition custom furniture specifications to production.'}
                     {activeTab === 'alerts' && 'Operational alerts requiring immediate administrative attention.'}
-                    {activeTab === 'audit' && 'Complete chronological audit log of all system actions.'}
+                    {activeTab === 'queries' && 'Respond to inquiries, support requests, and internal operational questions.'}
+                    {activeTab === 'coupons' && 'Create, issue, regenerate, and manage discount promotional coupon vouchers.'}
+                    {activeTab === 'broadcast' && 'Publish company-wide announcements, system alerts, and staff directives.'}
+                    {activeTab === 'fleet' && 'Manage internal company delivery vehicles, capacity allocations, driver assignments, and live status.'}
+                    {activeTab === 'carriers' && 'Manage external 3PL courier partners, API tracking integrations, service SLAs, and shipping methods.'}
+                    {activeTab === 'roles' && 'Configure and assign fine-grained operational permissions across administrative roles.'}
+                    {activeTab === 'requests' && 'Review and handle incoming custom build inquiries and RFQs.'}
+                    {activeTab === 'production' && 'Monitor active shop-floor manufacturing stages, assembly queues, and craftsman assignments.'}
+                    {activeTab === 'fabrication' && 'Manage cutting, shaping, joinery, and workshop production milestones.'}
+                    {activeTab === 'onsite' && 'Coordinate on-site customer deliveries, installations, and field team verification.'}
+                    {activeTab === 'workers' && 'Manage active artisans, carpentry specialists, and production floor crew.'}
+                    {activeTab === 'customers' && 'Search customer histories, order logs, contact details, and account statuses.'}
+                    {activeTab === 'payments' && 'View transaction histories, pending payouts, invoices, and accounting ledgers.'}
+                    {activeTab === 'fulfillment' && 'Track packing, dispatch readiness, transit stages, and customer handover.'}
+                    {activeTab === 'returns' && 'Process warranty claims, repair tickets, return authorisations, and item exchanges.'}
+                    {activeTab === 'communication' && 'Centralized messaging hub for customer inquiries, staff notices, and direct alerts.'}
+                    {activeTab === 'reports' && 'Generate and export detailed performance, sales, inventory, and labor audit reports.'}
                   </p>
                 </div>
 
@@ -2680,8 +3058,6 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     )}
                   </div>
-
-
 
                   {/* Notification Bell Dropdown */}
                   <div className="relative">
@@ -3075,123 +3451,6 @@ export const AdminDashboardPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* FLEET OVERVIEW & ACTIVE INTERNAL DELIVERIES (Requirement 19) */}
-                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
-                        <Truck className="w-4 h-4 text-[#38A132]" />
-                        <span>Fleet Overview & Active Internal Deliveries</span>
-                      </h4>
-                      <button
-                        onClick={() => setActiveTab('fleet')}
-                        className="text-xs font-extrabold text-[#38A132] hover:text-[#2E8529] cursor-pointer inline-flex items-center gap-1"
-                      >
-                        <span>Manage Fleet</span>
-                        <span>→</span>
-                      </button>
-                    </div>
-
-                    {/* Compact Fleet Summary Cards */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Total Vehicles</span>
-                        <div className="text-xl font-black text-[#2C241D]">{fleetSummaryData?.summary?.total || 0}</div>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Available</span>
-                        <div className="text-xl font-black text-emerald-600">{fleetSummaryData?.summary?.available || 0}</div>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Assigned</span>
-                        <div className="text-xl font-black text-blue-600">{fleetSummaryData?.summary?.assigned || 0}</div>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-0.5">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Maintenance</span>
-                        <div className="text-xl font-black text-amber-600">{fleetSummaryData?.summary?.maintenance || 0}</div>
-                      </div>
-                    </div>
-
-                    {/* Active Internal Deliveries List */}
-                    <div className="space-y-2 pt-2">
-                      <h5 className="text-xs font-extrabold text-[#2C241D]">Active Internal Deliveries</h5>
-                      {(!fleetSummaryData?.active_deliveries || fleetSummaryData.active_deliveries.length === 0) ? (
-                        <div className="p-4 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-center text-[#7A6C5E] text-xs italic">
-                          No active internal deliveries currently in transit.
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                                <th className="py-2 px-3">Order ID</th>
-                                <th className="py-2 px-3">Vehicle</th>
-                                <th className="py-2 px-3">Driver</th>
-                                <th className="py-2 px-3">Status</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
-                              {fleetSummaryData.active_deliveries.map((del) => (
-                                <tr key={del.fulfillment_id} className="hover:bg-[#FAF7F2] cursor-pointer" onClick={() => setActiveTab('fleet')}>
-                                  <td className="py-2 px-3 font-extrabold text-[#38A132]">{del.order_id}</td>
-                                  <td className="py-2 px-3 font-bold">{del.vehicle_code} <span className="text-[#7A6C5E] font-normal">({del.registration_number})</span></td>
-                                  <td className="py-2 px-3">{del.driver_name}</td>
-                                  <td className="py-2 px-3">
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
-                                      {del.status}
-                                    </span>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* System Audit Log & Chronological Activity Feed */}
-                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2 border-b border-[#EFE7DE] pb-3">
-                      <Clock className="w-4 h-4 text-[#38A132]" />
-                      <span>System-Wide Chronological Activity & Audit Log</span>
-                    </h4>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                            <th className="py-2.5 px-3">Timestamp</th>
-                            <th className="py-2.5 px-3">Actor / Staff</th>
-                            <th className="py-2.5 px-3">Action Performed</th>
-                            <th className="py-2.5 px-3">Entity Type</th>
-                            <th className="py-2.5 px-3">Entity ID</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
-                          {(dashboardSummary?.recent_activities || auditLogsList).length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="py-4 text-center text-[#7A6C5E] italic">
-                                System audit activity feed initialized. Real-time actions will log here.
-                              </td>
-                            </tr>
-                          ) : (
-                            (dashboardSummary?.recent_activities || auditLogsList).slice(0, 8).map((act) => (
-                              <tr key={act.id} className="hover:bg-[#FAF7F2]">
-                                <td className="py-2.5 px-3 font-mono text-[11px] text-[#7A6C5E]">{act.timestamp || 'Just now'}</td>
-                                <td className="py-2.5 px-3 font-bold">{act.actorName} ({act.actorRole})</td>
-                                <td className="py-2.5 px-3 font-extrabold text-[#38A132]">{act.action}</td>
-                                <td className="py-2.5 px-3">{act.entityType}</td>
-                                <td className="py-2.5 px-3 font-mono text-[#7A6C5E]">{act.entityId || '—'}</td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -3891,27 +4150,6 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB: FLEET & VEHICLES MANAGEMENT (Requirement 2-9) */}
               {activeTab === 'fleet' && (
                 <div className="relative z-10 space-y-6 animate-fadeIn">
-                  {/* Top Header & Add Vehicle CTA */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg">
-                    <div>
-                      <h3 className="text-xl font-extrabold text-[#2C241D] flex items-center gap-2.5">
-                        <Truck className="w-6 h-6 text-[#38A132]" />
-                        <span>Fleet & Vehicles Management</span>
-                      </h3>
-                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
-                        Manage internal company delivery vehicles, capacity allocations, and driver assignments.
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={handleOpenAddVehicleModal}
-                      className="px-4 py-2.5 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-2 cursor-pointer transform active:scale-95 shrink-0"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>Add Vehicle</span>
-                    </button>
-                  </div>
-
                   {/* Small Summary Statistics (From PostgreSQL DB) */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <div className="ultra-glass-card bg-white/80 backdrop-blur-xl rounded-2xl p-5 border border-[#E2D7CB] shadow-sm space-y-2">
@@ -3979,16 +4217,25 @@ export const AdminDashboardPage: React.FC = () => {
                         ))}
                       </div>
 
-                      {/* Search Bar */}
-                      <div className="relative w-full sm:w-64">
-                        <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search registration, type..."
-                          value={fleetSearchQuery}
-                          onChange={(e) => setFleetSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                        />
+                      {/* Search Bar & Add Vehicle Button */}
+                      <div className="flex items-center gap-3 w-full sm:w-auto">
+                        <div className="relative w-full sm:w-64">
+                          <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Search registration, type..."
+                            value={fleetSearchQuery}
+                            onChange={(e) => setFleetSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                          />
+                        </div>
+                        <button
+                          onClick={handleOpenAddVehicleModal}
+                          className="px-4 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md shadow-[#38A132]/20 transition-all flex items-center gap-1.5 cursor-pointer transform active:scale-95 shrink-0"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span>Add Vehicle</span>
+                        </button>
                       </div>
                     </div>
 
@@ -4074,25 +4321,53 @@ export const AdminDashboardPage: React.FC = () => {
               {/* TAB: CARRIER PARTNERS MANAGEMENT */}
               {activeTab === 'carriers' && (
                 <div className="relative z-10 space-y-6 animate-fadeIn">
-                  {/* Top Header & Overview */}
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-white/70 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg">
-                    <div>
-                      <h3 className="text-xl font-extrabold text-[#2C241D] flex items-center gap-2.5">
-                        <Truck className="w-6 h-6 text-[#38A132]" />
-                        <span>Carrier Partners</span>
-                      </h3>
-                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
-                        Manage external logistics partners for ready-made order dispatch.
-                      </p>
-                    </div>
-                  </div>
-
                   {/* Add Carrier Partner Form Card */}
                   <div className="bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg space-y-4">
-                    <h4 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2 border-b border-[#E2D7CB]/60 pb-3">
-                      <Plus className="w-4 h-4 text-[#38A132]" />
-                      <span>Add New Carrier Partner</span>
-                    </h4>
+                    <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-3 flex-wrap gap-3">
+                      <h4 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-[#38A132]" />
+                        <span>Add New Carrier Partner</span>
+                      </h4>
+
+                      <button
+                        disabled={isSubmittingCarrier}
+                        onClick={async () => {
+                          setCarrierFormError(null);
+                          setCarrierFormSuccess(null);
+                          if (!carrierNameInput.trim()) {
+                            setCarrierFormError('Carrier Name is required.');
+                            return;
+                          }
+                          if (!carrierPhoneInput.trim()) {
+                            setCarrierFormError('Contact Phone is required.');
+                            return;
+                          }
+                          setIsSubmittingCarrier(true);
+                          const newCP = await createCarrierPartnerApi({
+                            carrier_name: carrierNameInput.trim(),
+                            contact_phone: carrierPhoneInput.trim(),
+                            contact_email: carrierEmailInput.trim() || undefined,
+                            status: carrierStatusInput,
+                          });
+                          setIsSubmittingCarrier(false);
+                          if (newCP) {
+                            setCarrierFormSuccess(`Carrier partner '${newCP.carrier_name}' added successfully!`);
+                            setCarrierNameInput('');
+                            setCarrierPhoneInput('');
+                            setCarrierEmailInput('');
+                            setCarrierStatusInput(true);
+                            await loadCarrierPartnersData();
+                            setTimeout(() => setCarrierFormSuccess(null), 4000);
+                          } else {
+                            setCarrierFormError('Failed to save carrier partner.');
+                          }
+                        }}
+                        className="px-5 py-2 bg-[#38A132] hover:bg-[#2E8B29] text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add Carrier Partner</span>
+                      </button>
+                    </div>
 
                     {carrierFormError && (
                       <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-bold flex items-center gap-2">
@@ -4141,7 +4416,7 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-2">
+                    <div className="flex items-center justify-start pt-1">
                       <label className="flex items-center gap-2 text-xs font-extrabold text-[#2C241D] cursor-pointer">
                         <input
                           type="checkbox"
@@ -4151,45 +4426,6 @@ export const AdminDashboardPage: React.FC = () => {
                         />
                         <span>Active Partner (Available for Selection in Dispatch)</span>
                       </label>
-
-                      <button
-                        disabled={isSubmittingCarrier}
-                        onClick={async () => {
-                          setCarrierFormError(null);
-                          setCarrierFormSuccess(null);
-                          if (!carrierNameInput.trim()) {
-                            setCarrierFormError('Carrier Name is required.');
-                            return;
-                          }
-                          if (!carrierPhoneInput.trim()) {
-                            setCarrierFormError('Contact Phone is required.');
-                            return;
-                          }
-                          setIsSubmittingCarrier(true);
-                          const newCP = await createCarrierPartnerApi({
-                            carrier_name: carrierNameInput.trim(),
-                            contact_phone: carrierPhoneInput.trim(),
-                            contact_email: carrierEmailInput.trim() || undefined,
-                            status: carrierStatusInput,
-                          });
-                          setIsSubmittingCarrier(false);
-                          if (newCP) {
-                            setCarrierFormSuccess(`Carrier partner '${newCP.carrier_name}' added successfully!`);
-                            setCarrierNameInput('');
-                            setCarrierPhoneInput('');
-                            setCarrierEmailInput('');
-                            setCarrierStatusInput(true);
-                            await loadCarrierPartnersData();
-                            setTimeout(() => setCarrierFormSuccess(null), 4000);
-                          } else {
-                            setCarrierFormError('Failed to save carrier partner.');
-                          }
-                        }}
-                        className="px-5 py-2.5 bg-[#38A132] hover:bg-[#2E8B29] text-white rounded-xl text-xs font-extrabold flex items-center gap-2 shadow-md transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Add Carrier Partner</span>
-                      </button>
                     </div>
                   </div>
 
@@ -4671,99 +4907,260 @@ export const AdminDashboardPage: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
-
-                  {/* Artisan Worker Leave Applications & Absence Management Section */}
-                  <div className="pt-6 border-t border-[#EFE7DE] space-y-4">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                      <div>
-                        <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-[#38A132]" />
-                          <span>Artisan Worker Leave Applications & Absence Oversight</span>
-                        </h4>
-                        <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
-                          Review, approve, or reject leave requests submitted by artisan craftsmen. Real-time updates sync across Worker & Production Staff portals.
-                        </p>
-                      </div>
-                      <span className="text-xs font-black text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
-                        {adminLeaveRequests.filter(l => l.status === 'Pending').length} Pending Review
-                      </span>
-                    </div>
-
-                    {adminLeaveRequests.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl bg-white/50">
-                        No worker leave requests currently logged.
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto bg-white/70 rounded-2xl border border-[#E2D7CB] p-2">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
-                              <th className="py-3 px-4">Artisan Worker</th>
-                              <th className="py-3 px-4">Leave Type</th>
-                              <th className="py-3 px-4">Duration & Dates</th>
-                              <th className="py-3 px-4">Reason</th>
-                              <th className="py-3 px-4">Status</th>
-                              <th className="py-3 px-4 text-right">Actions / Review</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#EFE7DE]">
-                            {adminLeaveRequests.map((req) => (
-                              <tr key={req.leave_id} className="hover:bg-[#F5ECE1]/40 transition-colors">
-                                <td className="py-3.5 px-4 font-black text-[#2C241D] whitespace-nowrap">
-                                  👷 {req.worker_name || `Worker #${req.worker_id}`}
-                                </td>
-                                <td className="py-3.5 px-4 font-bold text-[#4A3E32]">
-                                  {req.leave_type}
-                                </td>
-                                <td className="py-3.5 px-4 whitespace-nowrap">
-                                  <span className="font-extrabold text-[#2C241D] block">{req.duration_days} Day{req.duration_days > 1 ? 's' : ''}</span>
-                                  <span className="text-[10px] text-[#7A6C5E] font-mono">{req.start_date} to {req.end_date}</span>
-                                </td>
-                                <td className="py-3.5 px-4 font-medium text-[#4A3E32] max-w-xs">
-                                  {req.reason}
-                                </td>
-                                <td className="py-3.5 px-4 whitespace-nowrap">
-                                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                    req.status === 'Approved' ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
-                                    req.status === 'Rejected' ? 'bg-rose-100 text-rose-800 border border-rose-300' :
-                                    'bg-amber-100 text-amber-900 border border-amber-300'
-                                  }`}>
-                                    {req.status}
-                                  </span>
-                                </td>
-                                <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                                  {req.status === 'Pending' ? (
-                                    <div className="flex items-center justify-end gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleAdminReviewLeave(req.leave_id, 'Approved', 'Approved by System Administrator')}
-                                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-extrabold text-[11px] transition-all shadow-xs cursor-pointer"
-                                      >
-                                        Approve
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleAdminReviewLeave(req.leave_id, 'Rejected', 'Rejected by System Administrator')}
-                                        className="px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-extrabold text-[11px] transition-all shadow-xs cursor-pointer"
-                                      >
-                                        Reject
-                                      </button>
-                                    </div>
-                                  ) : (
-                                    <span className="text-[10px] text-[#7A6C5E] font-medium italic">
-                                      Reviewed by {req.reviewed_by || 'Admin'}
-                                    </span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
                 </div>
               )}
+
+              {/* TAB: ARTISAN WORKER & STAFF LEAVE MANAGEMENT */}
+              {activeTab === 'leaves' && (() => {
+                const totalLeaves = adminLeaveRequests.length;
+                const pendingLeaves = adminLeaveRequests.filter(l => l.status === 'Pending').length;
+                const approvedLeaves = adminLeaveRequests.filter(l => l.status === 'Approved').length;
+                const rejectedLeaves = adminLeaveRequests.filter(l => l.status === 'Rejected').length;
+
+                const filteredLeaves = adminLeaveRequests.filter((req) => {
+                  if (leaveStatusFilter !== 'All' && req.status !== leaveStatusFilter) return false;
+                  if (leaveTypeFilter !== 'All' && req.leave_type !== leaveTypeFilter) return false;
+                  if (leaveSearchQuery.trim()) {
+                    const q = leaveSearchQuery.toLowerCase().trim();
+                    const matchesWorker = (req.worker_name || '').toLowerCase().includes(q);
+                    const matchesId = String(req.worker_id || '').includes(q) || String(req.leave_id).includes(q);
+                    const matchesReason = (req.reason || '').toLowerCase().includes(q);
+                    const matchesType = (req.leave_type || '').toLowerCase().includes(q);
+                    if (!matchesWorker && !matchesId && !matchesReason && !matchesType) return false;
+                  }
+                  return true;
+                });
+
+                const leaveTypes = Array.from(new Set(adminLeaveRequests.map(l => l.leave_type).filter(Boolean)));
+
+                return (
+                  <div className="space-y-6">
+                    {/* Top Stat Cards */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                          <span>Total Applications</span>
+                          <CalendarDays className="w-4 h-4 text-[#48A63E]" />
+                        </div>
+                        <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{totalLeaves}</div>
+                        <div className="text-[10px] text-[#7A6C5E] font-medium mt-1">Logged Absence Requests</div>
+                      </div>
+
+                      <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-amber-200 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-amber-800 flex items-center justify-between">
+                          <span>Pending Review</span>
+                          <Clock className="w-4 h-4 text-amber-600" />
+                        </div>
+                        <div className="text-2xl font-extrabold text-amber-700 mt-2">{pendingLeaves}</div>
+                        <div className="text-[10px] text-amber-800 font-bold mt-1">Awaiting Admin Decision</div>
+                      </div>
+
+                      <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-emerald-200 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center justify-between">
+                          <span>Approved Leaves</span>
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                        </div>
+                        <div className="text-2xl font-extrabold text-emerald-700 mt-2">{approvedLeaves}</div>
+                        <div className="text-[10px] text-emerald-700 font-bold mt-1">Authorized Absences</div>
+                      </div>
+
+                      <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-rose-200 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                        <div className="text-[11px] font-bold uppercase tracking-wider text-rose-800 flex items-center justify-between">
+                          <span>Rejected Requests</span>
+                          <X className="w-4 h-4 text-rose-600" />
+                        </div>
+                        <div className="text-2xl font-extrabold text-rose-700 mt-2">{rejectedLeaves}</div>
+                        <div className="text-[10px] text-rose-700 font-bold mt-1">Declined Submissions</div>
+                      </div>
+                    </div>
+
+                    {/* Filter Bar & Search */}
+                    <div className="ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl bg-white/80">
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                        <div className="flex flex-wrap items-center gap-3 text-xs w-full sm:w-auto">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-[#7A6C5E]">Status:</span>
+                            <select
+                              value={leaveStatusFilter}
+                              onChange={(e) => setLeaveStatusFilter(e.target.value as any)}
+                              className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E] shadow-2xs text-xs"
+                            >
+                              <option value="All">All Statuses ({totalLeaves})</option>
+                              <option value="Pending">Pending Review ({pendingLeaves})</option>
+                              <option value="Approved">Approved ({approvedLeaves})</option>
+                              <option value="Rejected">Rejected ({rejectedLeaves})</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-[#7A6C5E]">Leave Type:</span>
+                            <select
+                              value={leaveTypeFilter}
+                              onChange={(e) => setLeaveTypeFilter(e.target.value)}
+                              className="px-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E] shadow-2xs text-xs"
+                            >
+                              <option value="All">All Types</option>
+                              {leaveTypes.map((t) => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {(leaveStatusFilter !== 'All' || leaveTypeFilter !== 'All' || leaveSearchQuery.trim()) && (
+                            <button
+                              onClick={() => {
+                                setLeaveStatusFilter('All');
+                                setLeaveTypeFilter('All');
+                                setLeaveSearchQuery('');
+                              }}
+                              className="text-[11px] font-extrabold text-[#48A63E] hover:underline cursor-pointer"
+                            >
+                              Reset Filters
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="relative w-full sm:w-72">
+                          <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Search worker, ID, reason..."
+                            value={leaveSearchQuery}
+                            onChange={(e) => setLeaveSearchQuery(e.target.value)}
+                            className="w-full pl-9 pr-3 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Leaves Table */}
+                      {filteredLeaves.length === 0 ? (
+                        <div className="py-12 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl bg-white/40 space-y-2">
+                          <CalendarCheck className="w-8 h-8 text-[#9E9082] mx-auto opacity-60" />
+                          <p className="font-extrabold text-sm text-[#2C241D]">No leave requests found</p>
+                          <p className="text-[11px] text-[#8C7C6D]">No employee leave applications match your selected filter criteria.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto bg-white/80 rounded-2xl border border-[#E2D7CB]">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
+                                <th className="py-3.5 px-4">Artisan / Staff Worker</th>
+                                <th className="py-3.5 px-4">Leave Category</th>
+                                <th className="py-3.5 px-4">Duration & Schedule</th>
+                                <th className="py-3.5 px-4">Reason & Justification</th>
+                                <th className="py-3.5 px-4">Approval Status</th>
+                                <th className="py-3.5 px-4 text-right">Review Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE]">
+                              {filteredLeaves.map((req) => {
+                                const isPending = req.status === 'Pending';
+                                const isApproved = req.status === 'Approved';
+                                const isRejected = req.status === 'Rejected';
+
+                                return (
+                                  <tr key={req.leave_id} className="hover:bg-[#F5ECE1]/40 transition-colors">
+                                    <td className="py-4 px-4 align-top whitespace-nowrap">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#38A132] to-[#2E8529] text-white font-extrabold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                                          👷
+                                        </div>
+                                        <div>
+                                          <div className="font-extrabold text-[#2C241D] text-xs leading-tight">
+                                            {req.worker_name || `Worker #${req.worker_id}`}
+                                          </div>
+                                          <div className="text-[10px] font-mono text-[#7A6C5E] mt-0.5">
+                                            ID: #{req.worker_id} • App #{req.leave_id}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    <td className="py-4 px-4 align-top whitespace-nowrap">
+                                      <span className="font-extrabold text-xs text-[#2C241D] bg-[#F5ECE1] px-2.5 py-1 rounded-lg border border-[#E2D7CB] inline-block">
+                                        {req.leave_type}
+                                      </span>
+                                    </td>
+
+                                    <td className="py-4 px-4 align-top whitespace-nowrap">
+                                      <div className="font-black text-[#2C241D] text-xs">
+                                        {req.duration_days} Day{req.duration_days > 1 ? 's' : ''}
+                                      </div>
+                                      <div className="text-[10px] font-mono text-[#7A6C5E] mt-0.5 bg-white px-2 py-0.5 rounded border border-[#EFE7DE] inline-block">
+                                        {req.start_date} → {req.end_date}
+                                      </div>
+                                    </td>
+
+                                    <td className="py-4 px-4 align-top max-w-xs">
+                                      <p className="text-xs text-[#4A3E32] font-medium leading-relaxed">
+                                        {req.reason || 'No specific reason entered.'}
+                                      </p>
+                                      {req.review_notes && (
+                                        <div className="mt-1.5 p-2 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-[10px] text-[#6B5C4D]">
+                                          <strong className="text-[#2C241D]">Reviewer Remarks:</strong> {req.review_notes}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    <td className="py-4 px-4 align-top whitespace-nowrap">
+                                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider inline-flex items-center gap-1 ${
+                                        isApproved ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' :
+                                        isRejected ? 'bg-rose-100 text-rose-800 border border-rose-300' :
+                                        'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                                      }`}>
+                                        {isApproved && '✓ Approved'}
+                                        {isRejected && '✕ Rejected'}
+                                        {isPending && '● Pending Review'}
+                                      </span>
+                                      {req.reviewed_by && (
+                                        <div className="text-[9px] text-[#7A6C5E] font-medium mt-1">
+                                          By {req.reviewed_by}
+                                        </div>
+                                      )}
+                                    </td>
+
+                                    <td className="py-4 px-4 align-top text-right whitespace-nowrap">
+                                      {isPending ? (
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenReviewLeaveModal(req, 'Approved')}
+                                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-extrabold text-xs transition-all shadow-xs inline-flex items-center gap-1 cursor-pointer"
+                                          >
+                                            <Check className="w-3.5 h-3.5" />
+                                            <span>Approve</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleOpenReviewLeaveModal(req, 'Rejected')}
+                                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-extrabold text-xs transition-all shadow-xs inline-flex items-center gap-1 cursor-pointer"
+                                          >
+                                            <X className="w-3.5 h-3.5" />
+                                            <span>Reject</span>
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenReviewLeaveModal(req, isApproved ? 'Rejected' : 'Approved')}
+                                          className="px-2.5 py-1 bg-white hover:bg-[#F5ECE1] border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] rounded-lg font-bold text-[10px] transition-all cursor-pointer inline-flex items-center gap-1"
+                                        >
+                                          <RotateCcw className="w-3 h-3" />
+                                          <span>Change Status</span>
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* TAB 2: PRODUCTS CATALOG MANAGEMENT */}
               {activeTab === 'products' && (
@@ -5454,9 +5851,6 @@ export const AdminDashboardPage: React.FC = () => {
                                   <td className="py-3 px-3 align-top">
                                     <div className="flex items-center gap-1.5">
                                       <span className="font-mono font-extrabold text-[#48A63E] text-xs">{ord.orderId}</span>
-                                      {ord.orderId.startsWith('CUSTOM-') && (
-                                        <span className="px-1.5 py-0.2 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[9px] font-extrabold">Custom</span>
-                                      )}
                                     </div>
                                     <div className="font-extrabold text-[#2C241D] text-xs mt-0.5 leading-tight">{ord.customerName}</div>
                                     <div className="text-[10px] text-[#6B5C4D] truncate max-w-[140px]">{ord.email}</div>
@@ -6416,173 +6810,6 @@ export const AdminDashboardPage: React.FC = () => {
               );
             })()}
 
-            {/* TAB 7: SYSTEM AUDIT LOG & ACTIVITY FEED */}
-            {activeTab === 'audit' && (
-              <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl bg-white/80 backdrop-blur-xl">
-                {/* Header & Description */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                  <div>
-                    <h2 className="text-xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-2">
-                      <Clock className="w-5 h-5 text-[#38A132]" />
-                      <span>System-Wide Chronological Audit Log</span>
-                    </h2>
-                    <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
-                      Real-time activity audit trail capturing user actions, orders, inventory updates, and dispatches.
-                    </p>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      setIsLoadingSummary(true);
-                      const logs = await fetchAuditLogsDB(100);
-                      setAuditLogsList(logs || []);
-                      setIsLoadingSummary(false);
-                    }}
-                    className="px-3.5 py-2 rounded-xl bg-[#F9F6F0] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 text-[#38A132]" />
-                    <span>Refresh Audit Trail</span>
-                  </button>
-                </div>
-
-                {/* Audit Statistics Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
-                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Total Audit Logs</span>
-                      <Clock className="w-4 h-4 text-[#38A132]" />
-                    </div>
-                    <div className="text-2xl font-black text-[#2C241D] mt-2">
-                      {(dashboardSummary?.recent_activities || auditLogsList).length}
-                    </div>
-                    <div className="text-[10px] text-[#38A132] font-bold mt-1">Recorded System Events</div>
-                  </div>
-
-                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
-                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Order Events</span>
-                      <ShoppingBag className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div className="text-2xl font-black text-blue-700 mt-2">
-                      {(dashboardSummary?.recent_activities || auditLogsList).filter((a: any) => (a.entityType || '').toLowerCase().includes('order') || (a.action || '').toLowerCase().includes('order')).length}
-                    </div>
-                    <div className="text-[10px] text-blue-700 font-bold mt-1">Placements & Dispatches</div>
-                  </div>
-
-                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
-                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Inventory & Catalog</span>
-                      <Package className="w-4 h-4 text-amber-600" />
-                    </div>
-                    <div className="text-2xl font-black text-amber-700 mt-2">
-                      {(dashboardSummary?.recent_activities || auditLogsList).filter((a: any) => (a.entityType || '').toLowerCase().includes('product') || (a.entityType || '').toLowerCase().includes('inventory')).length}
-                    </div>
-                    <div className="text-[10px] text-amber-700 font-bold mt-1">Stock & Product Audits</div>
-                  </div>
-
-                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-4 border border-[#E2D7CB] shadow-xs">
-                    <div className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                      <span>Security & Auth</span>
-                      <ShieldCheck className="w-4 h-4 text-purple-600" />
-                    </div>
-                    <div className="text-2xl font-black text-purple-700 mt-2">
-                      {(dashboardSummary?.recent_activities || auditLogsList).filter((a: any) => (a.entityType || '').toLowerCase().includes('user') || (a.action || '').toLowerCase().includes('user') || (a.action || '').toLowerCase().includes('login')).length}
-                    </div>
-                    <div className="text-[10px] text-purple-700 font-bold mt-1">User & Role Actions</div>
-                  </div>
-                </div>
-
-                {/* Search & Filter Bar */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-b border-[#EFE7DE] py-4">
-                  <div className="relative w-full sm:w-80">
-                    <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      placeholder="Search timestamp, actor, action, entity ID..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                    />
-                  </div>
-                </div>
-
-                {/* Audit Logs Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-black uppercase tracking-wider text-[10px]">
-                        <th className="py-3 px-4">Timestamp</th>
-                        <th className="py-3 px-4">Actor / Staff Member</th>
-                        <th className="py-3 px-4">Action Performed</th>
-                        <th className="py-3 px-4">Entity Type</th>
-                        <th className="py-3 px-4">Target Entity ID</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#EFE7DE] font-medium text-[#2C241D]">
-                      {(dashboardSummary?.recent_activities || auditLogsList)
-                        .filter((act: any) => {
-                          if (!searchQuery.trim()) return true;
-                          const q = searchQuery.toLowerCase();
-                          return (
-                            (act.timestamp || '').toLowerCase().includes(q) ||
-                            (act.actorName || '').toLowerCase().includes(q) ||
-                            (act.actorRole || '').toLowerCase().includes(q) ||
-                            (act.action || '').toLowerCase().includes(q) ||
-                            (act.entityType || '').toLowerCase().includes(q) ||
-                            (String(act.entityId || '')).toLowerCase().includes(q)
-                          );
-                        }).length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="py-12 text-center text-[#7A6C5E]">
-                            <Clock className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-2" />
-                            <p className="font-extrabold text-xs text-[#2C241D]">No system audit logs found</p>
-                            <p className="text-[11px] text-[#7A6C5E] mt-0.5">Chronological system events and administrative actions will log here automatically.</p>
-                          </td>
-                        </tr>
-                      ) : (
-                        (dashboardSummary?.recent_activities || auditLogsList)
-                          .filter((act: any) => {
-                            if (!searchQuery.trim()) return true;
-                            const q = searchQuery.toLowerCase();
-                            return (
-                              (act.timestamp || '').toLowerCase().includes(q) ||
-                              (act.actorName || '').toLowerCase().includes(q) ||
-                              (act.actorRole || '').toLowerCase().includes(q) ||
-                              (act.action || '').toLowerCase().includes(q) ||
-                              (act.entityType || '').toLowerCase().includes(q) ||
-                              (String(act.entityId || '')).toLowerCase().includes(q)
-                            );
-                          })
-                          .map((act: any, idx: number) => (
-                            <tr key={act.id || idx} className="hover:bg-[#FAF7F2] transition-colors">
-                              <td className="py-3.5 px-4 font-mono text-xs font-bold text-[#7A6C5E]">
-                                {act.timestamp || 'Just now'}
-                              </td>
-                              <td className="py-3.5 px-4">
-                                <div className="font-extrabold text-[#2C241D] text-xs">{act.actorName || 'System Admin'}</div>
-                                <div className="text-[10px] text-[#7A6C5E] font-bold">{act.actorRole || 'Administrator'}</div>
-                              </td>
-                              <td className="py-3.5 px-4">
-                                <span className="inline-flex items-center gap-1 font-extrabold text-xs text-[#38A132] bg-[#38A132]/10 border border-[#38A132]/20 px-2.5 py-1 rounded-lg">
-                                  {act.action}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 font-bold text-[#6B5C4D]">
-                                <span className="px-2 py-0.5 rounded-md bg-[#F9F6F0] border border-[#E2D7CB] text-[10px] uppercase font-black tracking-wider">
-                                  {act.entityType || 'General'}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 font-mono text-xs font-bold text-[#7A6C5E]">
-                                {act.entityId ? `#${act.entityId}` : '—'}
-                              </td>
-                            </tr>
-                          ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
             {/* TAB 6: STAFF & CUSTOMER QUERIES */}
               {activeTab === 'queries' && (
                 <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
@@ -7306,6 +7533,738 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* TAB: RAW MATERIALS & TIMBER SUPPLY LEDGER (OPTION 3) */}
+              {activeTab === 'materials' && (() => {
+                const totalStockVal = rawMaterialsList.reduce((sum, m) => sum + ((m.available_qty || 0) * (m.unit_cost || 0)), 0);
+                const lowStockCount = rawMaterialsList.filter(m => m.available_qty <= m.reorder_level).length;
+                const totalUnits = rawMaterialsList.reduce((sum, m) => sum + (m.available_qty || 0), 0);
+
+                const filteredRaw = rawMaterialsList.filter(m => {
+                  const matchSearch = materialsSearchQuery === '' ||
+                    m.material_name.toLowerCase().includes(materialsSearchQuery.toLowerCase()) ||
+                    m.category.toLowerCase().includes(materialsSearchQuery.toLowerCase());
+                  const matchCat = materialsCategoryFilter === 'All' || m.category === materialsCategoryFilter;
+                  return matchSearch && matchCat;
+                });
+
+                const filteredCustomer = customerMaterialsList.filter(c => {
+                  return materialsSearchQuery === '' ||
+                    c.material_type.toLowerCase().includes(materialsSearchQuery.toLowerCase()) ||
+                    (c.wood_type && c.wood_type.toLowerCase().includes(materialsSearchQuery.toLowerCase())) ||
+                    c.customer_name.toLowerCase().includes(materialsSearchQuery.toLowerCase()) ||
+                    c.customer_email.toLowerCase().includes(materialsSearchQuery.toLowerCase());
+                });
+
+                return (
+                  <div className="space-y-6 animate-fadeIn">
+                    {/* Top Bar: Sub-Tabs & Action Button */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
+                      {/* Sub-Tab Switcher */}
+                      <div className="flex items-center gap-2 bg-[#FAF7F2] p-1.5 rounded-xl border border-[#E2D7CB]">
+                        <button
+                          type="button"
+                          onClick={() => setMaterialsSubTab('raw')}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            materialsSubTab === 'raw'
+                              ? 'bg-[#38A132] text-white shadow-xs'
+                              : 'text-[#5C4E42] hover:text-[#2C241D]'
+                          }`}
+                        >
+                          <Boxes className="w-4 h-4" />
+                          <span>Factory Raw Materials</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                            materialsSubTab === 'raw' ? 'bg-white text-[#38A132]' : 'bg-[#EAE0D4] text-[#2C241D]'
+                          }`}>
+                            {rawMaterialsList.length}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMaterialsSubTab('customer')}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            materialsSubTab === 'customer'
+                              ? 'bg-[#38A132] text-white shadow-xs'
+                              : 'text-[#5C4E42] hover:text-[#2C241D]'
+                          }`}
+                        >
+                          <Layers className="w-4 h-4" />
+                          <span>Customer-Supplied Lots</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                            materialsSubTab === 'customer' ? 'bg-white text-[#38A132]' : 'bg-[#EAE0D4] text-[#2C241D]'
+                          }`}>
+                            {customerMaterialsList.length}
+                          </span>
+                        </button>
+                      </div>
+
+                      {/* Right Action */}
+                      <button
+                        type="button"
+                        onClick={() => setIsAddRawMaterialModalOpen(true)}
+                        className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Add Raw Material Batch</span>
+                      </button>
+                    </div>
+
+                    {/* KPI Stat Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Total Raw Types</span>
+                        <div className="text-2xl font-black text-[#2C241D]">{rawMaterialsList.length} Categories</div>
+                        <span className="text-[10px] font-bold text-[#38A132] block">🪵 Timber, Ply, Fabric & Foam</span>
+                      </div>
+
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Inventory Valuation</span>
+                        <div className="text-2xl font-black text-[#38A132]">₹{Math.round(totalStockVal).toLocaleString('en-IN')}</div>
+                        <span className="text-[10px] font-bold text-[#5C4E42] block">Approx Total Asset Value</span>
+                      </div>
+
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Low Stock Warnings</span>
+                        <div className={`text-2xl font-black ${lowStockCount > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                          {lowStockCount} Items
+                        </div>
+                        <span className="text-[10px] font-bold text-amber-700 block">Below Reorder Threshold</span>
+                      </div>
+
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Customer Timber Lots</span>
+                        <div className="text-2xl font-black text-[#2C241D]">{customerMaterialsList.length} Registered</div>
+                        <span className="text-[10px] font-bold text-purple-700 block">For Bespoke Fabrication</span>
+                      </div>
+                    </div>
+
+                    {/* Filter & Search Bar */}
+                    <div className="flex flex-col sm:flex-row items-center gap-3 bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+                      <div className="relative flex-1 w-full">
+                        <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder={materialsSubTab === 'raw' ? "Search raw material by name or category..." : "Search customer lots by client, wood type..."}
+                          value={materialsSearchQuery}
+                          onChange={(e) => setMaterialsSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                        />
+                      </div>
+
+                      {materialsSubTab === 'raw' && (
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                          <label className="text-xs font-bold text-[#5C4E42] whitespace-nowrap">Category:</label>
+                          <select
+                            value={materialsCategoryFilter}
+                            onChange={(e) => setMaterialsCategoryFilter(e.target.value)}
+                            className="px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-extrabold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                          >
+                            <option value="All">All Categories</option>
+                            <option value="Timber">Timber Logs & Planks</option>
+                            <option value="Plywood">Commercial Plywood</option>
+                            <option value="Fabric">Upholstery Fabrics</option>
+                            <option value="Foam">PU Cushioning Foam</option>
+                            <option value="Hardware">Hardware & Fasteners</option>
+                            <option value="Finishing">Varnish & Polishes</option>
+                          </select>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tab 1: Factory Raw Materials Table */}
+                    {materialsSubTab === 'raw' && (
+                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-[#EFE7DE] flex items-center justify-between">
+                          <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                            <Boxes className="w-4 h-4 text-[#38A132]" />
+                            <span>Factory Raw Materials Inventory ({filteredRaw.length})</span>
+                          </h3>
+                          <span className="text-[11px] font-bold text-[#7A6C5E]">Auto-tracked stock consumption</span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
+                                <th className="py-3 px-4">Material Details</th>
+                                <th className="py-3 px-4">Category</th>
+                                <th className="py-3 px-4">Available Stock</th>
+                                <th className="py-3 px-4">Reserved / In Use</th>
+                                <th className="py-3 px-4">Scrap / Wasted</th>
+                                <th className="py-3 px-4">Unit Cost & Value</th>
+                                <th className="py-3 px-4">Status</th>
+                                <th className="py-3 px-4 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] font-semibold">
+                              {filteredRaw.length === 0 ? (
+                                <tr>
+                                  <td colSpan={8} className="py-10 text-center text-[#7A6C5E]">
+                                    No raw materials found matching your criteria.
+                                  </td>
+                                </tr>
+                              ) : (
+                                filteredRaw.map((mat) => {
+                                  const isLow = mat.available_qty <= mat.reorder_level;
+                                  return (
+                                    <tr key={mat.material_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                      <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                        <div className="flex items-center gap-2">
+                                          <div className="w-8 h-8 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-800 font-black text-xs">
+                                            🪵
+                                          </div>
+                                          <div>
+                                            <span className="block text-xs font-black text-[#2C241D]">{mat.material_name}</span>
+                                            <span className="text-[10px] text-[#7A6C5E] font-mono">ID #{mat.material_id}</span>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <span className={`inline-block px-2.5 py-0.5 rounded-md text-[10px] font-black border ${
+                                          mat.category === 'Timber' ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                                          mat.category === 'Plywood' ? 'bg-orange-100 text-orange-900 border-orange-300' :
+                                          mat.category === 'Fabric' ? 'bg-purple-100 text-purple-900 border-purple-300' :
+                                          mat.category === 'Foam' ? 'bg-blue-100 text-blue-900 border-blue-300' :
+                                          'bg-gray-100 text-gray-800 border-gray-300'
+                                        }`}>
+                                          {mat.category}
+                                        </span>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <div className="font-black text-sm text-[#2C241D]">
+                                          {mat.available_qty.toLocaleString('en-IN')} <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase">{mat.unit}</span>
+                                        </div>
+                                        <span className="text-[10px] text-[#7A6C5E] font-medium">Reorder at: {mat.reorder_level} {mat.unit}</span>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <div className="text-xs font-bold text-[#4A3E32]">
+                                          <span className="text-amber-800 font-extrabold">{mat.reserved_qty}</span> reserved
+                                        </div>
+                                        <div className="text-[10px] text-[#7A6C5E]">
+                                          {mat.used_qty} consumed
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4 font-mono text-rose-700 font-bold">
+                                        {mat.wasted_qty} {mat.unit}
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <div className="font-extrabold text-[#2C241D]">
+                                          ₹{mat.unit_cost.toLocaleString('en-IN')} <span className="text-[10px] font-normal text-[#7A6C5E]">/{mat.unit}</span>
+                                        </div>
+                                        <div className="text-[10px] font-bold text-[#38A132]">
+                                          Total: ₹{Math.round(mat.available_qty * mat.unit_cost).toLocaleString('en-IN')}
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        {isLow ? (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                            Low Stock
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                            In Stock
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      <td className="py-3.5 px-4 text-right">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedMatForAdjust(mat);
+                                            setAdjustQtyInput('');
+                                            setAdjustType('Replenish');
+                                            setIsStockAdjustModalOpen(true);
+                                          }}
+                                          className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#EFE7DE] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-[11px] shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1"
+                                        >
+                                          <Edit3 className="w-3 h-3 text-[#38A132]" />
+                                          <span>Adjust Stock</span>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 2: Customer-Supplied Materials Table */}
+                    {materialsSubTab === 'customer' && (
+                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-[#EFE7DE] flex items-center justify-between">
+                          <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                            <Layers className="w-4 h-4 text-[#38A132]" />
+                            <span>Customer-Supplied Timber & Material Lots ({filteredCustomer.length})</span>
+                          </h3>
+                          <span className="text-[11px] font-bold text-[#7A6C5E]">Allocated for customer custom builds</span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
+                                <th className="py-3 px-4">Lot ID & Wood Type</th>
+                                <th className="py-3 px-4">Customer Owner</th>
+                                <th className="py-3 px-4">Supplied Quantity</th>
+                                <th className="py-3 px-4">Remaining Available</th>
+                                <th className="py-3 px-4">Condition & Specs</th>
+                                <th className="py-3 px-4">Status</th>
+                                <th className="py-3 px-4">Date Logged</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] font-semibold">
+                              {filteredCustomer.length === 0 ? (
+                                <tr>
+                                  <td colSpan={7} className="py-10 text-center text-[#7A6C5E]">
+                                    No customer-supplied materials registered yet.
+                                  </td>
+                                </tr>
+                              ) : (
+                                filteredCustomer.map((cust) => (
+                                  <tr key={cust.material_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                    <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                      <div className="flex items-center gap-2">
+                                        <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-purple-50 text-purple-800 border border-purple-200">
+                                          LOT #{cust.material_id}
+                                        </span>
+                                        <div>
+                                          <span className="block font-black text-xs text-[#2C241D]">{cust.wood_type || cust.material_type}</span>
+                                          <span className="text-[10px] text-[#7A6C5E]">{cust.material_type}</span>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    <td className="py-3.5 px-4">
+                                      <div className="font-extrabold text-[#2C241D]">{cust.customer_name}</div>
+                                      <div className="text-[10px] font-mono text-[#7A6C5E]">{cust.customer_email || `Customer #${cust.customer_id}`}</div>
+                                    </td>
+
+                                    <td className="py-3.5 px-4 font-black text-[#2C241D]">
+                                      {cust.quantity} <span className="text-[10px] font-bold text-[#7A6C5E] uppercase">{cust.unit}</span>
+                                    </td>
+
+                                    <td className="py-3.5 px-4 font-black text-[#38A132]">
+                                      {cust.remaining_quantity} <span className="text-[10px] font-bold text-[#7A6C5E] uppercase">{cust.unit}</span>
+                                    </td>
+
+                                    <td className="py-3.5 px-4">
+                                      <div className="text-xs font-bold text-[#2C241D]">{cust.condition || 'Good'}</div>
+                                      {cust.dimensions && <div className="text-[10px] text-[#7A6C5E] font-mono">{cust.dimensions}</div>}
+                                      {cust.notes && <div className="text-[10px] text-[#5C4E42] italic truncate max-w-xs">{cust.notes}</div>}
+                                    </td>
+
+                                    <td className="py-3.5 px-4">
+                                      <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                                        cust.status === 'APPROVED' || cust.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-900 border-emerald-300' :
+                                        cust.status === 'RECEIVED' || cust.status === 'INSPECTED' ? 'bg-blue-100 text-blue-900 border-blue-300' :
+                                        'bg-purple-100 text-purple-900 border-purple-300'
+                                      }`}>
+                                        {cust.status}
+                                      </span>
+                                    </td>
+
+                                    <td className="py-3.5 px-4 font-mono text-[11px] text-[#7A6C5E]">
+                                      {cust.created_at ? new Date(cust.created_at).toLocaleDateString() : 'Recent'}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* TAB: QUALITY ASSURANCE & STAGE INSPECTION HUB (QC) (OPTION 4) */}
+              {activeTab === 'quality' && (() => {
+                const totalInspections = qualityInspectionsList.length;
+                const passedCount = qualityInspectionsList.filter(i => i.result === 'PASS').length;
+                const passRate = totalInspections > 0 ? Math.round((passedCount / totalInspections) * 100) : 100;
+                const activeReworks = reworkJobsList.filter(r => r.status !== 'RESOLVED').length;
+
+                const filteredInspections = qualityInspectionsList.filter(i => {
+                  const matchSearch = qualitySearchQuery === '' ||
+                    i.inspector_name.toLowerCase().includes(qualitySearchQuery.toLowerCase()) ||
+                    String(i.order_id).includes(qualitySearchQuery) ||
+                    (i.inspection_notes && i.inspection_notes.toLowerCase().includes(qualitySearchQuery.toLowerCase()));
+                  const matchType = qualityOrderTypeFilter === 'All' || i.order_type === qualityOrderTypeFilter;
+                  const matchResult = qualityResultFilter === 'All' || i.result === qualityResultFilter;
+                  return matchSearch && matchType && matchResult;
+                });
+
+                const filteredReworks = reworkJobsList.filter(r => {
+                  return qualitySearchQuery === '' ||
+                    r.worker_name.toLowerCase().includes(qualitySearchQuery.toLowerCase()) ||
+                    String(r.order_id).includes(qualitySearchQuery) ||
+                    r.rework_reason.toLowerCase().includes(qualitySearchQuery.toLowerCase());
+                });
+
+                return (
+                  <div className="space-y-6 animate-fadeIn">
+                    {/* Top Bar: Sub-Tabs & Action Button */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
+                      {/* Sub-Tab Switcher */}
+                      <div className="flex items-center gap-2 bg-[#FAF7F2] p-1.5 rounded-xl border border-[#E2D7CB]">
+                        <button
+                          type="button"
+                          onClick={() => setQualitySubTab('inspections')}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            qualitySubTab === 'inspections'
+                              ? 'bg-[#38A132] text-white shadow-xs'
+                              : 'text-[#5C4E42] hover:text-[#2C241D]'
+                          }`}
+                        >
+                          <ClipboardCheck className="w-4 h-4" />
+                          <span>Quality Audit Logs</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                            qualitySubTab === 'inspections' ? 'bg-white text-[#38A132]' : 'bg-[#EAE0D4] text-[#2C241D]'
+                          }`}>
+                            {qualityInspectionsList.length}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQualitySubTab('rework')}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            qualitySubTab === 'rework'
+                              ? 'bg-[#38A132] text-white shadow-xs'
+                              : 'text-[#5C4E42] hover:text-[#2C241D]'
+                          }`}
+                        >
+                          <ShieldAlert className="w-4 h-4" />
+                          <span>Active Rework Queue</span>
+                          {activeReworks > 0 && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black animate-pulse ${
+                              qualitySubTab === 'rework' ? 'bg-rose-500 text-white' : 'bg-rose-600 text-white'
+                            }`}>
+                              {activeReworks}
+                            </span>
+                          )}
+                        </button>
+                      </div>
+
+                      {/* Right Action */}
+                      <button
+                        type="button"
+                        onClick={() => setIsRecordQCModalOpen(true)}
+                        className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span>Record QC Inspection</span>
+                      </button>
+                    </div>
+
+                    {/* KPI Stat Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Total QC Audits</span>
+                        <div className="text-2xl font-black text-[#2C241D]">{totalInspections} Recorded</div>
+                        <span className="text-[10px] font-bold text-[#38A132] block">Across All Workshop Stages</span>
+                      </div>
+
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">QC Pass Rate</span>
+                        <div className="text-2xl font-black text-emerald-600">{passRate}%</div>
+                        <span className="text-[10px] font-bold text-emerald-800 block">First-Time Inspection Compliance</span>
+                      </div>
+
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Active Rework Jobs</span>
+                        <div className={`text-2xl font-black ${activeReworks > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                          {activeReworks} Jobs
+                        </div>
+                        <span className="text-[10px] font-bold text-rose-700 block">Pending Artisan Rectification</span>
+                      </div>
+
+                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
+                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Passed Sign-Offs</span>
+                        <div className="text-2xl font-black text-[#2C241D]">{passedCount} Orders</div>
+                        <span className="text-[10px] font-bold text-[#38A132] block">Ready for Dispatch / Delivery</span>
+                      </div>
+                    </div>
+
+                    {/* Filter & Search Bar */}
+                    <div className="flex flex-col sm:flex-row items-center gap-3 bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
+                      <div className="relative flex-1 w-full">
+                        <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder={qualitySubTab === 'inspections' ? "Search QC logs by Order ID, Inspector, or notes..." : "Search rework by Worker or defect reason..."}
+                          value={qualitySearchQuery}
+                          onChange={(e) => setQualitySearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                        />
+                      </div>
+
+                      {qualitySubTab === 'inspections' && (
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-xs font-bold text-[#5C4E42]">Type:</label>
+                            <select
+                              value={qualityOrderTypeFilter}
+                              onChange={(e) => setQualityOrderTypeFilter(e.target.value)}
+                              className="px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-extrabold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                            >
+                              <option value="All">All Types</option>
+                              <option value="Custom">Custom Builds</option>
+                              <option value="Fabrication">Fabrications</option>
+                              <option value="Readymade">Readymade Store</option>
+                            </select>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <label className="text-xs font-bold text-[#5C4E42]">Result:</label>
+                            <select
+                              value={qualityResultFilter}
+                              onChange={(e) => setQualityResultFilter(e.target.value)}
+                              className="px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-extrabold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                            >
+                              <option value="All">All Results</option>
+                              <option value="PASS">PASS Only</option>
+                              <option value="FAIL">FAIL Only</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tab 1: Quality Inspection Records Table */}
+                    {qualitySubTab === 'inspections' && (
+                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-[#EFE7DE] flex items-center justify-between">
+                          <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                            <ClipboardCheck className="w-4 h-4 text-[#38A132]" />
+                            <span>Quality Control Inspection Records ({filteredInspections.length})</span>
+                          </h3>
+                          <span className="text-[11px] font-bold text-[#7A6C5E]">4-Point Technical Audit Compliance</span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
+                                <th className="py-3 px-4">Audit ID & Order</th>
+                                <th className="py-3 px-4">Order Type</th>
+                                <th className="py-3 px-4">Quality Inspector</th>
+                                <th className="py-3 px-4">4-Point Compliance Checklist</th>
+                                <th className="py-3 px-4">Overall Result</th>
+                                <th className="py-3 px-4">Inspector Findings & Notes</th>
+                                <th className="py-3 px-4">Timestamp</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] font-semibold">
+                              {filteredInspections.length === 0 ? (
+                                <tr>
+                                  <td colSpan={7} className="py-10 text-center text-[#7A6C5E]">
+                                    No quality control inspections match your filter.
+                                  </td>
+                                </tr>
+                              ) : (
+                                filteredInspections.map((insp) => {
+                                  const isPass = insp.result === 'PASS';
+                                  const chk = insp.checklist || { dimensions: true, finishing: true, structure: true, specifications: true };
+                                  return (
+                                    <tr key={insp.inspection_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                      <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                            QC-#{insp.inspection_id}
+                                          </span>
+                                          <div>
+                                            <span className="block font-black text-xs text-[#2C241D]">
+                                              {insp.order_type === 'Custom' ? `CUSTOM-${insp.order_id}` :
+                                               insp.order_type === 'Fabrication' ? `FAB-${insp.order_id}` : `ORDER-${insp.order_id}`}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <span className={`inline-block px-2.5 py-0.5 rounded-md text-[10px] font-black border ${
+                                          insp.order_type === 'Custom' ? 'bg-purple-100 text-purple-900 border-purple-300' :
+                                          insp.order_type === 'Fabrication' ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                                          'bg-blue-100 text-blue-900 border-blue-300'
+                                        }`}>
+                                          {insp.order_type}
+                                        </span>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <div className="font-extrabold text-[#2C241D]">🧑‍🔧 {insp.inspector_name}</div>
+                                        <span className="text-[10px] text-[#7A6C5E]">QC Lead Auditor</span>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
+                                          <span className={`flex items-center gap-1 font-bold ${chk.dimensions ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            {chk.dimensions ? '✓' : '✗'} Dimensions
+                                          </span>
+                                          <span className={`flex items-center gap-1 font-bold ${chk.finishing ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            {chk.finishing ? '✓' : '✗'} Finishing
+                                          </span>
+                                          <span className={`flex items-center gap-1 font-bold ${chk.structure ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            {chk.structure ? '✓' : '✗'} Structure
+                                          </span>
+                                          <span className={`flex items-center gap-1 font-bold ${chk.specifications ? 'text-emerald-700' : 'text-rose-700'}`}>
+                                            {chk.specifications ? '✓' : '✗'} CAD Specs
+                                          </span>
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        {isPass ? (
+                                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                            PASSED ✓
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black bg-rose-100 text-rose-900 border border-rose-300">
+                                            <X className="w-3.5 h-3.5 text-rose-600" />
+                                            FAILED (REWORK)
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      <td className="py-3.5 px-4 text-xs text-[#4A3E32] max-w-xs">
+                                        {insp.inspection_notes || <span className="text-[#9E9082] italic">Passed tolerance check with zero defects.</span>}
+                                      </td>
+
+                                      <td className="py-3.5 px-4 font-mono text-[11px] text-[#7A6C5E]">
+                                        {insp.inspected_at ? new Date(insp.inspected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 2: Active Rework Queue Table */}
+                    {qualitySubTab === 'rework' && (
+                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden">
+                        <div className="p-4 border-b border-[#EFE7DE] flex items-center justify-between">
+                          <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                            <ShieldAlert className="w-4 h-4 text-rose-600" />
+                            <span>Active Rework & Defect Rectification Queue ({filteredReworks.length})</span>
+                          </h3>
+                          <span className="text-[11px] font-bold text-[#7A6C5E]">Artisan worker rework tasks</span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
+                                <th className="py-3 px-4">Rework ID & Order</th>
+                                <th className="py-3 px-4">Assigned Artisan Worker</th>
+                                <th className="py-3 px-4">Defect Reason & Required Fix</th>
+                                <th className="py-3 px-4">Job Status</th>
+                                <th className="py-3 px-4">Logged At</th>
+                                <th className="py-3 px-4 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] font-semibold">
+                              {filteredReworks.length === 0 ? (
+                                <tr>
+                                  <td colSpan={6} className="py-10 text-center text-[#7A6C5E]">
+                                    🎉 No pending rework jobs in queue! All products meet QC standards.
+                                  </td>
+                                </tr>
+                              ) : (
+                                filteredReworks.map((rw) => {
+                                  const isResolved = rw.status === 'RESOLVED';
+                                  return (
+                                    <tr key={rw.rework_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                      <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                        <div className="flex items-center gap-2">
+                                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-rose-50 text-rose-800 border border-rose-200">
+                                            RW-#{rw.rework_id}
+                                          </span>
+                                          <div>
+                                            <span className="block font-black text-xs text-[#2C241D]">
+                                              {rw.order_type} #{rw.order_id}
+                                            </span>
+                                            <span className="text-[10px] text-[#7A6C5E]">Inspection #{rw.inspection_id}</span>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        <div className="font-extrabold text-[#2C241D]">👷 {rw.worker_name}</div>
+                                        <span className="text-[10px] text-[#7A6C5E]">Assigned Workshop Craftsman</span>
+                                      </td>
+
+                                      <td className="py-3.5 px-4 text-xs text-[#4A3E32] max-w-sm">
+                                        <div className="font-bold text-rose-900 bg-rose-50/70 p-2 rounded-xl border border-rose-200">
+                                          ⚠️ {rw.rework_reason}
+                                        </div>
+                                      </td>
+
+                                      <td className="py-3.5 px-4">
+                                        {isResolved ? (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
+                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                            RESOLVED
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
+                                            <Clock className="w-3 h-3 text-amber-600" />
+                                            {rw.status}
+                                          </span>
+                                        )}
+                                      </td>
+
+                                      <td className="py-3.5 px-4 font-mono text-[11px] text-[#7A6C5E]">
+                                        {rw.created_at ? new Date(rw.created_at).toLocaleDateString() : 'Recent'}
+                                      </td>
+
+                                      <td className="py-3.5 px-4 text-right">
+                                        {!isResolved ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSelectedReworkForResolve(rw);
+                                              setReworkResolveNotes('Defect rectified by artisan. Joints planed and re-polished.');
+                                              setIsResolveReworkModalOpen(true);
+                                            }}
+                                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] shadow-sm transition-all cursor-pointer inline-flex items-center gap-1"
+                                          >
+                                            <Check className="w-3 h-3" />
+                                            <span>Resolve Rework</span>
+                                          </button>
+                                        ) : (
+                                          <span className="text-[11px] text-emerald-700 font-extrabold">Ready for Re-Audit ✓</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </main>
         </div>
@@ -9603,6 +10562,570 @@ export const AdminDashboardPage: React.FC = () => {
                   className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
                 >
                   {isSubmittingEditStaff ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: REVIEW LEAVE APPLICATION WITH NOTES */}
+      {isReviewLeaveModalOpen && selectedLeaveForReview && (
+        <div className="fixed inset-0 z-[120] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full border-2 border-[#E2D7CB] shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div className="flex items-center gap-2">
+                <CalendarCheck className={`w-5 h-5 ${reviewActionType === 'Approved' ? 'text-emerald-600' : 'text-rose-600'}`} />
+                <h3 className="font-extrabold text-base text-[#2C241D]">
+                  {reviewActionType === 'Approved' ? 'Approve Leave Request' : 'Reject Leave Request'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReviewLeaveModalOpen(false);
+                  setSelectedLeaveForReview(null);
+                }}
+                className="text-[#7A6C5E] hover:text-[#2C241D] p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-[#2C241D]">Worker:</span>
+                <span className="font-bold text-[#38A132]">{selectedLeaveForReview.worker_name || `Worker #${selectedLeaveForReview.worker_id}`}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-[#2C241D]">Leave Type:</span>
+                <span className="font-bold text-[#4A3E32]">{selectedLeaveForReview.leave_type}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="font-extrabold text-[#2C241D]">Duration:</span>
+                <span className="font-bold text-[#2C241D]">{selectedLeaveForReview.duration_days} Day(s) ({selectedLeaveForReview.start_date} to {selectedLeaveForReview.end_date})</span>
+              </div>
+              <div className="pt-1 text-[11px] text-[#5C4E42] border-t border-[#EFE7DE]">
+                <strong>Reason:</strong> {selectedLeaveForReview.reason || 'None provided'}
+              </div>
+            </div>
+
+            <form onSubmit={handleConfirmReviewLeaveModal} className="space-y-4">
+              <div>
+                <label className="block text-xs font-black text-[#2C241D] mb-1">
+                  Administrator Remarks / Review Notes (Optional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={reviewNotesInput}
+                  onChange={(e) => setReviewNotesInput(e.target.value)}
+                  placeholder="e.g., Approved with advance cover arrangement or Rejected due to urgent workshop delivery..."
+                  className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-medium focus:outline-none focus:border-[#38A132] text-[#2C241D]"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsReviewLeaveModalOpen(false);
+                    setSelectedLeaveForReview(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#7A6C5E] hover:bg-[#FAF7F2] border border-[#E2D7CB] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingLeaveReview}
+                  className={`px-5 py-2 rounded-xl text-xs font-black text-white transition-all shadow-md cursor-pointer ${
+                    reviewActionType === 'Approved'
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-rose-600 hover:bg-rose-700'
+                  } ${isSubmittingLeaveReview ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  {isSubmittingLeaveReview ? 'Submitting...' : `Confirm ${reviewActionType}`}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: ADD RAW MATERIAL BATCH (OPTION 3) */}
+      {isAddRawMaterialModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <Boxes className="w-5 h-5 text-[#38A132]" />
+                  <span>Add Raw Material Batch</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">Register workshop timber, fabric, plywood or hardware.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddRawMaterialModalOpen(false)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateRawMaterialSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Material Category *</label>
+                <select
+                  value={newMatCategory}
+                  onChange={(e) => setNewMatCategory(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                >
+                  <option value="Timber">Timber Logs & Planks</option>
+                  <option value="Plywood">Commercial Marine Plywood</option>
+                  <option value="Fabric">Upholstery Fabric (Bouclé / Velvet / Leather)</option>
+                  <option value="Foam">PU Cushioning Foam</option>
+                  <option value="Hardware">Hardware, Hinges & Fasteners</option>
+                  <option value="Finishing">Varnish, Polish & Stain</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Material Name / Species *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Teak Wood Planks (4x2), Velvet Emerald"
+                  value={newMatName}
+                  onChange={(e) => setNewMatName(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Initial Stock Units *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 150"
+                    value={newMatAvailableQty}
+                    onChange={(e) => setNewMatAvailableQty(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Unit of Measure *</label>
+                  <select
+                    value={newMatUnit}
+                    onChange={(e) => setNewMatUnit(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  >
+                    <option value="cu_ft">Cubic Feet (cu_ft)</option>
+                    <option value="pieces">Pieces / Boards</option>
+                    <option value="meters">Meters (Fabrics)</option>
+                    <option value="sq_ft">Square Feet (sq_ft)</option>
+                    <option value="kg">Kilograms (kg)</option>
+                    <option value="liters">Liters (Varnish)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Unit Cost (₹) *</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 1800"
+                    value={newMatUnitCost}
+                    onChange={(e) => setNewMatUnitCost(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Reorder Level Threshold</label>
+                  <input
+                    type="number"
+                    step="any"
+                    placeholder="e.g. 20"
+                    value={newMatReorderLevel}
+                    onChange={(e) => setNewMatReorderLevel(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddRawMaterialModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingNewMaterial}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingNewMaterial ? 'Saving...' : 'Add Material'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: STOCK ADJUST (OPTION 3) */}
+      {isStockAdjustModalOpen && selectedMatForAdjust && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <Edit3 className="w-5 h-5 text-[#38A132]" />
+                  <span>Adjust Material Stock</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">{selectedMatForAdjust.material_name}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsStockAdjustModalOpen(false);
+                  setSelectedMatForAdjust(null);
+                }}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] flex items-center justify-between text-xs">
+              <div>
+                <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Current Available</span>
+                <span className="text-lg font-black text-[#2C241D]">{selectedMatForAdjust.available_qty} {selectedMatForAdjust.unit}</span>
+              </div>
+              <div className="text-right">
+                <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Category</span>
+                <span className="font-extrabold text-[#38A132]">{selectedMatForAdjust.category}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleStockAdjustSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1.5">Adjustment Action *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType('Replenish')}
+                    className={`py-2 px-2 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                      adjustType === 'Replenish'
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-400 shadow-xs'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB]'
+                    }`}
+                  >
+                    + Replenish
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType('Usage')}
+                    className={`py-2 px-2 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                      adjustType === 'Usage'
+                        ? 'bg-blue-100 text-blue-900 border-blue-400 shadow-xs'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB]'
+                    }`}
+                  >
+                    - Used / Fab
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAdjustType('Wasted')}
+                    className={`py-2 px-2 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                      adjustType === 'Wasted'
+                        ? 'bg-rose-100 text-rose-900 border-rose-400 shadow-xs'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB]'
+                    }`}
+                  >
+                    - Scrap / Cut
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Quantity ({selectedMatForAdjust.unit}) *
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  placeholder={`Enter quantity in ${selectedMatForAdjust.unit}...`}
+                  value={adjustQtyInput}
+                  onChange={(e) => setAdjustQtyInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold text-sm focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  required
+                />
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsStockAdjustModalOpen(false);
+                    setSelectedMatForAdjust(null);
+                  }}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingAdjust}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingAdjust ? 'Updating...' : 'Save Adjustment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: RECORD QUALITY CONTROL INSPECTION (OPTION 4) */}
+      {isRecordQCModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <ClipboardCheck className="w-5 h-5 text-[#38A132]" />
+                  <span>Record QC Stage Audit</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E]">Perform 4-point technical tolerance check on order.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecordQCModalOpen(false)}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRecordQCSubmit} className="space-y-4 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Order Category *</label>
+                  <select
+                    value={qcOrderType}
+                    onChange={(e) => setQcOrderType(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  >
+                    <option value="Custom">Custom Order (Bespoke)</option>
+                    <option value="Fabrication">Workshop Fabrication</option>
+                    <option value="Readymade">Readymade Catalog Item</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Target Numeric ID *</label>
+                  <input
+                    type="number"
+                    placeholder="e.g. 37, 23, 1"
+                    value={qcOrderId}
+                    onChange={(e) => setQcOrderId(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Overall Pass/Fail Switcher */}
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1.5">Overall Audit Outcome *</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setQcResult('PASS')}
+                    className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                      qcResult === 'PASS'
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-400 shadow-xs ring-2 ring-emerald-400/20'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB]'
+                    }`}
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>PASSED (Approve Order)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQcResult('FAIL')}
+                    className={`py-2.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all cursor-pointer ${
+                      qcResult === 'FAIL'
+                        ? 'bg-rose-100 text-rose-900 border-rose-400 shadow-xs ring-2 ring-rose-400/20'
+                        : 'bg-[#F9F6F0] text-[#7A6C5E] border-[#E2D7CB]'
+                    }`}
+                  >
+                    <X className="w-4 h-4 text-rose-600" />
+                    <span>FAILED (Queue Rework)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4-Point Checklist Checkboxes */}
+              <div className="space-y-2 p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB]">
+                <span className="font-extrabold text-xs text-[#2C241D] block">4-Point Compliance Checklist</span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={qcDimensionsCheck}
+                      onChange={(e) => setQcDimensionsCheck(e.target.checked)}
+                      className="w-4 h-4 accent-[#38A132] rounded"
+                    />
+                    <span>📏 Dimensions (±1mm)</span>
+                  </label>
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={qcFinishingCheck}
+                      onChange={(e) => setQcFinishingCheck(e.target.checked)}
+                      className="w-4 h-4 accent-[#38A132] rounded"
+                    />
+                    <span>✨ Surface Finish & Polish</span>
+                  </label>
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={qcStructureCheck}
+                      onChange={(e) => setQcStructureCheck(e.target.checked)}
+                      className="w-4 h-4 accent-[#38A132] rounded"
+                    />
+                    <span>🪵 Structural Integrity</span>
+                  </label>
+                  <label className="flex items-center gap-2 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={qcSpecificationsCheck}
+                      onChange={(e) => setQcSpecificationsCheck(e.target.checked)}
+                      className="w-4 h-4 accent-[#38A132] rounded"
+                    />
+                    <span>📋 CAD Spec Compliance</span>
+                  </label>
+                </div>
+              </div>
+
+              {qcResult === 'FAIL' && (
+                <div>
+                  <label className="block font-extrabold text-[#2C241D] mb-1">Assign Rework to Artisan Craftsman</label>
+                  <select
+                    value={qcReworkWorkerId || ''}
+                    onChange={(e) => setQcReworkWorkerId(e.target.value ? parseInt(e.target.value) : undefined)}
+                    className="w-full px-3 py-2 bg-[#F9F6F0] border border-rose-300 rounded-xl font-bold text-xs focus:outline-none text-[#2C241D]"
+                  >
+                    <option value="">-- Select Artisan Worker (Optional) --</option>
+                    {allUsersList.filter(u => u.role !== 'Customer').map((u) => (
+                      <option key={u.user_id} value={u.user_id}>
+                        👷 {u.full_name || u.name} ({u.role || 'Staff'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Inspector Notes & Specific Findings</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Verified teak grain, joinery alignment within 0.5mm tolerance. Ready for packaging."
+                  value={qcInspectionNotes}
+                  onChange={(e) => setQcInspectionNotes(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => setIsRecordQCModalOpen(false)}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingQC}
+                  className="w-1/2 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingQC ? 'Recording...' : 'Submit QC Audit'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: RESOLVE REWORK JOB (OPTION 4) */}
+      {isResolveReworkModalOpen && selectedReworkForResolve && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-white rounded-[2rem] p-6 sm:p-7 w-full max-w-md shadow-2xl border border-[#E2D7CB] relative z-50 space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div>
+                <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                  <span>Resolve Rework Job #{selectedReworkForResolve.rework_id}</span>
+                </h3>
+                <p className="text-[11px] font-medium text-[#7A6C5E] mt-0.5">
+                  {selectedReworkForResolve.order_type} #{selectedReworkForResolve.order_id} • Assigned: {selectedReworkForResolve.worker_name}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsResolveReworkModalOpen(false);
+                  setSelectedReworkForResolve(null);
+                }}
+                className="p-1.5 text-[#7A6C5E] hover:text-[#2C241D] rounded-full hover:bg-[#F9F6F0]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50 rounded-2xl border border-rose-200 text-xs space-y-1">
+              <span className="font-extrabold text-rose-900 block">Reported Defect Reason:</span>
+              <p className="text-rose-800 font-medium italic">{selectedReworkForResolve.rework_reason}</p>
+            </div>
+
+            <form onSubmit={handleResolveReworkSubmit} className="space-y-3.5 text-xs">
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">Rectification Remarks / Artisan Sign-Off</label>
+                <textarea
+                  rows={3}
+                  value={reworkResolveNotes}
+                  onChange={(e) => setReworkResolveNotes(e.target.value)}
+                  placeholder="e.g. Joints planed and re-sanded. Surface coat reapplied and dried."
+                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                />
+              </div>
+
+              <div className="pt-2 flex items-center gap-3 border-t border-[#EFE7DE]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsResolveReworkModalOpen(false);
+                    setSelectedReworkForResolve(null);
+                  }}
+                  className="w-1/2 py-2.5 rounded-xl border border-[#E2D7CB] bg-[#F9F6F0] hover:bg-[#F2ECE1] text-[#6B5C4D] font-extrabold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingResolveRework}
+                  className="w-1/2 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold shadow-md transition-all cursor-pointer"
+                >
+                  {isSubmittingResolveRework ? 'Resolving...' : 'Confirm Resolved'}
                 </button>
               </div>
             </form>

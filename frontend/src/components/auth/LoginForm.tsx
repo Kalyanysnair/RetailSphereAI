@@ -12,10 +12,17 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
   const [viewMode, setViewMode] = useState<'login' | 'forgot'>('login');
 
-  const [credentials, setCredentials] = useState<LoginCredentials>({
-    username: location.state?.registeredEmail || '',
-    password: '',
-    rememberMe: true,
+  const [credentials, setCredentials] = useState<LoginCredentials>(() => {
+    const savedRememberMe = localStorage.getItem('retailsphere_remember_me') ?? localStorage.getItem('remember_me');
+    const rememberMe = savedRememberMe !== null ? savedRememberMe === 'true' : true;
+    const savedUsername = localStorage.getItem('retailsphere_saved_username') || localStorage.getItem('saved_username') || '';
+    const savedPassword = localStorage.getItem('retailsphere_saved_password') || localStorage.getItem('saved_password') || '';
+
+    return {
+      username: location.state?.registeredEmail || (rememberMe ? savedUsername : ''),
+      password: rememberMe ? savedPassword : '',
+      rememberMe: rememberMe,
+    };
   });
 
   const [successBanner, setSuccessBanner] = useState<string | null>(() => location.state?.message || null);
@@ -73,6 +80,23 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
         });
       }
 
+      // Handle Remember Me persistence
+      if (credentials.rememberMe) {
+        localStorage.setItem('retailsphere_remember_me', 'true');
+        localStorage.setItem('remember_me', 'true');
+        localStorage.setItem('retailsphere_saved_username', credentials.username.trim());
+        localStorage.setItem('saved_username', credentials.username.trim());
+        localStorage.setItem('retailsphere_saved_password', credentials.password);
+        localStorage.setItem('saved_password', credentials.password);
+      } else {
+        localStorage.setItem('retailsphere_remember_me', 'false');
+        localStorage.setItem('remember_me', 'false');
+        localStorage.removeItem('retailsphere_saved_username');
+        localStorage.removeItem('retailsphere_saved_password');
+        localStorage.removeItem('saved_username');
+        localStorage.removeItem('saved_password');
+      }
+
       const roleName = res?.user?.role_name || '';
       const usernameClean = credentials.username.trim().toLowerCase();
       const isAdmin = roleName === 'Admin' || usernameClean === 'admin' || res?.user?.email?.toLowerCase().includes('admin');
@@ -106,10 +130,27 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
-    setCredentials((prev) => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value,
-    }));
+    const nextVal = type === 'checkbox' ? checked : value;
+
+    setCredentials((prev) => {
+      const updated = {
+        ...prev,
+        [name]: nextVal,
+      };
+
+      // If user unchecks "Remember me", immediately clear stored credentials
+      if (name === 'rememberMe' && !checked) {
+        localStorage.setItem('retailsphere_remember_me', 'false');
+        localStorage.setItem('remember_me', 'false');
+        localStorage.removeItem('retailsphere_saved_username');
+        localStorage.removeItem('retailsphere_saved_password');
+        localStorage.removeItem('saved_username');
+        localStorage.removeItem('saved_password');
+      }
+
+      return updated;
+    });
+
     if (errors[name as keyof ValidationErrors]) {
       setErrors((prev) => ({ ...prev, [name]: undefined }));
     }

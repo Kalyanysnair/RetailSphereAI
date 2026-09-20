@@ -209,3 +209,33 @@ select option:checked {
   background-color: #48A63E !important;
   color: #ffffff !important;
 }
+
+/* Multi-Device Responsive Safety & Touch Optimization */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+img, video {
+  max-width: 100%;
+  height: auto;
+}
+
+.table-responsive-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+button, a, input, select, textarea {
+  touch-action: manipulation;
+}
+
+@media (max-width: 640px) {
+  .ultra-glass-panel,
+  .ultra-glass-card {
+    border-radius: 1.5rem !important;
+  }
+}

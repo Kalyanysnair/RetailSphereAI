@@ -173,10 +173,11 @@ export const WorkerDashboardPage: React.FC = () => {
   // Profile / Password Modal State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [mustChangePasswordModal, setMustChangePasswordModal] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [passwordNotice, setPasswordNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
   // Data Loading Function
   const loadWorkerWorkspaceData = async () => {
@@ -514,36 +515,68 @@ export const WorkerDashboardPage: React.FC = () => {
     }
   };
 
-  // Password Change Handler
-  const handleChangePassword = async (e: React.FormEvent) => {
+  // Profile & Password Update Handler (No current password required)
+  const handleSaveProfileAndSecurity = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordNotice(null);
-    if (newPassword.length < 6) {
-      setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordNotice({ type: 'error', text: 'New password and confirmation do not match.' });
+
+    const hasPasswordUpdate = Boolean(newPassword.trim());
+    if (mustChangePasswordModal && !hasPasswordUpdate) {
+      setPasswordNotice({ type: 'error', text: 'Please set a new password to proceed.' });
       return;
     }
 
-    try {
-      if (mustChangePasswordModal) {
-        await changeFirstPassword(currentPassword, newPassword);
-        setMustChangePasswordModal(false);
-      } else {
-        await changePasswordUser(currentPassword, newPassword);
+    if (hasPasswordUpdate) {
+      if (newPassword.trim().length < 6) {
+        setPasswordNotice({ type: 'error', text: 'New password must be at least 6 characters long.' });
+        return;
       }
-      setPasswordNotice({ type: 'success', text: 'Password successfully updated!' });
-      setCurrentPassword('');
+      if (newPassword !== confirmPassword) {
+        setPasswordNotice({ type: 'error', text: 'New password and confirmation do not match.' });
+        return;
+      }
+    }
+
+    setIsUpdatingProfile(true);
+    try {
+      let updatedUser = userProfile;
+
+      // 1. If password needs to be updated
+      if (hasPasswordUpdate) {
+        updatedUser = await changePasswordUser(newPassword.trim());
+        setMustChangePasswordModal(false);
+      }
+
+      // 2. If phone is updated
+      if (profilePhone.trim() !== (userProfile?.phone || '')) {
+        updatedUser = await updateUserProfile({
+          full_name: userProfile?.full_name || 'Artisan Worker',
+          phone: profilePhone.trim()
+        });
+      }
+
+      setUserProfile((prev: any) => ({
+        ...prev,
+        ...updatedUser,
+        phone: profilePhone.trim()
+      }));
+
+      setPasswordNotice({
+        type: 'success',
+        text: hasPasswordUpdate
+          ? 'Profile & security credentials updated successfully!'
+          : 'Profile contact details saved successfully!'
+      });
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => {
         setIsProfileModalOpen(false);
         setPasswordNotice(null);
-      }, 2000);
+      }, 1500);
     } catch (err: any) {
-      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update password.' });
+      setPasswordNotice({ type: 'error', text: err.message || 'Failed to update profile or security settings.' });
+    } finally {
+      setIsUpdatingProfile(false);
     }
   };
 
@@ -696,7 +729,7 @@ export const WorkerDashboardPage: React.FC = () => {
                       label: 'Driver Deliveries',
                       icon: Truck,
                       badge: summaryData?.driver_deliveries_count || deliveriesList.filter(d => d.fulfillment_status !== 'Delivered').length,
-                      badgeColor: 'bg-indigo-600'
+                      badgeColor: 'bg-emerald-600'
                     }
                   ].map((item) => {
                     const Icon = item.icon;
@@ -923,6 +956,10 @@ export const WorkerDashboardPage: React.FC = () => {
                       <div className="absolute right-0 top-full mt-2 w-48 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
                         <button
                           onClick={() => {
+                            setProfilePhone(userProfile?.phone || '');
+                            setNewPassword('');
+                            setConfirmPassword('');
+                            setPasswordNotice(null);
                             setIsProfileModalOpen(true);
                             setIsUserMenuOpen(false);
                           }}
@@ -1162,9 +1199,16 @@ export const WorkerDashboardPage: React.FC = () => {
                         </div>
 
                         {activeTask.technical_instructions && (
-                          <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900">
-                            <strong className="font-extrabold block text-[10px] uppercase text-amber-800">Technician Instructions:</strong>
-                            {activeTask.technical_instructions}
+                          <div className="p-3 rounded-2xl bg-[#F5ECE1]/70 border border-[#E2D7CB] text-xs text-[#2C241D] flex items-start gap-2.5">
+                            <FileText className="w-4 h-4 text-[#B89768] shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <strong className="font-extrabold block text-[10px] uppercase text-[#7A6C5E] tracking-wider mb-0.5">
+                                Production Specifications & Guidelines
+                              </strong>
+                              <p className="text-xs text-[#3D3228] font-medium leading-relaxed">
+                                {activeTask.technical_instructions}
+                              </p>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1439,6 +1483,15 @@ export const WorkerDashboardPage: React.FC = () => {
                               <div className="text-[10px] text-[#7A6C5E] font-medium truncate">
                                 {del.items_description}
                               </div>
+                              {del.delivery_notes && (
+                                <div className="p-2 rounded-xl bg-[#F5ECE1]/70 border border-[#E2D7CB] text-[11px] text-[#3D3228] flex items-start gap-1.5">
+                                  <FileText className="w-3.5 h-3.5 text-[#B89768] shrink-0 mt-0.5" />
+                                  <span className="line-clamp-2 leading-tight">
+                                    <strong className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Note:</strong>
+                                    {del.delivery_notes}
+                                  </span>
+                                </div>
+                              )}
                             </div>
 
                             <div className="text-[10px] font-bold text-[#7A6C5E] flex items-center justify-between pt-2 border-t border-[#EFE7DE]">
@@ -1700,9 +1753,12 @@ export const WorkerDashboardPage: React.FC = () => {
 
                         <div>
                           <h4 className="text-sm font-black text-[#2C241D]">{rw.order_title}</h4>
-                          <div className="p-2.5 bg-red-50 rounded-xl border border-red-200 mt-2 text-xs text-red-800">
-                            <strong className="block font-black text-[10px] uppercase text-red-700">QC Defect Reason:</strong>
-                            {rw.rework_reason}
+                          <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 mt-2 text-xs text-rose-900 flex items-start gap-2.5">
+                            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <strong className="block font-bold text-[10px] uppercase text-rose-800 tracking-wider mb-0.5">QC Inspection Finding:</strong>
+                              <p className="text-xs text-rose-900 font-medium leading-relaxed">{rw.rework_reason}</p>
+                            </div>
                           </div>
                         </div>
 
@@ -1744,7 +1800,7 @@ export const WorkerDashboardPage: React.FC = () => {
                       value={deliverySearchQuery}
                       onChange={(e) => setDeliverySearchQuery(e.target.value)}
                       placeholder="Search delivery orders by customer, order ref, address, or vehicle..."
-                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] placeholder:text-[#7A6C5E] focus:outline-none focus:border-indigo-500"
+                      className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] placeholder:text-[#7A6C5E] focus:outline-none focus:border-[#48A63E]"
                     />
                   </div>
 
@@ -1767,7 +1823,7 @@ export const WorkerDashboardPage: React.FC = () => {
                           onClick={() => setDeliveryFilter(filter)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                             isActive
-                              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                              ? 'bg-[#38A132] text-white shadow-sm shadow-[#38A132]/30'
                               : 'bg-[#FAF7F2] text-[#5C4E42] border border-[#E2D7CB] hover:bg-[#EFE8DC]'
                           }`}
                         >
@@ -1781,7 +1837,7 @@ export const WorkerDashboardPage: React.FC = () => {
                 {filteredDeliveries.length === 0 ? (
                   <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
                     <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
-                      <Truck className="w-6 h-6 opacity-40 text-indigo-600" />
+                      <Truck className="w-6 h-6 opacity-40 text-[#48A63E]" />
                     </div>
                     <h4 className="text-sm font-extrabold text-[#2C241D]">
                       {deliveriesList.length === 0 ? 'No Deliveries Assigned' : 'No Deliveries Match Filter'}
@@ -1809,7 +1865,7 @@ export const WorkerDashboardPage: React.FC = () => {
                                 ? 'bg-[#E8F5E9] text-[#2D6338] border border-emerald-200'
                                 : del.delivery_status === 'Out for Delivery'
                                 ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                : 'bg-[#E8F5E9] text-[#2D6338] border border-emerald-300'
                             }`}>
                               {del.delivery_status || del.fulfillment_status}
                             </span>
@@ -1822,7 +1878,7 @@ export const WorkerDashboardPage: React.FC = () => {
 
                           <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] space-y-1.5 text-xs">
                             <div className="flex items-start gap-2 text-[#2C241D] font-extrabold">
-                              <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                              <MapPin className="w-3.5 h-3.5 text-[#48A63E] shrink-0 mt-0.5" />
                               <span>{del.delivery_address}</span>
                             </div>
                             <div className="flex items-center gap-2 text-[#7A6C5E] font-bold">
@@ -1846,9 +1902,16 @@ export const WorkerDashboardPage: React.FC = () => {
                           </div>
 
                           {del.delivery_notes && (
-                            <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900">
-                              <strong className="block font-black text-[10px] uppercase text-amber-800">Delivery Instructions / Notes:</strong>
-                              {del.delivery_notes}
+                            <div className="p-3 rounded-2xl bg-[#F5ECE1]/70 border border-[#E2D7CB] text-xs text-[#2C241D] flex items-start gap-2.5 shadow-2xs">
+                              <FileText className="w-4 h-4 text-[#B89768] shrink-0 mt-0.5" />
+                              <div className="min-w-0 flex-1">
+                                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mb-0.5">
+                                  Delivery Notes & Remarks
+                                </span>
+                                <p className="text-xs text-[#3D3228] font-medium leading-relaxed">
+                                  {del.delivery_notes}
+                                </p>
+                              </div>
                             </div>
                           )}
                         </div>
@@ -1856,7 +1919,7 @@ export const WorkerDashboardPage: React.FC = () => {
                         <div className="space-y-2 pt-2">
                           <button
                             onClick={() => handleOpenDeliveryModal(del)}
-                            className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs shadow-md shadow-indigo-600/20 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
+                            className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 transition-all"
                           >
                             <Truck className="w-3.5 h-3.5" />
                             <span>Update Delivery Status</span>
@@ -2233,9 +2296,16 @@ export const WorkerDashboardPage: React.FC = () => {
             </div>
 
             {selectedTaskForDetail.technical_instructions && (
-              <div className="p-3 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900">
-                <strong className="block font-bold text-[10px] uppercase text-amber-800">Technician Instructions:</strong>
-                {selectedTaskForDetail.technical_instructions}
+              <div className="p-3 rounded-2xl bg-[#F5ECE1]/70 border border-[#E2D7CB] text-xs text-[#2C241D] flex items-start gap-2.5">
+                <FileText className="w-4 h-4 text-[#B89768] shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <strong className="font-extrabold block text-[10px] uppercase text-[#7A6C5E] tracking-wider mb-0.5">
+                    Production Specifications & Guidelines
+                  </strong>
+                  <p className="text-xs text-[#3D3228] font-medium leading-relaxed">
+                    {selectedTaskForDetail.technical_instructions}
+                  </p>
+                </div>
               </div>
             )}
 
@@ -2448,7 +2518,7 @@ export const WorkerDashboardPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-purple-900">
+              <h3 className="text-base font-extrabold text-[#2C241D]">
                 Resolve Rework #{selectedReworkForDetail.rework_id}
               </h3>
               <button onClick={() => setIsReworkModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
@@ -2456,8 +2526,12 @@ export const WorkerDashboardPage: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-3 bg-red-50 rounded-2xl border border-red-200 text-xs text-red-900">
-              <strong>Defect:</strong> {selectedReworkForDetail.rework_reason}
+            <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-xs text-rose-900 flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <strong className="block font-bold text-[10px] uppercase text-rose-800 tracking-wider mb-0.5">QC Inspection Defect Finding:</strong>
+                <p className="text-xs text-rose-900 font-medium leading-relaxed">{selectedReworkForDetail.rework_reason}</p>
+              </div>
             </div>
 
             <div className="space-y-3 text-xs">
@@ -2467,7 +2541,7 @@ export const WorkerDashboardPage: React.FC = () => {
                 value={reworkResolveNotes}
                 onChange={(e) => setReworkResolveNotes(e.target.value)}
                 placeholder="Describe rectifications performed (re-planed surface, replaced veneer...)"
-                className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-purple-600"
+                className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#48A63E]"
               />
             </div>
 
@@ -2481,7 +2555,7 @@ export const WorkerDashboardPage: React.FC = () => {
               <button
                 onClick={handleConfirmResolveRework}
                 disabled={isSubmittingRework}
-                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-extrabold shadow-md cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
               >
                 {isSubmittingRework ? 'Submitting...' : 'Mark Resolved & Request QC'}
               </button>
@@ -2495,7 +2569,7 @@ export const WorkerDashboardPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-indigo-900">
+              <h3 className="text-base font-extrabold text-[#2C241D]">
                 Delivery Status: {selectedDelivery.order_id}
               </h3>
               <button onClick={() => setIsDeliveryModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
@@ -2509,7 +2583,7 @@ export const WorkerDashboardPage: React.FC = () => {
                 <span className="text-[#38A132] font-black">₹{selectedDelivery.total_amount.toLocaleString('en-IN')}</span>
               </div>
               <div className="text-[#7A6C5E] flex items-center gap-1.5">
-                <MapPin className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                <MapPin className="w-3.5 h-3.5 text-[#48A63E] shrink-0" />
                 <span className="truncate">{selectedDelivery.delivery_address}</span>
               </div>
               <div className="text-[#7A6C5E] flex items-center gap-1.5 font-bold">
@@ -2537,7 +2611,7 @@ export const WorkerDashboardPage: React.FC = () => {
                             ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-400 shadow-xs'
                             : st.id === 'Out for Delivery'
                             ? 'bg-amber-100 text-amber-900 border-amber-400 shadow-xs'
-                            : 'bg-indigo-100 text-indigo-900 border-indigo-400 shadow-xs'
+                            : 'bg-[#E8F5E9] text-[#2D6338] border-emerald-400 shadow-xs'
                           : 'bg-[#FAF7F2] text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#EFE8DC]'
                       }`}
                     >
@@ -2554,7 +2628,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   value={deliveryNotesInput}
                   onChange={(e) => setDeliveryNotesInput(e.target.value)}
                   placeholder="e.g. Delivered to customer living room, customer confirmed good condition..."
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-indigo-500"
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#48A63E]"
                 />
               </div>
             </div>
@@ -2569,7 +2643,7 @@ export const WorkerDashboardPage: React.FC = () => {
               <button
                 onClick={handleConfirmUpdateDelivery}
                 disabled={isSubmittingDelivery}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-extrabold shadow-md shadow-indigo-600/20 cursor-pointer transition-all"
+                className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer transition-all"
               >
                 {isSubmittingDelivery ? 'Updating...' : `Confirm Status: ${deliveryStatusInput}`}
               </button>
@@ -2578,79 +2652,187 @@ export const WorkerDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* G. SECURITY / PASSWORD CHANGE MODAL */}
+      {/* G. WORKER PROFILE & SECURITY MODAL */}
       {(isProfileModalOpen || mustChangePasswordModal) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="relative w-full max-w-md bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
-            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
-                <Key className="w-5 h-5 text-[#38A132]" />
-                <span>{mustChangePasswordModal ? 'Mandatory First-Time Password Change' : 'Security & Password Update'}</span>
-              </h3>
-              {!mustChangePasswordModal && (
-                <button onClick={() => setIsProfileModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
-                  <X className="w-5 h-5 text-[#7A6C5E]" />
-                </button>
-              )}
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#2C241D]/60 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-3xl p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-5 relative max-h-[90vh] overflow-y-auto text-[#2C241D]">
+            {!mustChangePasswordModal && (
+              <button
+                onClick={() => setIsProfileModalOpen(false)}
+                className="absolute top-5 right-5 text-[#7A6C5E] hover:text-[#2C241D] p-1.5 rounded-xl hover:bg-[#EAE0D4] transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            )}
+
+            {/* Modal Header */}
+            <div className="flex items-center gap-3.5 border-b border-[#E2D7CB] pb-4">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-black text-lg flex items-center justify-center shadow-md flex-shrink-0">
+                {(userProfile?.full_name || 'Worker').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-[#2C241D] flex items-center gap-2">
+                  <span>{mustChangePasswordModal ? 'Mandatory Password Setup' : 'Artisan Profile & Security'}</span>
+                </h3>
+                <p className="text-xs text-[#7A6C5E] font-medium">
+                  {mustChangePasswordModal
+                    ? 'Please set a secure password for your first login.'
+                    : 'Manage artisan details, workstation assignment and access credentials'}
+                </p>
+              </div>
             </div>
 
+            {/* Notice Banner */}
             {passwordNotice && (
-              <div className={`p-3 rounded-xl text-xs font-bold ${
-                passwordNotice.type === 'success' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'
+              <div className={`p-3.5 rounded-2xl text-xs font-bold flex items-center gap-2.5 ${
+                passwordNotice.type === 'success'
+                  ? 'bg-[#48A63E]/15 text-[#3D9134] border border-[#48A63E]/30'
+                  : 'bg-rose-100 text-rose-800 border border-rose-200'
               }`}>
-                {passwordNotice.text}
+                {passwordNotice.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                )}
+                <span>{passwordNotice.text}</span>
               </div>
             )}
 
-            <form onSubmit={handleChangePassword} className="space-y-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Current Password</label>
-                <input
-                  type="password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  required
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                />
+            <form onSubmit={handleSaveProfileAndSecurity} className="space-y-4 text-xs">
+              {/* Worker Information Details */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2 text-[#6B5C4D]">
+                  <User className="w-4 h-4 text-[#48A63E]" />
+                  <span className="font-extrabold text-xs uppercase tracking-wider text-[#2C241D]">
+                    Artisan & Station Details
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-[#6B5C4D] mb-1">Full Name</label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={userProfile?.full_name || 'Artisan Worker'}
+                    className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-bold cursor-not-allowed"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-[#6B5C4D] mb-1">Primary Specialization</label>
+                    <div className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-bold flex items-center gap-2">
+                      <Hammer className="w-3.5 h-3.5 text-[#48A63E]" />
+                      <span className="truncate">{userProfile?.specialization || 'Joinery & Assembly'}</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#6B5C4D] mb-1">Logistics / Driver Status</label>
+                    <div className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-bold flex items-center gap-2">
+                      <Truck className="w-3.5 h-3.5 text-amber-600" />
+                      <span>{userProfile?.is_driver ? 'Internal Delivery Driver' : 'Workshop Floor Artisan'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-bold text-[#6B5C4D]">Email Address (Locked)</label>
+                    {!mustChangePasswordModal && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsProfileModalOpen(false);
+                          setActiveTab('queries');
+                        }}
+                        className="text-[10px] font-bold text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Lock className="w-3 h-3" /> Request Email Change →
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="email"
+                    readOnly
+                    value={userProfile?.email || 'worker@retailsphere.ai'}
+                    className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-bold cursor-not-allowed"
+                  />
+                  <p className="text-[10px] text-amber-800 font-bold mt-1">
+                    🔒 Email modification is restricted. Submit an official request in the Queries section to change email.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-[#6B5C4D] mb-1">Contact Phone</label>
+                  <input
+                    type="tel"
+                    placeholder="+91 98765 43210"
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value)}
+                    className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">New Password (Min 6 chars)</label>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  required
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                />
+              {/* Password Update Provision (No current password required) */}
+              <div className="border-t border-[#E2D7CB] pt-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-[#2C241D]">
+                    <Key className="w-4 h-4 text-[#48A63E]" />
+                    <h4 className="font-extrabold text-xs uppercase tracking-wider text-[#2C241D]">
+                      Update Password Provision
+                    </h4>
+                  </div>
+                  {!mustChangePasswordModal && (
+                    <span className="text-[10px] font-bold text-[#7A6C5E]">Optional</span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-[#6B5C4D] mb-1">New Password (Min 6 chars)</label>
+                    <input
+                      type="password"
+                      placeholder="Enter new password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      required={mustChangePasswordModal}
+                      className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block font-bold text-[#6B5C4D] mb-1">Confirm New Password</label>
+                    <input
+                      type="password"
+                      placeholder="Confirm new password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      required={mustChangePasswordModal || Boolean(newPassword.trim())}
+                      className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Confirm New Password</label>
-                <input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
+              {/* Action Buttons */}
+              <div className="pt-2 border-t border-[#E2D7CB] flex justify-end gap-2.5">
                 {!mustChangePasswordModal && (
                   <button
                     type="button"
                     onClick={() => setIsProfileModalOpen(false)}
-                    className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+                    className="px-4 py-2.5 rounded-xl bg-white border border-[#E2D7CB] text-xs font-bold text-[#7A6C5E] hover:bg-[#EAE0D4] hover:text-[#2C241D] cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                 )}
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
+                  disabled={isUpdatingProfile}
+                  className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-black shadow-md shadow-[#38A132]/20 cursor-pointer transition-all disabled:opacity-50"
                 >
-                  Update Password
+                  {isUpdatingProfile ? 'Saving...' : mustChangePasswordModal ? 'Set New Password' : 'Save Changes'}
                 </button>
               </div>
             </form>
