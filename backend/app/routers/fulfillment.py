@@ -87,6 +87,8 @@ class PackOrderPayload(BaseModel):
 class DispatchOrderPayload(BaseModel):
     staff_id: Optional[int] = None
     carrier: Optional[str] = "Internal Fleet"
+    carrier_id: Optional[int] = None
+    transportation_provider: Optional[str] = None
     tracking_number: Optional[str] = None
     expected_delivery_date: Optional[str] = None
     vehicle_id: Optional[int] = None
@@ -342,6 +344,25 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
     if payload.carrier and payload.carrier.strip():
         fulfillment.carrier = payload.carrier.strip()
     
+    # Provider linkage (Internal Fleet vs Carrier Partner)
+    if payload.carrier_id:
+        fulfillment.carrier_id = payload.carrier_id
+        fulfillment.transportation_provider = "CARRIER_PARTNER"
+        c_partner = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == payload.carrier_id).first()
+        if c_partner:
+            fulfillment.carrier = c_partner.carrier_name
+    elif payload.carrier and payload.carrier.strip() and payload.carrier.strip().lower() != "internal fleet":
+        c_partner = db.query(models.CarrierPartner).filter(
+            models.CarrierPartner.carrier_name.ilike(f"%{payload.carrier.strip()}%")
+        ).first()
+        if c_partner:
+            fulfillment.carrier_id = c_partner.carrier_id
+            fulfillment.transportation_provider = "CARRIER_PARTNER"
+            fulfillment.carrier = c_partner.carrier_name
+    elif vehicle_obj or (payload.carrier and "internal" in payload.carrier.lower()):
+        fulfillment.transportation_provider = "INTERNAL_FLEET"
+        fulfillment.carrier = "Internal Fleet"
+
     # Requirement 2: Automatic Unique Tracking Number TRK-XXXXXXXX
     if payload.tracking_number and payload.tracking_number.strip() and not payload.tracking_number.startswith("TRK-0"):
         fulfillment.tracking_number = payload.tracking_number.strip()
@@ -719,3 +740,193 @@ def update_return_status(return_id: int, payload: ReturnStatusPayload, db: Sessi
 
     db.commit()
     return {"message": f"Return request #{return_id} updated to {payload.status}", "status": payload.status}
+
+
+# --- 11. FABRICATION TRANSPORTATION LOGISTICS FOR RETAIL STAFF ---
+
+@router.get("/fulfillment/fabrication-jobs")
+def get_fabrication_fulfillment_jobs(db: Session = Depends(get_db)):
+    """
+    Returns all fulfillment transportation jobs linked to Fabrication Requests
+    (both FABRICATION_PICKUP and FABRICATION_RETURN).
+    """
+    fulfillments = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.fabrication_id.isnot(None)
+    ).order_by(models.OrderFulfillment.fulfillment_id.desc()).all()
+
+    res = []
+    for f in fulfillments:
+        fab = f.fabrication_request
+        customer = fab.customer if fab else None
+        cust_user = customer.user if customer else None
+
+        driver_name = None
+        driver_phone = None
+        if f.assigned_personnel:
+            driver_name = f.assigned_personnel.name
+            driver_phone = f.assigned_personnel.phone
+        elif f.driver_user:
+            driver_name = f.driver_user.full_name
+            driver_phone = f.driver_user.phone
+        elif f.driver_id:
+            d_user = db.query(models.User).filter(models.User.user_id == f.driver_id).first()
+            if d_user:
+                driver_name = d_user.full_name
+                driver_phone = d_user.phone
+
+        carrier_name = f.carrier_partner.carrier_name if f.carrier_partner else f.carrier
+
+        res.append({
+            "fulfillment_id": f.fulfillment_id,
+            "fabrication_id": f.fabrication_id,
+            "job_type": f.job_type,  # FABRICATION_PICKUP or FABRICATION_RETURN
+            "fulfillment_status": f.fulfillment_status or "Pending",
+            "delivery_status": f.delivery_status or "Pending",
+            "service_type": fab.service_type if fab else "Wood Fabrication",
+            "customer_id": fab.customer_id if fab else None,
+            "customer_name": cust_user.full_name if cust_user else "Valued Customer",
+            "customer_phone": cust_user.phone if cust_user else (customer.phone if customer else None),
+            "customer_email": cust_user.email if cust_user else None,
+            "pickup_address": f.pickup_address or (fab.material_pickup_address if fab else "Customer Address"),
+            "destination_address": f.destination_address or (fab.return_delivery_address if fab else "RetailSphere Central Hub"),
+            "distance_km": float(f.distance_km) if f.distance_km is not None else 0.0,
+            "transportation_charge": float(f.transportation_charge) if f.transportation_charge is not None else 0.0,
+            "transportation_provider": f.transportation_provider or "INTERNAL_FLEET",
+            "carrier_id": f.carrier_id,
+            "carrier_name": carrier_name,
+            "vehicle_id": f.vehicle_id,
+            "driver_name": driver_name,
+            "driver_phone": driver_phone,
+            "tracking_number": f.tracking_number,
+            "expected_delivery_date": f.expected_delivery_date,
+            "dispatched_at": f.dispatched_at.isoformat() if f.dispatched_at else None,
+            "delivered_at": f.delivered_at.isoformat() if f.delivered_at else None,
+            "delivery_notes": f.delivery_notes,
+            "created_at": f.updated_at.isoformat() if f.updated_at else None
+        })
+    return res
+
+
+@router.post("/fulfillment/{fulfillment_id}/dispatch")
+def dispatch_fulfillment_job(fulfillment_id: int, payload: DispatchOrderPayload, db: Session = Depends(get_db)):
+    """
+    Generic dispatch endpoint for any OrderFulfillment (Order or Fabrication).
+    Allows Retail Staff to select either Internal Fleet (vehicle + driver) or Carrier Partner.
+    """
+    fulfillment = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.fulfillment_id == fulfillment_id
+    ).first()
+
+    if not fulfillment:
+        raise HTTPException(status_code=404, detail="Fulfillment record not found")
+
+    vehicle_obj = None
+    target_driver_id = payload.driver_id
+
+    # Provider Resolution: Internal Fleet vs Carrier Partner
+    if payload.carrier_id:
+        c_partner = db.query(models.CarrierPartner).filter(
+            models.CarrierPartner.carrier_id == payload.carrier_id,
+            models.CarrierPartner.status == True
+        ).first()
+        if not c_partner:
+            raise HTTPException(status_code=400, detail="Active Carrier Partner not found.")
+        fulfillment.carrier_id = c_partner.carrier_id
+        fulfillment.carrier = c_partner.carrier_name
+        fulfillment.transportation_provider = "CARRIER_PARTNER"
+        fulfillment.vehicle_id = None
+        fulfillment.driver_id = None
+    elif payload.vehicle_id:
+        vehicle_obj = db.query(models.Vehicle).filter(models.Vehicle.vehicle_id == payload.vehicle_id).first()
+        if not vehicle_obj:
+            raise HTTPException(status_code=400, detail="Selected delivery vehicle not found.")
+        if vehicle_obj.status != "AVAILABLE":
+            raise HTTPException(status_code=400, detail=f"Vehicle '{vehicle_obj.registration_number}' is unavailable (Status: {vehicle_obj.status}).")
+
+        target_driver_id = payload.driver_id or vehicle_obj.assigned_driver_id
+        if not target_driver_id:
+            raise HTTPException(status_code=400, detail=f"Vehicle '{vehicle_obj.registration_number}' has no assigned driver.")
+
+        driver_obj = db.query(models.User).filter(models.User.user_id == target_driver_id).first()
+        if not driver_obj:
+            raise HTTPException(status_code=400, detail="Assigned driver record not found.")
+
+        vehicle_obj.status = "ASSIGNED"
+        fulfillment.vehicle_id = vehicle_obj.vehicle_id
+        fulfillment.driver_id = target_driver_id
+        fulfillment.transportation_provider = "INTERNAL_FLEET"
+        fulfillment.carrier = "Internal Fleet"
+        fulfillment.carrier_id = None
+    elif payload.carrier and payload.carrier.strip().lower() != "internal fleet":
+        c_partner = db.query(models.CarrierPartner).filter(
+            models.CarrierPartner.carrier_name.ilike(f"%{payload.carrier.strip()}%"),
+            models.CarrierPartner.status == True
+        ).first()
+        if c_partner:
+            fulfillment.carrier_id = c_partner.carrier_id
+            fulfillment.carrier = c_partner.carrier_name
+            fulfillment.transportation_provider = "CARRIER_PARTNER"
+    else:
+        fulfillment.transportation_provider = "INTERNAL_FLEET"
+        fulfillment.carrier = "Internal Fleet"
+
+    valid_staff_id = resolve_valid_user_id(db, payload.staff_id)
+    fulfillment.fulfillment_status = "Dispatched"
+    fulfillment.delivery_status = "Dispatched"
+    fulfillment.dispatched_at = datetime.utcnow()
+    fulfillment.dispatched_by_id = valid_staff_id
+
+    if payload.tracking_number and payload.tracking_number.strip():
+        fulfillment.tracking_number = payload.tracking_number.strip()
+    elif not fulfillment.tracking_number:
+        fulfillment.tracking_number = generate_unique_tracking_number(db)
+
+    if payload.expected_delivery_date and payload.expected_delivery_date.strip():
+        fulfillment.expected_delivery_date = payload.expected_delivery_date.strip()
+    elif not fulfillment.expected_delivery_date:
+        exp = datetime.utcnow() + timedelta(days=1)
+        fulfillment.expected_delivery_date = exp.strftime("%d %B %Y")
+
+    if payload.dispatch_note:
+        fulfillment.delivery_notes = payload.dispatch_note
+        fulfillment.dispatch_note = payload.dispatch_note
+
+    # Update associated Order or Fabrication Request
+    if fulfillment.order:
+        fulfillment.order.order_status = "Dispatched"
+        record_status_history(
+            db,
+            order_id=fulfillment.order.order_id,
+            previous_status="Packed",
+            new_status="Dispatched",
+            changed_by_id=valid_staff_id,
+            changed_by_role="Retail Staff",
+            note=f"Dispatched via {fulfillment.carrier}. Tracking: {fulfillment.tracking_number}"
+        )
+        create_customer_notification(
+            db,
+            customer_id=fulfillment.order.customer_id,
+            title=f"Order Dispatched — RET-{fulfillment.order.order_id:06d}",
+            message=f"Your order has been dispatched via {fulfillment.carrier}. Tracking: {fulfillment.tracking_number}."
+        )
+
+    if fulfillment.fabrication_request:
+        if fulfillment.job_type == "FABRICATION_PICKUP":
+            fulfillment.fabrication_request.status = "IN_TRANSIT"
+        create_customer_notification(
+            db,
+            customer_id=fulfillment.fabrication_request.customer_id,
+            title=f"Fabrication Transportation Dispatched — FAB-{fulfillment.fabrication_request.fabrication_id:04d}",
+            message=f"Logistics provider '{fulfillment.carrier}' has been dispatched for your request ({fulfillment.job_type}). Tracking: {fulfillment.tracking_number}."
+        )
+
+    db.commit()
+    return {
+        "message": f"Fulfillment #{fulfillment_id} dispatched successfully",
+        "fulfillment_id": fulfillment_id,
+        "transportation_provider": fulfillment.transportation_provider,
+        "carrier": fulfillment.carrier,
+        "tracking_number": fulfillment.tracking_number,
+        "delivery_status": fulfillment.delivery_status
+    }
+

@@ -99,7 +99,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
       const roleName = res?.user?.role_name || '';
       const usernameClean = credentials.username.trim().toLowerCase();
-      const isAdmin = roleName === 'Admin' || usernameClean === 'admin' || res?.user?.email?.toLowerCase().includes('admin');
+      const userEmail = res?.user?.email?.toLowerCase() || '';
+      const isAdmin = roleName === 'Admin' || usernameClean === 'admin' || userEmail.includes('admin');
+      const isDeliveryPersonnel = roleName === 'Delivery Personnel' || roleName === 'DELIVERY_PERSONNEL' || roleName === 'Driver' || usernameClean.includes('driver') || usernameClean.includes('personnel') || userEmail === 'deepthidpk004@gmail.com' || userEmail === 'deepthicd2027@mca.ajce.in';
+      const isCarrierPartner = roleName === 'Carrier Partner' || roleName === 'CARRIER_PARTNER' || usernameClean.includes('carrier') || userEmail === 'mariyageorge2027@mca.ajce.in' || userEmail === 'gmariya731@gmail.com';
       const isRetailStaff = roleName === 'Retail Staff' || usernameClean.includes('retail');
       const isWorker = roleName === 'Worker' || usernameClean.includes('worker');
       const isProductionStaff = roleName === 'Production Staff' || usernameClean.includes('production');
@@ -109,6 +112,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
       if (isAdmin) {
         navigate('/admin');
+      } else if (isDeliveryPersonnel) {
+        navigate('/delivery-personnel');
+      } else if (isCarrierPartner) {
+        navigate('/carrier');
       } else if (isRetailStaff) {
         navigate('/retail-staff');
       } else if (isWorker) {
@@ -198,10 +205,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
         {/* User Name / Email Input Box */}
         <div>
-          <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+          <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
             User Name / Email
           </label>
-          <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+          <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
             <input
               type="text"
               name="username"
@@ -210,7 +217,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
               onChange={handleChange}
               autoComplete="username"
               required
-              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
             />
             <div className="pr-4 text-[#38A132] pointer-events-none">
               <User className="w-4 h-4" />
@@ -223,10 +230,10 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
 
         {/* Password Input Box */}
         <div>
-          <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+          <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
             Password
           </label>
-          <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+          <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
             <input
               type={showPassword ? 'text' : 'password'}
               name="password"
@@ -235,12 +242,12 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
               onChange={handleChange}
               autoComplete="current-password"
               required
-              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="pr-4 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors"
+              className="pr-4 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors cursor-pointer"
               title={showPassword ? 'Hide password' : 'Show password'}
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -267,39 +274,39 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
           <button
             type="button"
             onClick={() => setViewMode('forgot')}
-            className="text-[#38A132] hover:underline font-extrabold text-xs transition-colors"
+            className="text-[#38A132] hover:underline font-extrabold text-xs transition-colors cursor-pointer"
           >
             Forgot password?
           </button>
         </div>
 
-        {/* Login Button */}
+        {/* Login Button with Glowing Glass Gradient */}
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full py-3.5 bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-md shadow-[#38A132]/25 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+          className="w-full py-3.5 bg-gradient-to-r from-[#48A63E] via-[#38A132] to-[#2E8B29] hover:from-[#3D9634] hover:to-[#267722] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-[#38A132]/30 hover:shadow-[#38A132]/45 border border-white/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer active:scale-[0.99]"
         >
           {isSubmitting ? 'Logging in...' : 'Login'}
         </button>
 
         {/* Divider without background, soft light black text font */}
         <div className="relative my-3 flex items-center justify-center">
-          <div className="border-t border-[#E2D7CB] w-full" />
-          <span className="px-3 text-[10px] font-extrabold text-[#4A3E32] uppercase tracking-wider whitespace-nowrap">
+          <div className="border-t border-[#6B5C4D]/25 w-full" />
+          <span className="px-3 text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider whitespace-nowrap">
             or continue with
           </span>
-          <div className="border-t border-[#E2D7CB] w-full" />
+          <div className="border-t border-[#6B5C4D]/25 w-full" />
         </div>
 
-        {/* Firebase Google Sign In Button in Light Grey Theme */}
+        {/* Firebase Google Sign In Button in Glass Theme */}
         <GoogleSignInButton
           text="Sign in with Google"
-          className="w-full py-3 bg-[#EFECE8] border border-[#E2D7CB] text-[#5C5248] font-extrabold text-xs sm:text-sm rounded-2xl hover:bg-[#E5E1DC] shadow-xs flex items-center justify-center gap-2 transition-all"
+          className="w-full py-3 bg-white/45 hover:bg-white/65 backdrop-blur-md border border-white/75 text-[#4A3E32] font-extrabold text-xs sm:text-sm rounded-2xl shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)] flex items-center justify-center gap-2 transition-all cursor-pointer"
         />
 
         {/* Signup prompt */}
         <div className="pt-1 text-center">
-          <p className="text-xs text-[#6B5C4D] font-bold">
+          <p className="text-xs text-[#5C4E42] font-bold">
             Don&apos;t have an account?{' '}
             <Link
               to="/signup"

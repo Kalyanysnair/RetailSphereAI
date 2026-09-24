@@ -79,6 +79,9 @@ import {
   sendOrderMessageAPI,
   fetchAllReturnRequestsAPI,
   updateReturnStatusAPI,
+  fetchFabricationFulfillmentJobs,
+  dispatchFulfillmentJobAPI,
+  FabricationFulfillmentJob,
   FulfillmentSummary,
   FulfillmentDetails,
   StatusHistoryItem,
@@ -196,6 +199,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   >('dashboard');
 
   // Control Center State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [dashboardSummary, setDashboardSummary] = useState<RetailDashboardSummary | null>(null);
   const [requestInboxItems, setRequestInboxItems] = useState<RequestInboxItem[]>([]);
   const [inboxCategoryFilter, setInboxCategoryFilter] = useState<string>('ALL');
@@ -241,8 +245,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [carrierPartnersList, setCarrierPartnersList] = useState<CarrierPartner[]>([]);
   const [allUsersList, setAllUsersList] = useState<any[]>([]);
 
+  // Fabrication Transportation Fulfillment State
+  const [fulfillmentTypeTab, setFulfillmentTypeTab] = useState<'readymade' | 'fabrication'>('readymade');
+  const [fabricationJobsList, setFabricationJobsList] = useState<FabricationFulfillmentJob[]>([]);
+  const [dispatchModalFabJob, setDispatchModalFabJob] = useState<FabricationFulfillmentJob | null>(null);
+
   const handleOpenDispatchModal = async (ord: RetailOrder) => {
     setDispatchModalOrder(ord);
+    setDispatchModalFabJob(null);
     setDispatchTrackingNumber('');
     setDispatchNote('');
 
@@ -272,6 +282,29 @@ export const RetailStaffDashboardPage: React.FC = () => {
     }
   };
 
+  const handleOpenDispatchModalForFabrication = async (job: FabricationFulfillmentJob) => {
+    setDispatchModalFabJob(job);
+    setDispatchModalOrder(null);
+    setDispatchTrackingNumber('');
+    setDispatchNote('');
+
+    try {
+      const carriers = await getCarrierPartnersApi();
+      const activeCarriers = (carriers || []).filter(c => c.status === true || (c as any).status === 1 || String(c.status).toLowerCase() === 'true');
+      setCarrierPartnersList(activeCarriers);
+      if (activeCarriers.length > 0) {
+        setDispatchCarrier(activeCarriers[0].carrier_name);
+      } else {
+        setDispatchCarrier('');
+      }
+    } catch (e) {
+      setCarrierPartnersList([]);
+      setDispatchCarrier('');
+    }
+
+    setDispatchExpectedDate(job.expected_delivery_date || new Date(Date.now() + 86400000).toISOString().split('T')[0]);
+  };
+
   useEffect(() => {
     fetchAllUsers().then((users) => {
       setAllUsersList(users || []);
@@ -279,7 +312,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (dispatchModalOrder) {
+    if (dispatchModalOrder || dispatchModalFabJob) {
       fetchAvailableVehiclesDB().then((list) => {
         setAvailableVehiclesList(list || []);
         if (list && list.length > 0) {
@@ -289,7 +322,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
         }
       });
     }
-  }, [dispatchModalOrder]);
+  }, [dispatchModalOrder, dispatchModalFabJob]);
 
   const [deliveryStatusModalOrder, setDeliveryStatusModalOrder] = useState<RetailOrder | null>(null);
   const [deliveryStatusVal, setDeliveryStatusVal] = useState('Out for Delivery');
@@ -348,6 +381,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
     setFulfillmentSummary(fulfillment);
     const returns = await fetchAllReturnRequestsAPI();
     setReturnRequestsList(returns);
+    const fabJobs = await fetchFabricationFulfillmentJobs();
+    setFabricationJobsList(fabJobs);
     await loadAllOrdersForStaff();
   };
 
@@ -1446,213 +1481,273 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const activeOrdersCount = orderList.length;
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Ambient Warm Luxury Living Room Background Image Layer */}
-      <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
-        style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
-        }}
-      />
+    <div className="relative min-h-screen text-[#2C2016] flex selection:bg-[#38A132] selection:text-white overflow-x-hidden admin-theme">
+      {/* Background Ambience Layer */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-[#C6A680]/35 rounded-full blur-[128px]" />
+        <div className="absolute top-1/3 -right-32 w-[30rem] h-[30rem] bg-[#C6A680]/40 rounded-full blur-[130px]" />
+        <div className="absolute -bottom-32 left-1/3 w-[36rem] h-[36rem] bg-[#C6A680]/45 rounded-full blur-[140px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#8C6C4F15_1px,transparent_1px),linear-gradient(to_bottom,#8C6C4F15_1px,transparent_1px)] bg-[size:28px_28px]" />
+      </div>
 
-      {/* Lighter Translucent Warm Cream Overlay Layer */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
-
-      {/* Foreground Content */}
-      <div className="relative z-10 flex w-full min-h-screen items-stretch">
-        {/* LEFT SIDEBAR (Matching Customer Dashboard Aesthetics) */}
-        <aside className="w-72 ultra-glass-panel border-r border-[#E2D7CB] hidden md:flex flex-col justify-between p-6 shadow-xl sticky top-0 h-screen min-h-screen z-20 flex-shrink-0">
-
-          <div className="space-y-8">
-            {/* Brand Logo */}
-            <div className="flex items-center justify-between">
-              <div>
-                <Link to="/dashboard" className="font-extrabold text-[#2C241D] text-lg tracking-tight block hover:opacity-90 transition-opacity">
-                  RetailSphere <span className="text-[#48A63E]">AI</span>
-                </Link>
-                <span className="text-[10px] font-extrabold text-[#48A63E] uppercase tracking-widest block font-mono -mt-0.5">
-                  Retail Staff Portal
-                </span>
+      {/* LEFT SIDEBAR NAVIGATION PANEL */}
+      <aside className={`${isSidebarCollapsed ? 'w-16 p-2' : 'w-56 p-3.5'} flex-shrink-0 min-h-screen hidden md:flex flex-col border-r border-[#DFD2C0] bg-[#F1E8DC]/95 backdrop-blur-2xl space-y-4 relative z-20 shadow-[2px_0_24px_rgba(58,40,24,0.04)] transition-[width,padding] duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-[width,padding] overflow-hidden`}>
+        {/* Logo and Brand Title - Click to toggle Collapse/Expand */}
+        <div className="pb-2.5 border-b border-[#DFD2C0]/80 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="flex items-center gap-2 group cursor-pointer text-left w-full p-1 rounded-xl hover:bg-[#E5D7C5]/60 transition-colors duration-200"
+            title={isSidebarCollapsed ? "Click to expand sidebar" : "Click to collapse sidebar"}
+          >
+            <div className="relative flex-shrink-0">
+              <img
+                src="/retailsphere_logo.jpg"
+                alt="RetailSphere AI Logo"
+                className="w-8 h-8 rounded-full object-cover border border-[#D0BEA9] shadow-sm group-hover:scale-105 transition-transform duration-300"
+              />
+            </div>
+            <div className={`transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden whitespace-nowrap min-w-0 ${
+              isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+            }`}>
+              <div className="text-sm font-black text-[#2C2016] tracking-tight flex items-center gap-1">
+                <span className="truncate">RetailSphere</span>
+                <span className="text-[#38A132]">AI</span>
+              </div>
+              <div className="text-[9px] font-bold text-[#8F745D] uppercase tracking-wider font-mono truncate">
+                Retail Staff
               </div>
             </div>
+          </button>
+        </div>
 
-            {/* Sidebar Scrollable Nav List */}
-            <div className="overflow-y-auto max-h-[calc(100vh-140px)] pr-1 space-y-5 scrollbar-none">
-              {/* Category 1: Operations Control Center */}
-              <div>
-                <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                  Operations Control Center
+        {/* Sidebar Navigation */}
+        <nav className="flex-1 space-y-3.5 text-xs max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5 scrollbar-none">
+          {/* Category 1: Operations Control Center */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Operations
                 </div>
-                <nav className="space-y-1 text-xs font-bold">
-                  {[
-                    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                    { id: 'fulfillment', label: 'Retail Orders & Fulfillment', icon: ShoppingBag },
-                    { id: 'returns', label: 'Returns & Cancels', icon: RefreshCw },
-                    { id: 'communication', label: 'Customer Messaging', icon: MessageCircle },
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    const isActive = activeTab === item.id || (item.id === 'fulfillment' && activeTab === 'retail_orders');
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          setActiveTab(item.id as any);
-                          refreshControlCenterData();
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                            : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </nav>
-              </div>
+              )}
+            </div>
 
-              {/* Category 2: Customer Request Inbox Types in Sidebar */}
-              <div>
-                <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                  Customer Request Inbox
+            {[
+              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+              { id: 'fulfillment', label: 'Retail Orders & Fulfillment', icon: ShoppingBag },
+              { id: 'returns', label: 'Returns & Cancels', icon: RefreshCw },
+              { id: 'communication', label: 'Customer Messaging', icon: MessageCircle },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id || (item.id === 'fulfillment' && activeTab === 'retail_orders');
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id as any);
+                    refreshControlCenterData();
+                  }}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category 2: Customer Request Inbox Types in Sidebar */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Customer Inbox
                 </div>
-                <nav className="space-y-1 text-xs font-bold">
-                  {[
-                    { id: 'request_inbox', category: 'ALL', label: 'All Customer Requests', icon: Inbox },
-                    { id: 'customizations', category: 'CUSTOMIZATION', label: 'Customizations', icon: Layers },
-                    { id: 'fabrication', category: 'FABRICATION', label: 'Fabrication Services', icon: Sparkles },
-                    { id: 'services', category: 'ON-SITE SERVICES', label: 'On-Site Services', icon: Wrench },
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    const isActive = (activeTab === item.id || activeTab === 'request_inbox') && inboxCategoryFilter === item.category;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => {
-                          setActiveTab('request_inbox');
-                          setInboxCategoryFilter(item.category);
-                          refreshControlCenterData();
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                            : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </button>
-                    );
-                  })}
-                </nav>
-              </div>
+              )}
+            </div>
 
-              {/* Category 2: Catalog & Inventory Management */}
-              <div>
-                <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                  Catalog & Inventory
+            {[
+              { id: 'request_inbox', category: 'ALL', label: 'All Requests', icon: Inbox },
+              { id: 'customizations', category: 'CUSTOMIZATION', label: 'Customizations', icon: Layers },
+              { id: 'fabrication', category: 'FABRICATION', label: 'Fabrication', icon: Sparkles },
+              { id: 'services', category: 'ON-SITE SERVICES', label: 'On-Site Services', icon: Wrench },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = (activeTab === item.id || activeTab === 'request_inbox') && inboxCategoryFilter === item.category;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab('request_inbox');
+                    setInboxCategoryFilter(item.category);
+                    refreshControlCenterData();
+                  }}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category 3: Catalog & Inventory Management */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Catalog & Stock
                 </div>
-                <nav className="space-y-1 text-xs font-bold">
-                  {[
-                    { id: 'products', label: 'Products & Catalog', icon: Package },
-                    { id: 'inventory', label: 'Stock & Inventory', icon: SlidersHorizontal },
-                    { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
-                    { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
-                  ].map((item) => {
-                    const Icon = item.icon;
-                    const isActive = activeTab === item.id;
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => setActiveTab(item.id as any)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                            : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Icon className="w-4 h-4" />
-                          <span>{item.label}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </nav>
-              </div>
+              )}
+            </div>
 
-              {/* Category 3: Staff & Admin */}
-              <div>
-                <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
+            {[
+              { id: 'products', label: 'Products & Catalog', icon: Package },
+              { id: 'inventory', label: 'Stock & Inventory', icon: SlidersHorizontal },
+              { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
+              { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category 4: Staff & Admin */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
                   Staff & Admin
                 </div>
-                <nav className="space-y-1 text-xs font-bold">
-                  <button
-                    onClick={() => setActiveTab('admin_messages')}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                      activeTab === 'admin_messages' || activeTab === 'queries'
-                        ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                        : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                    }`}
-                  >
-                    <Mail className="w-4 h-4" />
-                    <span>Admin Directives & Queries</span>
-                  </button>
-                </nav>
-              </div>
+              )}
             </div>
 
-
-          </div>
-
-        </aside>
-
-
-
-
-        {/* MAIN RIGHT CONTENT AREA */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-
-          {/* Mobile Top Header */}
-          <div className="md:hidden bg-white border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-xs text-slate-900">Retail Staff</span>
-            </div>
-            <select
-              value={activeTab}
-              onChange={(e) => {
-                setActiveTab(e.target.value as any);
-                refreshControlCenterData();
-              }}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D]"
+            <button
+              onClick={() => setActiveTab('admin_messages')}
+              title="Admin Directives & Queries"
+              className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                activeTab === 'admin_messages' || activeTab === 'queries'
+                  ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                  : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+              }`}
             >
-              <option value="dashboard">📊 Dashboard</option>
-              <option value="retail_orders">🛒 Retail Orders</option>
-              <option value="request_inbox">📥 Request Inbox</option>
-              <option value="customizations">🛋️ Customizations</option>
-              <option value="fabrication">🪵 Fabrication</option>
-              <option value="services">🔧 On-Site Services</option>
-              <option value="fulfillment">📦 Fulfillment</option>
-              <option value="returns">🔄 Returns & Cancels</option>
-              <option value="communication">💬 Customer Messaging</option>
-              <option value="products">🏷️ Products & Catalog</option>
-              <option value="inventory">📦 Stock & Inventory</option>
-              <option value="suppliers">🏢 Suppliers</option>
-              <option value="coupons">🎟️ Discounts & Coupons</option>
-              <option value="admin_messages">✉️ Admin Directives</option>
-              <option value="queries">❓ Staff Queries</option>
-            </select>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Mail className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                  isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                }`}>
+                  Admin Directives
+                </span>
+              </div>
+            </button>
           </div>
+        </nav>
+      </aside>
 
-          <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">
-            <div className="ultra-glass-panel rounded-[2.5rem] p-4 sm:p-6 lg:p-6 space-y-6 relative">
-              {/* Glossy Top Reflection Sheen */}
-              <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
+      {/* MAIN RIGHT CONTENT AREA */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Mobile Top Header */}
+        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
+          <div className="flex items-center gap-2">
+            <span className="font-extrabold text-xs text-slate-900">Retail Staff</span>
+          </div>
+          <select
+            value={activeTab}
+            onChange={(e) => {
+              setActiveTab(e.target.value as any);
+              refreshControlCenterData();
+            }}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D]"
+          >
+            <option value="dashboard">📊 Dashboard</option>
+            <option value="retail_orders">🛒 Retail Orders</option>
+            <option value="request_inbox">📥 Request Inbox</option>
+            <option value="customizations">🛋️ Customizations</option>
+            <option value="fabrication">🪵 Fabrication</option>
+            <option value="services">🔧 On-Site Services</option>
+            <option value="fulfillment">📦 Fulfillment</option>
+            <option value="returns">🔄 Returns & Cancels</option>
+            <option value="communication">💬 Customer Messaging</option>
+            <option value="products">🏷️ Products & Catalog</option>
+            <option value="inventory">📦 Stock & Inventory</option>
+            <option value="suppliers">🏢 Suppliers</option>
+            <option value="coupons">🎟️ Discounts & Coupons</option>
+            <option value="admin_messages">✉️ Admin Directives</option>
+            <option value="queries">❓ Staff Queries</option>
+          </select>
+        </div>
 
-              {/* Success Notice */}
-              {successNotice && (
+        <main className={`space-y-6 w-full transition-all duration-300 ${
+          isSidebarCollapsed 
+            ? 'p-3 sm:p-5 lg:p-6 max-w-none' 
+            : 'p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto'
+        }`}>
+          <div className="ultra-glass-panel rounded-3xl p-4 sm:p-6 lg:p-7 space-y-6 relative border border-[#DECDB7] shadow-[0_12px_40px_rgba(58,40,24,0.04)] bg-[#FCF9F3]/95 backdrop-blur-2xl w-full">
+            {/* Glossy Top Reflection Sheen */}
+            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-3xl" />
+
+            {/* Success Notice */}
+            {successNotice && (
                 <div className="relative z-10 p-4 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] flex items-start gap-3 shadow-md animate-fadeIn">
                   <CheckCircle2 className="w-5 h-5 text-[#48A63E] flex-shrink-0 mt-0.5" />
                   <div className="flex-1 text-xs font-extrabold leading-relaxed">
@@ -2268,254 +2363,386 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Filter Pills & Search Input */}
-                  <div className="bg-white p-4 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-                      {/* Status Filter Pills */}
-                      <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto scrollbar-none">
-                        <span className="text-xs font-black text-[#7A6C5E] uppercase tracking-wider shrink-0">Filter:</span>
-                        {[
-                          { id: 'all', label: 'All Orders' },
-                          { id: 'new_orders', label: '🆕 New Orders' },
-                          { id: 'to_pack', label: '📦 Ready to Pack' },
-                          { id: 'dispatched', label: '🏷️ Dispatched' },
-                          { id: 'out_for_delivery', label: '🚚 Out for Delivery' },
-                          { id: 'delivered', label: '🟢 Delivered' },
-                        ].map((st) => (
-                          <button
-                            key={st.id}
-                            onClick={() => setOrdersSubTab(st.id as any)}
-                            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer shrink-0 ${
-                              ordersSubTab === st.id
-                                ? 'bg-[#38A132] text-white shadow-xs'
-                                : 'bg-[#FAF7F2] text-[#6E6458] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
-                            }`}
-                          >
-                            {st.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Search Bar */}
-                      <div className="relative w-full sm:w-64">
-                        <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search order ID or customer..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#38A132]"
-                        />
-                      </div>
-                    </div>
+                  {/* Fulfillment Category Tabs: Readymade vs Fabrication Logistics */}
+                  <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-3">
+                    <button
+                      onClick={() => setFulfillmentTypeTab('readymade')}
+                      className={`px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                        fulfillmentTypeTab === 'readymade'
+                          ? 'bg-[#38A132] text-white shadow-md'
+                          : 'bg-white text-[#6E6458] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                      }`}
+                    >
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>Ready-Made Orders ({orderList.length})</span>
+                    </button>
+                    <button
+                      onClick={() => setFulfillmentTypeTab('fabrication')}
+                      className={`px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                        fulfillmentTypeTab === 'fabrication'
+                          ? 'bg-[#38A132] text-white shadow-md'
+                          : 'bg-white text-[#6E6458] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                      }`}
+                    >
+                      <Truck className="w-4 h-4" />
+                      <span>Fabrication Logistics ({fabricationJobsList.length})</span>
+                    </button>
                   </div>
 
-                  {/* Orders Table */}
-                  <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-md overflow-hidden">
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="bg-[#FAF7F2] border-b border-[#E2D7CB] text-[11px] font-black uppercase text-[#7A6C5E] tracking-wider">
-                            <th className="py-3.5 px-4">Order ID & Date</th>
-                            <th className="py-3.5 px-4">Customer</th>
-                            <th className="py-3.5 px-4">Items</th>
-                            <th className="py-3.5 px-4">Total Amount</th>
-                            <th className="py-3.5 px-4">View Spec</th>
-                            <th className="py-3.5 px-4 text-center">Pack</th>
-                            <th className="py-3.5 px-4 text-right">Dispatch</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#EFE7DE] text-xs">
-                          {(() => {
-                            const filteredOrders = orderList.filter((ord) => {
-                              const st = (ord.orderStatus || 'Order Placed').toLowerCase();
-                              // Subtab filter
-                              if (ordersSubTab === 'new_orders' && !['order placed', 'paid', 'pending', 'processing', 'paid & placed'].includes(st)) return false;
-                              if (ordersSubTab === 'to_pack' && !['order placed', 'paid', 'pending', 'processing', 'packing', 'paid & placed'].includes(st)) return false;
-                              if (ordersSubTab === 'dispatched' && !['dispatched', 'shipped', 'in-transit', 'out for delivery', 'out_for_delivery'].includes(st)) return false;
-                              if (ordersSubTab === 'out_for_delivery' && !['out for delivery', 'out_for_delivery'].includes(st)) return false;
-                              if (ordersSubTab === 'delivered' && !['delivered', 'completed'].includes(st)) return false;
+                  {fulfillmentTypeTab === 'readymade' ? (
+                    <>
+                      {/* Filter Pills & Search Input */}
+                      <div className="bg-white p-4 rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
+                        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+                          {/* Status Filter Pills */}
+                          <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto scrollbar-none">
+                            <span className="text-xs font-black text-[#7A6C5E] uppercase tracking-wider shrink-0">Filter:</span>
+                            {[
+                              { id: 'all', label: 'All Orders' },
+                              { id: 'new_orders', label: '🆕 New Orders' },
+                              { id: 'to_pack', label: '📦 Ready to Pack' },
+                              { id: 'dispatched', label: '🏷️ Dispatched' },
+                              { id: 'out_for_delivery', label: '🚚 Out for Delivery' },
+                              { id: 'delivered', label: '🟢 Delivered' },
+                            ].map((st) => (
+                              <button
+                                key={st.id}
+                                onClick={() => setOrdersSubTab(st.id as any)}
+                                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer shrink-0 ${
+                                  ordersSubTab === st.id
+                                    ? 'bg-[#38A132] text-white shadow-xs'
+                                    : 'bg-[#FAF7F2] text-[#6E6458] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
+                                }`}
+                              >
+                                {st.label}
+                              </button>
+                            ))}
+                          </div>
 
-                              // Search query filter
-                              if (searchQuery.trim()) {
-                                const q = searchQuery.toLowerCase();
-                                const matchId = String(ord.orderId || '').toLowerCase().includes(q);
-                                const matchName = String(ord.customerName || ord.user_name || '').toLowerCase().includes(q);
-                                const matchEmail = String(ord.customerEmail || '').toLowerCase().includes(q);
-                                const matchItem = ord.items?.some(i => i.name.toLowerCase().includes(q));
-                                if (!matchId && !matchName && !matchEmail && !matchItem) return false;
-                              }
-                              return true;
-                            });
+                          {/* Search Bar */}
+                          <div className="relative w-full sm:w-64">
+                            <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                              type="text"
+                              placeholder="Search order ID or customer..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#38A132]"
+                            />
+                          </div>
+                        </div>
+                      </div>
 
-                            if (filteredOrders.length === 0) {
-                              return (
-                                <tr>
-                                  <td colSpan={7} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
-                                    No readymade store orders found matching criteria.
-                                  </td>
-                                </tr>
-                              );
-                            }
+                      {/* Orders Table */}
+                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-md overflow-hidden">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-[#FAF7F2] border-b border-[#E2D7CB] text-[11px] font-black uppercase text-[#7A6C5E] tracking-wider">
+                                <th className="py-3.5 px-4">Order ID & Date</th>
+                                <th className="py-3.5 px-4">Customer</th>
+                                <th className="py-3.5 px-4">Items</th>
+                                <th className="py-3.5 px-4">Total Amount</th>
+                                <th className="py-3.5 px-4">View Spec</th>
+                                <th className="py-3.5 px-4 text-center">Pack</th>
+                                <th className="py-3.5 px-4 text-right">Dispatch</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-[#EFE7DE] text-xs">
+                              {(() => {
+                                const filteredOrders = orderList.filter((ord) => {
+                                  const st = (ord.orderStatus || 'Order Placed').toLowerCase();
+                                  if (ordersSubTab === 'new_orders' && !['order placed', 'paid', 'pending', 'processing', 'paid & placed'].includes(st)) return false;
+                                  if (ordersSubTab === 'to_pack' && !['order placed', 'paid', 'pending', 'processing', 'packing', 'paid & placed'].includes(st)) return false;
+                                  if (ordersSubTab === 'dispatched' && !['dispatched', 'shipped', 'in-transit', 'out for delivery', 'out_for_delivery'].includes(st)) return false;
+                                  if (ordersSubTab === 'out_for_delivery' && !['out for delivery', 'out_for_delivery'].includes(st)) return false;
+                                  if (ordersSubTab === 'delivered' && !['delivered', 'completed'].includes(st)) return false;
 
-                            return filteredOrders.map((ord) => {
-                              const totalAmt = ord.totalPrice || ord.totalAmount || ord.amount || 0;
-                              const itemsCount = ord.items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0;
-                              const compInfo = computeLogicalCompletionStatus(ord);
+                                  if (searchQuery.trim()) {
+                                    const q = searchQuery.toLowerCase();
+                                    const matchId = String(ord.orderId || '').toLowerCase().includes(q);
+                                    const matchName = String(ord.customerName || ord.user_name || '').toLowerCase().includes(q);
+                                    const matchEmail = String(ord.customerEmail || '').toLowerCase().includes(q);
+                                    const matchItem = ord.items?.some(i => i.name.toLowerCase().includes(q));
+                                    if (!matchId && !matchName && !matchEmail && !matchItem) return false;
+                                  }
+                                  return true;
+                                });
 
-                              return (
-                                <tr key={ord.orderId} className="hover:bg-[#FAF7F2]/60 transition-colors">
-                                  {/* Order ID & Date */}
-                                  <td className="py-4 px-4 whitespace-nowrap">
-                                    <span className="font-mono font-black text-xs text-[#38A132]">#{ord.orderId}</span>
-                                    <div className="text-[10px] text-[#7A6C5E] font-medium mt-0.5">
-                                      {formatPaymentTime(ord)}
-                                    </div>
-                                  </td>
+                                if (filteredOrders.length === 0) {
+                                  return (
+                                    <tr>
+                                      <td colSpan={7} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
+                                        No readymade store orders found matching criteria.
+                                      </td>
+                                    </tr>
+                                  );
+                                }
 
-                                  {/* Customer */}
-                                  <td className="py-4 px-4">
-                                    <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName || ord.user_name || 'Customer'}</div>
-                                    <div className="text-[10px] text-[#7A6C5E] truncate max-w-44">{ord.customerEmail || 'N/A'}</div>
-                                  </td>
+                                return filteredOrders.map((ord) => {
+                                  const totalAmt = ord.totalPrice || ord.totalAmount || ord.amount || 0;
+                                  const itemsCount = ord.items?.reduce((sum, i) => sum + (i.quantity || 1), 0) || 0;
 
-                                  {/* Items */}
-                                  <td className="py-4 px-4">
-                                    <div className="flex items-center gap-2">
-                                      {ord.items && ord.items.length > 0 && (
-                                        <img
-                                          src={ord.items[0].imageUrl || ord.items[0].image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60'}
-                                          alt={ord.items[0].name}
-                                          className="w-8 h-8 rounded-lg object-cover border border-[#E2D7CB] shrink-0"
-                                          onError={(e) => {
-                                            (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60';
-                                          }}
-                                        />
-                                      )}
-                                      <div className="flex-1 min-w-0">
-                                        <div className="font-extrabold text-[#2C241D] text-xs truncate max-w-44">
-                                          {ord.items?.[0]?.name || 'Readymade Furniture Item'}
+                                  return (
+                                    <tr key={ord.orderId} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                      {/* Order ID & Date */}
+                                      <td className="py-4 px-4 whitespace-nowrap">
+                                        <span className="font-mono font-black text-xs text-[#38A132]">#{ord.orderId}</span>
+                                        <div className="text-[10px] text-[#7A6C5E] font-medium mt-0.5">
+                                          {formatPaymentTime(ord)}
                                         </div>
-                                        <div className="text-[10px] text-[#7A6C5E] font-semibold">
-                                          {ord.items && ord.items.length > 1 ? `+${ord.items.length - 1} more items (${itemsCount} total)` : `Qty: ${ord.items?.[0]?.quantity || 1}`}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </td>
+                                      </td>
 
-                                   {/* Total Amount & Paid Status (Same Line) */}
-                                  <td className="py-4 px-4 whitespace-nowrap">
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-extrabold text-[#2C241D] text-xs">₹{Number(totalAmt).toLocaleString('en-IN')}</span>
-                                      <span className={`px-1.5 py-0.5 rounded-full inline-flex items-center justify-center ${
-                                        ord.paymentStatus === 'Paid' || !ord.paymentStatus ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
-                                      }`} title={ord.paymentStatus || 'Paid'}>
-                                        {ord.paymentStatus === 'Paid' || !ord.paymentStatus ? (
-                                          <Check className="w-3 h-3 text-emerald-800 stroke-[3]" />
-                                        ) : (
-                                          <span className="text-[10px] font-black">{ord.paymentStatus}</span>
-                                        )}
-                                      </span>
-                                    </div>
-                                  </td>
+                                      {/* Customer */}
+                                      <td className="py-4 px-4">
+                                        <div className="font-extrabold text-[#2C241D] text-xs">{ord.customerName || ord.user_name || 'Customer'}</div>
+                                        <div className="text-[10px] text-[#7A6C5E] truncate max-w-44">{ord.customerEmail || 'N/A'}</div>
+                                      </td>
 
-                                  {/* View Spec (Separate Column) */}
-                                  <td className="py-4 px-4 whitespace-nowrap">
-                                    <button
-                                      onClick={() => setSelectedOrderSpecModal(ord)}
-                                      className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#38A132] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
-                                      title="View Readymade Order Specs & Items Breakdown"
-                                    >
-                                      <Eye className="w-3.5 h-3.5 text-[#38A132]" />
-                                      <span>View Spec</span>
-                                    </button>
-                                  </td>
-
-                                  {/* Pack Column */}
-                                  <td className="py-4 px-4 text-center whitespace-nowrap">
-                                    {(() => {
-                                      const currentSt = (ord.orderStatus || 'Order Placed').trim();
-                                      const isOrderPlacedOrPending = ['Order Placed', 'ORDER_PLACED', 'Pending', 'Ready to Pack', 'READY_TO_PACK', ''].includes(currentSt);
-                                      const isPacked = ['Packed', 'PACKED', 'PACKED_PENDING_DISPATCH'].includes(currentSt);
-                                      const isDispatched = ['Dispatched', 'DISPATCHED'].includes(currentSt);
-                                      const isOutForDelivery = ['Out for Delivery', 'OUT_FOR_DELIVERY'].includes(currentSt);
-                                      const isDelivered = ['Delivered', 'DELIVERED', 'Completed'].includes(currentSt);
-
-                                      // Pack button: Enabled for Order Placed / Pending / Ready to Pack
-                                      const canPack = isOrderPlacedOrPending && !isPacked && !isDispatched && !isOutForDelivery && !isDelivered;
-
-                                      return (
-                                        <button
-                                          disabled={!canPack}
-                                          onClick={() => setPackingModalOrder(ord)}
-                                          className={`px-3 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 ${
-                                            canPack
-                                              ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
-                                              : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
-                                          }`}
-                                          title={canPack ? "5-Point Quality Packing Checklist" : "Packing completed or not applicable"}
-                                        >
-                                          <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#38A132]' : 'text-stone-400'}`} />
-                                          <span>Pack</span>
-                                        </button>
-                                      );
-                                    })()}
-                                  </td>
-
-                                  {/* Dispatch Column */}
-                                  <td className="py-4 px-4 text-right whitespace-nowrap">
-                                    {(() => {
-                                      const currentSt = (ord.orderStatus || 'Order Placed').trim();
-                                      const isPacked = ['Packed', 'PACKED', 'PACKED_PENDING_DISPATCH'].includes(currentSt);
-                                      const isDispatched = ['Dispatched', 'DISPATCHED'].includes(currentSt);
-                                      const isOutForDelivery = ['Out for Delivery', 'OUT_FOR_DELIVERY'].includes(currentSt);
-                                      const isDelivered = ['Delivered', 'DELIVERED', 'Completed', 'COMPLETED'].includes(currentSt);
-
-                                      // Dispatch / Delivery button: Disabled for Order Placed/Ready to Pack
-                                      const canDispatch = isPacked || isDispatched || isOutForDelivery;
-                                      let dispatchBtnText = "Dispatch";
-                                      if (isDispatched) dispatchBtnText = "Update Delivery";
-                                      if (isOutForDelivery) dispatchBtnText = "Mark Delivered";
-                                      if (isDelivered) dispatchBtnText = "Completed";
-
-                                      return (
-                                        <button
-                                          disabled={!canDispatch || isDelivered}
-                                          onClick={() => {
-                                            if (isOutForDelivery || isDispatched) {
-                                              setDeliveryStatusModalOrder(ord);
-                                              setDeliveryStatusVal(isOutForDelivery ? 'Delivered' : 'Out for Delivery');
-                                            } else if (!isDelivered) {
-                                              handleOpenDispatchModal(ord);
-                                            }
-                                          }}
-                                          className={`px-3 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 ${
-                                            isDelivered
-                                              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default font-extrabold'
-                                              : canDispatch
-                                                ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
-                                                : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
-                                          }`}
-                                          title={isDelivered ? "Delivery Completed" : (canDispatch ? dispatchBtnText : "Order must be Packed before Dispatch")}
-                                        >
-                                          {isDelivered ? (
-                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                          ) : (
-                                            <Truck className={`w-3.5 h-3.5 ${canDispatch ? 'text-blue-600' : 'text-stone-400'}`} />
+                                      {/* Items */}
+                                      <td className="py-4 px-4">
+                                        <div className="flex items-center gap-2">
+                                          {ord.items && ord.items.length > 0 && (
+                                            <img
+                                              src={ord.items[0].imageUrl || ord.items[0].image || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60'}
+                                              alt={ord.items[0].name}
+                                              className="w-8 h-8 rounded-lg object-cover border border-[#E2D7CB] shrink-0"
+                                              onError={(e) => {
+                                                (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=100&auto=format&fit=crop&q=60';
+                                              }}
+                                            />
                                           )}
-                                          <span>{dispatchBtnText}</span>
+                                          <div className="flex-1 min-w-0">
+                                            <div className="font-extrabold text-[#2C241D] text-xs truncate max-w-44">
+                                              {ord.items?.[0]?.name || 'Readymade Furniture Item'}
+                                            </div>
+                                            <div className="text-[10px] text-[#7A6C5E] font-semibold">
+                                              {ord.items && ord.items.length > 1 ? `+${ord.items.length - 1} more items (${itemsCount} total)` : `Qty: ${ord.items?.[0]?.quantity || 1}`}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      {/* Total Amount */}
+                                      <td className="py-4 px-4 whitespace-nowrap">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-extrabold text-[#2C241D] text-xs">₹{Number(totalAmt).toLocaleString('en-IN')}</span>
+                                          <span className={`px-1.5 py-0.5 rounded-full inline-flex items-center justify-center ${
+                                            ord.paymentStatus === 'Paid' || !ord.paymentStatus ? 'bg-emerald-100 text-emerald-900 border border-emerald-300' : 'bg-amber-100 text-amber-900 border border-amber-300'
+                                          }`} title={ord.paymentStatus || 'Paid'}>
+                                            {ord.paymentStatus === 'Paid' || !ord.paymentStatus ? (
+                                              <Check className="w-3 h-3 text-emerald-800 stroke-[3]" />
+                                            ) : (
+                                              <span className="text-[10px] font-black">{ord.paymentStatus}</span>
+                                            )}
+                                          </span>
+                                        </div>
+                                      </td>
+
+                                      {/* View Spec */}
+                                      <td className="py-4 px-4 whitespace-nowrap">
+                                        <button
+                                          onClick={() => setSelectedOrderSpecModal(ord)}
+                                          className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#38A132] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                                          title="View Readymade Order Specs & Items Breakdown"
+                                        >
+                                          <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                          <span>View Spec</span>
                                         </button>
-                                      );
-                                    })()}
-                                  </td>
-                                </tr>
-                              );
-                            });
-                          })()}
-                        </tbody>
-                      </table>
+                                      </td>
+
+                                      {/* Pack Column */}
+                                      <td className="py-4 px-4 text-center whitespace-nowrap">
+                                        {(() => {
+                                          const currentSt = (ord.orderStatus || 'Order Placed').trim();
+                                          const isOrderPlacedOrPending = ['Order Placed', 'ORDER_PLACED', 'Pending', 'Ready to Pack', 'READY_TO_PACK', ''].includes(currentSt);
+                                          const isPacked = ['Packed', 'PACKED', 'PACKED_PENDING_DISPATCH'].includes(currentSt);
+                                          const isDispatched = ['Dispatched', 'DISPATCHED'].includes(currentSt);
+                                          const isOutForDelivery = ['Out for Delivery', 'OUT_FOR_DELIVERY'].includes(currentSt);
+                                          const isDelivered = ['Delivered', 'DELIVERED', 'Completed'].includes(currentSt);
+
+                                          const canPack = isOrderPlacedOrPending && !isPacked && !isDispatched && !isOutForDelivery && !isDelivered;
+
+                                          return (
+                                            <button
+                                              disabled={!canPack}
+                                              onClick={() => setPackingModalOrder(ord)}
+                                              className={`px-3 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 ${
+                                                canPack
+                                                  ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
+                                                  : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
+                                              }`}
+                                              title={canPack ? "5-Point Quality Packing Checklist" : "Packing completed or not applicable"}
+                                            >
+                                              <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#38A132]' : 'text-stone-400'}`} />
+                                              <span>Pack</span>
+                                            </button>
+                                          );
+                                        })()}
+                                      </td>
+
+                                      {/* Dispatch Column */}
+                                      <td className="py-4 px-4 text-right whitespace-nowrap">
+                                        {(() => {
+                                          const currentSt = (ord.orderStatus || 'Order Placed').trim();
+                                          const isPacked = ['Packed', 'PACKED', 'PACKED_PENDING_DISPATCH'].includes(currentSt);
+                                          const isDispatched = ['Dispatched', 'DISPATCHED'].includes(currentSt);
+                                          const isOutForDelivery = ['Out for Delivery', 'OUT_FOR_DELIVERY'].includes(currentSt);
+                                          const isDelivered = ['Delivered', 'DELIVERED', 'Completed', 'COMPLETED'].includes(currentSt);
+
+                                          const canDispatch = isPacked || isDispatched || isOutForDelivery;
+                                          let dispatchBtnText = "Dispatch";
+                                          if (isDispatched) dispatchBtnText = "Update Delivery";
+                                          if (isOutForDelivery) dispatchBtnText = "Mark Delivered";
+                                          if (isDelivered) dispatchBtnText = "Completed";
+
+                                          return (
+                                            <button
+                                              disabled={!canDispatch || isDelivered}
+                                              onClick={() => {
+                                                if (isOutForDelivery || isDispatched) {
+                                                  setDeliveryStatusModalOrder(ord);
+                                                  setDeliveryStatusVal(isOutForDelivery ? 'Delivered' : 'Out for Delivery');
+                                                } else if (!isDelivered) {
+                                                  handleOpenDispatchModal(ord);
+                                                }
+                                              }}
+                                              className={`px-3 py-1.5 border text-xs font-bold rounded-xl transition-all shadow-2xs inline-flex items-center gap-1.5 ${
+                                                isDelivered
+                                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-default font-extrabold'
+                                                  : canDispatch
+                                                    ? 'bg-[#FAF7F2] hover:bg-[#F2ECE1] border-[#E2D7CB] text-[#2C241D] cursor-pointer'
+                                                    : 'bg-stone-100 border-stone-200 text-stone-400 cursor-not-allowed opacity-50'
+                                              }`}
+                                              title={isDelivered ? "Delivery Completed" : (canDispatch ? dispatchBtnText : "Order must be Packed before Dispatch")}
+                                            >
+                                              {isDelivered ? (
+                                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                              ) : (
+                                                <Truck className={`w-3.5 h-3.5 ${canDispatch ? 'text-blue-600' : 'text-stone-400'}`} />
+                                              )}
+                                              <span>{dispatchBtnText}</span>
+                                            </button>
+                                          );
+                                        })()}
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    /* FABRICATION LOGISTICS TABLE */
+                    <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-md overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="bg-[#FAF7F2] border-b border-[#E2D7CB] text-[11px] font-black uppercase text-[#7A6C5E] tracking-wider">
+                              <th className="py-3.5 px-4">Job ID & Task Type</th>
+                              <th className="py-3.5 px-4">Service & Customer</th>
+                              <th className="py-3.5 px-4">Route / Location</th>
+                              <th className="py-3.5 px-4">Distance & Charge</th>
+                              <th className="py-3.5 px-4">Transportation Provider</th>
+                              <th className="py-3.5 px-4">Status</th>
+                              <th className="py-3.5 px-4 text-right">Dispatch Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#EFE7DE] text-xs">
+                            {fabricationJobsList.length === 0 ? (
+                              <tr>
+                                <td colSpan={7} className="py-12 text-center text-xs font-semibold text-[#7A6C5E]">
+                                  No paid fabrication transportation jobs requiring fulfillment at this time.
+                                </td>
+                              </tr>
+                            ) : (
+                              fabricationJobsList.map((job) => {
+                                const isPickup = job.job_type === 'FABRICATION_PICKUP';
+                                const isDispatched = ['Dispatched', 'DISPATCHED', 'In Transit', 'IN_TRANSIT'].includes(job.fulfillment_status);
+                                const isDelivered = ['Delivered', 'DELIVERED', 'Completed', 'COMPLETED'].includes(job.fulfillment_status);
+
+                                return (
+                                  <tr key={job.fulfillment_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                    <td className="py-4 px-4 whitespace-nowrap">
+                                      <div className="font-mono font-black text-xs text-[#38A132]">FAB-#{job.fabrication_id}</div>
+                                      <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold mt-1 border ${
+                                        isPickup ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'
+                                      }`}>
+                                        {isPickup ? '📦 Material Pickup' : '🚚 Return Delivery'}
+                                      </span>
+                                      {job.tracking_number && (
+                                        <div className="text-[10px] font-mono text-[#7A6C5E] mt-0.5">{job.tracking_number}</div>
+                                      )}
+                                    </td>
+
+                                    <td className="py-4 px-4">
+                                      <div className="font-extrabold text-[#2C241D] text-xs">{job.service_type}</div>
+                                      <div className="text-[11px] text-[#7A6C5E] font-medium">{job.customer_name}</div>
+                                      {job.customer_phone && <div className="text-[10px] text-[#38A132] font-mono">{job.customer_phone}</div>}
+                                    </td>
+
+                                    <td className="py-4 px-4 max-w-xs">
+                                      <div className="text-[11px] font-semibold text-[#2C241D] truncate" title={isPickup ? `From: ${job.pickup_address}` : `To: ${job.destination_address}`}>
+                                        <span className="font-bold text-[#7A6C5E] text-[10px] block">{isPickup ? 'Pickup From:' : 'Deliver To:'}</span>
+                                        {isPickup ? job.pickup_address : job.destination_address}
+                                      </div>
+                                    </td>
+
+                                    <td className="py-4 px-4 whitespace-nowrap">
+                                      <div className="font-extrabold text-[#2C241D] text-xs">₹{job.transportation_charge}</div>
+                                      <div className="text-[10px] text-[#7A6C5E] font-medium">{job.distance_km} km (Rate Card)</div>
+                                    </td>
+
+                                    <td className="py-4 px-4 whitespace-nowrap">
+                                      {job.carrier_name ? (
+                                        <div>
+                                          <span className="font-extrabold text-[#38A132] text-xs block">{job.carrier_name}</span>
+                                          {job.driver_name && <span className="text-[10px] text-[#7A6C5E]">Driver: {job.driver_name}</span>}
+                                        </div>
+                                      ) : (
+                                        <span className="text-[#9E9082] italic text-[11px]">Unassigned</span>
+                                      )}
+                                    </td>
+
+                                    <td className="py-4 px-4 whitespace-nowrap">
+                                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${
+                                        isDelivered
+                                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                          : isDispatched
+                                            ? 'bg-blue-100 text-blue-800 border-blue-300'
+                                            : 'bg-amber-100 text-amber-800 border-amber-300'
+                                      }`}>
+                                        {isDelivered ? 'Delivered ✓' : isDispatched ? 'Dispatched' : 'Pending Dispatch'}
+                                      </span>
+                                    </td>
+
+                                    <td className="py-4 px-4 text-right whitespace-nowrap">
+                                      {isDelivered ? (
+                                        <span className="text-emerald-700 font-extrabold text-xs">Completed ✓</span>
+                                      ) : isDispatched ? (
+                                        <span className="text-blue-700 font-extrabold text-xs">In Transit</span>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleOpenDispatchModalForFabrication(job)}
+                                          className="px-3 py-1.5 bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                                        >
+                                          <Truck className="w-3.5 h-3.5" />
+                                          <span>Dispatch</span>
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -4260,7 +4487,6 @@ export const RetailStaffDashboardPage: React.FC = () => {
             </div>
           </main>
         </div>
-      </div>
 
       {/* MODAL 1: Add New Product (High Contrast Vibrant Theme) */}
       {isAddProductModalOpen && (
@@ -5550,28 +5776,76 @@ export const RetailStaffDashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* MODAL 2: DISPATCH ORDER (Requirements 10, 11, 12, 13, 14, 15) */}
-      {dispatchModalOrder && (
+      {/* MODAL 2: DISPATCH ORDER OR FABRICATION JOB */}
+      {(dispatchModalOrder || dispatchModalFabJob) && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-white border border-[#E2D7CB] rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl space-y-5 text-[#2C241D]">
+          <div className="bg-white border border-[#E2D7CB] rounded-3xl p-6 sm:p-8 w-full max-w-lg shadow-2xl space-y-5 text-[#2C241D]">
             <div className="flex items-start justify-between border-b border-[#EFE7DE] pb-3">
               <div>
                 <span className="text-[10px] font-mono font-black text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded border border-[#48A63E]/20">
-                  {dispatchModalOrder.orderId}
+                  {dispatchModalOrder ? `#${dispatchModalOrder.orderId}` : `FAB-#${dispatchModalFabJob?.fabrication_id} (${dispatchModalFabJob?.job_type})`}
                 </span>
                 <h3 className="text-lg font-extrabold text-[#2C241D] mt-1 flex items-center gap-2">
                   <Truck className="w-5 h-5 text-[#38A132]" />
-                  <span>Dispatch Order with Internal Fleet</span>
+                  <span>
+                    {dispatchModalFabJob
+                      ? `Dispatch ${dispatchModalFabJob.job_type === 'FABRICATION_PICKUP' ? 'Material Pickup' : 'Return Delivery'}`
+                      : 'Dispatch Order with Logistics Provider'}
+                  </span>
                 </h3>
               </div>
-              <button onClick={() => setDispatchModalOrder(null)} className="p-1 text-[#9E9082] hover:text-[#2C241D]">
+              <button
+                onClick={() => {
+                  setDispatchModalOrder(null);
+                  setDispatchModalFabJob(null);
+                }}
+                className="p-1 text-[#9E9082] hover:text-[#2C241D]"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3.5 text-xs font-semibold">
-              {/* Customer Contact & Delivery Address Card */}
+              {/* Customer Contact & Delivery/Pickup Address Card */}
               {(() => {
+                if (dispatchModalFabJob) {
+                  const job = dispatchModalFabJob;
+                  const isPickup = job.job_type === 'FABRICATION_PICKUP';
+                  return (
+                    <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
+                      <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1.5">
+                        <div className="flex items-center gap-1.5 font-extrabold text-[#2C241D]">
+                          <User className="w-3.5 h-3.5 text-[#38A132]" />
+                          <span>{job.customer_name}</span>
+                        </div>
+                        {job.customer_phone && (
+                          <div className="font-mono font-extrabold text-[#38A132] flex items-center gap-1 text-[11px]">
+                            <Phone className="w-3.5 h-3.5" />
+                            <span>{job.customer_phone}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-start gap-1.5 text-[11px]">
+                        <MapPin className="w-3.5 h-3.5 text-[#38A132] shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-bold text-[#7A6C5E] uppercase block text-[9px]">
+                            {isPickup ? 'Material Pickup Address:' : 'Return Delivery Address:'}
+                          </span>
+                          <span className="font-semibold text-[#2C241D] leading-snug block">
+                            {isPickup ? job.pickup_address : job.destination_address}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-between items-center pt-1 border-t border-[#E2D7CB]/60 text-[10px] text-[#7A6C5E]">
+                        <span>Service: <strong className="text-[#2C241D]">{job.service_type}</strong></span>
+                        <span>Distance / Fee: <strong className="text-[#38A132]">{job.distance_km} km (₹{job.transportation_charge})</strong></span>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const ordAny = dispatchModalOrder as any;
                 const custEmail = (ordAny.customerEmail || ordAny.email || '').toLowerCase().trim();
                 const matchedUser = allUsersList.find((u: any) => String(u.email || '').toLowerCase().trim() === custEmail);
@@ -5615,7 +5889,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
               {/* Dispatch Method Selection Toggle */}
               <div>
-                <label className="block font-bold text-[#7A6C5E] mb-1.5">Dispatch Method *</label>
+                <label className="block font-bold text-[#7A6C5E] mb-1.5">Dispatch Transportation Provider *</label>
                 <div className="grid grid-cols-2 gap-2 p-1 bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl">
                   <button
                     type="button"
@@ -5700,13 +5974,13 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {dispatchType === 'external' && (
                 <div className="space-y-3">
                   <div>
-                    <label className="block font-bold text-[#7A6C5E] mb-1">Select External Carrier Partner *</label>
+                    <label className="block font-bold text-[#7A6C5E] mb-1">Select Active Carrier Partner *</label>
                     {(() => {
                       const activeOnly = carrierPartnersList.filter(cp => cp.status === true || (cp as any).status === 1 || String(cp.status).toLowerCase() === 'true');
                       if (activeOnly.length === 0) {
                         return (
                           <div className="p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold text-[#7A6C5E] italic">
-                            No active carrier partners available. Please activate a carrier in Admin Dashboard.
+                            No active carrier partners available.
                           </div>
                         );
                       }
@@ -5780,7 +6054,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <label className="block font-bold text-[#7A6C5E] mb-1">Dispatch Note (Optional)</label>
                 <input
                   type="text"
-                  placeholder="e.g. Handed over to carrier for dispatch"
+                  placeholder="e.g. Handed over for dispatch"
                   value={dispatchNote}
                   onChange={(e) => setDispatchNote(e.target.value)}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl"
@@ -5790,26 +6064,53 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
             <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-end gap-3">
               <button
-                onClick={() => setDispatchModalOrder(null)}
+                onClick={() => {
+                  setDispatchModalOrder(null);
+                  setDispatchModalFabJob(null);
+                }}
                 className="px-4 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-xs"
               >
                 Cancel
               </button>
               <button
                 onClick={async () => {
-                  const target = dispatchModalOrder;
+                  const targetOrd = dispatchModalOrder;
+                  const targetFab = dispatchModalFabJob;
                   setDispatchModalOrder(null);
-                  if (target) {
-                    const isInternal = dispatchType === 'internal';
-                    const selVehicle = isInternal ? availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId) : null;
-                    const vehicleIdNum = selVehicle ? selVehicle.vehicle_id : undefined;
-                    const driverIdNum = selVehicle ? selVehicle.assigned_driver_id || undefined : undefined;
-                    const finalCarrier = isInternal
-                      ? (selVehicle ? `Internal Fleet (${selVehicle.registration_number})` : 'Internal Fleet')
-                      : (dispatchCarrier || 'Carrier Partner');
+                  setDispatchModalFabJob(null);
 
+                  const isInternal = dispatchType === 'internal';
+                  const selVehicle = isInternal ? availableVehiclesList.find(v => v.vehicle_id.toString() === selectedDispatchVehicleId) : null;
+                  const vehicleIdNum = selVehicle ? selVehicle.vehicle_id : undefined;
+                  const driverIdNum = selVehicle ? selVehicle.assigned_driver_id || undefined : undefined;
+                  const selCarrier = !isInternal ? carrierPartnersList.find(cp => cp.carrier_name === dispatchCarrier) : null;
+                  const carrierIdNum = selCarrier ? selCarrier.carrier_id : undefined;
+                  const finalCarrier = isInternal
+                    ? (selVehicle ? `Internal Fleet (${selVehicle.registration_number})` : 'Internal Fleet')
+                    : (dispatchCarrier || 'Carrier Partner');
+
+                  if (targetFab) {
+                    const res = await dispatchFulfillmentJobAPI(
+                      targetFab.fulfillment_id,
+                      carrierIdNum,
+                      !isInternal ? finalCarrier : undefined,
+                      dispatchTrackingNumber.trim(),
+                      dispatchExpectedDate,
+                      vehicleIdNum,
+                      driverIdNum,
+                      dispatchNote,
+                      1
+                    );
+                    if (res.success) {
+                      setSuccessNotice(`Fabrication transportation job dispatched! Tracking: ${res.tracking_number || 'Generated'}`);
+                      setTimeout(() => setSuccessNotice(null), 6000);
+                      await refreshControlCenterData();
+                    } else {
+                      alert(res.message || 'Failed to dispatch fabrication transportation job.');
+                    }
+                  } else if (targetOrd) {
                     const res = await dispatchOrderAPI(
-                      target.orderId,
+                      targetOrd.orderId,
                       finalCarrier,
                       dispatchTrackingNumber.trim(),
                       dispatchExpectedDate,
@@ -5819,18 +6120,18 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       driverIdNum
                     );
                     if (res) {
-                      setSuccessNotice(`Order #${target.orderId} marked as Dispatched! Tracking Number: ${res.tracking_number || 'Generated'}`);
+                      setSuccessNotice(`Order #${targetOrd.orderId} marked as Dispatched! Tracking: ${res.tracking_number || 'Generated'}`);
                       setTimeout(() => setSuccessNotice(null), 6000);
                       await loadAllOrdersForStaff();
                       await refreshFulfillmentData();
                     } else {
-                      alert(`Failed to dispatch order #${target.orderId}. Please try again.`);
+                      alert(`Failed to dispatch order #${targetOrd.orderId}. Please try again.`);
                     }
                   }
                 }}
                 className="px-5 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
               >
-                Dispatch Order
+                Dispatch Logistics
               </button>
             </div>
           </div>

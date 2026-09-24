@@ -95,15 +95,15 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
   };
 
   return (
-    <div className="w-full animate-fadeIn">
+    <div className="w-full animate-fadeIn space-y-4 text-[#2C241D]">
       {/* Header for Forgot Password */}
-      <div className="text-left mb-6">
-        <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+      <div className="text-left space-y-1">
+        <h2 className="text-xl sm:text-2xl font-bold text-[#2C241D] tracking-tight">
           {step === 'email' && 'Forgot Password'}
           {step === 'reset' && 'Reset Password'}
           {step === 'success' && 'Password Reset!'}
         </h2>
-        <p className="mt-1 text-xs text-white/85 font-normal tracking-wide">
+        <p className="text-xs text-[#5C4E42] font-extrabold">
           {step === 'email' && 'Enter your username or email address'}
           {step === 'reset' && `Enter code sent to ${email}`}
           {step === 'success' && 'Your password has been reset successfully'}
@@ -112,49 +112,52 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
 
       {/* Error Alert */}
       {error && (
-        <div className="mb-4 p-2.5 text-xs text-red-200 bg-red-900/60 border border-red-500/50 rounded-xl backdrop-blur-md">
+        <div className="p-2.5 text-xs text-rose-800 bg-rose-50/80 border border-rose-200 rounded-2xl font-bold backdrop-blur-md">
           {error}
         </div>
       )}
 
       {/* Info Message Alert */}
       {infoMessage && (
-        <div className="mb-4 p-2.5 text-xs text-emerald-200 bg-emerald-900/60 border border-emerald-500/50 rounded-xl font-medium backdrop-blur-md">
-          {infoMessage}
+        <div className="p-2.5 text-xs text-emerald-800 bg-emerald-50/80 border border-emerald-300 rounded-2xl font-bold flex items-center gap-2 backdrop-blur-md">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{infoMessage}</span>
         </div>
       )}
 
       {/* Step 1: Request Email */}
       {step === 'email' && (
-        <form onSubmit={handleSendCode} className="space-y-4">
-          <Input
-            type="text"
-            placeholder="User Name or Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            endIcon={<Mail className="w-4 h-4 text-white/70" />}
-            required
-          />
+        <form onSubmit={handleSendCode} className="space-y-3.5">
+          <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
+            <input
+              type="text"
+              placeholder="User Name or Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
+            />
+            <div className="pr-4 text-[#38A132] pointer-events-none">
+              <Mail className="w-4 h-4" />
+            </div>
+          </div>
 
-          <Button
+          <button
             type="submit"
-            variant="primary"
-            size="md"
-            className="w-full py-3 text-base rounded-2xl"
-            isLoading={loading}
-            loadingText="Sending code..."
-            rightIcon={<ArrowRight className="w-4 h-4 ml-1 flex-shrink-0" />}
+            disabled={loading}
+            className="w-full py-3.5 bg-gradient-to-r from-[#48A63E] via-[#38A132] to-[#2E8B29] hover:from-[#3D9634] hover:to-[#267722] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-[#38A132]/30 hover:shadow-[#38A132]/45 border border-white/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer active:scale-[0.99]"
           >
-            Send Verification Code
-          </Button>
+            {loading ? 'Sending code...' : 'Send Verification Code'}
+            <ArrowRight className="w-4 h-4" />
+          </button>
 
-          <div className="pt-2 text-center">
-            <p className="text-xs text-white/80">
+          <div className="pt-1 text-center">
+            <p className="text-xs text-[#5C4E42] font-bold">
               Remember your password?{' '}
               <button
                 type="button"
                 onClick={onBackToLogin}
-                className="font-bold text-white hover:underline focus:outline-none"
+                className="font-extrabold text-[#38A132] hover:underline focus:outline-none cursor-pointer"
               >
                 Login
               </button>
@@ -166,58 +169,66 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
       {/* Step 2: Verification Code & Reset Password */}
       {step === 'reset' && (
         <form onSubmit={handleResetPassword} className="space-y-3.5">
-          <Input
-            type="text"
-            placeholder="6-Digit Verification Code"
-            value={resetCode}
-            onChange={(e) => setResetCode(e.target.value)}
-            endIcon={<KeyRound className="w-4 h-4 text-white/70" />}
-            required
-          />
+          <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
+            <input
+              type="text"
+              placeholder="6-Digit Verification Code"
+              value={resetCode}
+              onChange={(e) => setResetCode(e.target.value)}
+              required
+              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
+            />
+            <div className="pr-4 text-[#38A132] pointer-events-none">
+              <KeyRound className="w-4 h-4" />
+            </div>
+          </div>
 
-          <Input
-            type={showPassword ? 'text' : 'password'}
-            placeholder="New Password"
-            value={newPassword}
-            onChange={(e) => setNewPassword(e.target.value)}
-            required
-            endIcon={
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="text-white/70 hover:text-white"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
-            }
-          />
+          <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="New Password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              required
+              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(!showPassword)}
+              className="pr-4 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors cursor-pointer"
+            >
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
 
-          <Input
-            type={showPassword ? 'text' : 'password'}
-            placeholder="Confirm New Password"
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            required
-            endIcon={<Lock className="w-4 h-4 text-white/70" />}
-          />
+          <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Confirm New Password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              className="w-full py-3 px-4 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
+            />
+            <div className="pr-4 text-[#38A132] pointer-events-none">
+              <Lock className="w-4 h-4" />
+            </div>
+          </div>
 
-          <Button
+          <button
             type="submit"
-            variant="primary"
-            size="md"
-            className="w-full py-3 text-base rounded-2xl mt-2"
-            isLoading={loading}
-            loadingText="Updating password..."
+            disabled={loading}
+            className="w-full py-3.5 bg-gradient-to-r from-[#48A63E] via-[#38A132] to-[#2E8B29] hover:from-[#3D9634] hover:to-[#267722] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-[#38A132]/30 hover:shadow-[#38A132]/45 border border-white/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer active:scale-[0.99]"
           >
-            Update Password
-          </Button>
+            {loading ? 'Updating password...' : 'Update Password'}
+          </button>
 
-          <div className="pt-2 text-center">
-            <p className="text-xs text-white/80">
+          <div className="pt-1 text-center">
+            <p className="text-xs text-[#5C4E42] font-bold">
               <button
                 type="button"
                 onClick={onBackToLogin}
-                className="font-bold text-white hover:underline focus:outline-none"
+                className="font-extrabold text-[#38A132] hover:underline focus:outline-none cursor-pointer"
               >
                 Back to Login
               </button>
@@ -229,21 +240,19 @@ export const ForgotPasswordForm: React.FC<ForgotPasswordFormProps> = ({
       {/* Step 3: Success Screen */}
       {step === 'success' && (
         <div className="py-2 text-center space-y-4">
-          <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400 text-emerald-300 mx-auto flex items-center justify-center animate-bounce">
+          <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-400 text-emerald-600 mx-auto flex items-center justify-center animate-bounce">
             <CheckCircle2 className="w-6 h-6" />
           </div>
-          <p className="text-xs text-white/90">
+          <p className="text-xs text-[#5C4E42] font-extrabold">
             Your password has been successfully reset!
           </p>
-          <Button
+          <button
             type="button"
-            variant="primary"
-            size="md"
-            className="w-full py-3 text-base rounded-2xl"
+            className="w-full py-3.5 bg-gradient-to-r from-[#48A63E] via-[#38A132] to-[#2E8B29] hover:from-[#3D9634] hover:to-[#267722] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-[#38A132]/30 hover:shadow-[#38A132]/45 border border-white/20 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
             onClick={onBackToLogin}
           >
             Back to Login
-          </Button>
+          </button>
         </div>
       )}
     </div>

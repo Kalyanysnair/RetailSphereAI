@@ -14,18 +14,18 @@ export const SignupPage: React.FC = () => {
         aria-hidden="true"
       />
 
-      {/* Warm Cream Luxury Gradient Overlay */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+      {/* Atmospheric Luxury Ambient Overlay */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#2C241D]/20 via-[#FAF7F2]/25 to-[#2C241D]/35 pointer-events-none backdrop-blur-[1.5px]" />
 
-      {/* Ambient Glass Glow */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#48A63E]/15 rounded-full blur-3xl pointer-events-none" />
+      {/* Ambient Emerald Glass Glow */}
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#48A63E]/20 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header Navigation */}
       <div className="relative z-20">
         <HeaderNav />
       </div>
 
-      {/* Centered Compact Glassmorphic Signup Card (Zero Scroll Fit) */}
+      {/* Centered Compact Glassmorphic Signup Card */}
       <main className="relative z-10 flex-1 flex items-center justify-center my-2 px-4 py-4">
         <div className="w-full max-w-[380px] sm:max-w-[440px] ultra-glass-panel rounded-[2rem] p-5 sm:p-6 shadow-2xl transition-all duration-300 relative">
           <SignupForm />

@@ -181,13 +181,13 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
 
         {/* User Name Input Box with Spacious Padding */}
         <div>
-          <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+          <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
             User Name / Full Name
           </label>
-          <div className={`relative flex items-center bg-[#FAF7F2] border rounded-2xl overflow-hidden transition-all shadow-xs ${
+          <div className={`relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border rounded-2xl overflow-hidden transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)] ${
             errors.username
               ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-2 focus-within:ring-rose-500/20'
-              : 'border-[#E2D7CB] focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20'
+              : 'border-white/75 focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25'
           }`}>
             <input
               type="text"
@@ -197,7 +197,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
               onChange={handleChange}
               autoComplete="username"
               required
-              className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+              className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
             />
             <div className="pr-3.5 text-[#38A132] pointer-events-none">
               <User className="w-4 h-4" />
@@ -210,13 +210,13 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
 
         {/* Email Address Input Box with Spacious Padding */}
         <div>
-          <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+          <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
             Email Address
           </label>
-          <div className={`relative flex items-center bg-[#FAF7F2] border rounded-2xl overflow-hidden transition-all shadow-xs ${
+          <div className={`relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border rounded-2xl overflow-hidden transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)] ${
             errors.email
               ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-2 focus-within:ring-rose-500/20'
-              : 'border-[#E2D7CB] focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20'
+              : 'border-white/75 focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25'
           }`}>
             <input
               type="email"
@@ -226,7 +226,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
               onChange={handleChange}
               autoComplete="email"
               required
-              className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+              className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
             />
             <div className="pr-3.5 text-[#38A132] pointer-events-none">
               <Mail className="w-4 h-4" />
@@ -239,13 +239,13 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
 
         {/* Phone Number Input Box with Spacious Padding */}
         <div>
-          <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+          <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
             Phone Number
           </label>
-          <div className={`relative flex items-center bg-[#FAF7F2] border rounded-2xl overflow-hidden transition-all shadow-xs ${
+          <div className={`relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border rounded-2xl overflow-hidden transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)] ${
             errors.phone
               ? 'border-rose-400 focus-within:border-rose-600 focus-within:ring-2 focus-within:ring-rose-500/20'
-              : 'border-[#E2D7CB] focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20'
+              : 'border-white/75 focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25'
           }`}>
             <input
               type="tel"
@@ -256,7 +256,7 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
               onBlur={handleBlur}
               autoComplete="tel"
               required
-              className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+              className="w-full py-2.5 px-3.5 text-xs sm:text-sm text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
             />
             <div className={`pr-3.5 pointer-events-none ${errors.phone ? 'text-rose-600' : 'text-[#38A132]'}`}>
               <Phone className="w-4 h-4" />
@@ -270,10 +270,10 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
         {/* Password & Confirm Password Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
-            <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+            <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
               Password
             </label>
-            <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+            <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
               <input
                 type={showPassword ? 'text' : 'password'}
                 name="password"
@@ -282,12 +282,12 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
                 onChange={handleChange}
                 autoComplete="new-password"
                 required
-                className="w-full py-2.5 px-3.5 text-xs text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+                className="w-full py-2.5 px-3.5 text-xs text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="pr-3 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors"
+                className="pr-3 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors cursor-pointer"
                 title={showPassword ? 'Hide password' : 'Show password'}
               >
                 {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -299,10 +299,10 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
           </div>
 
           <div>
-            <label className="block text-[11px] font-extrabold text-[#6B5C4D] mb-1">
+            <label className="block text-[11px] font-extrabold text-[#5C4E42] mb-1">
               Confirm Password
             </label>
-            <div className="relative flex items-center bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/20 transition-all shadow-xs">
+            <div className="relative flex items-center bg-white/45 hover:bg-white/55 focus-within:bg-white/70 backdrop-blur-md border border-white/75 rounded-2xl overflow-hidden focus-within:border-[#38A132] focus-within:ring-2 focus-within:ring-[#38A132]/25 transition-all shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)]">
               <input
                 type={showConfirmPassword ? 'text' : 'password'}
                 name="confirmPassword"
@@ -311,12 +311,12 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
                 onChange={handleChange}
                 autoComplete="new-password"
                 required
-                className="w-full py-2.5 px-3.5 text-xs text-[#2C241D] font-bold placeholder-[#9E9082] bg-transparent focus:outline-none"
+                className="w-full py-2.5 px-3.5 text-xs text-[#2C241D] font-bold placeholder-[#7A6C5E]/75 bg-transparent focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="pr-3 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors"
+                className="pr-3 text-[#5C4E42] hover:text-[#2C241D] focus:outline-none transition-colors cursor-pointer"
                 title={showConfirmPassword ? 'Hide password' : 'Show password'}
               >
                 {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -328,33 +328,33 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
           </div>
         </div>
 
-        {/* Sign Up Button */}
+        {/* Sign Up Button with Glowing Glass Gradient */}
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full py-3 bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-md shadow-[#38A132]/25 transition-all flex items-center justify-center gap-2 disabled:opacity-60 mt-1"
+          className="w-full py-3 bg-gradient-to-r from-[#48A63E] via-[#38A132] to-[#2E8B29] hover:from-[#3D9634] hover:to-[#267722] text-white font-extrabold text-xs sm:text-sm rounded-2xl shadow-lg shadow-[#38A132]/30 hover:shadow-[#38A132]/45 border border-white/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 mt-1 cursor-pointer active:scale-[0.99]"
         >
           {isSubmitting ? 'Creating account...' : 'Sign Up'}
         </button>
 
         {/* Divider without background, soft light black text font */}
         <div className="relative my-3 flex items-center justify-center">
-          <div className="border-t border-[#E2D7CB] w-full" />
-          <span className="px-3 text-[10px] font-extrabold text-[#4A3E32] uppercase tracking-wider whitespace-nowrap">
+          <div className="border-t border-[#6B5C4D]/25 w-full" />
+          <span className="px-3 text-[10px] font-extrabold text-[#5C4E42] uppercase tracking-wider whitespace-nowrap">
             or continue with
           </span>
-          <div className="border-t border-[#E2D7CB] w-full" />
+          <div className="border-t border-[#6B5C4D]/25 w-full" />
         </div>
 
-        {/* Firebase Google Sign In Button in Light Grey Theme */}
+        {/* Firebase Google Sign In Button in Glass Theme */}
         <GoogleSignInButton
           text="Sign up with Google"
-          className="w-full py-3 bg-[#EFECE8] border border-[#E2D7CB] text-[#5C5248] font-extrabold text-xs sm:text-sm rounded-2xl hover:bg-[#E5E1DC] shadow-xs flex items-center justify-center gap-2 transition-all"
+          className="w-full py-3 bg-white/45 hover:bg-white/65 backdrop-blur-md border border-white/75 text-[#4A3E32] font-extrabold text-xs sm:text-sm rounded-2xl shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)] flex items-center justify-center gap-2 transition-all cursor-pointer"
         />
 
         {/* Login link */}
         <div className="pt-1 text-center">
-          <p className="text-[11px] text-[#6B5C4D] font-bold">
+          <p className="text-[11px] text-[#5C4E42] font-bold">
             Already have an account?{' '}
             <Link
               to="/login"

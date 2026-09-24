@@ -12,6 +12,8 @@ import { AdminDashboardPage } from './components/admin/AdminDashboardPage';
 import { RetailStaffDashboardPage } from './components/retail-staff/RetailStaffDashboardPage';
 import { ProductionStaffDashboardPage } from './components/production-staff/ProductionStaffDashboardPage';
 import { WorkerDashboardPage } from './components/worker/WorkerDashboardPage';
+import { CarrierDashboardPage } from './components/carrier/CarrierDashboardPage';
+import { DeliveryPersonnelDashboardPage } from './components/delivery-personnel/DeliveryPersonnelDashboardPage';
 import { ProductDetailPage } from './components/product/ProductDetailPage';
 export const App: React.FC = () => {
   return (
@@ -47,6 +49,13 @@ export const App: React.FC = () => {
         {/* Workshop Artisan Worker Portal Dashboard Route */}
         <Route path="/worker/*" element={<WorkerDashboardPage />} />
         <Route path="/worker-dashboard/*" element={<WorkerDashboardPage />} />
+
+        {/* Carrier Partner Logistics Portal Dashboard Route */}
+        <Route path="/carrier/*" element={<CarrierDashboardPage />} />
+
+        {/* Delivery Personnel / Driver Portal Dashboard Route */}
+        <Route path="/delivery-personnel/*" element={<DeliveryPersonnelDashboardPage />} />
+        <Route path="/driver/*" element={<DeliveryPersonnelDashboardPage />} />
 
         {/* Fallback redirect to Landing Page / */}
         <Route path="*" element={<Navigate to="/" replace />} />

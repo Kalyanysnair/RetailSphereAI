@@ -26,6 +26,10 @@ export interface RetailOrder {
   createdAt?: number;
   orderDate: string;
   assignedWorkers?: any[];
+  carrier?: string;
+  expectedDeliveryDate?: string;
+  trackingNumber?: string;
+  fulfillment?: any;
   items: RetailOrderItem[];
 }
 

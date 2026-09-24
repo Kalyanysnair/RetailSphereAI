@@ -362,3 +362,101 @@ export async function updateReturnStatusAPI(
     return false;
   }
 }
+
+// 11. Fabrication Logistics Transportation APIs
+export interface FabricationFulfillmentJob {
+  fulfillment_id: number;
+  fabrication_id: number;
+  job_type: 'FABRICATION_PICKUP' | 'FABRICATION_RETURN' | string;
+  fulfillment_status: string;
+  delivery_status: string;
+  service_type: string;
+  customer_id?: number;
+  customer_name: string;
+  customer_phone?: string;
+  customer_email?: string;
+  pickup_address: string;
+  destination_address: string;
+  distance_km: number;
+  transportation_charge: number;
+  transportation_provider?: string;
+  carrier_id?: number;
+  carrier_name?: string;
+  vehicle_id?: number;
+  driver_name?: string;
+  driver_phone?: string;
+  tracking_number?: string;
+  expected_delivery_date?: string;
+  dispatched_at?: string;
+  delivered_at?: string;
+  delivery_notes?: string;
+  created_at?: string;
+}
+
+export async function fetchFabricationFulfillmentJobs(): Promise<FabricationFulfillmentJob[]> {
+  try {
+    const res = await fetch('/api/orders/fulfillment/fabrication-jobs');
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Error fetching fabrication fulfillment jobs:', err);
+  }
+  return [];
+}
+
+export async function dispatchFulfillmentJobAPI(
+  fulfillmentId: number,
+  carrierId?: number,
+  carrierName?: string,
+  trackingNumber?: string,
+  expectedDeliveryDate?: string,
+  vehicleId?: number,
+  driverId?: number,
+  dispatchNote?: string,
+  staffId?: number
+): Promise<{ success: boolean; message?: string; tracking_number?: string }> {
+  try {
+    const res = await fetch(`/api/orders/fulfillment/${fulfillmentId}/dispatch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        staff_id: staffId,
+        carrier_id: carrierId || undefined,
+        carrier: carrierName || undefined,
+        tracking_number: trackingNumber || undefined,
+        expected_delivery_date: expectedDeliveryDate || undefined,
+        vehicle_id: vehicleId || undefined,
+        driver_id: driverId || undefined,
+        dispatch_note: dispatchNote
+      }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      return { success: true, message: data.message, tracking_number: data.tracking_number };
+    }
+    return { success: false, message: data.detail || 'Dispatch failed' };
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Server error' };
+  }
+}
+
+export async function estimateTransportCostAPI(
+  serviceType: 'FABRICATION_PICKUP' | 'FABRICATION_RETURN',
+  address: string
+): Promise<{ distance_km: number; calculated_charge: number; base_charge: number; rate_per_km: number } | null> {
+  try {
+    const res = await fetch('/api/fabrication/estimate-transport', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ service_type: serviceType, address }),
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Error estimating transport cost:', err);
+  }
+  return null;
+}
+

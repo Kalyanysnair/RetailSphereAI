@@ -103,7 +103,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
         type="button"
         onClick={handleFirebaseGoogleSignIn}
         disabled={isLoading}
-        className={`w-full py-3 px-4 flex items-center justify-center gap-3 rounded-2xl bg-[#EFECE8] hover:bg-[#E5E1DC] border border-[#E2D7CB] text-[#5C5248] font-extrabold text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#38A132]/30 active:scale-[0.99] disabled:opacity-60 shadow-xs cursor-pointer ${className}`}
+        className={`w-full py-3 px-4 flex items-center justify-center gap-3 rounded-2xl bg-white/45 hover:bg-white/65 backdrop-blur-md border border-white/75 text-[#4A3E32] font-extrabold text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[#38A132]/30 active:scale-[0.99] disabled:opacity-60 shadow-[inset_0_1px_2px_rgba(255,255,255,0.8),0_2px_4px_rgba(0,0,0,0.03)] cursor-pointer ${className}`}
       >
         {isLoading ? (
           <>
@@ -145,7 +145,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
               value={googleEmail}
               onChange={(e) => setGoogleEmail(e.target.value)}
               required
-              className="w-full py-2.5 pl-3.5 pr-28 rounded-xl border border-[#E2D7CB] bg-white text-[#2C241D] font-medium text-xs focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all truncate"
+              className="w-full py-2.5 pl-3.5 pr-28 rounded-xl border border-white/75 bg-white/60 backdrop-blur-md text-[#2C241D] font-medium text-xs focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all truncate shadow-inner"
             />
             <button
               type="submit"

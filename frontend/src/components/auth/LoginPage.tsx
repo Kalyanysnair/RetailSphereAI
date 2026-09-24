@@ -14,11 +14,11 @@ export const LoginPage: React.FC = () => {
         aria-hidden="true"
       />
 
-      {/* Warm Cream Luxury Gradient Overlay */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+      {/* Atmospheric Luxury Ambient Overlay */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#2C241D]/20 via-[#FAF7F2]/25 to-[#2C241D]/35 pointer-events-none backdrop-blur-[1.5px]" />
 
-      {/* Ambient Glass Glow */}
-      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#48A63E]/15 rounded-full blur-3xl pointer-events-none" />
+      {/* Ambient Emerald Glass Glow */}
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#48A63E]/20 rounded-full blur-3xl pointer-events-none" />
 
       {/* Header Navigation */}
       <div className="relative z-20">

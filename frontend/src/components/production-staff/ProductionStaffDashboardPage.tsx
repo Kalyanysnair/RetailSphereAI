@@ -173,6 +173,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   // 1. Dashboard Overview State
   const [overviewData, setOverviewData] = useState<ProductionOverviewData | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // 2. Assessment Queue State
   const [assessmentQueue, setAssessmentQueue] = useState<AssessmentQueueItem[]>([]);
@@ -1447,277 +1448,327 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   }, [pendingCount, approvedCount, approvalFilter]);
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Background Image Layer */}
-      <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
-        style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
-        }}
-      />
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+    <div className="relative min-h-screen text-[#2C2016] flex selection:bg-[#38A132] selection:text-white overflow-x-hidden admin-theme">
+      {/* Background Ambience Layer */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-96 h-96 bg-[#C6A680]/35 rounded-full blur-[128px]" />
+        <div className="absolute top-1/3 -right-32 w-[30rem] h-[30rem] bg-[#C6A680]/40 rounded-full blur-[130px]" />
+        <div className="absolute -bottom-32 left-1/3 w-[36rem] h-[36rem] bg-[#C6A680]/45 rounded-full blur-[140px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#8C6C4F15_1px,transparent_1px),linear-gradient(to_bottom,#8C6C4F15_1px,transparent_1px)] bg-[size:28px_28px]" />
+      </div>
 
-      {/* LEFT SIDEBAR (Matching Retail Staff Portal Visual Style, Fonts, and Subheadings) */}
-      <aside className="w-72 ultra-glass-panel border-r border-[#E2D7CB] hidden md:flex flex-col justify-between p-6 shadow-xl sticky top-0 h-screen min-h-screen z-20 flex-shrink-0">
-        <div className="space-y-8">
-          {/* Brand Logo */}
-          <div className="flex items-center justify-between">
-            <div>
-              <Link to="/dashboard" className="font-extrabold text-[#2C241D] text-lg tracking-tight block hover:opacity-90 transition-opacity">
-                RetailSphere <span className="text-[#48A63E]">AI</span>
-              </Link>
-              <span className="text-[10px] font-extrabold text-[#48A63E] uppercase tracking-widest block font-mono -mt-0.5">
-                Production Staff Portal
-              </span>
+      {/* LEFT SIDEBAR NAVIGATION PANEL */}
+      <aside className={`${isSidebarCollapsed ? 'w-16 p-2' : 'w-56 p-3.5'} flex-shrink-0 min-h-screen hidden md:flex flex-col border-r border-[#DFD2C0] bg-[#F1E8DC]/95 backdrop-blur-2xl space-y-4 relative z-20 shadow-[2px_0_24px_rgba(58,40,24,0.04)] transition-[width,padding] duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-[width,padding] overflow-hidden`}>
+        {/* Logo and Brand Title - Click to toggle Collapse/Expand */}
+        <div className="pb-2.5 border-b border-[#DFD2C0]/80 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="flex items-center gap-2 group cursor-pointer text-left w-full p-1 rounded-xl hover:bg-[#E5D7C5]/60 transition-colors duration-200"
+            title={isSidebarCollapsed ? "Click to expand sidebar" : "Click to collapse sidebar"}
+          >
+            <div className="relative flex-shrink-0">
+              <img
+                src="/retailsphere_logo.jpg"
+                alt="RetailSphere AI Logo"
+                className="w-8 h-8 rounded-full object-cover border border-[#D0BEA9] shadow-sm group-hover:scale-105 transition-transform duration-300"
+              />
             </div>
-          </div>
-
-          {/* Sidebar Scrollable Nav List */}
-          <div className="overflow-y-auto max-h-[calc(100vh-140px)] pr-1 space-y-5 scrollbar-none">
-            {/* Category 1: Workshop Control Center */}
-            <div>
-              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                Workshop Control Center
+            <div className={`transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden whitespace-nowrap min-w-0 ${
+              isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+            }`}>
+              <div className="text-sm font-black text-[#2C2016] tracking-tight flex items-center gap-1">
+                <span className="truncate">RetailSphere</span>
+                <span className="text-[#38A132]">AI</span>
               </div>
-              <nav className="space-y-1 text-xs font-bold">
-                {[
-                  { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
-                  {
-                    id: 'assessment_queue',
-                    label: 'Assessment & Quotation',
-                    icon: FileText
-                  },
-                  {
-                    id: 'active_production',
-                    label: 'Active Production',
-                    icon: Clock,
-                    badge: overviewData?.metrics?.in_production,
-                    badgeColor: 'bg-indigo-600'
-                  },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id ||
-                    (item.id === 'assessment_queue' && (activeTab === 'approvals' || activeTab === 'quotations')) ||
-                    (item.id === 'active_production' && (activeTab === 'orders' || activeTab === 'assignments'));
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id as any)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.badge && item.badge > 0 ? (
-                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-600'}`}>
-                          {item.badge}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-
-            {/* Category 2: Artisan & Work Force */}
-            <div>
-              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                Artisan & Work Force
+              <div className="text-[9px] font-bold text-[#8F745D] uppercase tracking-wider font-mono truncate">
+                Production Staff
               </div>
-              <nav className="space-y-1 text-xs font-bold">
-                {[
-                  { id: 'workers', label: 'Workers Directory', icon: Users },
-                  {
-                    id: 'leave',
-                    label: 'Worker Leave Requests',
-                    icon: Clock,
-                    badge: leaveRequests.filter(l => l.status === 'Pending').length,
-                    badgeColor: 'bg-amber-500'
-                  },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id as any)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.badge && item.badge > 0 ? (
-                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-500'}`}>
-                          {item.badge}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </nav>
             </div>
-
-            {/* Category 3: Material & Quality Management */}
-            <div>
-              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                Material & Quality Management
-              </div>
-              <nav className="space-y-1 text-xs font-bold">
-                {[
-                  {
-                    id: 'materials',
-                    label: 'Materials & Stocks',
-                    icon: PackageCheck,
-                    badge: overviewData?.metrics?.material_pending,
-                    badgeColor: 'bg-amber-700'
-                  },
-                  {
-                    id: 'quality',
-                    label: 'Quality & Rework',
-                    icon: CheckCircle2,
-                    badge: overviewData?.metrics?.qc_pending,
-                    badgeColor: 'bg-purple-600'
-                  },
-                  {
-                    id: 'completed',
-                    label: 'Completed Jobs',
-                    icon: Check,
-                    badge: overviewData?.metrics?.completed_today,
-                    badgeColor: 'bg-teal-600'
-                  },
-                  { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id || (item.id === 'materials' && activeTab === 'raw_materials');
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id as any)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.badge && item.badge > 0 ? (
-                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-700'}`}>
-                          {item.badge}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-
-            {/* Category 4: Intelligence & Administration */}
-            <div>
-              <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider mb-2 px-2">
-                Intelligence & Administration
-              </div>
-              <nav className="space-y-1 text-xs font-bold">
-                {[
-                  { id: 'reports', label: 'Reports & Analytics', icon: FileText },
-                  { id: 'machines', label: 'Machinery Manager', icon: Sliders },
-                  { id: 'ai_insights', label: 'AI Production Suite', icon: Sparkles },
-                  { id: 'queries', label: 'Queries & Support', icon: MessageSquare },
-                  { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
-                  {
-                    id: 'admin_messages',
-                    label: 'Admin Directives',
-                    icon: Mail,
-                    badge: unreadAdminMsgsCount,
-                    badgeColor: 'bg-amber-500 animate-pulse'
-                  },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id as any)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-all cursor-pointer ${
-                        isActive
-                          ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/20 font-extrabold'
-                          : 'text-[#5C4E42] hover:text-[#2C241D] hover:bg-[#F5ECE1]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </div>
-                      {item.badge && item.badge > 0 ? (
-                        <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-full text-white ${item.badgeColor || 'bg-amber-500'}`}>
-                          {item.badge}
-                        </span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-          </div>
+          </button>
         </div>
+
+        {/* Sidebar Navigation */}
+        <nav className="flex-1 space-y-3.5 text-xs max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5 scrollbar-none">
+          {/* Category 1: Workshop Control Center */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Workshop Control
+                </div>
+              )}
+            </div>
+
+            {[
+              { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+              { id: 'assessment_queue', label: 'Assessment & Quotation', icon: FileText },
+              { id: 'active_production', label: 'Active Production', icon: Clock },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id ||
+                (item.id === 'assessment_queue' && (activeTab === 'approvals' || activeTab === 'quotations')) ||
+                (item.id === 'active_production' && (activeTab === 'orders' || activeTab === 'assignments'));
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category 2: Artisan & Work Force */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Artisan Workforce
+                </div>
+              )}
+            </div>
+
+            {[
+              { id: 'workers', label: 'Workers Directory', icon: Users },
+              { id: 'leave', label: 'Worker Leave Requests', icon: Clock },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category 3: Material & Quality Management */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Material & Quality
+                </div>
+              )}
+            </div>
+
+            {[
+              { id: 'materials', label: 'Materials & Stocks', icon: PackageCheck },
+              { id: 'quality', label: 'Quality & Rework', icon: CheckCircle2 },
+              { id: 'completed', label: 'Completed Jobs', icon: Check },
+              { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id || (item.id === 'materials' && activeTab === 'raw_materials');
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Category 4: Intelligence & Administration */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Intelligence & Admin
+                </div>
+              )}
+            </div>
+
+            {[
+              { id: 'reports', label: 'Reports & Analytics', icon: FileText },
+              { id: 'machines', label: 'Machinery Manager', icon: Sliders },
+              { id: 'ai_insights', label: 'AI Production Suite', icon: Sparkles },
+              { id: 'queries', label: 'Queries & Support', icon: MessageSquare },
+              { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
+              { id: 'admin_messages', label: 'Admin Directives', icon: Mail },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </nav>
       </aside>
 
       {/* RIGHT MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Mobile Top Navigation */}
-        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
+        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">
-            <span className="font-extrabold text-xs text-[#2C241D]">Production Studio</span>
+            <span className="font-extrabold text-sm text-[#2C241D]">Production Studio</span>
           </div>
-          <select
-            value={activeTab}
-            onChange={(e) => setActiveTab(e.target.value as any)}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-[#E2D7CB] text-[#2C241D] max-w-[210px]"
-          >
-            <option value="dashboard">📊 Dashboard Overview</option>
-            <option value="assessment_queue">📋 Assessment Queue</option>
-            <option value="approvals">✍️ Price Estimation</option>
-            <option value="quotations">📄 Formal Quotations</option>
-            <option value="active_production">🔨 Active Production</option>
-            <option value="orders">🛋️ Custom Orders</option>
-            <option value="assignments">📋 Stage Tasks</option>
-            <option value="workers">👥 Technicians Directory</option>
-            <option value="machines">⚙️ Machinery & Workstations</option>
-            <option value="raw_materials">🪵 Raw Materials</option>
-            <option value="fabrication">🪚 Fabrication Requests</option>
-            <option value="onsite_services">🔧 On-Site Services</option>
-            <option value="quality">🔍 Quality & QC Rework</option>
-            <option value="ai_insights">✨ AI Recommendations Suite</option>
-            <option value="coupons">🎟️ Coupons & Discounts</option>
-            <option value="admin_messages">📢 Admin Directives</option>
-            <option value="queries">❓ Queries & Feedback</option>
-          </select>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setActiveTab('orders')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'orders' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Orders
+            </button>
+            <button
+              onClick={() => setActiveTab('approvals')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'approvals' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Approvals
+            </button>
+            <button
+              onClick={() => setActiveTab('assignments')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'assignments' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Tasks
+            </button>
+            <button
+              onClick={() => setActiveTab('workers')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'workers' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Workers
+            </button>
+            <button
+              onClick={() => setActiveTab('machines')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'machines' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Machinery
+            </button>
+            <button
+              onClick={() => setActiveTab('raw_materials')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'raw_materials' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Raw Materials
+            </button>
+            <button
+              onClick={() => setActiveTab('quality')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'quality' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Quality & Rework
+            </button>
+            <button
+              onClick={() => setActiveTab('ai_insights')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'ai_insights' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              AI Suite
+            </button>
+            <button
+              onClick={() => setActiveTab('coupons')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'coupons' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              Coupons
+            </button>
+            <button
+              onClick={() => setActiveTab('admin_messages')}
+              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold relative ${activeTab === 'admin_messages' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
+            >
+              <span>Directives</span>
+              {unreadAdminMsgsCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 text-[9px] font-extrabold rounded-full bg-amber-500 text-white">
+                  {unreadAdminMsgsCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
-        <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">
-          <div className="ultra-glass-panel rounded-[2.5rem] p-4 sm:p-6 lg:p-6 space-y-6 relative">
-            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
+        <main className={`space-y-6 w-full transition-all duration-300 ${
+          isSidebarCollapsed 
+            ? 'p-3 sm:p-5 lg:p-6 max-w-none' 
+            : 'p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto'
+        }`}>
+          <div className="ultra-glass-panel rounded-3xl p-4 sm:p-6 lg:p-7 space-y-6 relative border border-[#DECDB7] shadow-[0_12px_40px_rgba(58,40,24,0.04)] bg-[#FCF9F3]/95 backdrop-blur-2xl w-full">
+            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-3xl" />
 
             {/* Success Notice */}
             {successNotice && (
-              <div className="relative z-10 p-4 rounded-2xl bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] flex items-start gap-3 shadow-md animate-fadeIn">
-                <CheckCircle2 className="w-5 h-5 text-[#48A63E] flex-shrink-0 mt-0.5" />
+              <div className="relative z-10 p-4 rounded-2xl bg-[#38A132]/15 border border-[#38A132]/40 text-[#38A132] flex items-start gap-3 shadow-md animate-fadeIn">
+                <CheckCircle2 className="w-5 h-5 text-[#38A132] flex-shrink-0 mt-0.5" />
                 <div className="flex-1 text-xs font-extrabold leading-relaxed">
                   {successNotice}
                 </div>
-                <button onClick={() => setSuccessNotice(null)} className="text-[#48A63E] hover:text-[#3D9134] p-1">
+                <button onClick={() => setSuccessNotice(null)} className="text-[#38A132] hover:text-[#2F8829] p-1">
                   <X className="w-4 h-4" />
                 </button>
               </div>

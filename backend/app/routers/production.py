@@ -12,16 +12,20 @@ from app.database import get_db
 from app import models, auth
 from app.email_utils import send_staff_credentials_email, mask_email
 
-def generate_strong_password(length: int = 12) -> str:
-    specials = "@#$%&*"
+def generate_strong_password(length: int = 14) -> str:
+    specials = "@#$%&*!"
     chars = [
         secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
         secrets.choice(string.ascii_lowercase),
         secrets.choice(string.digits),
+        secrets.choice(string.digits),
+        secrets.choice(specials),
         secrets.choice(specials),
     ]
     all_allowed = string.ascii_letters + string.digits + specials
-    for _ in range(length - len(chars)):
+    for _ in range(max(0, length - len(chars))):
         chars.append(secrets.choice(all_allowed))
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)

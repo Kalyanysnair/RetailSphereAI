@@ -517,3 +517,229 @@ Thank you for choosing RetailSphere!
         logger.info(f"SMTP notice: Order receipt email for {to_email} with order #{order_id}")
         print(f"[EMAIL SERVICE NOTICE] Dispatched order receipt email for #{order_id} to '{to_email}' (Subtotal: ₹{subtotal:,.2f}, Discount: -₹{discount_amount:,.2f}, Final Total: ₹{grand_total:,.2f})")
         return True
+
+
+def send_carrier_credentials_email(to_email: str, carrier_name: str, username: str, password: str) -> bool:
+    """
+    Sends account credentials to a newly created or updated Carrier Partner.
+    """
+    to_email_clean = to_email.strip()
+    masked = mask_email(to_email_clean)
+    subject = "Your RetailSphere AI Carrier Partner Account"
+    portal_login_url = "http://localhost:3000/login"
+    from_name = settings.EMAILS_FROM_NAME or "RetailSphere Logistics"
+
+    clean_carrier_name = carrier_name.strip() if carrier_name else to_email_clean.split('@')[0]
+
+    plain_text = f"""Subject: Your RetailSphere AI Carrier Partner Account
+
+Hello {clean_carrier_name},
+
+Your carrier partner account has been created for the RetailSphere AI 3PL Logistics & Carrier Portal.
+
+Login Details:
+- Carrier Partner: {clean_carrier_name}
+- Username / Login Email: {to_email_clean}
+- Temporary Password: {password}
+
+Login here:
+{portal_login_url}
+
+Please change your temporary password after your first login.
+
+For security, do not share your login credentials with anyone.
+
+Regards,
+RetailSphere AI Logistics Team
+"""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Your RetailSphere AI Carrier Partner Account</title>
+      <style>
+        body {{ font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; }}
+        .container {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }}
+        .header {{ text-align: center; border-bottom: 2px solid #38A132; padding-bottom: 20px; margin-bottom: 24px; }}
+        .header h1 {{ color: #0f172a; margin: 0; font-size: 24px; font-weight: 800; }}
+        .brand-green {{ color: #38A132; }}
+        .info-box {{ background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; margin: 24px 0; }}
+        .line {{ margin-bottom: 12px; font-size: 14px; color: #0f172a; }}
+        .val {{ font-family: monospace; font-weight: 800; font-size: 15px; background: #ffffff; padding: 4px 8px; border-radius: 6px; border: 1px solid #cbd5e1; color: #1e293b; }}
+        .btn {{ display: inline-block; background-color: #38A132; color: #ffffff; text-decoration: none; padding: 12px 28px; border-radius: 12px; font-size: 14px; font-weight: 700; text-align: center; margin: 16px 0; box-shadow: 0 4px 12px rgba(56,161,50,0.25); }}
+        .warning-box {{ background: #fffbebf8; border: 1px solid #fef3c7; border-left: 4px solid #f59e0b; border-radius: 10px; padding: 14px; font-size: 13px; color: #92400e; margin-top: 20px; }}
+        .footer {{ font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 16px; }}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>RetailSphere <span class="brand-green">Logistics</span></h1>
+        </div>
+        
+        <p>Hello <strong>{clean_carrier_name}</strong>,</p>
+        <p>Your official carrier partner account has been created for the <strong>RetailSphere AI Logistics & Carrier Portal</strong>.</p>
+        
+        <div class="info-box">
+          <div style="font-weight: 800; font-size: 14px; color: #38A132; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">LOGIN DETAILS</div>
+          <div class="line"><strong>Carrier Partner:</strong> {clean_carrier_name}</div>
+          <div class="line"><strong>Username / Email:</strong> <span class="val">{to_email_clean}</span></div>
+          <div class="line"><strong>Temporary Password:</strong> <span class="val">{password}</span></div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="{portal_login_url}" class="btn" style="color: #ffffff;">Log In to Carrier Portal</a>
+        </div>
+
+        <p style="font-size: 13px; color: #475569; margin-top: 16px;">
+          Please log in using your credentials and <strong>change your temporary password</strong> after your first login.
+        </p>
+
+        <div class="warning-box">
+          <strong>🔒 Security Warning:</strong> For security, do not share your login credentials with anyone.
+        </div>
+
+        <div class="footer">
+          &copy; RetailSphere AI 3PL Logistics Portal. All rights reserved.
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    print(f"[CARRIER EMAIL TRACE] 1. START - Recipient: {masked}")
+    sent = _send_smtp_email(
+        to_email=to_email_clean,
+        subject=subject,
+        plain_text=plain_text,
+        html_content=html_content,
+        from_name=from_name
+    )
+    if sent:
+        print(f"[CARRIER EMAIL TRACE] 2. END - SUCCESS FOR {masked}")
+        return True
+    else:
+        print(f"[CARRIER EMAIL TRACE] [FAIL] Could not send credentials email to {masked}")
+        return False
+
+
+def send_delivery_personnel_credentials_email(
+    to_email: str,
+    personnel_name: str,
+    carrier_name: str,
+    username: str,
+    password: str,
+    vehicle_type: str = "Mini Truck",
+    vehicle_reg: str = None
+) -> bool:
+    """
+    Sends driver / delivery personnel login credentials for the dedicated Delivery Personnel Portal.
+    """
+    to_email_clean = to_email.strip()
+    masked = mask_email(to_email_clean)
+    subject = "Your RetailSphere AI Delivery Personnel / Driver Account"
+    portal_login_url = "http://localhost:3000/login"
+    from_name = settings.EMAILS_FROM_NAME or "RetailSphere Logistics Fleet"
+
+    clean_name = personnel_name.strip() if personnel_name else to_email_clean.split('@')[0]
+    clean_agency = carrier_name.strip() if carrier_name else "RetailSphere Partner Agency"
+    veh_info = f"{vehicle_type} ({vehicle_reg})" if vehicle_reg else vehicle_type
+
+    plain_text = f"""Subject: Your RetailSphere AI Delivery Personnel / Driver Account
+
+Hello {clean_name},
+
+Your Delivery Personnel account has been registered for RetailSphere AI Logistics under {clean_agency}.
+
+Login Details:
+- Driver / Personnel Name: {clean_name}
+- Partner Agency: {clean_agency}
+- Assigned Vehicle: {veh_info}
+- Username / Login Email: {to_email_clean}
+- Temporary Password: {password}
+
+Driver Portal Login:
+{portal_login_url}
+
+You can access your assigned delivery runs, mark deliveries as active / out for delivery, and complete customer deliveries directly on your mobile or computer.
+
+For security, do not share your credentials.
+
+Regards,
+RetailSphere Logistics Team
+"""
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Your Delivery Personnel Account</title>
+      <style>
+        body {{ font-family: 'Plus Jakarta Sans', Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 20px; }}
+        .container {{ max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; box-shadow: 0 10px 25px rgba(0,0,0,0.08); border: 1px solid #e2e8f0; }}
+        .header {{ text-align: center; border-bottom: 2px solid #38A132; padding-bottom: 20px; margin-bottom: 24px; }}
+        .header h1 {{ color: #0f172a; margin: 0; font-size: 24px; font-weight: 800; }}
+        .brand-green {{ color: #38A132; }}
+        .badge {{ display: inline-block; background: #e0f2fe; color: #0369a1; font-weight: 800; font-size: 11px; padding: 4px 10px; border-radius: 9999px; text-transform: uppercase; margin-bottom: 8px; }}
+        .info-box {{ background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 12px; padding: 20px; margin: 24px 0; }}
+        .line {{ margin-bottom: 12px; font-size: 14px; color: #0f172a; }}
+        .val {{ font-family: monospace; font-weight: 800; font-size: 15px; background: #ffffff; padding: 4px 8px; border-radius: 6px; border: 1px solid #cbd5e1; color: #1e293b; }}
+        .btn {{ display: inline-block; background-color: #38A132; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 12px; font-size: 14px; font-weight: 800; text-align: center; margin: 16px 0; box-shadow: 0 4px 12px rgba(56,161,50,0.25); }}
+        .feature-box {{ background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 14px; font-size: 13px; color: #166534; margin: 16px 0; }}
+        .footer {{ font-size: 12px; color: #94a3b8; text-align: center; margin-top: 32px; border-top: 1px solid #e2e8f0; padding-top: 16px; }}
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="badge">Driver & Delivery Personnel Portal</div>
+          <h1>RetailSphere <span class="brand-green">Logistics</span></h1>
+        </div>
+        
+        <p>Hello <strong>{clean_name}</strong>,</p>
+        <p>Your official Delivery Personnel driver account has been activated under <strong>{clean_agency}</strong>.</p>
+        
+        <div class="info-box">
+          <div style="font-weight: 800; font-size: 13px; color: #38A132; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.05em;">YOUR DRIVER CREDENTIALS</div>
+          <div class="line"><strong>Driver Name:</strong> {clean_name}</div>
+          <div class="line"><strong>Carrier Partner:</strong> {clean_agency}</div>
+          <div class="line"><strong>Assigned Vehicle:</strong> {veh_info}</div>
+          <div class="line"><strong>Username / Login Email:</strong> <span class="val">{to_email_clean}</span></div>
+          <div class="line"><strong>Temporary Password:</strong> <span class="val">{password}</span></div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="{portal_login_url}" class="btn" style="color: #ffffff;">Log In to Driver Portal</a>
+        </div>
+
+        <div class="feature-box">
+          <strong>📦 Quick Portal Access:</strong> View all assigned delivery runs, inspect items and recipient phone numbers, and mark consignments completed in real time.
+        </div>
+
+        <div class="footer">
+          &copy; RetailSphere AI 3PL Logistics Portal. All rights reserved.
+        </div>
+      </div>
+    </body>
+    </html>
+    """
+
+    print(f"[DELIVERY PERSONNEL EMAIL TRACE] 1. START - Recipient: {masked}")
+    sent = _send_smtp_email(
+        to_email=to_email_clean,
+        subject=subject,
+        plain_text=plain_text,
+        html_content=html_content,
+        from_name=from_name
+    )
+    if sent:
+        print(f"[DELIVERY PERSONNEL EMAIL TRACE] 2. END - SUCCESS FOR {masked}")
+        return True
+    else:
+        print(f"[DELIVERY PERSONNEL EMAIL TRACE] [FAIL] Could not send credentials email to {masked}")
+        return False
+
+

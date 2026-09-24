@@ -211,7 +211,8 @@ class OrderFulfillment(Base):
     __tablename__ = "tbl_order_fulfillment"
 
     fulfillment_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    order_id = Column(Integer, ForeignKey("tbl_readymade_order.order_id"), unique=True, nullable=False)
+    order_id = Column(Integer, ForeignKey("tbl_readymade_order.order_id"), unique=True, nullable=True)
+    fabrication_id = Column(Integer, ForeignKey("tbl_fabrication_request.fabrication_id"), nullable=True)
     fulfillment_status = Column(String(50), default="Pending")
     packed_at = Column(DateTime, nullable=True)
     packed_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
@@ -228,14 +229,25 @@ class OrderFulfillment(Base):
 
     vehicle_id = Column(Integer, ForeignKey("tbl_vehicle.vehicle_id"), nullable=True)
     driver_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    carrier_id = Column(Integer, ForeignKey("tbl_carrier_partner.carrier_id"), nullable=True)
+    assigned_personnel_id = Column(Integer, ForeignKey("tbl_delivery_personnel.personnel_id"), nullable=True)
+    transportation_provider = Column(String(30), default="INTERNAL_FLEET")  # INTERNAL_FLEET vs CARRIER_PARTNER
+    pickup_address = Column(Text, nullable=True)
+    destination_address = Column(Text, nullable=True)
+    distance_km = Column(Numeric(8, 2), nullable=True)
+    transportation_charge = Column(Numeric(10, 2), nullable=True)
+    job_type = Column(String(50), default="FURNITURE_DELIVERY")  # FURNITURE_DELIVERY, FABRICATION_PICKUP, FABRICATION_RETURN
     dispatch_date = Column(DateTime, nullable=True)
     dispatch_note = Column(Text, nullable=True)
 
     order = relationship("ReadymadeOrder", back_populates="fulfillment")
+    fabrication_request = relationship("FabricationRequest", foreign_keys=[fabrication_id])
     packed_by_user = relationship("User", foreign_keys=[packed_by_id])
     dispatched_by_user = relationship("User", foreign_keys=[dispatched_by_id])
     vehicle = relationship("Vehicle", back_populates="fulfillments")
     driver_user = relationship("User", foreign_keys=[driver_id])
+    carrier_partner = relationship("CarrierPartner", foreign_keys=[carrier_id])
+    assigned_personnel = relationship("DeliveryPersonnel", foreign_keys=[assigned_personnel_id])
 
 
 class OrderStatusHistory(Base):
@@ -507,6 +519,14 @@ class FabricationRequest(Base):
     estimated_price = Column(Numeric(10, 2), nullable=True)
     status = Column(String(50), default="REQUESTED", nullable=False)  # REQUESTED, ASSESSED, QUOTED, APPROVED, PAID, IN_PRODUCTION, QC_PENDING, COMPLETED, CANCELLED
     payment_status = Column(String(50), default="Pending", nullable=True)
+    material_arrival_mode = Column(String(50), default="CUSTOMER_BRINGS", nullable=True)  # CUSTOMER_BRINGS vs RETAILSPHERE_PICKUP
+    material_pickup_address = Column(Text, nullable=True)
+    material_pickup_distance_km = Column(Numeric(8, 2), nullable=True)
+    material_pickup_charge = Column(Numeric(10, 2), default=0.0, nullable=True)
+    return_delivery_mode = Column(String(50), default="CUSTOMER_COLLECTS", nullable=True)  # CUSTOMER_COLLECTS vs RETAILSPHERE_DELIVERY
+    return_delivery_address = Column(Text, nullable=True)
+    return_delivery_distance_km = Column(Numeric(8, 2), nullable=True)
+    return_delivery_charge = Column(Numeric(10, 2), default=0.0, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Retail Staff Review & Coordination Metadata
@@ -518,6 +538,7 @@ class FabricationRequest(Base):
 
     customer = relationship("Customer")
     customer_material = relationship("CustomerMaterial")
+    fulfillments = relationship("OrderFulfillment", back_populates="fabrication_request")
 
 
 class ServiceRequest(Base):
@@ -853,15 +874,111 @@ class CarrierPartner(Base):
     __tablename__ = "tbl_carrier_partner"
 
     carrier_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
     carrier_name = Column(String(100), nullable=False)
     contact_phone = Column(String(50), nullable=False)
     contact_email = Column(String(100), nullable=True)
     status = Column(Boolean, default=True)  # True = Active, False = Inactive
+    coverage_areas = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    user = relationship("User", foreign_keys=[user_id])
+    personnel = relationship("DeliveryPersonnel", back_populates="carrier_partner")
+    agreements = relationship("CarrierAgreement", back_populates="carrier_partner")
+    settlements = relationship("CarrierSettlement", back_populates="carrier_partner")
 
 
+class DeliveryPersonnel(Base):
+    __tablename__ = "tbl_delivery_personnel"
+
+    personnel_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    carrier_id = Column(Integer, ForeignKey("tbl_carrier_partner.carrier_id"), nullable=False)
+    name = Column(String(100), nullable=False)
+    phone = Column(String(50), nullable=False)
+    email = Column(String(100), nullable=True)
+    vehicle_type = Column(String(50), nullable=True, default="Mini Truck")
+    vehicle_reg = Column(String(50), nullable=True)
+    user_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    status = Column(String(20), default="ACTIVE")  # ACTIVE, INACTIVE, ON_DUTY
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    carrier_partner = relationship("CarrierPartner", back_populates="personnel")
+    user = relationship("User", foreign_keys=[user_id])
 
 
+class CarrierAgreement(Base):
+    __tablename__ = "tbl_carrier_agreement"
+
+    agreement_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    agreement_number = Column(String(100), unique=True, nullable=False)  # e.g. AGR-2026-001
+    carrier_id = Column(Integer, ForeignKey("tbl_carrier_partner.carrier_id"), nullable=False)
+    title = Column(String(200), nullable=False)
+    effective_date = Column(Date, nullable=False)
+    expiry_date = Column(Date, nullable=False)
+    services_covered = Column(Text, nullable=False)
+    transportation_terms = Column(Text, nullable=False)
+    settlement_terms = Column(Text, nullable=False)
+    coverage_area = Column(String(200), nullable=True)
+    base_payout_rate = Column(Numeric(10, 2), default=0.0)
+    per_km_payout_rate = Column(Numeric(10, 2), default=0.0)
+    status = Column(String(30), default="ACTIVE")  # ACTIVE, DRAFT, EXPIRED, TERMINATED
+    document_url = Column(String(255), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    carrier_partner = relationship("CarrierPartner", back_populates="agreements")
+    created_by = relationship("User", foreign_keys=[created_by_id])
 
 
+class TransportationRateCard(Base):
+    __tablename__ = "tbl_transportation_rate_card"
+
+    rate_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    service_type = Column(String(100), default="STANDARD_DELIVERY", nullable=False)
+    base_charge = Column(Numeric(10, 2), default=100.0, nullable=False)
+    rate_per_km = Column(Numeric(10, 2), default=15.0, nullable=False)
+    min_charge = Column(Numeric(10, 2), default=100.0, nullable=False)
+    is_active = Column(Boolean, default=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CarrierSettlement(Base):
+    __tablename__ = "tbl_carrier_settlement"
+
+    settlement_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    carrier_id = Column(Integer, ForeignKey("tbl_carrier_partner.carrier_id"), nullable=False)
+    fulfillment_id = Column(Integer, ForeignKey("tbl_order_fulfillment.fulfillment_id"), nullable=True)
+    order_type = Column(String(50), nullable=False)
+    order_id = Column(Integer, nullable=False)
+    distance_km = Column(Numeric(8, 2), default=0.0)
+    customer_charge = Column(Numeric(10, 2), nullable=False)
+    carrier_payout = Column(Numeric(10, 2), nullable=False)
+    service_margin = Column(Numeric(10, 2), nullable=False)
+    settlement_status = Column(String(30), default="PENDING")  # PENDING, APPROVED, SETTLED, DISPUTED
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    settled_at = Column(DateTime, nullable=True)
+
+    carrier_partner = relationship("CarrierPartner", back_populates="settlements")
+    fulfillment = relationship("OrderFulfillment")
+
+
+class PersonnelEmailChangeRequest(Base):
+    __tablename__ = "tbl_personnel_email_change_request"
+
+    request_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    personnel_id = Column(Integer, ForeignKey("tbl_delivery_personnel.personnel_id"), nullable=False)
+    carrier_id = Column(Integer, ForeignKey("tbl_carrier_partner.carrier_id"), nullable=False)
+    current_email = Column(String(100), nullable=False)
+    requested_email = Column(String(100), nullable=False)
+    reason = Column(Text, nullable=True)
+    status = Column(String(30), default="PENDING")  # PENDING, APPROVED, REJECTED
+    reviewed_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    personnel = relationship("DeliveryPersonnel")
+    carrier = relationship("CarrierPartner")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])

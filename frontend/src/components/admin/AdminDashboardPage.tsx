@@ -2,7 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
 import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
-import { getCarrierPartnersApi, createCarrierPartnerApi, updateCarrierPartnerApi, deleteCarrierPartnerApi, CarrierPartner } from '../../services/api_carriers';
+import { 
+  getCarrierPartnersApi, 
+  createCarrierPartnerApi, 
+  updateCarrierPartnerApi, 
+  deleteCarrierPartnerApi, 
+  resendCarrierCredentialsApi, 
+  CarrierPartner,
+  CarrierPersonnelItem,
+  getAllCarrierPersonnelApi,
+  resendPersonnelCredentialsAdminApi,
+  togglePersonnelStatusAdminApi
+} from '../../services/api_carriers';
 import { 
   Users, 
   Package, 
@@ -59,7 +70,8 @@ import {
   Boxes,
   ClipboardCheck,
   ShieldAlert,
-  FileCheck2
+  FileCheck2,
+  Globe
 } from 'lucide-react';
 
 import {
@@ -293,6 +305,7 @@ export const AdminDashboardPage: React.FC = () => {
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const handleExportDatabaseExcel = async () => {
     setIsExportingExcel(true);
@@ -341,6 +354,22 @@ export const AdminDashboardPage: React.FC = () => {
   const [isSubmittingCarrier, setIsSubmittingCarrier] = useState(false);
   const [carrierFormError, setCarrierFormError] = useState<string | null>(null);
   const [carrierFormSuccess, setCarrierFormSuccess] = useState<string | null>(null);
+  const [resendingCarrierId, setResendingCarrierId] = useState<number | null>(null);
+  const [editingCarrier, setEditingCarrier] = useState<CarrierPartner | null>(null);
+  const [editCarrierName, setEditCarrierName] = useState('');
+  const [editCarrierPhone, setEditCarrierPhone] = useState('');
+  const [editCarrierEmail, setEditCarrierEmail] = useState('');
+  const [isSavingEditCarrier, setIsSavingEditCarrier] = useState(false);
+
+  // Carrier Personnel / Drivers State
+  const [carrierPersonnelList, setCarrierPersonnelList] = useState<CarrierPersonnelItem[]>([]);
+  const [loadingPersonnel, setLoadingPersonnel] = useState(false);
+  const [resendingPersonnelId, setResendingPersonnelId] = useState<number | null>(null);
+  const [personnelSearch, setPersonnelSearch] = useState('');
+  const [personnelCarrierFilter, setPersonnelCarrierFilter] = useState('ALL');
+  const [personnelStatusFilter, setPersonnelStatusFilter] = useState('ALL');
+  const [personnelActionMsg, setPersonnelActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
 
   // System BI Dashboard & Real-Time Analytics State
   const [dashboardSummary, setDashboardSummary] = useState<AdminDashboardSummary | null>(null);
@@ -933,9 +962,20 @@ export const AdminDashboardPage: React.FC = () => {
 
   const loadCarrierPartnersData = async () => {
     setLoadingCarriers(true);
-    const list = await getCarrierPartnersApi();
-    setCarrierPartners(list || []);
-    setLoadingCarriers(false);
+    setLoadingPersonnel(true);
+    try {
+      const [list, personnel] = await Promise.all([
+        getCarrierPartnersApi(),
+        getAllCarrierPersonnelApi()
+      ]);
+      setCarrierPartners(list || []);
+      setCarrierPersonnelList(personnel || []);
+    } catch (err) {
+      console.warn('Error loading carrier data:', err);
+    } finally {
+      setLoadingCarriers(false);
+      setLoadingPersonnel(false);
+    }
   };
 
   useEffect(() => {
@@ -2590,872 +2630,819 @@ export const AdminDashboardPage: React.FC = () => {
   });
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Background Image Layer */}
-      <div 
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
-        style={{
-          backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
-        }}
-      />
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+    <div className="admin-theme relative min-h-screen bg-[#F7F2EB] text-[#2C2016] flex selection:bg-emerald-600 selection:text-white overflow-x-hidden font-sans">
+      {/* Dynamic Ambient Luxury Warm Beige & Wood Glow Layers */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
+        <div className="absolute -top-32 -left-32 w-[34rem] h-[34rem] bg-[#DECCA8]/75 rounded-full blur-[130px]" />
+        <div className="absolute top-1/4 -right-32 w-[30rem] h-[30rem] bg-[#D4BC9E]/65 rounded-full blur-[130px]" />
+        <div className="absolute -bottom-32 left-1/3 w-[36rem] h-[36rem] bg-[#C6A680]/45 rounded-full blur-[140px]" />
+        <div className="absolute inset-0 bg-[linear-gradient(to_right,#8C6C4F15_1px,transparent_1px),linear-gradient(to_bottom,#8C6C4F15_1px,transparent_1px)] bg-[size:28px_28px]" />
+      </div>
 
       {/* LEFT SIDEBAR NAVIGATION PANEL */}
-      <aside className="w-72 flex-shrink-0 min-h-screen hidden md:block border-r border-[#D8CCBD] bg-[#E5DCD0]/80 backdrop-blur-xl p-6 space-y-8 relative z-20 shadow-sm">
-        {/* Logo */}
-        <div className="space-y-1">
-          <Link to="/dashboard" className="text-2xl font-extrabold text-[#2C241D] tracking-tight flex items-center gap-1.5 hover:opacity-90 transition-opacity">
-            <span>RetailSphere</span>
-            <span className="text-[#38A132]">AI</span>
-          </Link>
-          <span className="text-[11px] font-extrabold text-[#38A132] uppercase tracking-[0.2em] block font-mono">
-            ADMIN EXECUTIVE PORTAL
-          </span>
+      <aside className={`${isSidebarCollapsed ? 'w-16 p-2' : 'w-56 p-3.5'} flex-shrink-0 min-h-screen hidden md:flex flex-col border-r border-[#DFD2C0] bg-[#F1E8DC]/95 backdrop-blur-2xl space-y-4 relative z-20 shadow-[2px_0_24px_rgba(58,40,24,0.04)] transition-[width,padding] duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-[width,padding] overflow-hidden`}>
+        {/* Logo and Brand Title - Click to toggle Collapse/Expand */}
+        <div className="pb-2.5 border-b border-[#DFD2C0]/80 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="flex items-center gap-2 group cursor-pointer text-left w-full p-1 rounded-xl hover:bg-[#E5D7C5]/60 transition-colors duration-200"
+            title={isSidebarCollapsed ? "Click to expand sidebar" : "Click to collapse sidebar"}
+          >
+            <div className="relative flex-shrink-0">
+              <img
+                src="/retailsphere_logo.jpg"
+                alt="RetailSphere AI Logo"
+                className="w-8 h-8 rounded-full object-cover border border-[#D0BEA9] shadow-sm group-hover:scale-105 transition-transform duration-300"
+              />
+            </div>
+            <div className={`transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden whitespace-nowrap min-w-0 ${
+              isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+            }`}>
+              <div className="text-sm font-black text-[#2C2016] tracking-tight flex items-center gap-1">
+                <span className="truncate">RetailSphere</span>
+                <span className="text-[#38A132]">AI</span>
+              </div>
+              <div className="text-[9px] font-bold text-[#8F745D] uppercase tracking-wider font-mono truncate">
+                Admin
+              </div>
+            </div>
+          </button>
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="space-y-1.5 text-xs font-extrabold max-h-[calc(100vh-140px)] overflow-y-auto pr-1">
-          <button
-            onClick={() => setActiveTab('overview')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'overview'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <LayoutDashboard className="w-4 h-4" />
-              <span className="text-xs">Dashboard Overview</span>
+        <nav className="flex-1 space-y-3.5 text-xs max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5 scrollbar-none">
+          {/* SECTION: MAIN */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Main Dashboard
+                </div>
+              )}
             </div>
-          </button>
 
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'orders'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <ShoppingBag className="w-4 h-4" />
-              <span className="text-xs">Orders & Requests</span>
+            {[
+              { id: 'overview', label: 'Dashboard Overview', icon: LayoutDashboard },
+              { id: 'analytics', label: 'Revenue & Analytics', icon: TrendingUp, extraMatch: 'reports' },
+              { id: 'alerts', label: 'Needs Attention', icon: AlertTriangle }
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id || (item.extraMatch && activeTab === item.extraMatch);
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* SECTION: ORDERS & COMMERCE */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Orders & Commerce
+                </div>
+              )}
             </div>
-          </button>
 
-          <button
-            onClick={() => setActiveTab('custom_orders')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'custom_orders'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Sliders className="w-4 h-4" />
-              <span className="text-xs">Customer Requests</span>
+            {[
+              { id: 'orders', label: 'Orders & Requests', icon: ShoppingBag },
+              { id: 'custom_orders', label: 'Customer Requests', icon: Sparkles },
+              { id: 'coupons', label: 'Coupons & Discounts', icon: Tag },
+              { id: 'queries', label: 'Queries & Requests', icon: MessageSquare }
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* SECTION: WORKSHOP & INVENTORY */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Workshop & Supply
+                </div>
+              )}
             </div>
-          </button>
 
+            {[
+              { id: 'inventory', label: 'Finished Goods Stock', icon: Boxes },
+              { id: 'materials', label: 'Raw Materials Ledger', icon: Layers },
+              { id: 'quality', label: 'Quality Assurance & QC', icon: ClipboardCheck },
+              { id: 'fleet', label: 'Fleet & Vehicles', icon: Truck },
+              { id: 'carriers', label: 'Carrier Partners', icon: Globe },
+              { id: 'products', label: 'Product Catalog', icon: Package },
+              { id: 'suppliers', label: 'Supplier Directory', icon: Briefcase }
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
 
-          <button
-            onClick={() => setActiveTab('inventory')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'inventory'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <SlidersHorizontal className="w-4 h-4" />
-              <span className="text-xs">Finished Goods Stock</span>
+          {/* SECTION: WORKFORCE & ACCESS */}
+          <div className="space-y-0.5">
+            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
+              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
+            }`}>
+              {isSidebarCollapsed ? (
+                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
+              ) : (
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                  Workforce & Access
+                </div>
+              )}
             </div>
-          </button>
 
-          <button
-            onClick={() => setActiveTab('materials')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'materials'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Layers className="w-4 h-4" />
-              <span className="text-xs">Raw Materials Ledger</span>
-            </div>
-            {rawMaterialsList.filter(m => m.available_qty <= m.reorder_level).length > 0 && (
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                activeTab === 'materials'
-                  ? 'bg-white text-[#38A132]'
-                  : 'bg-amber-500 text-white'
-              }`}>
-                {rawMaterialsList.filter(m => m.available_qty <= m.reorder_level).length} low
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('staff')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'staff'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Users className="w-4 h-4" />
-              <span className="text-xs">Workers & Staff</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('leaves')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'leaves'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <CalendarCheck className="w-4 h-4" />
-              <span className="text-xs">Staff & Worker Leaves</span>
-            </div>
-            {adminLeaveRequests.filter(l => l.status === 'Pending').length > 0 && (
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                activeTab === 'leaves'
-                  ? 'bg-white text-[#38A132]'
-                  : 'bg-amber-500 text-white animate-pulse'
-              }`}>
-                {adminLeaveRequests.filter(l => l.status === 'Pending').length}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('quality')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'quality'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <ClipboardCheck className="w-4 h-4" />
-              <span className="text-xs">Quality Assurance & QC</span>
-            </div>
-            {reworkJobsList.filter(r => r.status !== 'RESOLVED').length > 0 && (
-              <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
-                activeTab === 'quality'
-                  ? 'bg-white text-[#38A132]'
-                  : 'bg-rose-500 text-white animate-pulse'
-              }`}>
-                {reworkJobsList.filter(r => r.status !== 'RESOLVED').length} rework
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('fleet')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'fleet'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Truck className="w-4 h-4" />
-              <span className="text-xs">Fleet & Vehicles</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('carriers')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'carriers'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Truck className="w-4 h-4 text-emerald-600" />
-              <span className="text-xs">Carrier Partners</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'users'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <UserCheck className="w-4 h-4" />
-              <span className="text-xs">Customer Directory</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('products')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'products'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Package className="w-4 h-4" />
-              <span className="text-xs">Product Catalog</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('suppliers')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'suppliers'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Briefcase className="w-4 h-4" />
-              <span className="text-xs">Supplier Directory</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('analytics')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'analytics' || activeTab === 'reports'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-xs">Revenue & Analytics</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('alerts')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'alerts'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-4 h-4 text-amber-600" />
-              <span className="text-xs">Needs Attention</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('queries')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'queries'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <MessageSquare className="w-4 h-4" />
-              <span className="text-xs">Queries & Requests</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('coupons')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'coupons'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Tag className="w-4 h-4" />
-              <span className="text-xs">Coupons & Discounts</span>
-            </div>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('broadcast')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl transition-all ${
-              activeTab === 'broadcast'
-                ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-extrabold'
-                : 'text-[#4A3E32] hover:text-[#2C241D] hover:bg-[#DCD0C2]/60 font-extrabold'
-            }`}
-          >
-            <div className="flex items-center gap-3">
-              <Send className="w-4 h-4" />
-              <span className="text-xs">Admin Directives</span>
-            </div>
-          </button>
+            {[
+              { id: 'users', label: 'Customer Directory', icon: UserCheck },
+              { id: 'staff', label: 'Workers & Staff', icon: Users },
+              { id: 'leaves', label: 'Staff & Worker Leaves', icon: CalendarCheck },
+              { id: 'broadcast', label: 'Admin Directives', icon: Send },
+              { id: 'roles', label: 'Roles & Permissions', icon: ShieldCheck }
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id as any)}
+                  title={item.label}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </nav>
       </aside>
 
-        {/* MAIN RIGHT CONTENT AREA */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-          {/* Mobile Top Header */}
-          <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-xs text-[#2C241D]">Admin Executive</span>
-            </div>
-            <select
-              value={activeTab}
-              onChange={(e) => setActiveTab(e.target.value as any)}
-              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-white border border-[#E2D7CB] text-[#2C241D] max-w-[210px]"
-            >
-              <option value="overview">📊 Overview</option>
-              <option value="orders">🛒 Orders & Requests</option>
-              <option value="custom_orders">🛋️ Customer Requests</option>
-              <option value="inventory">📦 Finished Goods Stock</option>
-              <option value="materials">🪵 Raw Materials</option>
-              <option value="staff">👥 Workers & Staff</option>
-              <option value="leaves">📅 Staff Leaves</option>
-              <option value="quality">🔍 Quality Assurance & QC</option>
-              <option value="fleet">🚚 Logistics & Fleet</option>
-              <option value="services">🔧 Services & Warranty</option>
-              <option value="users">👤 Customer Accounts</option>
-              <option value="products">🏷️ Product Catalog</option>
-              <option value="suppliers">🏢 Suppliers & Vendors</option>
-              <option value="analytics">📈 Revenue & Analytics</option>
-              <option value="alerts">⚠️ Needs Attention</option>
-              <option value="queries">💬 Queries & Requests</option>
-              <option value="coupons">🎟️ Coupons & Discounts</option>
-              <option value="broadcast">📢 Admin Directives</option>
-            </select>
+      {/* MAIN RIGHT CONTENT AREA */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
+        {/* Mobile Top Header */}
+        <div className="md:hidden bg-[#F1E8DC]/95 backdrop-blur-xl border-b border-[#DFD2C0] p-4 flex items-center justify-between sticky top-0 z-30 shadow-xs">
+          <div className="flex items-center gap-2">
+            <img
+              src="/retailsphere_logo.jpg"
+              alt="RetailSphere AI Logo"
+              className="w-8 h-8 rounded-full object-cover border border-[#DFD2C0]"
+            />
+            <span className="font-extrabold text-sm text-[#2C2016]">Admin Suite</span>
           </div>
+          <div className="flex items-center gap-1.5 overflow-x-auto max-w-[60vw] scrollbar-none">
+            {['overview', 'orders', 'custom_orders', 'inventory', 'materials', 'staff'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab as any)}
+                className={`px-3 py-1 rounded-xl text-xs font-bold whitespace-nowrap capitalize transition-all ${
+                  activeTab === tab ? 'bg-[#15803d] text-white shadow-xs' : 'bg-[#E5D7C5] text-[#5C4532]'
+                }`}
+              >
+                {tab.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          <main className="p-3 sm:p-5 lg:p-6 space-y-6 max-w-7xl w-full mx-auto">
-            <div className="ultra-glass-panel rounded-[2.5rem] p-4 sm:p-6 lg:p-6 space-y-6 relative">
-              {/* Glossy Top Reflection Sheen */}
-              <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
+        <main className={`space-y-6 w-full transition-all duration-300 ${
+          isSidebarCollapsed 
+            ? 'p-3 sm:p-5 lg:p-6 max-w-none' 
+            : 'p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto'
+        }`}>
+          <div className="ultra-glass-panel rounded-3xl p-4 sm:p-6 lg:p-7 space-y-6 relative border border-[#DECDB7] shadow-[0_12px_40px_rgba(58,40,24,0.04)] bg-[#FCF9F3]/95 backdrop-blur-2xl w-full">
 
-              {/* SUCCESS NOTICE BANNER */}
-              {successBanner && (
-                <div className="bg-[#48A63E]/15 border border-[#48A63E]/40 text-[#48A63E] p-4 rounded-2xl text-xs sm:text-sm font-extrabold flex items-center justify-between animate-fadeIn relative z-20">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-[#48A63E]" />
-                    <span>{successBanner}</span>
-                  </div>
-                  <button onClick={() => setSuccessBanner(null)} className="text-[#48A63E] hover:opacity-70">
-                    <X className="w-4 h-4" />
-                  </button>
+            {/* SUCCESS NOTICE BANNER */}
+            {successBanner && (
+              <div className="bg-[#EDE2D0] border border-[#D0BEA9] text-[#166534] p-4 rounded-2xl text-xs sm:text-sm font-bold flex items-center justify-between animate-fadeIn relative z-20 shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-[#166534] flex-shrink-0" />
+                  <span>{successBanner}</span>
                 </div>
-              )}
+                <button onClick={() => setSuccessBanner(null)} className="text-[#166534] hover:text-[#0f4422] p-1 rounded-lg hover:bg-[#DBC9B5] transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
 
-              {/* TOP HEADER CONTROLS IN MAIN CONTENT AREA */}
-              <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
-                <div>
-                  <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
-                    {activeTab === 'overview' && 'System-Wide Executive Dashboard & Control Center'}
-                    {activeTab === 'analytics' && 'Executive Business Analytics & Performance Reports'}
-                    {activeTab === 'users' && 'Customer Directory & Shopper Accounts'}
-                    {activeTab === 'staff' && 'Staff Accounts & Workers Management'}
-                    {activeTab === 'leaves' && 'Staff & Artisan Worker Leave Management'}
-                    {activeTab === 'products' && 'Retail Product Management'}
-                    {activeTab === 'inventory' && 'Stock & Raw Materials Control'}
-                    {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
-                    {activeTab === 'orders' && 'Customer Orders & Requests'}
-                    {activeTab === 'custom_orders' && 'Bespoke Customization & Customer Requests'}
-                    {activeTab === 'alerts' && 'Needs Attention & Operational Alerts'}
-                    {activeTab === 'queries' && 'Queries & Request Communications'}
-                    {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
-                    {activeTab === 'broadcast' && 'Admin Directives & Official Announcements'}
-                    {activeTab === 'materials' && 'Raw Materials & Timber Supply Ledger'}
-                    {activeTab === 'quality' && 'Quality Assurance & Stage Inspection Hub (QC)'}
-                    {activeTab === 'fleet' && 'Fleet & Vehicles Management'}
-                    {activeTab === 'carriers' && 'Carrier Partners & 3PL Logistics'}
-                    {activeTab === 'roles' && 'Role-Based Access Control & User Permissions'}
-                    {activeTab === 'requests' && 'Customer Requests & Quotations'}
-                    {activeTab === 'production' && 'Manufacturing & Production Control'}
-                    {activeTab === 'fabrication' && 'Fabrication & Woodworking Center'}
-                    {activeTab === 'onsite' && 'Onsite Assembly & Installation'}
-                    {activeTab === 'workers' && 'Artisans & Field Workers Directory'}
-                    {activeTab === 'customers' && 'Customer Profiles & CRM Directory'}
-                    {activeTab === 'payments' && 'Financial Settlements & Payments'}
-                    {activeTab === 'fulfillment' && 'Order Fulfillment & Dispatch Hub'}
-                    {activeTab === 'returns' && 'Returns, Replacements & RMA'}
-                    {activeTab === 'communication' && 'Internal & Customer Communication'}
-                    {activeTab === 'reports' && 'Executive Business Analytics & Performance Reports'}
-                  </h1>
-                  <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
-                    {activeTab === 'overview' && 'Complete real-time business visibility, sales performance, production bottlenecks, and operational status.'}
-                    {activeTab === 'analytics' && 'Track overall store revenue, order volume, category sales share, and custom build performance across RetailSphere AI.'}
-                    {activeTab === 'users' && 'View, search, edit, activate, or deactivate registered customer accounts across RetailSphere AI.'}
-                    {activeTab === 'staff' && 'Create and manage Retail Staff, Production Staff, and Artisan Worker accounts.'}
-                    {activeTab === 'leaves' && 'Review, approve, or reject worker leave applications, monitor active absences, and manage workshop shifts.'}
-                    {activeTab === 'products' && 'Manage catalog products, stock levels, variations, pricing, and category hierarchies.'}
-                    {activeTab === 'inventory' && 'Monitor finished furniture products and stock catalog levels.'}
-                    {activeTab === 'materials' && 'Manage timber logs, commercial ply boards, fabrics, hardware components, stock levels, and customer-supplied wood.'}
-                    {activeTab === 'quality' && 'Monitor workshop inspection stages, verify tolerance checklists, record pass/fail audits, and track rework jobs.'}
-                    {activeTab === 'suppliers' && 'Coordinate with raw materials vendors, supply logistics, and procurement channels.'}
-                    {activeTab === 'orders' && 'Track ready-made furniture orders and live store purchases across the complete fulfillment pipeline.'}
-                    {activeTab === 'custom_orders' && 'Review, accept, price, and transition custom furniture specifications to production.'}
-                    {activeTab === 'alerts' && 'Operational alerts requiring immediate administrative attention.'}
-                    {activeTab === 'queries' && 'Respond to inquiries, support requests, and internal operational questions.'}
-                    {activeTab === 'coupons' && 'Create, issue, regenerate, and manage discount promotional coupon vouchers.'}
-                    {activeTab === 'broadcast' && 'Publish company-wide announcements, system alerts, and staff directives.'}
-                    {activeTab === 'fleet' && 'Manage internal company delivery vehicles, capacity allocations, driver assignments, and live status.'}
-                    {activeTab === 'carriers' && 'Manage external 3PL courier partners, API tracking integrations, service SLAs, and shipping methods.'}
-                    {activeTab === 'roles' && 'Configure and assign fine-grained operational permissions across administrative roles.'}
-                    {activeTab === 'requests' && 'Review and handle incoming custom build inquiries and RFQs.'}
-                    {activeTab === 'production' && 'Monitor active shop-floor manufacturing stages, assembly queues, and craftsman assignments.'}
-                    {activeTab === 'fabrication' && 'Manage cutting, shaping, joinery, and workshop production milestones.'}
-                    {activeTab === 'onsite' && 'Coordinate on-site customer deliveries, installations, and field team verification.'}
-                    {activeTab === 'workers' && 'Manage active artisans, carpentry specialists, and production floor crew.'}
-                    {activeTab === 'customers' && 'Search customer histories, order logs, contact details, and account statuses.'}
-                    {activeTab === 'payments' && 'View transaction histories, pending payouts, invoices, and accounting ledgers.'}
-                    {activeTab === 'fulfillment' && 'Track packing, dispatch readiness, transit stages, and customer handover.'}
-                    {activeTab === 'returns' && 'Process warranty claims, repair tickets, return authorisations, and item exchanges.'}
-                    {activeTab === 'communication' && 'Centralized messaging hub for customer inquiries, staff notices, and direct alerts.'}
-                    {activeTab === 'reports' && 'Generate and export detailed performance, sales, inventory, and labor audit reports.'}
-                  </p>
-                </div>
-
-                {/* Global Search + Controls */}
-                <div className="flex items-center gap-3 self-start lg:self-auto flex-wrap sm:flex-nowrap">
-                  {/* Global Search Field with Autocomplete */}
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#7A6C5E]" />
-                    <input
-                      type="text"
-                      placeholder="Global System Search (ID, User, Product)..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-4 py-2 bg-white/90 border border-[#E2D7CB] rounded-xl text-xs font-medium focus:outline-none focus:border-[#38A132] shadow-2xs text-[#2C241D]"
-                    />
-                    {isSearchDropdownOpen && globalSearchResults.length > 0 && (
-                      <div className="absolute left-0 right-0 top-full mt-2 bg-white border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] max-h-72 overflow-y-auto space-y-1 animate-fadeIn">
-                        <div className="px-3 py-1.5 text-[10px] font-extrabold text-[#7A6C5E] uppercase border-b border-[#EFE7DE]">
-                          Search Matches ({globalSearchResults.length})
-                        </div>
-                        {globalSearchResults.map((res) => (
-                          <div
-                            key={`${res.type}-${res.id}`}
-                            onClick={() => {
-                              setIsSearchDropdownOpen(false);
-                              if (res.type === 'Order') setActiveTab('orders');
-                              else if (res.type === 'Customization') setActiveTab('custom_orders');
-                              else if (res.type === 'Product') setActiveTab('products');
-                              else if (res.type === 'User') setActiveTab('users');
-                            }}
-                            className="p-2.5 rounded-xl hover:bg-[#FAF7F2] cursor-pointer transition-colors border border-transparent hover:border-[#E2D7CB]"
-                          >
-                            <div className="flex items-center justify-between text-xs font-bold text-[#2C241D]">
-                              <span>{res.title}</span>
-                              <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-[#38A132]/10 text-[#38A132] uppercase border border-[#38A132]/20">
-                                {res.type}
-                              </span>
-                            </div>
-                            <p className="text-[11px] text-[#7A6C5E] mt-0.5">{res.subtitle}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Notification Bell Dropdown */}
-                  <div className="relative">
-                    <button
-                      onClick={() => {
-                        setIsNotificationsOpen(!isNotificationsOpen);
-                        setIsUserMenuOpen(false);
-                      }}
-                      className="relative p-2 rounded-xl bg-white border border-[#E2D7CB] hover:border-[#48A63E] text-[#2C241D] transition-all shadow-xs flex items-center justify-center cursor-pointer"
-                      title="System Notifications"
-                    >
-                      <Bell className="w-3.5 h-3.5 text-[#48A63E]" />
-                      {unreadCount > 0 && (
-                        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-600 text-white font-extrabold text-[8px] rounded-full flex items-center justify-center animate-pulse">
-                          {unreadCount}
-                        </span>
-                      )}
-                    </button>
-
-                    {isNotificationsOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-80 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-3 z-[100] animate-fadeIn space-y-2">
-                        <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
-                          <span className="font-extrabold text-xs text-[#2C241D]">System Notifications</span>
-                          {unreadCount > 0 && (
-                            <button
-                              onClick={async () => {
-                                setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
-                                await markAllNotificationsReadInDB();
-                              }}
-                              className="text-[10px] font-bold text-[#48A63E] hover:underline cursor-pointer"
-                            >
-                              Mark all read
-                            </button>
-                          )}
-                        </div>
-
-                        <div className="space-y-1.5 max-h-64 overflow-y-auto text-xs">
-                          {notifications.filter(n => n.unread).length === 0 ? (
-                            <div className="p-4 text-center text-[#8C7C6D]">
-                              <CheckCircle2 className="w-6 h-6 text-[#48A63E] mx-auto opacity-70 mb-1" />
-                              <p className="text-xs font-extrabold text-[#2C241D]">No new notifications</p>
-                              <p className="text-[10px] text-[#A09080]">You are all caught up!</p>
-                            </div>
-                          ) : (
-                            notifications.filter(n => n.unread).map(n => (
-                              <div
-                                key={n.id}
-                                className="p-2.5 rounded-xl border border-[#48A63E]/40 bg-[#F3EDE5] font-bold transition-all space-y-1 relative"
-                              >
-                                <div className="flex items-center justify-between text-[11px] mb-0.5">
-                                  <span className="font-extrabold text-[#2C241D] pr-2">{n.title}</span>
-                                  <span className="text-[10px] text-[#8C7C6D] flex-shrink-0">{n.time}</span>
-                                </div>
-                                <p className="text-[11px] text-[#5C4E42] leading-snug font-normal">{n.message}</p>
-                                <div className="pt-1 flex items-center justify-end">
-                                  <button
-                                    onClick={async () => {
-                                      setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, unread: false } : item));
-                                      await markNotificationReadInDB(n.notification_id || n.id);
-                                    }}
-                                    className="text-[10px] font-extrabold text-[#48A63E] hover:text-[#387A46] hover:underline inline-flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Check className="w-3 h-3" /> Mark as read
-                                  </button>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Admin Name Dropdown Pill */}
-                  <div className="relative">
-                    <button
-                      onClick={() => {
-                        setIsUserMenuOpen(!isUserMenuOpen);
-                        setIsNotificationsOpen(false);
-                      }}
-                      className="flex items-center gap-2.5 px-3 py-2 rounded-2xl bg-white border border-[#E2D7CB] hover:border-[#48A63E] transition-all shadow-xs cursor-pointer"
-                      title="Click for profile and sign out options"
-                    >
-                      <div className="w-8 h-8 rounded-xl bg-gradient-to-r from-[#48A63E] to-[#3D9134] text-white font-extrabold text-xs flex items-center justify-center flex-shrink-0 shadow-md">
-                        {currentUser.initials}
-                      </div>
-                      <span className="text-xs font-extrabold text-[#2C241D]">
-                        {currentUser.name || 'Administrator'}
-                      </span>
-                      <ChevronDown className={`w-4 h-4 text-[#6B5C4D] transition-transform ${isUserMenuOpen ? 'rotate-180 text-[#48A63E]' : ''}`} />
-                    </button>
-
-                    {isUserMenuOpen && (
-                      <div className="absolute right-0 top-full mt-2 w-48 bg-[#FAF7F2] border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
-                        <button
-                          onClick={() => {
-                            setIsAdminProfileModalOpen(true);
-                            setIsUserMenuOpen(false);
-                          }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left"
-                        >
-                          <User className="w-4 h-4 text-[#48A63E]" />
-                          <span>View Profile</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setIsUserMenuOpen(false);
-                            handleSignOut();
-                          }}
-                          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-rose-700 hover:bg-rose-100/80 transition-colors text-left cursor-pointer"
-                        >
-                          <LogOut className="w-4 h-4 text-rose-600" />
-                          <span>Sign Out</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+            {/* TOP HEADER CONTROLS IN MAIN CONTENT AREA */}
+            <div className="relative z-30 flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#DFD0BD]/80 pb-5">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-black text-[#2C2016] tracking-tight">
+                  {activeTab === 'overview' && 'Dashboard Overview'}
+                  {activeTab === 'analytics' && 'Revenue & Analytics'}
+                  {activeTab === 'users' && 'Customer Directory'}
+                  {activeTab === 'staff' && 'Workers & Staff'}
+                  {activeTab === 'leaves' && 'Leave Management'}
+                  {activeTab === 'products' && 'Product Catalog'}
+                  {activeTab === 'inventory' && 'Finished Goods Stock'}
+                  {activeTab === 'suppliers' && 'Supplier Directory'}
+                  {activeTab === 'orders' && 'Orders & Requests'}
+                  {activeTab === 'custom_orders' && 'Customer Requests'}
+                  {activeTab === 'alerts' && 'Needs Attention'}
+                  {activeTab === 'queries' && 'Queries & Requests'}
+                  {activeTab === 'coupons' && 'Coupons & Discounts'}
+                  {activeTab === 'broadcast' && 'Admin Directives'}
+                  {activeTab === 'materials' && 'Raw Materials Ledger'}
+                  {activeTab === 'quality' && 'Quality Assurance & QC'}
+                  {activeTab === 'fleet' && 'Fleet & Vehicles'}
+                  {activeTab === 'carriers' && 'Carrier Partners'}
+                  {activeTab === 'roles' && 'Roles & Permissions'}
+                  {activeTab === 'requests' && 'Customer Requests'}
+                  {activeTab === 'production' && 'Production Control'}
+                  {activeTab === 'fabrication' && 'Fabrication Center'}
+                  {activeTab === 'onsite' && 'Onsite Assembly'}
+                  {activeTab === 'workers' && 'Artisans & Field Workers'}
+                  {activeTab === 'customers' && 'Customer Directory'}
+                  {activeTab === 'payments' && 'Payments & Settlements'}
+                  {activeTab === 'fulfillment' && 'Order Fulfillment'}
+                  {activeTab === 'returns' && 'Returns & Replacements'}
+                  {activeTab === 'communication' && 'Communications'}
+                  {activeTab === 'reports' && 'Business Reports'}
+                </h1>
+                <p className="text-xs text-[#7A6350] mt-1 font-medium">
+                  {activeTab === 'overview' && 'Live store overview, revenue metrics, and order operations.'}
+                  {activeTab === 'analytics' && 'Track overall store revenue, order volume, and performance reports.'}
+                  {activeTab === 'users' && 'Manage registered customer accounts and access.'}
+                  {activeTab === 'staff' && 'Manage retail staff, production team, and artisan workers.'}
+                  {activeTab === 'leaves' && 'Review and manage worker leave applications.'}
+                  {activeTab === 'products' && 'Manage catalog products, pricing, and stock levels.'}
+                  {activeTab === 'inventory' && 'Monitor finished furniture inventory and catalog stock.'}
+                  {activeTab === 'materials' && 'Manage raw materials ledger, wood stock, and procurement.'}
+                  {activeTab === 'quality' && 'Monitor quality inspection stages and tolerance checklists.'}
+                  {activeTab === 'suppliers' && 'Manage raw materials suppliers and procurement channels.'}
+                  {activeTab === 'orders' && 'Track ready-made orders and fulfillment status.'}
+                  {activeTab === 'custom_orders' && 'Review and manage custom furniture specifications.'}
+                  {activeTab === 'alerts' && 'Operational alerts requiring administrative attention.'}
+                  {activeTab === 'queries' && 'Respond to customer inquiries and support requests.'}
+                  {activeTab === 'coupons' && 'Create and manage discount promotional coupons.'}
+                  {activeTab === 'broadcast' && 'Publish system directives and staff notices.'}
+                  {activeTab === 'fleet' && 'Manage delivery fleet vehicles and driver allocations.'}
+                  {activeTab === 'carriers' && 'Manage 3PL courier partners and shipping methods.'}
+                  {activeTab === 'roles' && 'Configure role-based access permissions.'}
+                  {activeTab === 'requests' && 'Review custom build inquiries and quotations.'}
+                  {activeTab === 'production' && 'Track workshop production and active jobs.'}
+                  {activeTab === 'fabrication' && 'Manage fabrication and joinery milestones.'}
+                  {activeTab === 'onsite' && 'Coordinate delivery and onsite assembly.'}
+                  {activeTab === 'workers' && 'Manage workshop craftsmen and crew.'}
+                  {activeTab === 'customers' && 'Search customer records and order logs.'}
+                  {activeTab === 'payments' && 'View transaction history and accounting ledgers.'}
+                  {activeTab === 'fulfillment' && 'Track order packing and shipping transit.'}
+                  {activeTab === 'returns' && 'Process returns and warranty claims.'}
+                  {activeTab === 'communication' && 'Central messaging and direct alerts.'}
+                  {activeTab === 'reports' && 'Export detailed performance and sales reports.'}
+                </p>
               </div>
 
-              {/* TAB OVERVIEW: SYSTEM-WIDE EXECUTIVE CONTROL CENTER */}
-              {activeTab === 'overview' && (
-                <div className="space-y-6 relative z-10">
-                  {/* Top Level Business Metrics Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                      <div className="flex items-center justify-between text-[#8C8275]">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Total Revenue</span>
-                        <DollarSign className="w-4 h-4 text-[#38A132]" />
+              {/* Global Search + Controls */}
+              <div className="flex items-center gap-2.5 self-start lg:self-auto flex-wrap sm:flex-nowrap">
+                {/* Global Search Field with Autocomplete */}
+                <div className="relative w-full sm:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#8F7864]" />
+                  <input
+                    type="text"
+                    placeholder="Search anything (ID, User, SKU)..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-[#F1E8DC] border border-[#D8C7B4] rounded-xl text-xs font-medium focus:outline-none focus:border-[#166534] focus:bg-[#FFFDF9] focus:ring-4 focus:ring-emerald-600/10 shadow-2xs text-[#2C2016] transition-all placeholder:text-[#8F7864]"
+                  />
+                  {isSearchDropdownOpen && globalSearchResults.length > 0 && (
+                    <div className="absolute left-0 right-0 top-full mt-2 bg-[#FCF9F3]/95 backdrop-blur-2xl border border-[#D8C7B4] rounded-2xl shadow-2xl p-2 z-[100] max-h-72 overflow-y-auto space-y-1 animate-fadeIn">
+                      <div className="px-3 py-1.5 text-[10px] font-black text-[#8F745D] uppercase border-b border-[#DFD0BD] font-mono">
+                        Search Matches ({globalSearchResults.length})
                       </div>
-                      <div className="text-2xl font-black text-[#2C241D]">
-                        ₹{(dashboardSummary?.revenue_metrics?.total_revenue || 0).toLocaleString('en-IN')}
-                      </div>
-                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
-                        Verified Payments
-                      </span>
+                      {globalSearchResults.map((res) => (
+                        <div
+                          key={`${res.type}-${res.id}`}
+                          onClick={() => {
+                            setIsSearchDropdownOpen(false);
+                            if (res.type === 'Order') setActiveTab('orders');
+                            else if (res.type === 'Customization') setActiveTab('custom_orders');
+                            else if (res.type === 'Product') setActiveTab('products');
+                            else if (res.type === 'User') setActiveTab('users');
+                          }}
+                          className="p-2.5 rounded-xl hover:bg-[#EFE5D7] cursor-pointer transition-colors border border-transparent hover:border-[#D8C7B4]"
+                        >
+                          <div className="flex items-center justify-between text-xs font-bold text-[#2C2016]">
+                            <span>{res.title}</span>
+                            <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-[#E5D7C5] text-[#166534] uppercase border border-[#D4C1AB]">
+                              {res.type}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#7A6350] mt-0.5">{res.subtitle}</p>
+                        </div>
+                      ))}
                     </div>
+                  )}
+                </div>
 
-                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                      <div className="flex items-center justify-between text-[#8C8275]">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Total Orders</span>
-                        <ShoppingBag className="w-4 h-4 text-blue-600" />
-                      </div>
-                      <div className="text-2xl font-black text-[#2C241D]">
-                        {dashboardSummary?.business_metrics?.total_orders || orderList.length}
-                      </div>
-                      <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">
-                        Ready-made & Custom Builds
+                {/* Export Data Button */}
+                <button
+                  onClick={handleExportDatabaseExcel}
+                  disabled={isExportingExcel}
+                  className="px-3.5 py-2 rounded-xl bg-[#2C2016] hover:bg-[#1A130C] text-[#FAF5ED] font-bold text-xs flex items-center gap-2 border border-[#483726] shadow-sm transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-60"
+                  title="Export full system report to Excel (.xlsx)"
+                >
+                  <Download className="w-3.5 h-3.5 text-[#DFCDBD]" />
+                  <span className="hidden sm:inline">{isExportingExcel ? 'Exporting...' : 'Export'}</span>
+                </button>
+
+                {/* Notification Bell Dropdown */}
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setIsNotificationsOpen(!isNotificationsOpen);
+                      setIsUserMenuOpen(false);
+                    }}
+                    className="relative p-2.5 rounded-xl bg-[#F1E8DC] border border-[#D8C7B4] hover:border-[#166534] text-[#6B5542] transition-all shadow-2xs flex items-center justify-center cursor-pointer hover:bg-[#E6DAC8]"
+                    title="System Notifications"
+                  >
+                    <Bell className="w-4 h-4 text-[#6B5542]" />
+                    {unreadCount > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#15803d] text-white font-black text-[9px] rounded-full flex items-center justify-center animate-pulse ring-2 ring-[#FAF5ED]">
+                        {unreadCount}
                       </span>
-                    </div>
+                    )}
+                  </button>
 
-                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                      <div className="flex items-center justify-between text-[#8C8275]">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Active Customers</span>
-                        <UserCheck className="w-4 h-4 text-purple-600" />
-                      </div>
-                      <div className="text-2xl font-black text-[#2C241D]">
-                        {dashboardSummary?.business_metrics?.active_customers || allUsersList.length}
-                      </div>
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">
-                        Registered System Accounts
-                      </span>
-                    </div>
-
-                    <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                      <div className="flex items-center justify-between text-[#8C8275]">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Low Stock Warnings</span>
-                        <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      </div>
-                      <div className="text-2xl font-black text-amber-600">
-                        {dashboardSummary?.business_metrics?.low_stock_items || lowStockCount}
-                      </div>
-                      <span className="text-[10px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">
-                        Items Under Reorder Level
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Revenue Analytics & Period Selector */}
-                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#EFE7DE] pb-4">
-                      <div>
-                        <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
-                          <DollarSign className="w-4 h-4 text-[#38A132]" />
-                          <span>Revenue & Financial Performance Overview</span>
-                        </h4>
-                        <p className="text-[11px] text-[#7A6C5E] font-medium">Calculated strictly from verified completed payments. Excludes cart values and unpaid quotes.</p>
-                      </div>
-
-                      {/* Timeframe Selector Pills */}
-                      <div className="flex items-center gap-1.5 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB]">
-                        {[
-                          { key: 'today', label: 'Today' },
-                          { key: '7days', label: '7days' },
-                          { key: '30days', label: '30days' },
-                          { key: 'this_month', label: 'This Month' },
-                          { key: 'this_year', label: 'This Year' }
-                        ].map(({ key, label }) => (
+                  {isNotificationsOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-80 bg-[#FCF9F3]/95 backdrop-blur-2xl border border-[#D8C7B4] rounded-2xl shadow-2xl p-3 z-[100] animate-fadeIn space-y-2">
+                      <div className="flex items-center justify-between border-b border-[#DFD0BD] pb-2">
+                        <span className="font-bold text-xs text-[#2C2016]">System Notifications</span>
+                        {unreadCount > 0 && (
                           <button
-                            key={key}
                             onClick={async () => {
-                              setAnalyticsTimeframe(key);
-                              const rev = await fetchRevenueAnalyticsDB(key);
-                              if (rev) setRevenueAnalytics(rev);
+                              setNotifications(prev => prev.map(n => ({ ...n, unread: false })));
+                              await markAllNotificationsReadInDB();
                             }}
-                            className={`px-3 py-1 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer ${
-                              analyticsTimeframe === key
-                                ? 'bg-[#38A132] text-white shadow-xs'
-                                : 'text-[#7A6C5E] hover:text-[#2C241D]'
-                            }`}
+                            className="text-[10px] font-bold text-[#166534] hover:underline cursor-pointer"
                           >
-                            {label}
+                            Mark all read
                           </button>
-                        ))}
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto text-xs">
+                        {notifications.filter(n => n.unread).length === 0 ? (
+                          <div className="p-4 text-center text-[#8F7864]">
+                            <CheckCircle2 className="w-6 h-6 text-[#15803d] mx-auto opacity-70 mb-1" />
+                            <p className="text-xs font-bold text-[#2C2016]">No new notifications</p>
+                            <p className="text-[10px] text-[#8F7864]">All systems are currently normal</p>
+                          </div>
+                        ) : (
+                          notifications.filter(n => n.unread).map(n => (
+                            <div
+                              key={n.id}
+                              className="p-2.5 rounded-xl border border-[#D0BEA9] bg-[#F1E8DC] font-medium transition-all space-y-1 relative"
+                            >
+                              <div className="flex items-center justify-between text-[11px] mb-0.5">
+                                <span className="font-bold text-[#2C2016] pr-2">{n.title}</span>
+                                <span className="text-[10px] text-[#8F7864] flex-shrink-0">{n.time}</span>
+                              </div>
+                              <p className="text-[11px] text-[#6B5542] leading-snug font-normal">{n.message}</p>
+                              <div className="pt-1 flex items-center justify-end">
+                                <button
+                                  onClick={async () => {
+                                    setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, unread: false } : item));
+                                    await markNotificationReadInDB(n.notification_id || n.id);
+                                  }}
+                                  className="text-[10px] font-bold text-[#166534] hover:text-[#0f4422] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Check className="w-3 h-3" /> Mark as read
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
+                  )}
+                </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">
-                          {analyticsTimeframe === 'today' ? "Today's Revenue" :
-                           analyticsTimeframe === '7days' ? '7-Day Revenue' :
-                           analyticsTimeframe === '30days' ? '30-Day Revenue' :
-                           analyticsTimeframe === 'this_month' ? 'This Month Revenue' :
-                           analyticsTimeframe === 'this_year' ? 'This Year Revenue' : 'Period Revenue'}
-                        </span>
-                        <div className="text-lg font-black text-[#38A132]">
-                          ₹{(revenueAnalytics?.total_revenue ?? (analyticsTimeframe === 'today' ? dashboardSummary?.revenue_metrics?.todays_revenue : analyticsTimeframe === 'this_month' ? dashboardSummary?.revenue_metrics?.this_month_revenue : dashboardSummary?.revenue_metrics?.total_revenue) ?? 0).toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[9px] font-bold text-emerald-700 block">
-                          {revenueAnalytics?.order_count ?? 0} Paid Order{(revenueAnalytics?.order_count ?? 0) === 1 ? '' : 's'}
-                        </span>
-                      </div>
+                {/* Admin Profile Pill */}
+                <div className="relative">
+                  <button
+                    onClick={() => {
+                      setIsUserMenuOpen(!isUserMenuOpen);
+                      setIsNotificationsOpen(false);
+                    }}
+                    className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#F1E8DC] border border-[#D8C7B4] hover:border-[#166534] transition-all shadow-2xs cursor-pointer hover:bg-[#E6DAC8]"
+                    title="Click for profile and sign out options"
+                  >
+                    <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#166534] via-[#15803d] to-[#16a34a] text-white font-black text-xs flex items-center justify-center flex-shrink-0 shadow-xs">
+                      {currentUser.initials}
+                    </div>
+                    <span className="text-xs font-bold text-[#2C2016] hidden sm:inline">
+                      {currentUser.name || 'Administrator'}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-[#8F7864] transition-transform ${isUserMenuOpen ? 'rotate-180 text-[#166534]' : ''}`} />
+                  </button>
 
-                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Net Realized Revenue</span>
-                        <div className="text-lg font-black text-[#2C241D]">
-                          ₹{((revenueAnalytics?.net_revenue ?? ((revenueAnalytics?.total_revenue ?? 0) - (revenueAnalytics?.refund_amount ?? 0))) || 0).toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[9px] font-bold text-[#7A6C5E] block">
-                          After processed refunds
-                        </span>
-                      </div>
+                  {isUserMenuOpen && (
+                    <div className="absolute right-0 top-full mt-2 w-48 bg-[#FCF9F3]/95 backdrop-blur-2xl border border-[#D8C7B4] rounded-2xl shadow-2xl p-2 z-[100] animate-fadeIn space-y-1">
+                      <button
+                        onClick={() => {
+                          setIsAdminProfileModalOpen(true);
+                          setIsUserMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-[#2C2016] hover:bg-[#EFE5D7] transition-colors text-left cursor-pointer"
+                      >
+                        <User className="w-4 h-4 text-[#166534]" />
+                        <span>View Profile</span>
+                      </button>
 
-                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Average Order Value</span>
-                        <div className="text-lg font-black text-purple-700">
-                          ₹{(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[9px] font-bold text-purple-700 block">
-                          Per completed payment
-                        </span>
-                      </div>
+                      <button
+                        onClick={() => {
+                          setIsUserMenuOpen(false);
+                          handleSignOut();
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-rose-700 hover:bg-rose-50 transition-colors text-left cursor-pointer"
+                      >
+                        <LogOut className="w-4 h-4 text-rose-600" />
+                        <span>Sign Out</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
 
-                      <div className="bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB] space-y-1">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">
-                          {analyticsTimeframe === 'today' ? "Today's Refunds" :
-                           analyticsTimeframe === '7days' ? '7-Day Refunds' :
-                           analyticsTimeframe === '30days' ? '30-Day Refunds' :
-                           analyticsTimeframe === 'this_month' ? 'This Month Refunds' :
-                           analyticsTimeframe === 'this_year' ? 'This Year Refunds' : 'Period Refunds'}
-                        </span>
-                        <div className="text-lg font-black text-red-600">
-                          ₹{(revenueAnalytics?.refund_amount || 0).toLocaleString('en-IN')}
-                        </div>
-                        <span className="text-[9px] font-bold text-red-600 block">
-                          Approved returns
-                        </span>
+            {/* TAB OVERVIEW: SYSTEM-WIDE EXECUTIVE CONTROL CENTER */}
+            {activeTab === 'overview' && (
+              <div className="space-y-6 relative z-10">
+                {/* Top Level Business Metrics KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="admin-kpi-card space-y-2 bg-[#FAF5ED] border border-[#DECDB7] hover:border-[#BCA389] rounded-2xl p-5 shadow-xs transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#8F745D] font-mono">Total Revenue</span>
+                      <div className="w-8 h-8 rounded-xl bg-[#EADDCB] border border-[#D8C7B2] flex items-center justify-center text-[#166534]">
+                        <DollarSign className="w-4 h-4" />
                       </div>
+                    </div>
+                    <div className="text-2xl font-black text-[#2C2016] tracking-tight">
+                      ₹{(dashboardSummary?.revenue_metrics?.total_revenue || 0).toLocaleString('en-IN')}
+                    </div>
+                    <span className="text-[10px] font-bold text-[#166534] bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">
+                      Verified Payments
+                    </span>
+                  </div>
+
+                  <div className="admin-kpi-card space-y-2 bg-[#FAF5ED] border border-[#DECDB7] hover:border-[#BCA389] rounded-2xl p-5 shadow-xs transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#8F745D] font-mono">Total Orders</span>
+                      <div className="w-8 h-8 rounded-xl bg-[#EADDCB] border border-[#D8C7B2] flex items-center justify-center text-blue-600">
+                        <ShoppingBag className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl font-black text-[#2C2016] tracking-tight">
+                      {dashboardSummary?.business_metrics?.total_orders || orderList.length}
+                    </div>
+                    <span className="text-[10px] font-bold text-blue-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">
+                      Ready-made & Custom Builds
+                    </span>
+                  </div>
+
+                  <div className="admin-kpi-card space-y-2 bg-[#FAF5ED] border border-[#DECDB7] hover:border-[#BCA389] rounded-2xl p-5 shadow-xs transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#8F745D] font-mono">Active Customers</span>
+                      <div className="w-8 h-8 rounded-xl bg-[#EADDCB] border border-[#D8C7B2] flex items-center justify-center text-purple-600">
+                        <UserCheck className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl font-black text-[#2C2016] tracking-tight">
+                      {dashboardSummary?.business_metrics?.active_customers || allUsersList.length}
+                    </div>
+                    <span className="text-[10px] font-bold text-purple-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">
+                      Registered Accounts
+                    </span>
+                  </div>
+
+                  <div className="admin-kpi-card space-y-2 bg-[#FAF5ED] border border-[#DECDB7] hover:border-[#BCA389] rounded-2xl p-5 shadow-xs transition-all">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-[#8F745D] font-mono">Low Stock Warnings</span>
+                      <div className="w-8 h-8 rounded-xl bg-[#F2E5D5] border border-[#DFCBB5] flex items-center justify-center text-[#d97706]">
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                    </div>
+                    <div className="text-2xl font-black text-[#b45309] tracking-tight">
+                      {dashboardSummary?.business_metrics?.low_stock_items || lowStockCount}
+                    </div>
+                    <span className="text-[10px] font-bold text-[#854d0e] bg-[#F2E5D5] px-2 py-0.5 rounded-full border border-[#DFCBB5] inline-block">
+                      Under Reorder Level
+                    </span>
+                  </div>
+                </div>
+
+                {/* Revenue Analytics & Period Selector Card */}
+                <div className="rounded-3xl p-6 space-y-4 border border-[#DFD0BD] shadow-xs bg-[#F7F0E5]/90 backdrop-blur-xl">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#DFD0BD]/80 pb-4">
+                    <div>
+                      <h4 className="font-bold text-sm text-[#2C2016] flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-[#E5D7C5] border border-[#D4C1AB] flex items-center justify-center text-[#166534]">
+                          <DollarSign className="w-3.5 h-3.5" />
+                        </div>
+                        <span>Revenue & Financial Performance Overview</span>
+                      </h4>
+                      <p className="text-[11px] text-[#7A6350] font-medium">Calculated strictly from verified completed payments. Excludes cart values and unpaid quotes.</p>
+                    </div>
+
+                    {/* Timeframe Selector Pills */}
+                    <div className="flex items-center gap-1 bg-[#EAE0D0] p-1 rounded-xl border border-[#D5C4AF]">
+                      {[
+                        { key: 'today', label: 'Today' },
+                        { key: '7days', label: '7 Days' },
+                        { key: '30days', label: '30 Days' },
+                        { key: 'this_month', label: 'This Month' },
+                        { key: 'this_year', label: 'This Year' }
+                      ].map(({ key, label }) => (
+                        <button
+                          key={key}
+                          onClick={async () => {
+                            setAnalyticsTimeframe(key);
+                            const rev = await fetchRevenueAnalyticsDB(key);
+                            if (rev) setRevenueAnalytics(rev);
+                          }}
+                          className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                            analyticsTimeframe === key
+                              ? 'bg-[#15803d] text-white shadow-xs'
+                              : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#FAF5ED]/80'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  {/* Live Operational Order & Production Pipeline */}
-                  <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                    <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
-                      <Truck className="w-4 h-4 text-blue-600" />
-                      <span>Live Order & Custom Production Pipeline</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">
+                        {analyticsTimeframe === 'today' ? "Today's Revenue" :
+                         analyticsTimeframe === '7days' ? '7-Day Revenue' :
+                         analyticsTimeframe === '30days' ? '30-Day Revenue' :
+                         analyticsTimeframe === 'this_month' ? 'This Month Revenue' :
+                         analyticsTimeframe === 'this_year' ? 'This Year Revenue' : 'Period Revenue'}
+                      </span>
+                      <div className="text-xl font-black text-[#15803d] tracking-tight">
+                        ₹{(revenueAnalytics?.total_revenue ?? (analyticsTimeframe === 'today' ? dashboardSummary?.revenue_metrics?.todays_revenue : analyticsTimeframe === 'this_month' ? dashboardSummary?.revenue_metrics?.this_month_revenue : dashboardSummary?.revenue_metrics?.total_revenue) ?? 0).toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] font-bold text-[#166534] block">
+                        {revenueAnalytics?.order_count ?? 0} Paid Order{(revenueAnalytics?.order_count ?? 0) === 1 ? '' : 's'}
+                      </span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Net Realized Revenue</span>
+                      <div className="text-xl font-black text-[#2C2016] tracking-tight">
+                        ₹{((revenueAnalytics?.net_revenue ?? ((revenueAnalytics?.total_revenue ?? 0) - (revenueAnalytics?.refund_amount ?? 0))) || 0).toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] font-bold text-[#7A6350] block">
+                        After processed refunds
+                      </span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Average Order Value</span>
+                      <div className="text-xl font-black text-purple-700 tracking-tight">
+                        ₹{(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] font-bold text-purple-700 block">
+                        Per completed payment
+                      </span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">
+                        {analyticsTimeframe === 'today' ? "Today's Refunds" :
+                         analyticsTimeframe === '7days' ? '7-Day Refunds' :
+                         analyticsTimeframe === '30days' ? '30-Day Refunds' :
+                         analyticsTimeframe === 'this_month' ? 'This Month Refunds' :
+                         analyticsTimeframe === 'this_year' ? 'This Year Refunds' : 'Period Refunds'}
+                      </span>
+                      <div className="text-xl font-black text-rose-600 tracking-tight">
+                        ₹{(revenueAnalytics?.refund_amount || 0).toLocaleString('en-IN')}
+                      </div>
+                      <span className="text-[10px] font-bold text-rose-600 block">
+                        Approved returns
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Live Operational Order & Production Pipeline */}
+                <div className="rounded-3xl p-6 space-y-4 border border-[#DFD0BD] shadow-xs bg-[#F7F0E5]/90 backdrop-blur-xl">
+                  <h4 className="font-bold text-sm text-[#2C2016] flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-lg bg-[#E5D7C5] border border-[#D4C1AB] flex items-center justify-center text-blue-700">
+                      <Truck className="w-3.5 h-3.5" />
+                    </div>
+                    <span>Live Order & Custom Production Pipeline</span>
+                  </h4>
+
+                  {/* Stage Pipeline Progress Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Order Placed</span>
+                      <div className="text-xl font-black text-[#2C2016]">{dashboardSummary?.order_status_counts?.Placed || 0}</div>
+                      <span className="text-[9px] font-bold text-blue-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">New Orders</span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Tech Review</span>
+                      <div className="text-xl font-black text-[#2C2016]">{dashboardSummary?.production_status_summary?.technical_assessment || 0}</div>
+                      <span className="text-[9px] font-bold text-[#854d0e] bg-[#F2E5D5] px-2 py-0.5 rounded-full border border-[#DFCBB5] inline-block">Assessment</span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Quotation</span>
+                      <div className="text-xl font-black text-[#2C2016]">{dashboardSummary?.production_status_summary?.customer_approval || 0}</div>
+                      <span className="text-[9px] font-bold text-purple-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">Approval</span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">In Production</span>
+                      <div className="text-xl font-black text-[#15803d]">{dashboardSummary?.production_status_summary?.in_production || 0}</div>
+                      <span className="text-[9px] font-bold text-[#166534] bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">Workstation</span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">QC Pending</span>
+                      <div className="text-xl font-black text-[#b45309]">{dashboardSummary?.production_status_summary?.qc_pending || 0}</div>
+                      <span className="text-[9px] font-bold text-[#854d0e] bg-[#F2E5D5] px-2 py-0.5 rounded-full border border-[#DFCBB5] inline-block">Inspection</span>
+                    </div>
+
+                    <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
+                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Delivered</span>
+                      <div className="text-xl font-black text-[#15803d]">{dashboardSummary?.order_status_counts?.Delivered || 0}</div>
+                      <span className="text-[9px] font-bold text-[#166534] bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">Completed</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Production Workstation Bottlenecks & Needs Attention Alert Center */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Workstation Bottlenecks Card */}
+                  <div className="rounded-3xl p-6 space-y-4 border border-[#DFD0BD] shadow-xs bg-[#F7F0E5]/90 backdrop-blur-xl">
+                    <h4 className="font-bold text-sm text-[#2C2016] flex items-center justify-between border-b border-[#DFD0BD]/80 pb-3">
+                      <span className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-[#E5D7C5] border border-[#D4C1AB] flex items-center justify-center text-[#166534]">
+                          <Wrench className="w-3.5 h-3.5" />
+                        </div>
+                        <span>Production Stage Bottlenecks</span>
+                      </span>
+                      <span className="text-[10px] font-bold bg-[#E5D7C5] text-[#166534] px-2.5 py-0.5 rounded-full border border-[#D4C1AB]">
+                        {bottlenecksList.length} Stages Monitored
+                      </span>
                     </h4>
 
-                    {/* Stage Pipeline Progress Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Order Placed</span>
-                        <div className="text-xl font-black text-[#2C241D]">{dashboardSummary?.order_status_counts?.Placed || 0}</div>
-                        <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">New Orders</span>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Technical Review</span>
-                        <div className="text-xl font-black text-[#2C241D]">{dashboardSummary?.production_status_summary?.technical_assessment || 0}</div>
-                        <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">Assessment</span>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Quotation / Approval</span>
-                        <div className="text-xl font-black text-[#2C241D]">{dashboardSummary?.production_status_summary?.customer_approval || 0}</div>
-                        <span className="text-[9px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">Pending Approval</span>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">In Production</span>
-                        <div className="text-xl font-black text-[#38A132]">{dashboardSummary?.production_status_summary?.in_production || 0}</div>
-                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">Workstation</span>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">QC Pending</span>
-                        <div className="text-xl font-black text-amber-600">{dashboardSummary?.production_status_summary?.qc_pending || 0}</div>
-                        <span className="text-[9px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200 inline-block">Inspection</span>
-                      </div>
-
-                      <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-center">
-                        <span className="text-[10px] font-black text-[#7A6C5E] uppercase">Delivered</span>
-                        <div className="text-xl font-black text-emerald-600">{dashboardSummary?.order_status_counts?.Delivered || 0}</div>
-                        <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">Completed</span>
-                      </div>
+                    <div className="space-y-2.5">
+                      {bottlenecksList.length === 0 ? (
+                        <div className="p-4 text-center text-[#8F7864] text-xs italic">
+                          No production bottlenecks detected across shop floor workstations.
+                        </div>
+                      ) : (
+                        bottlenecksList.map((bot) => (
+                          <div key={bot.stage} className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] flex items-center justify-between">
+                            <div>
+                              <h5 className="font-bold text-xs text-[#2C2016]">{bot.stage} Stage</h5>
+                              <p className="text-[11px] text-[#7A6350] font-medium">
+                                {bot.pending_jobs} pending • {bot.in_progress_jobs} active • {bot.assigned_workers_count} artisans
+                              </p>
+                            </div>
+                            <span className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
+                              bot.risk === 'HIGH' ? 'bg-rose-50 text-rose-700 border-rose-200' :
+                              bot.risk === 'MEDIUM' ? 'bg-[#F2E5D5] text-[#854d0e] border-[#DFCBB5]' :
+                              'bg-[#EDE2D0] text-[#166534] border-[#D0BEA9]'
+                            }`}>
+                              {bot.risk} RISK
+                            </span>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
 
-                  {/* Production Workstation Bottlenecks & Needs Attention Alert Center */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {/* Workstation Bottlenecks Card */}
-                    <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-                        <span className="flex items-center gap-2">
-                          <Wrench className="w-4 h-4 text-[#38A132]" />
-                          <span>Production Stage Bottlenecks</span>
-                        </span>
-                        <span className="text-[10px] font-extrabold bg-[#38A132]/10 text-[#38A132] px-2.5 py-0.5 rounded-full border border-[#38A132]/20">
-                          {bottlenecksList.length} Stages Monitored
-                        </span>
-                      </h4>
+                  {/* Operational Alerts / Needs Attention Card */}
+                  <div className="rounded-3xl p-6 space-y-4 border border-[#DFD0BD] shadow-xs bg-[#F7F0E5]/90 backdrop-blur-xl">
+                    <h4 className="font-bold text-sm text-[#2C2016] flex items-center justify-between border-b border-[#DFD0BD]/80 pb-3">
+                      <span className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-[#F2E5D5] border border-[#DFCBB5] flex items-center justify-center text-[#d97706]">
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                        </div>
+                        <span>Operational Alert Center ("Needs Attention")</span>
+                      </span>
+                      <span className="text-[10px] font-bold bg-[#F2E5D5] text-[#854d0e] px-2.5 py-0.5 rounded-full border border-[#DFCBB5]">
+                        {(dashboardSummary?.alerts || []).length} Active Alerts
+                      </span>
+                    </h4>
 
-                      <div className="space-y-3">
-                        {bottlenecksList.length === 0 ? (
-                          <div className="p-4 text-center text-[#7A6C5E] text-xs italic">
-                            No production bottlenecks detected across shop floor workstations.
-                          </div>
-                        ) : (
-                          bottlenecksList.map((bot) => (
-                            <div key={bot.stage} className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] flex items-center justify-between">
-                              <div>
-                                <h5 className="font-extrabold text-xs text-[#2C241D]">{bot.stage} Stage</h5>
-                                <p className="text-[11px] text-[#7A6C5E] font-medium">
-                                  {bot.pending_jobs} pending jobs • {bot.in_progress_jobs} active • {bot.assigned_workers_count} craftsmen assigned
-                                </p>
-                              </div>
-                              <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-lg border ${
-                                bot.risk === 'HIGH' ? 'bg-red-50 text-red-700 border-red-200' :
-                                bot.risk === 'MEDIUM' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              }`}>
-                                {bot.risk} RISK
-                              </span>
+                    <div className="space-y-2.5 max-h-64 overflow-y-auto">
+                      {(dashboardSummary?.alerts || []).length === 0 ? (
+                        <div className="p-4 text-center text-[#8F7864] text-xs italic">
+                          All operations clear! No critical delays, QC failures, or inventory issues.
+                        </div>
+                      ) : (
+                        (dashboardSummary?.alerts || []).map((alt) => (
+                          <div key={alt.id} className="bg-[#F6EADB] p-3.5 rounded-2xl border border-[#DECAB3] flex items-start gap-3">
+                            <AlertTriangle className="w-4 h-4 text-[#d97706] shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <h5 className="font-bold text-xs text-[#2C2016]">{alt.title}</h5>
+                              <p className="text-[11px] text-[#6B5542] mt-0.5">{alt.description}</p>
                             </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Operational Alerts / Needs Attention Card */}
-                    <div className="ultra-glass-card rounded-3xl p-6 space-y-4 border border-[#E2D7CB] shadow-xl bg-white/70 backdrop-blur-xl">
-                      <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-                        <span className="flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-600" />
-                          <span>Operational Alert Center ("Needs Attention")</span>
-                        </span>
-                        <span className="text-[10px] font-extrabold bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-300">
-                          {(dashboardSummary?.alerts || []).length} Active Alerts
-                        </span>
-                      </h4>
-
-                      <div className="space-y-3 max-h-64 overflow-y-auto">
-                        {(dashboardSummary?.alerts || []).length === 0 ? (
-                          <div className="p-4 text-center text-[#7A6C5E] text-xs italic">
-                            All operations clear! No critical delays, QC failures, or inventory issues.
                           </div>
-                        ) : (
-                          (dashboardSummary?.alerts || []).map((alt) => (
-                            <div key={alt.id} className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-amber-200 flex items-start gap-3">
-                              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                              <div className="flex-1">
-                                <h5 className="font-extrabold text-xs text-[#2C241D]">{alt.title}</h5>
-                                <p className="text-[11px] text-[#5C4E42] mt-0.5">{alt.description}</p>
-                              </div>
-                            </div>
-                          ))
-                        )}
-                      </div>
+                        ))
+                      )}
                     </div>
                   </div>
-
                 </div>
-              )}
 
-              {/* TAB ANALYTICS: EXECUTIVE BUSINESS ANALYTICS & PERFORMANCE REPORTS */}
-              {activeTab === 'analytics' && (() => {
+              </div>
+            )}
+
+            {/* TAB ANALYTICS: EXECUTIVE BUSINESS ANALYTICS & PERFORMANCE REPORTS */}
+            {activeTab === 'analytics' && (() => {
                 // 1. Filter Orders by Timeframe
                 const now = new Date();
                 const getTimeframeStartDate = () => {
@@ -4351,13 +4338,13 @@ export const AdminDashboardPage: React.FC = () => {
                           });
                           setIsSubmittingCarrier(false);
                           if (newCP) {
-                            setCarrierFormSuccess(`Carrier partner '${newCP.carrier_name}' added successfully!`);
+                            setCarrierFormSuccess(`Carrier partner '${newCP.carrier_name}' added successfully! Login credentials have been dispatched to ${newCP.contact_email || 'the partner'}.`);
                             setCarrierNameInput('');
                             setCarrierPhoneInput('');
                             setCarrierEmailInput('');
                             setCarrierStatusInput(true);
                             await loadCarrierPartnersData();
-                            setTimeout(() => setCarrierFormSuccess(null), 4000);
+                            setTimeout(() => setCarrierFormSuccess(null), 5000);
                           } else {
                             setCarrierFormError('Failed to save carrier partner.');
                           }
@@ -4431,7 +4418,12 @@ export const AdminDashboardPage: React.FC = () => {
 
                   {/* Registered Carrier Partners List */}
                   <div className="bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg space-y-4">
-                    <h4 className="text-sm font-extrabold text-[#2C241D]">Registered Carrier Partners</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-extrabold text-[#2C241D]">Registered Carrier Partners</h4>
+                      <span className="text-[11px] font-bold text-[#7A6C5E] bg-[#FAF7F2] px-3 py-1 rounded-full border border-[#E2D7CB]">
+                        {carrierPartners.length} Total Partners
+                      </span>
+                    </div>
 
                     {loadingCarriers ? (
                       <div className="py-8 text-center text-xs text-[#7A6C5E] font-medium">Loading carrier partners...</div>
@@ -4450,17 +4442,36 @@ export const AdminDashboardPage: React.FC = () => {
                               <th className="py-3 px-4">Carrier Name</th>
                               <th className="py-3 px-4">Contact Phone</th>
                               <th className="py-3 px-4">Contact Email</th>
+                              <th className="py-3 px-4">Delivery SLA / Routes</th>
+                              <th className="py-3 px-4">Drivers</th>
                               <th className="py-3 px-4">Status</th>
                               <th className="py-3 px-4 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#E2D7CB]/60 font-medium">
-                            {carrierPartners.map((c, idx) => (
+                            {carrierPartners.map((c, idx) => {
+                              const driverCount = carrierPersonnelList.filter(p => p.carrier_id === c.carrier_id).length;
+                              return (
                               <tr key={c.carrier_id} className="hover:bg-[#FAF7F2]/50">
-                                <td className="py-3 px-4 font-mono font-bold text-[#7A6C5E]">#{idx + 1}</td>
-                                <td className="py-3 px-4 font-extrabold text-[#2C241D]">{c.carrier_name}</td>
+                                <td className="py-3 px-4 font-mono font-bold text-[#7A6C5E]">#{c.carrier_id}</td>
+                                <td className="py-3 px-4 font-extrabold text-[#2C241D]">
+                                  <div className="flex items-center gap-1.5">
+                                    <Truck className="w-3.5 h-3.5 text-[#48A63E]" />
+                                    <span>{c.carrier_name}</span>
+                                  </div>
+                                </td>
                                 <td className="py-3 px-4 font-mono font-semibold">{c.contact_phone}</td>
                                 <td className="py-3 px-4 text-[#7A6C5E]">{c.contact_email || '—'}</td>
+                                <td className="py-3 px-4">
+                                  <span className="text-[11px] font-semibold text-[#5C4E42] bg-[#FAF7F2] px-2 py-0.5 rounded border border-[#E2D7CB]">
+                                    {(c as any).coverage_areas || 'All Regional Routes (24-48h SLA)'}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="font-mono font-bold text-xs text-[#2C241D]">
+                                    {driverCount} {driverCount === 1 ? 'Driver' : 'Drivers'}
+                                  </span>
+                                </td>
                                 <td className="py-3 px-4">
                                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                     c.status ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-100 text-stone-600'
@@ -4469,25 +4480,426 @@ export const AdminDashboardPage: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="py-3 px-4 text-right">
-                                  <button
-                                    onClick={async () => {
-                                      await updateCarrierPartnerApi(c.carrier_id, { status: !c.status });
-                                      await loadCarrierPartnersData();
-                                    }}
-                                    className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-[11px] font-bold text-[#2C241D] hover:bg-[#E2D7CB]/40 transition-all cursor-pointer"
-                                  >
-                                    {c.status ? 'Deactivate' : 'Activate'}
-                                  </button>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Resend Credentials */}
+                                    {c.contact_email && (
+                                      <button
+                                        disabled={resendingCarrierId === c.carrier_id}
+                                        onClick={async () => {
+                                          setResendingCarrierId(c.carrier_id);
+                                          setCarrierFormError(null);
+                                          setCarrierFormSuccess(null);
+                                          const result = await resendCarrierCredentialsApi(c.carrier_id);
+                                          setResendingCarrierId(null);
+                                          if (result.success) {
+                                            setCarrierFormSuccess(`Login credentials dispatched to ${c.contact_email}!`);
+                                            setTimeout(() => setCarrierFormSuccess(null), 5000);
+                                          } else {
+                                            setCarrierFormError(result.message || 'Failed to send credentials.');
+                                          }
+                                        }}
+                                        title="Resend login credentials via email"
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                                      >
+                                        <Mail className="w-3 h-3 text-emerald-600" />
+                                        <span>{resendingCarrierId === c.carrier_id ? 'Sending...' : 'Resend Credentials'}</span>
+                                      </button>
+                                    )}
+
+                                    {/* Edit Carrier */}
+                                    <button
+                                      onClick={() => {
+                                        setEditingCarrier(c);
+                                        setEditCarrierName(c.carrier_name);
+                                        setEditCarrierPhone(c.contact_phone);
+                                        setEditCarrierEmail(c.contact_email || '');
+                                      }}
+                                      title="Edit Carrier Details"
+                                      className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-[11px] font-bold text-[#2C241D] hover:bg-[#E2D7CB]/40 transition-all cursor-pointer flex items-center gap-1"
+                                    >
+                                      <Edit3 className="w-3 h-3 text-[#7A6C5E]" />
+                                      <span>Edit</span>
+                                    </button>
+
+                                    {/* Toggle Active */}
+                                    <button
+                                      onClick={async () => {
+                                        await updateCarrierPartnerApi(c.carrier_id, { status: !c.status });
+                                        await loadCarrierPartnersData();
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-[11px] font-bold text-[#2C241D] hover:bg-[#E2D7CB]/40 transition-all cursor-pointer"
+                                    >
+                                      {c.status ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
-                            ))}
+                            ); })}
                           </tbody>
                         </table>
                       </div>
                     )}
                   </div>
+
+                  {/* Carrier Delivery Personnel & Drivers Section */}
+                  <div className="bg-white/80 backdrop-blur-xl p-6 rounded-3xl border border-[#E2D7CB] shadow-lg space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-sm font-extrabold text-[#2C241D]">Carrier Delivery Personnel & Drivers</h4>
+                          <span className="text-[11px] font-bold text-[#38A132] bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                            {carrierPersonnelList.length} Registered Drivers
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#7A6C5E] mt-0.5">
+                          View active dispatch staff, assigned carrier partners, registered vehicles, and manage driver credentials.
+                        </p>
+                      </div>
+
+                      {/* Search & Agency Filter */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Search driver, phone, plate..."
+                            value={personnelSearch}
+                            onChange={(e) => setPersonnelSearch(e.target.value)}
+                            className="pl-8 pr-3 py-1.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold text-[#2C241D] placeholder-[#9E9082] focus:outline-none focus:border-[#38A132] w-48 sm:w-56"
+                          />
+                        </div>
+
+                        <select
+                          value={personnelCarrierFilter}
+                          onChange={(e) => setPersonnelCarrierFilter(e.target.value)}
+                          className="py-1.5 px-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        >
+                          <option value="ALL">All Carrier Agencies</option>
+                          {carrierPartners.map((c) => (
+                            <option key={c.carrier_id} value={c.carrier_id.toString()}>
+                              {c.carrier_name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={personnelStatusFilter}
+                          onChange={(e) => setPersonnelStatusFilter(e.target.value)}
+                          className="py-1.5 px-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        >
+                          <option value="ALL">All Statuses</option>
+                          <option value="ACTIVE">Active</option>
+                          <option value="ON_TRIP">On Trip</option>
+                          <option value="ON_LEAVE">On Leave</option>
+                          <option value="INACTIVE">Inactive</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Feedback Alert */}
+                    {personnelActionMsg && (
+                      <div
+                        className={`p-3 rounded-xl border text-xs font-bold flex items-center justify-between ${
+                          personnelActionMsg.type === 'success'
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                            : 'bg-rose-50 border-rose-200 text-rose-800'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {personnelActionMsg.type === 'success' ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                          ) : (
+                            <AlertTriangle className="w-4 h-4 text-rose-600" />
+                          )}
+                          <span>{personnelActionMsg.text}</span>
+                        </div>
+                        <button
+                          onClick={() => setPersonnelActionMsg(null)}
+                          className="text-xs hover:opacity-70 cursor-pointer"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    {loadingPersonnel ? (
+                      <div className="py-8 text-center text-xs text-[#7A6C5E] font-medium">Loading delivery personnel...</div>
+                    ) : carrierPersonnelList.length === 0 ? (
+                      <div className="py-10 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-2">
+                        <Users className="w-10 h-10 text-[#9E9082] mx-auto opacity-50" />
+                        <div className="text-xs font-extrabold text-[#2C241D]">No delivery personnel registered yet.</div>
+                        <p className="text-[11px] text-[#7A6C5E]">Carrier partners can add delivery personnel and drivers from their portal.</p>
+                      </div>
+                    ) : (
+                      (() => {
+                        const filteredPersonnel = carrierPersonnelList.filter((p) => {
+                          const query = personnelSearch.toLowerCase();
+                          const matchesSearch =
+                            !query ||
+                            p.name.toLowerCase().includes(query) ||
+                            (p.email || '').toLowerCase().includes(query) ||
+                            p.phone.toLowerCase().includes(query) ||
+                            (p.vehicle_reg || '').toLowerCase().includes(query) ||
+                            p.carrier_name.toLowerCase().includes(query);
+                          const matchesCarrier =
+                            personnelCarrierFilter === 'ALL' ||
+                            p.carrier_id.toString() === personnelCarrierFilter;
+                          const matchesStatus =
+                            personnelStatusFilter === 'ALL' ||
+                            (p.status || '').toUpperCase() === personnelStatusFilter.toUpperCase();
+                          return matchesSearch && matchesCarrier && matchesStatus;
+                        });
+
+                        if (filteredPersonnel.length === 0) {
+                          return (
+                            <div className="py-8 text-center bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-xs font-semibold text-[#7A6C5E]">
+                              No personnel match your search filter criteria.
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs text-left text-[#2C241D]">
+                              <thead className="bg-[#FAF7F2] text-[#7A6C5E] font-extrabold uppercase text-[10px] border-b border-[#E2D7CB]">
+                                <tr>
+                                  <th className="py-3 px-4">Driver / Personnel</th>
+                                  <th className="py-3 px-4">Carrier Partner Agency</th>
+                                  <th className="py-3 px-4">Contact Details</th>
+                                  <th className="py-3 px-4">Assigned Vehicle</th>
+                                  <th className="py-3 px-4">Dispatched Tasks</th>
+                                  <th className="py-3 px-4">Duty Status</th>
+                                  <th className="py-3 px-4 text-right">Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#E2D7CB]/60 font-medium">
+                                {filteredPersonnel.map((p) => (
+                                  <tr key={p.personnel_id} className="hover:bg-[#FAF7F2]/50">
+                                    {/* Personnel Name & ID */}
+                                    <td className="py-3 px-4">
+                                      <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-full bg-[#E2D7CB]/40 border border-[#E2D7CB] flex items-center justify-center text-xs font-extrabold text-[#2C241D]">
+                                          {p.name.charAt(0).toUpperCase()}
+                                        </div>
+                                        <div>
+                                          <div className="font-extrabold text-[#2C241D]">{p.name}</div>
+                                          <div className="text-[10px] font-mono text-[#7A6C5E]">ID #{p.personnel_id}</div>
+                                        </div>
+                                      </div>
+                                    </td>
+
+                                    {/* Carrier Partner */}
+                                    <td className="py-3 px-4">
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-stone-100 border border-stone-200 text-stone-800 text-[11px] font-bold">
+                                        <Truck className="w-3 h-3 text-stone-600" />
+                                        {p.carrier_name}
+                                      </span>
+                                    </td>
+
+                                    {/* Contact */}
+                                    <td className="py-3 px-4">
+                                      <div className="space-y-0.5">
+                                        <div className="font-mono font-semibold text-[#2C241D] text-[11px]">{p.phone}</div>
+                                        <div className="text-[10px] text-[#7A6C5E]">{p.email || '—'}</div>
+                                      </div>
+                                    </td>
+
+                                    {/* Vehicle */}
+                                    <td className="py-3 px-4">
+                                      <div className="space-y-0.5">
+                                        <div className="font-semibold text-[#2C241D] text-[11px]">{p.vehicle_type || 'Mini Truck'}</div>
+                                        {p.vehicle_reg && (
+                                          <span className="font-mono px-1.5 py-0.5 bg-amber-50 border border-amber-200 text-amber-900 rounded text-[10px] font-bold">
+                                            {p.vehicle_reg}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+
+                                    {/* Tasks */}
+                                    <td className="py-3 px-4">
+                                      <div className="flex items-center gap-1.5">
+                                        <span
+                                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                            p.active_tasks_count > 0
+                                              ? 'bg-amber-100 text-amber-900 border border-amber-200'
+                                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                          }`}
+                                        >
+                                          {p.active_tasks_count} Active
+                                        </span>
+                                        <span className="text-[10px] text-[#7A6C5E]">
+                                          ({p.completed_tasks_count} completed)
+                                        </span>
+                                      </div>
+                                    </td>
+
+                                    {/* Status */}
+                                    <td className="py-3 px-4">
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                          (p.status || '').toUpperCase() === 'ACTIVE'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : (p.status || '').toUpperCase() === 'ON_TRIP'
+                                            ? 'bg-blue-100 text-blue-800'
+                                            : (p.status || '').toUpperCase() === 'ON_LEAVE'
+                                            ? 'bg-amber-100 text-amber-800'
+                                            : 'bg-stone-100 text-stone-600'
+                                        }`}
+                                      >
+                                        {(p.status || 'ACTIVE').replace('_', ' ')}
+                                      </span>
+                                    </td>
+
+                                    {/* Actions */}
+                                    <td className="py-3 px-4 text-right">
+                                      <div className="flex items-center justify-end gap-1.5">
+                                        {/* Resend Credentials */}
+                                        {p.email && (
+                                          <button
+                                            disabled={resendingPersonnelId === p.personnel_id}
+                                            onClick={async () => {
+                                              setResendingPersonnelId(p.personnel_id);
+                                              setPersonnelActionMsg(null);
+                                              const result = await resendPersonnelCredentialsAdminApi(p.personnel_id);
+                                              setResendingPersonnelId(null);
+                                              if (result.success) {
+                                                setPersonnelActionMsg({ type: 'success', text: result.message });
+                                                setTimeout(() => setPersonnelActionMsg(null), 5000);
+                                              } else {
+                                                setPersonnelActionMsg({ type: 'error', text: result.message });
+                                              }
+                                            }}
+                                            title="Send login credentials to driver email"
+                                            className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 transition-all cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                                          >
+                                            <Mail className="w-3 h-3 text-emerald-600" />
+                                            <span>
+                                              {resendingPersonnelId === p.personnel_id ? 'Sending...' : 'Resend Credentials'}
+                                            </span>
+                                          </button>
+                                        )}
+
+                                        {/* Toggle Active / Inactive */}
+                                        <button
+                                          onClick={async () => {
+                                            const newStatus = (p.status || '').toUpperCase() === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+                                            const res = await togglePersonnelStatusAdminApi(p.personnel_id, newStatus);
+                                            if (res.success) {
+                                              setPersonnelActionMsg({ type: 'success', text: `Driver ${p.name} marked as ${newStatus}.` });
+                                              await loadCarrierPartnersData();
+                                              setTimeout(() => setPersonnelActionMsg(null), 4000);
+                                            } else {
+                                              setPersonnelActionMsg({ type: 'error', text: res.message });
+                                            }
+                                          }}
+                                          className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-[11px] font-bold text-[#2C241D] hover:bg-[#E2D7CB]/40 transition-all cursor-pointer"
+                                        >
+                                          {(p.status || '').toUpperCase() === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
+
+                  {/* Edit Carrier Partner Modal */}
+                  {editingCarrier && (
+                    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-2xl p-6 w-full max-w-md space-y-4 animate-scaleUp">
+                        <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-3">
+                          <h4 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                            <Edit3 className="w-4 h-4 text-[#38A132]" />
+                            <span>Edit Carrier Partner</span>
+                          </h4>
+                          <button
+                            onClick={() => setEditingCarrier(null)}
+                            className="p-1 hover:bg-[#FAF7F2] rounded-lg text-[#7A6C5E] cursor-pointer"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Carrier Name *</label>
+                            <input
+                              type="text"
+                              value={editCarrierName}
+                              onChange={(e) => setEditCarrierName(e.target.value)}
+                              className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Phone *</label>
+                            <input
+                              type="text"
+                              value={editCarrierPhone}
+                              onChange={(e) => setEditCarrierPhone(e.target.value)}
+                              className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Email</label>
+                            <input
+                              type="email"
+                              value={editCarrierEmail}
+                              onChange={(e) => setEditCarrierEmail(e.target.value)}
+                              placeholder="e.g. carrier@logistics.com"
+                              className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#E2D7CB]/60">
+                          <button
+                            onClick={() => setEditingCarrier(null)}
+                            className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#7A6C5E] hover:bg-[#E2D7CB]/40 transition-all cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            disabled={isSavingEditCarrier}
+                            onClick={async () => {
+                              if (!editCarrierName.trim() || !editCarrierPhone.trim()) {
+                                alert('Carrier Name and Contact Phone are required.');
+                                return;
+                              }
+                              setIsSavingEditCarrier(true);
+                              const updated = await updateCarrierPartnerApi(editingCarrier.carrier_id, {
+                                carrier_name: editCarrierName.trim(),
+                                contact_phone: editCarrierPhone.trim(),
+                                contact_email: editCarrierEmail.trim() || undefined,
+                              });
+                              setIsSavingEditCarrier(false);
+                              if (updated) {
+                                setEditingCarrier(null);
+                                setCarrierFormSuccess(`Carrier partner '${updated.carrier_name}' updated successfully!`);
+                                await loadCarrierPartnersData();
+                                setTimeout(() => setCarrierFormSuccess(null), 4000);
+                              } else {
+                                alert('Failed to update carrier partner.');
+                              }
+                            }}
+                            className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8B29] text-white text-xs font-extrabold transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            {isSavingEditCarrier ? 'Saving...' : 'Save Changes'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
+
 
               {/* TAB 0: CUSTOMER DIRECTORY & SHOPPER ACCOUNTS */}
               {activeTab === 'users' && (
@@ -5932,6 +6344,22 @@ export const AdminDashboardPage: React.FC = () => {
                                       <div className="text-[9px] text-[#7A6C5E] font-medium truncate">
                                         Stage: <strong className="text-[#2C241D]">{comp.stage || 'Fulfillment'}</strong>
                                       </div>
+
+                                      {((ord as any).carrier || (ord as any).fulfillment?.carrier) && (
+                                        <div className="pt-0.5">
+                                          <div className="text-[9px] font-extrabold text-[#38A132] bg-[#38A132]/10 px-1.5 py-0.5 rounded border border-[#38A132]/20 inline-flex items-center gap-1 max-w-full truncate">
+                                            <Truck className="w-2.5 h-2.5 shrink-0 text-[#38A132]" />
+                                            <span className="truncate">{(ord as any).carrier || (ord as any).fulfillment?.carrier}</span>
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {((ord as any).expectedDeliveryDate || (ord as any).fulfillment?.expected_delivery_date) && (
+                                        <div className="text-[9px] text-[#7A6C5E] font-bold flex items-center gap-1">
+                                          <Clock className="w-2.5 h-2.5 shrink-0 text-[#7A6C5E]" />
+                                          <span>ETA: {(ord as any).expectedDeliveryDate || (ord as any).fulfillment?.expected_delivery_date}</span>
+                                        </div>
+                                      )}
                                     </div>
                                   </td>
 

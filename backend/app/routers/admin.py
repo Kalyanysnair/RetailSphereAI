@@ -9,7 +9,7 @@ import random
 
 from app.database import get_db
 from app import models, auth, schemas
-from app.email_utils import send_staff_credentials_email
+from app.email_utils import send_staff_credentials_email, send_carrier_credentials_email
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
 
@@ -83,16 +83,20 @@ def get_first_n_customers(audience: str = "all", limit: int = 10, db: Session = 
             
     return filtered_customers[:limit]
 
-def generate_strong_password(length: int = 12) -> str:
-    specials = "@#$%&*"
+def generate_strong_password(length: int = 14) -> str:
+    specials = "@#$%&*!"
     chars = [
         secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.ascii_lowercase),
         secrets.choice(string.ascii_lowercase),
         secrets.choice(string.digits),
+        secrets.choice(string.digits),
+        secrets.choice(specials),
         secrets.choice(specials),
     ]
     all_allowed = string.ascii_letters + string.digits + specials
-    for _ in range(length - len(chars)):
+    for _ in range(max(0, length - len(chars))):
         chars.append(secrets.choice(all_allowed))
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)
@@ -992,6 +996,33 @@ def get_readymade_orders(db: Session = Depends(get_db)):
                     cust_name = cust_name or c.user.full_name
                     cust_email = cust_email or c.user.email
 
+        fulfillment_info = None
+        carrier_name = None
+        expected_date = None
+        tracking_num = None
+        if r.fulfillment:
+            carrier_name = r.fulfillment.carrier
+            expected_date = r.fulfillment.expected_delivery_date
+            tracking_num = r.fulfillment.tracking_number
+            driver_name = None
+            if r.fulfillment.driver_user:
+                driver_name = r.fulfillment.driver_user.full_name
+            elif r.fulfillment.assigned_personnel:
+                driver_name = r.fulfillment.assigned_personnel.name
+
+            fulfillment_info = {
+                "fulfillment_id": r.fulfillment.fulfillment_id,
+                "fulfillment_status": r.fulfillment.fulfillment_status,
+                "carrier": carrier_name,
+                "carrier_id": r.fulfillment.carrier_id,
+                "tracking_number": tracking_num,
+                "expected_delivery_date": expected_date,
+                "dispatched_at": r.fulfillment.dispatched_at.isoformat() if r.fulfillment.dispatched_at else None,
+                "delivered_at": r.fulfillment.delivered_at.isoformat() if r.fulfillment.delivered_at else None,
+                "delivery_status": r.fulfillment.delivery_status,
+                "driver_name": driver_name,
+            }
+
         res.append({
             "orderId": f"RET-{r.order_id:06d}",
             "customerId": r.customer_id,
@@ -1008,6 +1039,10 @@ def get_readymade_orders(db: Session = Depends(get_db)):
             "paymentId": r.payment_id,
             "orderDate": r.order_date.strftime("%b %d, %Y") if r.order_date else "Recent",
             "createdAt": int(r.order_date.timestamp() * 1000) if r.order_date else 0,
+            "carrier": carrier_name,
+            "expectedDeliveryDate": expected_date,
+            "trackingNumber": tracking_num,
+            "fulfillment": fulfillment_info,
             "items": items_list
         })
     return res
@@ -1767,6 +1802,8 @@ def export_database_excel_endpoint():
 
 
 # --- Carrier Partner Management Endpoints ---
+# --- CARRIER PARTNERS MANAGEMENT ---
+
 @router.get("/carriers")
 def list_carrier_partners(db: Session = Depends(get_db)):
     carriers = db.query(models.CarrierPartner).order_by(models.CarrierPartner.carrier_id.asc()).all()
@@ -1783,15 +1820,96 @@ def create_carrier_partner(payload: schemas.CarrierPartnerCreate, db: Session = 
     if not phone_clean:
         raise HTTPException(status_code=400, detail="Contact phone number is required.")
 
+    # 1. Ensure 'Carrier Partner' role exists in tbl_role
+    carrier_role = db.query(models.Role).filter(
+        (models.Role.role_name == "Carrier Partner") |
+        (models.Role.role_name == "CARRIER_PARTNER")
+    ).first()
+
+    if not carrier_role:
+        carrier_role = models.Role(role_name="Carrier Partner")
+        db.add(carrier_role)
+        db.commit()
+        db.refresh(carrier_role)
+
+    # 2. Create platform User account for this Carrier Partner if email is provided
+    created_user = None
+    temp_pwd = generate_strong_password(12)
+    email_sent = False
+
+    if payload.contact_email and payload.contact_email.strip():
+        email_clean = payload.contact_email.strip().lower()
+        existing_u = db.query(models.User).filter(models.User.email == email_clean).first()
+        hashed_pwd = auth.get_password_hash(temp_pwd)
+        
+        if not existing_u:
+            created_user = models.User(
+                role_id=carrier_role.role_id,
+                full_name=name_clean,
+                email=email_clean,
+                phone=phone_clean,
+                password=hashed_pwd,
+                status=True,
+                must_change_password=True
+            )
+            db.add(created_user)
+            db.commit()
+            db.refresh(created_user)
+        else:
+            created_user = existing_u
+            created_user.role_id = carrier_role.role_id
+            created_user.full_name = name_clean
+            created_user.phone = phone_clean
+            created_user.password = hashed_pwd
+            created_user.status = True
+            created_user.must_change_password = True
+            db.commit()
+
+        # Send credentials via email
+        try:
+            email_sent = send_carrier_credentials_email(
+                to_email=email_clean,
+                carrier_name=name_clean,
+                username=email_clean,
+                password=temp_pwd
+            )
+        except Exception as e:
+            print(f"[CARRIER CREATION EMAIL ERROR] {e}")
+
     new_carrier = models.CarrierPartner(
         carrier_name=name_clean,
         contact_phone=phone_clean,
         contact_email=payload.contact_email.strip() if payload.contact_email else None,
-        status=payload.status if payload.status is not None else True
+        status=payload.status if payload.status is not None else True,
+        user_id=created_user.user_id if created_user else None
     )
     db.add(new_carrier)
     db.commit()
     db.refresh(new_carrier)
+
+    # Ensure default formal agreement exists for new carrier partner
+    existing_agr = db.query(models.CarrierAgreement).filter(
+        models.CarrierAgreement.carrier_id == new_carrier.carrier_id
+    ).first()
+    if not existing_agr:
+        admin_user = db.query(models.User).join(models.Role).filter(models.Role.role_name == "Admin").first()
+        new_agr = models.CarrierAgreement(
+            agreement_number=f"AGR-RS-2026-00{new_carrier.carrier_id}",
+            carrier_id=new_carrier.carrier_id,
+            title="RetailSphere Commercial Transportation & Consignment Agreement",
+            effective_date=date.today(),
+            expiry_date=date.today() + timedelta(days=365),
+            services_covered="Ready-Made Furniture Deliveries, Custom Furniture Consignments, Raw Material Inbound Pickups, Post-Fabrication Customer Handover",
+            transportation_terms="Guaranteed pickup within 4 hours of dispatch confirmation; GPS route compliance; signature proof of delivery required on delivery completion.",
+            settlement_terms="Weekly electronic settlement cycle with consolidated invoice generation. Margin deduction: 10% platform facilitation fee.",
+            coverage_area="All Regional Logistics Routes",
+            base_payout_rate=100.0,
+            per_km_payout_rate=15.0,
+            status="ACTIVE",
+            created_by_id=admin_user.user_id if admin_user else None
+        )
+        db.add(new_agr)
+        db.commit()
 
     return new_carrier
 
@@ -1811,20 +1929,432 @@ def update_carrier_partner(carrier_id: int, payload: schemas.CarrierPartnerUpdat
     if payload.status is not None:
         carrier.status = payload.status
 
+    # Synchronize linked User account
+    if carrier.contact_email and carrier.contact_email.strip():
+        email_clean = carrier.contact_email.strip().lower()
+        carrier_role = db.query(models.Role).filter(
+            (models.Role.role_name == "Carrier Partner") |
+            (models.Role.role_name == "CARRIER_PARTNER")
+        ).first()
+        if not carrier_role:
+            carrier_role = models.Role(role_name="Carrier Partner")
+            db.add(carrier_role)
+            db.commit()
+            db.refresh(carrier_role)
+
+        if carrier.user_id:
+            user = db.query(models.User).filter(models.User.user_id == carrier.user_id).first()
+            if user:
+                user.email = email_clean
+                user.full_name = carrier.carrier_name
+                user.phone = carrier.contact_phone
+                user.role_id = carrier_role.role_id
+                db.commit()
+        else:
+            existing_u = db.query(models.User).filter(models.User.email == email_clean).first()
+            if not existing_u:
+                temp_pwd = generate_strong_password(12)
+                hashed_pwd = auth.get_password_hash(temp_pwd)
+                new_u = models.User(
+                    role_id=carrier_role.role_id,
+                    full_name=carrier.carrier_name,
+                    email=email_clean,
+                    phone=carrier.contact_phone,
+                    password=hashed_pwd,
+                    status=True,
+                    must_change_password=True
+                )
+                db.add(new_u)
+                db.commit()
+                db.refresh(new_u)
+                carrier.user_id = new_u.user_id
+            else:
+                existing_u.role_id = carrier_role.role_id
+                existing_u.full_name = carrier.carrier_name
+                existing_u.phone = carrier.contact_phone
+                carrier.user_id = existing_u.user_id
+
     db.commit()
     db.refresh(carrier)
     return carrier
 
 
-@router.delete("/carriers/{carrier_id}")
-def delete_carrier_partner(carrier_id: int, db: Session = Depends(get_db)):
+@router.post("/carriers/{carrier_id}/resend-credentials")
+def resend_carrier_credentials(carrier_id: int, db: Session = Depends(get_db)):
     carrier = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == carrier_id).first()
     if not carrier:
         raise HTTPException(status_code=404, detail="Carrier partner not found.")
 
+    if not carrier.contact_email or not carrier.contact_email.strip():
+        raise HTTPException(status_code=400, detail="Carrier partner has no registered contact email.")
+
+    email_clean = carrier.contact_email.strip().lower()
+    carrier_role = db.query(models.Role).filter(
+        (models.Role.role_name == "Carrier Partner") |
+        (models.Role.role_name == "CARRIER_PARTNER")
+    ).first()
+    if not carrier_role:
+        carrier_role = models.Role(role_name="Carrier Partner")
+        db.add(carrier_role)
+        db.commit()
+        db.refresh(carrier_role)
+
+    temp_pwd = generate_strong_password(12)
+    hashed_pwd = auth.get_password_hash(temp_pwd)
+
+    user = None
+    if carrier.user_id:
+        user = db.query(models.User).filter(models.User.user_id == carrier.user_id).first()
+
+    if not user:
+        user = db.query(models.User).filter(models.User.email == email_clean).first()
+
+    if not user:
+        user = models.User(
+            role_id=carrier_role.role_id,
+            full_name=carrier.carrier_name,
+            email=email_clean,
+            phone=carrier.contact_phone,
+            password=hashed_pwd,
+            status=True,
+            must_change_password=True
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        carrier.user_id = user.user_id
+    else:
+        user.email = email_clean
+        user.full_name = carrier.carrier_name
+        user.phone = carrier.contact_phone
+        user.password = hashed_pwd
+        user.role_id = carrier_role.role_id
+        user.must_change_password = True
+        carrier.user_id = user.user_id
+        db.commit()
+
+    email_sent = False
+    try:
+        email_sent = send_carrier_credentials_email(
+            to_email=email_clean,
+            carrier_name=carrier.carrier_name,
+            username=email_clean,
+            password=temp_pwd
+        )
+    except Exception as e:
+        print(f"[RESEND CARRIER CREDENTIALS ERROR] {e}")
+
+    return {
+        "success": True,
+        "email_sent": email_sent,
+        "message": f"Login credentials successfully sent to {email_clean}."
+    }
+
+
+@router.delete("/carriers/{carrier_id}")
+def delete_carrier_partner(carrier_id: int, db: Session = Depends(get_db)):
+    carrier = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == carrier_id).first()
     db.delete(carrier)
     db.commit()
     return {"message": f"Carrier partner #{carrier_id} deleted successfully."}
+
+
+# --- CARRIER DELIVERY PERSONNEL MANAGEMENT (ADMIN) ---
+
+@router.get("/carrier-personnel")
+def list_all_carrier_personnel(db: Session = Depends(get_db)):
+    personnel_list = db.query(models.DeliveryPersonnel).order_by(models.DeliveryPersonnel.personnel_id.asc()).all()
+    result = []
+    for p in personnel_list:
+        carrier = p.carrier_partner
+        # Count assigned tasks
+        fulfillments = db.query(models.OrderFulfillment).filter(
+            models.OrderFulfillment.assigned_personnel_id == p.personnel_id
+        ).all()
+
+        active_count = sum(1 for f in fulfillments if (f.fulfillment_status or '').lower() not in ['delivered', 'cancelled'])
+        completed_count = sum(1 for f in fulfillments if (f.fulfillment_status or '').lower() == 'delivered')
+
+        result.append({
+            "personnel_id": p.personnel_id,
+            "carrier_id": p.carrier_id,
+            "carrier_name": carrier.carrier_name if carrier else "Unknown Carrier",
+            "name": p.name,
+            "phone": p.phone,
+            "email": p.email or (p.user.email if p.user else None),
+            "vehicle_type": p.vehicle_type or "Mini Truck",
+            "vehicle_reg": p.vehicle_reg or "—",
+            "status": p.status or "ACTIVE",
+            "notes": p.notes,
+            "user_id": p.user_id,
+            "active_tasks_count": active_count,
+            "completed_tasks_count": completed_count,
+            "total_tasks_count": len(fulfillments),
+            "created_at": p.created_at.isoformat() if p.created_at else None
+        })
+    return result
+
+
+@router.post("/carrier-personnel/{personnel_id}/resend-credentials")
+def resend_personnel_credentials_admin(personnel_id: int, db: Session = Depends(get_db)):
+    personnel = db.query(models.DeliveryPersonnel).filter(models.DeliveryPersonnel.personnel_id == personnel_id).first()
+    if not personnel:
+        raise HTTPException(status_code=404, detail="Delivery personnel not found.")
+
+    target_email = personnel.email or (personnel.user.email if personnel.user else None)
+    if not target_email:
+        raise HTTPException(status_code=400, detail="Personnel has no registered email address.")
+
+    carrier_name = personnel.carrier_partner.carrier_name if personnel.carrier_partner else "3PL Carrier Partner"
+    temp_pwd = generate_strong_password(12)
+    hashed_pwd = auth.get_password_hash(temp_pwd)
+
+    if personnel.user:
+        personnel.user.password = hashed_pwd
+        personnel.user.must_change_password = True
+    else:
+        # Resolve Role
+        p_role = db.query(models.Role).filter(
+            (models.Role.role_name.ilike("%Delivery Personnel%")) |
+            (models.Role.role_name.ilike("%Driver%"))
+        ).first()
+        new_u = models.User(
+            role_id=p_role.role_id if p_role else 7,
+            full_name=personnel.name,
+            email=target_email.strip().lower(),
+            phone=personnel.phone,
+            password=hashed_pwd,
+            status=True,
+            must_change_password=True
+        )
+        db.add(new_u)
+        db.commit()
+        db.refresh(new_u)
+        personnel.user_id = new_u.user_id
+
+    db.commit()
+
+    from app.email_utils import send_delivery_personnel_credentials_email
+    email_sent = send_delivery_personnel_credentials_email(
+        to_email=target_email.strip().lower(),
+        personnel_name=personnel.name,
+        carrier_agency_name=carrier_name,
+        vehicle_info=f"{personnel.vehicle_type or 'Mini Truck'} ({personnel.vehicle_reg or 'KL-05-AT-4482'})",
+        password=temp_pwd
+    )
+
+    if not email_sent:
+        return {
+            "success": True,
+            "message": f"Password reset to '{temp_pwd}' (Email dispatch could not reach SMTP inbox)."
+        }
+
+    return {
+        "success": True,
+        "message": f"New credentials successfully emailed to {target_email}!"
+    }
+
+
+@router.put("/carrier-personnel/{personnel_id}/status")
+def toggle_personnel_status_admin(personnel_id: int, payload: dict, db: Session = Depends(get_db)):
+    personnel = db.query(models.DeliveryPersonnel).filter(models.DeliveryPersonnel.personnel_id == personnel_id).first()
+    if not personnel:
+        raise HTTPException(status_code=404, detail="Delivery personnel not found.")
+
+    new_st = payload.get("status", "ACTIVE")
+    personnel.status = new_st
+    if personnel.user:
+        personnel.user.status = (new_st == "ACTIVE")
+    db.commit()
+    return {"success": True, "message": f"Personnel status updated to '{new_st}'.", "status": new_st}
+
+
+
+# --- CARRIER AGREEMENTS MANAGEMENT ---
+
+class AgreementCreatePayload(BaseModel):
+    carrier_id: int
+    title: str
+    effective_date: str
+    expiry_date: str
+    services_covered: str
+    transportation_terms: str
+    settlement_terms: str
+    coverage_area: Optional[str] = "All Regional Kerala Districts"
+    base_payout_rate: Optional[float] = 100.0
+    per_km_payout_rate: Optional[float] = 15.0
+
+
+@router.get("/carrier-agreements")
+def list_carrier_agreements(db: Session = Depends(get_db)):
+    agreements = db.query(models.CarrierAgreement).order_by(models.CarrierAgreement.agreement_id.desc()).all()
+    result = []
+    for a in agreements:
+        c = a.carrier_partner
+        result.append({
+            "agreement_id": a.agreement_id,
+            "agreement_number": a.agreement_number,
+            "carrier_id": a.carrier_id,
+            "carrier_name": c.carrier_name if c else "Unknown Carrier",
+            "title": a.title,
+            "effective_date": a.effective_date.isoformat() if a.effective_date else None,
+            "expiry_date": a.expiry_date.isoformat() if a.expiry_date else None,
+            "services_covered": a.services_covered,
+            "transportation_terms": a.transportation_terms,
+            "settlement_terms": a.settlement_terms,
+            "coverage_area": a.coverage_area,
+            "base_payout_rate": float(a.base_payout_rate) if a.base_payout_rate else 100.0,
+            "per_km_payout_rate": float(a.per_km_payout_rate) if a.per_km_payout_rate else 15.0,
+            "status": a.status,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        })
+    return result
+
+
+@router.post("/carrier-agreements", status_code=status.HTTP_201_CREATED)
+def create_carrier_agreement(payload: AgreementCreatePayload, db: Session = Depends(get_db)):
+    carrier = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == payload.carrier_id).first()
+    if not carrier:
+        raise HTTPException(status_code=404, detail="Carrier partner not found.")
+
+    eff_date = datetime.strptime(payload.effective_date, "%Y-%m-%d").date() if payload.effective_date else date.today()
+    exp_date = datetime.strptime(payload.expiry_date, "%Y-%m-%d").date() if payload.expiry_date else date.today() + timedelta(days=365)
+
+    count_existing = db.query(models.CarrierAgreement).count()
+    agr_number = f"AGR-RS-2026-{(count_existing + 1):03d}"
+
+    new_agr = models.CarrierAgreement(
+        agreement_number=agr_number,
+        carrier_id=carrier.carrier_id,
+        title=payload.title.strip(),
+        effective_date=eff_date,
+        expiry_date=exp_date,
+        services_covered=payload.services_covered.strip(),
+        transportation_terms=payload.transportation_terms.strip(),
+        settlement_terms=payload.settlement_terms.strip(),
+        coverage_area=payload.coverage_area.strip() if payload.coverage_area else "Kerala Central Hub Zone",
+        base_payout_rate=payload.base_payout_rate or 100.0,
+        per_km_payout_rate=payload.per_km_payout_rate or 15.0,
+        status="ACTIVE"
+    )
+    db.add(new_agr)
+    db.commit()
+    db.refresh(new_agr)
+
+    return new_agr
+
+
+# --- TRANSPORTATION RATE CARD CONFIGURATION ---
+
+class RateCardUpdatePayload(BaseModel):
+    service_type: Optional[str] = "STANDARD_DELIVERY"
+    base_charge: float
+    rate_per_km: float
+    min_charge: Optional[float] = 100.0
+    is_active: Optional[bool] = True
+
+
+@router.get("/rate-cards")
+def get_rate_cards(db: Session = Depends(get_db)):
+    rate_cards = db.query(models.TransportationRateCard).all()
+    if not rate_cards:
+        # Seed defaults if empty
+        default_cards = [
+            models.TransportationRateCard(service_type="STANDARD_DELIVERY", base_charge=100.0, rate_per_km=15.0, min_charge=100.0, is_active=True),
+            models.TransportationRateCard(service_type="FABRICATION_PICKUP", base_charge=120.0, rate_per_km=15.0, min_charge=120.0, is_active=True),
+            models.TransportationRateCard(service_type="FABRICATION_RETURN", base_charge=120.0, rate_per_km=15.0, min_charge=120.0, is_active=True),
+        ]
+        db.add_all(default_cards)
+        db.commit()
+        rate_cards = db.query(models.TransportationRateCard).all()
+    return rate_cards
+
+
+@router.put("/rate-cards/{rate_id}")
+def update_rate_card(rate_id: int, payload: RateCardUpdatePayload, db: Session = Depends(get_db)):
+    rc = db.query(models.TransportationRateCard).filter(models.TransportationRateCard.rate_id == rate_id).first()
+    if not rc:
+        raise HTTPException(status_code=404, detail="Rate card not found.")
+
+    rc.base_charge = payload.base_charge
+    rc.rate_per_km = payload.rate_per_km
+    if payload.min_charge is not None:
+        rc.min_charge = payload.min_charge
+    if payload.is_active is not None:
+        rc.is_active = payload.is_active
+    if payload.service_type:
+        rc.service_type = payload.service_type
+
+    db.commit()
+    db.refresh(rc)
+    return rc
+
+
+# --- TRANSPORTATION DISTANCE & CHARGE CALCULATION PREVIEW ---
+
+class DistanceCalcPayload(BaseModel):
+    origin_address: Optional[str] = "RetailSphere Central Hub, Kottayam"
+    destination_address: str
+    service_type: Optional[str] = "STANDARD_DELIVERY"
+
+
+@router.post("/calculate-transportation")
+def calculate_transportation_endpoint(payload: DistanceCalcPayload, db: Session = Depends(get_db)):
+    from app.utils.distance_calculator import compute_transportation_charge
+    orig = payload.origin_address or "RetailSphere Central Hub, Kottayam"
+    dest = payload.destination_address
+    if not dest or not dest.strip():
+        raise HTTPException(status_code=400, detail="Destination address is required for distance calculation.")
+
+    calc_result = compute_transportation_charge(
+        db=db,
+        origin_address=orig.strip(),
+        destination_address=dest.strip(),
+        service_type=payload.service_type or "STANDARD_DELIVERY"
+    )
+    return calc_result
+
+
+# --- CARRIER SETTLEMENTS VIEW ---
+
+@router.get("/carrier-settlements")
+def list_admin_carrier_settlements(db: Session = Depends(get_db)):
+    settlements = db.query(models.CarrierSettlement).order_by(models.CarrierSettlement.settlement_id.desc()).all()
+    result = []
+    for s in settlements:
+        c = s.carrier_partner
+        result.append({
+            "settlement_id": s.settlement_id,
+            "carrier_id": s.carrier_id,
+            "carrier_name": c.carrier_name if c else "Carrier Agency",
+            "order_type": s.order_type,
+            "order_id": s.order_id,
+            "distance_km": float(s.distance_km) if s.distance_km else 0.0,
+            "customer_charge": float(s.customer_charge) if s.customer_charge else 0.0,
+            "carrier_payout": float(s.carrier_payout) if s.carrier_payout else 0.0,
+            "service_margin": float(s.service_margin) if s.service_margin else 0.0,
+            "settlement_status": s.settlement_status,
+            "notes": s.notes,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "settled_at": s.settled_at.isoformat() if s.settled_at else None
+        })
+    return result
+
+
+@router.put("/carrier-settlements/{settlement_id}/status")
+def update_settlement_status(settlement_id: int, payload: dict, db: Session = Depends(get_db)):
+    s = db.query(models.CarrierSettlement).filter(models.CarrierSettlement.settlement_id == settlement_id).first()
+    if not s:
+        raise HTTPException(status_code=404, detail="Settlement record not found.")
+
+    new_st = payload.get("status", "SETTLED")
+    s.settlement_status = new_st
+    if new_st == "SETTLED":
+        s.settled_at = datetime.utcnow()
+    db.commit()
+    db.refresh(s)
+    return {"message": f"Settlement #{settlement_id} status updated to {new_st}", "settlement": s}
+
 
 
 
