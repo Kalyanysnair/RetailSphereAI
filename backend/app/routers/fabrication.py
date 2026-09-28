@@ -124,6 +124,49 @@ def get_fabrication_requests(
                 "delivered_at": ful.delivered_at.isoformat() if ful.delivered_at else None,
             })
 
+        # Gather any linked production stages and active stage details
+        prod_stages = db.query(models.ProductionStage).filter(
+            models.ProductionStage.order_type == "Fabrication",
+            models.ProductionStage.order_id == f.fabrication_id
+        ).order_by(models.ProductionStage.sequence_order.asc()).all()
+
+        stages_list = []
+        active_stg_obj = None
+        for st in prod_stages:
+            st_meta = {}
+            if st.remarks:
+                try:
+                    import json
+                    parsed = json.loads(st.remarks)
+                    if isinstance(parsed, dict):
+                        st_meta = parsed
+                except:
+                    pass
+
+            w_user = db.query(models.User).filter(models.User.user_id == st.assigned_worker_id).first() if st.assigned_worker_id else None
+            st_dict = {
+                "stage_id": st.stage_id,
+                "stage_name": st.stage_name,
+                "sequence_order": st.sequence_order,
+                "status": "PAUSED" if st_meta.get("pause_reason") and (st.status or "").upper() in ["IN_PROGRESS", "PAUSED", "ON_HOLD"] else (st.status or "LOCKED").upper(),
+                "progress_percentage": st.progress_percentage or 0,
+                "assigned_worker_name": w_user.full_name if w_user else None,
+                "required_skill": st.required_skill,
+                "completed_sections": st_meta.get("completed_sections", []),
+                "current_section": st_meta.get("current_section"),
+                "pause_reason": st_meta.get("pause_reason"),
+                "notes": st_meta.get("user_notes") or ""
+            }
+            stages_list.append(st_dict)
+            if not active_stg_obj and st_dict["status"] in ["IN_PROGRESS", "PAUSED", "ASSIGNED"]:
+                active_stg_obj = st_dict
+
+        # Overall fabrication progress
+        if stages_list:
+            total_stg_pct = sum(s["progress_percentage"] for s in stages_list) // len(stages_list)
+        else:
+            total_stg_pct = 100 if f.status == "COMPLETED" else (40 if f.status in ["IN_PRODUCTION", "PAID"] else 15)
+
         res.append({
             "fabrication_id": f.fabrication_id,
             "customer_id": f.customer_id,
@@ -150,6 +193,11 @@ def get_fabrication_requests(
             "return_delivery_distance_km": float(f.return_delivery_distance_km) if f.return_delivery_distance_km is not None else 0.0,
             "return_delivery_charge": float(f.return_delivery_charge) if f.return_delivery_charge is not None else 0.0,
             "fulfillments": fulfillments_data,
+            "production_stages": stages_list,
+            "active_stage": active_stg_obj,
+            "overall_progress_percentage": total_stg_pct,
+            "is_paused": bool(active_stg_obj and active_stg_obj.get("pause_reason")),
+            "pause_reason": active_stg_obj.get("pause_reason") if active_stg_obj else None,
             "created_at": f.created_at.isoformat() if f.created_at else None
         })
     return res

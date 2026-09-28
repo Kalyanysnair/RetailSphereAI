@@ -1,7 +1,7 @@
 from datetime import datetime, date
-from typing import List, Optional
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -187,14 +187,23 @@ def get_current_deliveries(
         display_id = f"ORD-RS-{ord_obj.order_id:04d}" if ord_obj else (f"FAB-{fab_obj.fabrication_id:04d}" if fab_obj else f"FUL-{d.fulfillment_id:04d}")
         order_total = float(ord_obj.total_amount) if ord_obj and ord_obj.total_amount else (float(fab_obj.estimated_price) if fab_obj and fab_obj.estimated_price else 0.0)
 
+        # Check driver assignment status
+        is_driver_assigned = bool(personnel or d.driver_id or d.assigned_personnel_id)
+        if not is_driver_assigned:
+            effective_delivery_status = "Pending Driver Allotment"
+            effective_fulfillment_status = "Assigned to Carrier"
+        else:
+            effective_delivery_status = d.delivery_status or d.fulfillment_status or "In Transit"
+            effective_fulfillment_status = d.fulfillment_status or "In Transit"
+
         result.append({
             "fulfillment_id": d.fulfillment_id,
             "order_id": display_id,
             "raw_order_id": ord_obj.order_id if ord_obj else (fab_obj.fabrication_id if fab_obj else None),
             "fabrication_id": fab_obj.fabrication_id if fab_obj else None,
             "job_type": d.job_type or ("FABRICATION_PICKUP" if "PICKUP" in (d.job_type or "") else "FURNITURE_DELIVERY"),
-            "fulfillment_status": d.fulfillment_status or "Dispatched",
-            "delivery_status": d.delivery_status or d.fulfillment_status or "Dispatched",
+            "fulfillment_status": effective_fulfillment_status,
+            "delivery_status": effective_delivery_status,
             "tracking_number": d.tracking_number or f"RS-EXP-{d.fulfillment_id:05d}",
             "expected_delivery_date": d.expected_delivery_date or "Within 2-3 Business Days",
             "pickup_address": d.pickup_address or "RetailSphere Operations Facility, MC Road, Ettumanoor, Kottayam, Kerala - 686631",
@@ -333,6 +342,15 @@ def update_carrier_delivery_status(
         raise HTTPException(status_code=404, detail="Assigned transportation job not found.")
 
     new_st = payload.status.strip()
+
+    # Validate that driver/personnel is assigned before marking active transit or delivery
+    if not fulfillment.assigned_personnel_id and not fulfillment.driver_id:
+        if new_st.lower() in ["out for delivery", "out for pickup", "in transit", "delivered"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Please assign a delivery driver/personnel to this job before changing the status to in-transit or delivered."
+            )
+
     fulfillment.delivery_status = new_st
     fulfillment.fulfillment_status = new_st
     if payload.notes:
@@ -420,11 +438,21 @@ def assign_personnel_to_delivery(
         raise HTTPException(status_code=404, detail="Delivery personnel not found under your agency.")
 
     fulfillment.assigned_personnel_id = personnel.personnel_id
+    
+    # Automatically set appropriate active transit status upon personnel assignment
+    if (fulfillment.job_type or "").upper() == "FABRICATION_PICKUP":
+        fulfillment.delivery_status = "Out for Pickup"
+        fulfillment.fulfillment_status = "In Transit"
+    else:
+        fulfillment.delivery_status = "Out for Delivery"
+        fulfillment.fulfillment_status = "In Transit"
+
     db.commit()
 
     return {
-        "message": f"Assigned Delivery Personnel '{personnel.name}' to Job #{fulfillment_id}",
-        "personnel_name": personnel.name
+        "message": f"Assigned Delivery Personnel '{personnel.name}' to Job #{fulfillment_id}. Status updated to '{fulfillment.delivery_status}'.",
+        "personnel_name": personnel.name,
+        "delivery_status": fulfillment.delivery_status
     }
 
 

@@ -29,7 +29,11 @@ import {
   MessageSquare,
   ShieldCheck,
   ShoppingBag,
-  ExternalLink
+  ExternalLink,
+  Pause,
+  Sliders,
+  Check,
+  Hammer
 } from 'lucide-react';
 import { 
   fetchCustomOrders, 
@@ -44,6 +48,7 @@ import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils'
 import { fetchOrderFulfillmentDetails, fetchOrderMessagesAPI, sendOrderMessageAPI, FulfillmentDetails } from '../../services/retailOrdersFulfillmentApi';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
+import { getStageSections, StageSection } from '../../utils/manufacturingSections';
 
 export interface FabricationItem {
   fabrication_id: number;
@@ -61,6 +66,11 @@ export interface FabricationItem {
   estimated_price?: number;
   status: string;
   payment_status?: string;
+  production_stages?: any[];
+  active_stage?: any;
+  overall_progress_percentage?: number;
+  is_paused?: boolean;
+  pause_reason?: string;
   created_at?: string;
 }
 
@@ -878,15 +888,60 @@ export const MyActivityTab: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Workshop Live Progress Bar */}
-                          <div className="pt-2 border-t border-[#EFE7DE] flex items-center justify-between text-[10px]">
-                            <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-[#38A132]" /> {ord.current_stage || 'Material Sourcing'}
-                            </span>
-                            <span className="font-black text-[#38A132]">
-                              {ord.progress_percentage ?? ((stageIdx + 1) * 20)}% Complete
-                            </span>
-                          </div>
+                          {/* Workshop Live Progress Bar & Step Breakdown */}
+                          {(() => {
+                            const sections = getStageSections(ord.current_stage || ord.furniture_type, ord.furniture_type);
+                            const totalSections = sections.length;
+                            const isPaused = (ord.order_status || '').toLowerCase().includes('paused') || (ord as any).is_paused;
+                            const progressPct = ord.progress_percentage ?? ((stageIdx + 1) * 20);
+
+                            return (
+                              <div className="pt-2 border-t border-[#EFE7DE] space-y-2">
+                                {isPaused && (
+                                  <div className="p-2 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center gap-1.5">
+                                    <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                    <span>Production Paused: Artisan temporarily paused stage</span>
+                                  </div>
+                                )}
+
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-[#38A132]" /> {ord.current_stage || 'Manufacturing Stage'}
+                                  </span>
+                                  <span className="font-black text-[#38A132]">
+                                    {progressPct}% Complete
+                                  </span>
+                                </div>
+
+                                <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
+                                  <div
+                                    className={`h-1.5 rounded-full transition-all duration-300 ${
+                                      isPaused ? 'bg-amber-500' : progressPct >= 100 ? 'bg-[#38A132]' : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
+                                    }`}
+                                    style={{ width: `${progressPct}%` }}
+                                  />
+                                </div>
+
+                                {/* Procedural Stepper Ribbon */}
+                                <div className="grid grid-cols-4 gap-1 pt-0.5">
+                                  {sections.map((sec, sIdx) => {
+                                    const isDone = progressPct >= (sIdx + 1) * 25;
+                                    return (
+                                      <div
+                                        key={sec.id}
+                                        title={`Step ${sIdx + 1}: ${sec.title}`}
+                                        className={`p-1 rounded-md text-[9px] text-center font-bold truncate ${
+                                          isDone ? 'bg-[#38A132]/15 text-[#2D6338] border border-[#38A132]/30' : 'bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB]'
+                                        }`}
+                                      >
+                                        {isDone ? `✓ Step ${sIdx + 1}` : `Step ${sIdx + 1}`}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -916,56 +971,119 @@ export const MyActivityTab: React.FC = () => {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {filteredFabrications.map((f) => (
-                      <div
-                        key={f.fabrication_id}
-                        className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-3"
-                      >
-                        <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2.5">
-                          <span className="text-xs font-mono font-black text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
-                            #{f.fabrication_id} • {f.service_type}
-                          </span>
-                          <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
-                            f.payment_status === 'Paid' || f.status === 'PAID'
-                              ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
-                              : getStatusBadgeColor(f.status)
-                          }`}>
-                            {f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
-                          </span>
-                        </div>
+                    {filteredFabrications.map((f) => {
+                      const activeStg = f.active_stage || (f.production_stages && f.production_stages[0]);
+                      const stgName = activeStg ? activeStg.stage_name : f.service_type;
+                      const sections = getStageSections(stgName, f.service_type);
+                      const completedSections = activeStg ? (activeStg.completed_sections || []) : [];
+                      const checkedCount = completedSections.length;
+                      const totalSections = sections.length;
+                      const isPaused = Boolean(f.is_paused || (activeStg && activeStg.status === 'PAUSED'));
+                      const pauseReason = f.pause_reason || (activeStg && activeStg.pause_reason) || 'Temporarily paused for curing/drying';
+                      const progressPct = f.status === 'COMPLETED' || (activeStg && activeStg.status === 'COMPLETED')
+                        ? 100
+                        : totalSections > 0
+                        ? Math.round((checkedCount / totalSections) * 100)
+                        : (f.overall_progress_percentage || (activeStg ? activeStg.progress_percentage : 0));
 
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3">
-                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/15 to-orange-500/20 border-2 border-amber-300 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
-                              <Scissors className="w-6 h-6" />
-                            </div>
-
-                            <div className="text-[11px] text-[#5C4E42] space-y-0.5">
-                              <div>Source: <strong>{f.material_source}</strong></div>
-                              <div>Dimensions: <strong>{f.dimensions}</strong></div>
-                              <div>Quantity: <strong>{f.quantity} sheet(s)</strong></div>
-                            </div>
-                          </div>
-
-                          <div className="text-right shrink-0">
-                            <span className="text-sm font-black text-[#38A132] block">
-                              {f.estimated_price ? formatCurrency(f.estimated_price) : 'Under Examination'}
+                      return (
+                        <div
+                          key={f.fabrication_id}
+                          className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-3xl p-4 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-3"
+                        >
+                          <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-2.5">
+                            <span className="text-xs font-mono font-black text-[#2C241D] bg-[#FAF7F2] px-2.5 py-1 rounded-xl border border-[#E2D7CB]">
+                              #{f.fabrication_id} • {f.service_type}
                             </span>
-                            {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' ? (
-                              <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
-                                <button
-                                  onClick={() => handlePayFabricationActivity(f)}
-                                  className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
-                                >
-                                  <CreditCard className="w-3 h-3" />
-                                  <span>Pay Now</span>
-                                </button>
+                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border ${
+                              isPaused
+                                ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                : f.payment_status === 'Paid' || f.status === 'PAID'
+                                ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]/30'
+                                : getStatusBadgeColor(f.status)
+                            }`}>
+                              {isPaused ? '⏸️ PAUSED' : f.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(f.status)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-500/15 to-orange-500/20 border-2 border-amber-300 flex items-center justify-center text-amber-700 shrink-0 shadow-2xs">
+                                <Scissors className="w-6 h-6" />
                               </div>
-                            ) : null}
+
+                              <div className="text-[11px] text-[#5C4E42] space-y-0.5">
+                                <div>Source: <strong>{f.material_source}</strong></div>
+                                <div>Dimensions: <strong>{f.dimensions}</strong></div>
+                                <div>Quantity: <strong>{f.quantity} sheet(s)</strong></div>
+                              </div>
+                            </div>
+
+                            <div className="text-right shrink-0">
+                              <span className="text-sm font-black text-[#38A132] block">
+                                {f.estimated_price ? formatCurrency(f.estimated_price) : 'Under Examination'}
+                              </span>
+                              {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' ? (
+                                <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
+                                  <button
+                                    onClick={() => handlePayFabricationActivity(f)}
+                                    className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                                  >
+                                    <CreditCard className="w-3 h-3" />
+                                    <span>Pay Now</span>
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          {/* Live Manufacturing Progress Tracker & Sections */}
+                          <div className="pt-2 border-t border-[#EFE7DE] space-y-1.5">
+                            {isPaused && (
+                              <div className="p-2 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center gap-1.5">
+                                <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                <span>Paused: {pauseReason}</span>
+                              </div>
+                            )}
+
+                            <div className="flex justify-between items-center text-[10px]">
+                              <span className="text-[#7A6C5E] font-bold flex items-center gap-1">
+                                <Hammer className="w-3 h-3 text-[#38A132]" />
+                                <span>{stgName}</span>
+                              </span>
+                              <span className="font-mono text-xs font-black text-[#38A132]">{progressPct}%</span>
+                            </div>
+
+                            <div className="w-full bg-[#E2D7CB] rounded-full h-1.5 overflow-hidden">
+                              <div
+                                className={`h-1.5 rounded-full transition-all duration-300 ${
+                                  isPaused ? 'bg-amber-500' : progressPct >= 100 ? 'bg-[#38A132]' : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
+                                }`}
+                                style={{ width: `${progressPct}%` }}
+                              />
+                            </div>
+
+                            {/* 4-Step Milestone Pills */}
+                            <div className="grid grid-cols-4 gap-1 pt-0.5">
+                              {sections.map((sec, sIdx) => {
+                                const isDone = completedSections.includes(sec.id) || progressPct >= (sIdx + 1) * 25;
+                                return (
+                                  <div
+                                    key={sec.id}
+                                    title={`Step ${sIdx + 1}: ${sec.title}`}
+                                    className={`p-1 rounded-md text-[9px] text-center font-bold truncate ${
+                                      isDone ? 'bg-[#38A132]/15 text-[#2D6338] border border-[#38A132]/30' : 'bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB]'
+                                    }`}
+                                  >
+                                    {isDone ? `✓ Step ${sIdx + 1}` : `Step ${sIdx + 1}`}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

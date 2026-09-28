@@ -50,7 +50,12 @@ import {
   Compass,
   ShoppingBag,
   Inbox,
-  UserCheck
+  UserCheck,
+  Pause,
+  Play,
+  Sliders,
+  ListOrdered,
+  Square
 } from 'lucide-react';
 
 import {
@@ -59,6 +64,9 @@ import {
   startWorkerTaskDB,
   completeWorkerTaskDB,
   reportWorkerTaskIssueDB,
+  pauseWorkerTaskDB,
+  resumeWorkerTaskDB,
+  updateWorkerTaskProgressDB,
   fetchWorkerCompletedHistoryDB,
   fetchWorkerOnsiteJobsDB,
   updateWorkerOnsiteJobStatusDB,
@@ -76,6 +84,7 @@ import {
 import { getCurrentUser, updateUserProfile, changeFirstPassword, changePasswordUser } from '../../services/api';
 import { applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
+import { getStageSections, StageSection } from '../../utils/manufacturingSections';
 import {
   getMessagesForUser,
   markAdminMessageRead,
@@ -140,6 +149,13 @@ export const WorkerDashboardPage: React.FC = () => {
   const [completeWorkImages, setCompleteWorkImages] = useState('');
   const [completeProgressPct, setCompleteProgressPct] = useState(100);
   const [isSubmittingComplete, setIsSubmittingComplete] = useState(false);
+
+  // Pause Task Modal State
+  const [isPauseModalOpen, setIsPauseModalOpen] = useState(false);
+  const [selectedTaskForPause, setSelectedTaskForPause] = useState<WorkerTaskItem | null>(null);
+  const [pauseReasonChoice, setPauseReasonChoice] = useState('Waiting for glue / adhesive curing');
+  const [customPauseReason, setCustomPauseReason] = useState('');
+  const [isSubmittingPause, setIsSubmittingPause] = useState(false);
 
   // Report Issue Modal State
   const [isReportIssueModalOpen, setIsReportIssueModalOpen] = useState(false);
@@ -328,11 +344,108 @@ export const WorkerDashboardPage: React.FC = () => {
     }
   };
 
+  const handleToggleSection = async (task: WorkerTaskItem, sectionId: string) => {
+    const currentSections = task.completed_sections || [];
+    const exists = currentSections.includes(sectionId);
+    const newCompleted = exists
+      ? currentSections.filter((id) => id !== sectionId)
+      : [...currentSections, sectionId];
+
+    const sections = getStageSections(task.stage_name, task.job_name);
+    const newPct = Math.round((newCompleted.length / sections.length) * 100);
+
+    const nextSec = sections.find((s) => !newCompleted.includes(s.id));
+    const nextSectionTitle = nextSec ? nextSec.title : 'All Checklist Sections Completed';
+
+    // Optimistic local state update
+    setTasksList((prev) =>
+      prev.map((t) =>
+        t.task_id === task.task_id
+          ? {
+              ...t,
+              completed_sections: newCompleted,
+              progress_percentage: newPct,
+              current_section: nextSectionTitle
+            }
+          : t
+      )
+    );
+
+    if (selectedTaskForDetail && selectedTaskForDetail.task_id === task.task_id) {
+      setSelectedTaskForDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              completed_sections: newCompleted,
+              progress_percentage: newPct,
+              current_section: nextSectionTitle
+            }
+          : null
+      );
+    }
+
+    try {
+      await updateWorkerTaskProgressDB(task.task_id, {
+        completed_sections: newCompleted,
+        progress_percentage: newPct,
+        current_section: nextSectionTitle
+      });
+    } catch (err: any) {
+      console.error('Failed to sync section progress to backend:', err);
+    }
+  };
+
+  const handleOpenPauseModal = (task: WorkerTaskItem) => {
+    setSelectedTaskForPause(task);
+    setPauseReasonChoice('Waiting for glue / adhesive curing');
+    setCustomPauseReason('');
+    setIsPauseModalOpen(true);
+  };
+
+  const handleConfirmPause = async () => {
+    if (!selectedTaskForPause) return;
+    const finalReason =
+      pauseReasonChoice === 'Other Workshop Impediment' && customPauseReason.trim()
+        ? customPauseReason.trim()
+        : pauseReasonChoice;
+
+    setIsSubmittingPause(true);
+    try {
+      const res = await pauseWorkerTaskDB(selectedTaskForPause.task_id, {
+        pause_reason: finalReason
+      });
+      setSuccessNotice(res.message || 'Stage paused successfully.');
+      setIsPauseModalOpen(false);
+      setIsTaskDetailModalOpen(false);
+      await loadWorkerWorkspaceData();
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Failed to pause stage.');
+    } finally {
+      setIsSubmittingPause(false);
+    }
+  };
+
+  const handleResumeTask = async (taskId: string) => {
+    try {
+      const res = await resumeWorkerTaskDB(taskId);
+      setSuccessNotice(res.message || 'Stage resumed. Status back to In Progress.');
+      if (selectedTaskForDetail && selectedTaskForDetail.task_id === taskId) {
+        setSelectedTaskForDetail((prev) => (prev ? { ...prev, task_status: 'IN_PROGRESS', pause_reason: undefined } : null));
+      }
+      await loadWorkerWorkspaceData();
+    } catch (err: any) {
+      setErrorNotice(err.message || 'Failed to resume stage.');
+    }
+  };
+
   const handleOpenCompleteModal = (task: WorkerTaskItem) => {
     setSelectedTaskForDetail(task);
     setCompleteNotes('');
     setCompleteWorkImages('');
-    setCompleteProgressPct(100);
+    const sections = getStageSections(task.stage_name, task.job_name);
+    const completedCount = (task.completed_sections || []).length;
+    const calcPct = completedCount > 0 ? Math.round((completedCount / sections.length) * 100) : 100;
+    setCompleteProgressPct(calcPct);
     setIsCompleteModalOpen(true);
   };
 
@@ -1134,115 +1247,206 @@ export const WorkerDashboardPage: React.FC = () => {
                   </div>
 
                   {activeTask ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                      {/* Left: Design Reference Image / Preview */}
-                      <div className="lg:col-span-4 bg-[#FAF7F2] rounded-2xl p-3 border border-[#E2D7CB] space-y-2">
-                        <div className="relative h-48 w-full bg-[#EFE8DC] rounded-xl overflow-hidden flex items-center justify-center border border-[#D6C9B9]">
-                          {activeTask.reference_image ? (
-                            <img
-                              src={activeTask.reference_image}
-                              alt={activeTask.job_name}
-                              className="w-full h-full object-contain cursor-pointer hover:scale-105 transition-transform"
-                              onClick={() => {
-                                if (activeTask.reference_image) {
-                                  openImageInNewTab(activeTask.reference_image);
-                                }
-                              }}
-                            />
-                          ) : (
-                            <div className="text-center p-4 text-[#7A6C5E]">
-                              <ImageIcon className="w-10 h-10 mx-auto mb-1 opacity-40" />
-                              <span className="text-[11px] font-bold">Standard Workshop Blueprint</span>
+                    (() => {
+                      const sections = getStageSections(activeTask.stage_name, activeTask.job_name);
+                      const completedList = activeTask.completed_sections || [];
+                      const checkedCount = completedList.length;
+                      const totalCount = sections.length;
+                      const isFullyChecked = checkedCount >= totalCount;
+                      const isPaused = activeTask.task_status === 'PAUSED' || Boolean(activeTask.pause_reason);
+                      const currentPct = activeTask.task_status === 'COMPLETED'
+                        ? 100
+                        : totalCount > 0
+                        ? Math.round((checkedCount / totalCount) * 100)
+                        : (activeTask.progress_percentage || 0);
+
+                      return (
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                          {/* Left: Design Reference Image / Preview */}
+                          <div className="lg:col-span-3 bg-[#FAF7F2] rounded-2xl p-3 border border-[#E2D7CB] space-y-2">
+                            <div className="relative h-44 w-full bg-[#EFE8DC] rounded-xl overflow-hidden flex items-center justify-center border border-[#D6C9B9]">
+                              {activeTask.reference_image ? (
+                                <img
+                                  src={activeTask.reference_image}
+                                  alt={activeTask.job_name}
+                                  className="w-full h-full object-contain cursor-pointer hover:scale-105 transition-transform"
+                                  onClick={() => {
+                                    if (activeTask.reference_image) {
+                                      openImageInNewTab(activeTask.reference_image);
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <div className="text-center p-4 text-[#7A6C5E]">
+                                  <ImageIcon className="w-10 h-10 mx-auto mb-1 opacity-40" />
+                                  <span className="text-[11px] font-bold">Standard Workshop Blueprint</span>
+                                </div>
+                              )}
                             </div>
-                          )}
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] font-bold text-[#7A6C5E] px-1">
-                          <span>{activeTask.order_type} Order</span>
-                          <span className="font-mono text-[#B89768] font-black">{activeTask.order_id}</span>
-                        </div>
-                      </div>
+                            <div className="flex items-center justify-between text-[11px] font-bold text-[#7A6C5E] px-1">
+                              <span>{activeTask.order_type} Order</span>
+                              <span className="font-mono text-[#B89768] font-black">{activeTask.order_id}</span>
+                            </div>
+                            {isPaused && (
+                              <div className="p-2 rounded-xl bg-amber-100 border border-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-1.5">
+                                <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                <span className="line-clamp-2">Paused: {activeTask.pause_reason || 'On Break / Hold'}</span>
+                              </div>
+                            )}
+                          </div>
 
-                      {/* Middle: Technical Job Specs */}
-                      <div className="lg:col-span-5 space-y-3">
-                        <div>
-                          <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2.5 py-0.5 rounded-md border border-[#D6C9B9]">
-                            {activeTask.order_id} • Stage: {activeTask.stage_name}
-                          </span>
-                          <h3 className="text-base sm:text-lg font-black text-[#2C241D] mt-1.5 leading-snug">
-                            {activeTask.job_name}
-                          </h3>
-                        </div>
+                          {/* Middle: Technical Job Specs & PROCEDURAL SECTIONS CHECKLIST */}
+                          <div className="lg:col-span-5 space-y-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2.5 py-0.5 rounded-md border border-[#D6C9B9]">
+                                  {activeTask.order_id} • Stage: {activeTask.stage_name}
+                                </span>
+                                {isPaused && (
+                                  <span className="text-[10px] font-black uppercase text-amber-900 bg-amber-200 px-2 py-0.5 rounded-md">
+                                    ⏸️ STAGE PAUSED
+                                  </span>
+                                )}
+                              </div>
+                              <h3 className="text-base sm:text-lg font-black text-[#2C241D] mt-1.5 leading-snug">
+                                {activeTask.job_name}
+                              </h3>
+                            </div>
 
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
-                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Dimensions</span>
-                            <span className="font-extrabold text-[#2C241D]">{activeTask.dimensions || 'Standard Specification'}</span>
-                          </div>
-                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
-                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Timber / Material</span>
-                            <span className="font-extrabold text-[#2C241D]">{activeTask.material || 'Solid Hardwood'}</span>
-                          </div>
-                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
-                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Finish & Color</span>
-                            <span className="font-extrabold text-[#2C241D]">{activeTask.color || 'Natural Walnut'}</span>
-                          </div>
-                          <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
-                            <span className="text-[10px] text-[#7A6C5E] uppercase font-bold block">Required Skill</span>
-                            <span className="font-extrabold text-[#2C241D]">{activeTask.required_skill || 'Joinery'}</span>
-                          </div>
-                        </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div className="p-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                                <span className="text-[9px] text-[#7A6C5E] uppercase font-bold block">Dimensions</span>
+                                <span className="font-extrabold text-[#2C241D] truncate block">{activeTask.dimensions || 'Standard Specs'}</span>
+                              </div>
+                              <div className="p-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                                <span className="text-[9px] text-[#7A6C5E] uppercase font-bold block">Timber / Material</span>
+                                <span className="font-extrabold text-[#2C241D] truncate block">{activeTask.material || 'Solid Hardwood'}</span>
+                              </div>
+                            </div>
 
-                        {activeTask.technical_instructions && (
-                          <div className="p-3 rounded-2xl bg-[#F5ECE1]/70 border border-[#E2D7CB] text-xs text-[#2C241D] flex items-start gap-2.5">
-                            <FileText className="w-4 h-4 text-[#B89768] shrink-0 mt-0.5" />
-                            <div className="min-w-0 flex-1">
-                              <strong className="font-extrabold block text-[10px] uppercase text-[#7A6C5E] tracking-wider mb-0.5">
-                                Production Specifications & Guidelines
-                              </strong>
-                              <p className="text-xs text-[#3D3228] font-medium leading-relaxed">
-                                {activeTask.technical_instructions}
-                              </p>
+                            {/* Procedural Step Checklist (Interactive for artisan) */}
+                            <div className="space-y-1.5 pt-1">
+                              <div className="flex items-center justify-between text-[11px] font-black">
+                                <span className="text-[#5C4E42] flex items-center gap-1.5">
+                                  <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
+                                  <span>Procedural Step Checklist ({checkedCount}/{totalCount})</span>
+                                </span>
+                                <span className={`px-2 py-0.5 rounded-full font-black text-[10px] ${
+                                  isFullyChecked ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                  {currentPct}% Analyzed
+                                </span>
+                              </div>
+
+                              <div className="space-y-1.5 bg-[#FAF7F2] p-2 rounded-2xl border border-[#E2D7CB] max-h-56 overflow-y-auto">
+                                {sections.map((sec, idx) => {
+                                  const isChecked = completedList.includes(sec.id);
+                                  return (
+                                    <div
+                                      key={sec.id}
+                                      onClick={() => handleToggleSection(activeTask, sec.id)}
+                                      className={`flex items-start gap-2 p-2 rounded-xl transition-all border select-none cursor-pointer hover:border-[#38A132] ${
+                                        isChecked
+                                          ? 'bg-emerald-50 border-emerald-300 text-emerald-950'
+                                          : 'bg-white border-[#E2D7CB] text-[#2C241D]'
+                                      }`}
+                                    >
+                                      <div className="pt-0.5">
+                                        {isChecked ? (
+                                          <div className="w-4 h-4 rounded-md bg-[#38A132] text-white flex items-center justify-center shrink-0 shadow-xs">
+                                            <Check className="w-3 h-3 stroke-[3]" />
+                                          </div>
+                                        ) : (
+                                          <div className="w-4 h-4 rounded-md border-2 border-[#B89768] bg-white shrink-0 hover:border-[#38A132]" />
+                                        )}
+                                      </div>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className={`text-[11px] font-black ${isChecked ? 'text-emerald-900 line-through decoration-emerald-600/60' : 'text-[#2C241D]'}`}>
+                                            Step {idx + 1}: {sec.title}
+                                          </span>
+                                          <span className="text-[10px] font-mono font-bold text-[#7A6C5E] shrink-0">+{sec.weightPct}%</span>
+                                        </div>
+                                        <p className="text-[10px] text-[#7A6C5E] font-medium leading-tight mt-0.5">{sec.description}</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           </div>
-                        )}
-                      </div>
 
-                      {/* Right: Operational Actions */}
-                      <div className="lg:col-span-3 space-y-3 flex flex-col justify-between h-full bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB]">
-                        <div>
-                          <span className="text-[10px] font-black uppercase text-[#7A6C5E] block mb-1">
-                            Build Stage Progress
-                          </span>
-                          <div className="w-full bg-[#E2D7CB] rounded-full h-2.5 overflow-hidden mb-2">
-                            <div
-                              className="bg-[#38A132] h-2.5 rounded-full transition-all duration-500"
-                              style={{ width: `${activeTask.progress_percentage || 50}%` }}
-                            />
-                          </div>
-                          <div className="flex justify-between text-[11px] font-bold text-[#7A6C5E]">
-                            <span>Started: {activeTask.started_at ? new Date(activeTask.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'}</span>
-                            <span className="font-extrabold text-[#38A132]">{activeTask.progress_percentage || 50}%</span>
+                          {/* Right: Operational Actions & Stage Progress */}
+                          <div className="lg:col-span-4 space-y-3 flex flex-col justify-between h-full bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB]">
+                            <div>
+                              <div className="flex items-center justify-between text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                                <span>Build Stage Progress</span>
+                                <span className="font-mono text-sm font-extrabold text-[#38A132]">{currentPct}%</span>
+                              </div>
+                              <div className="w-full bg-[#E2D7CB] rounded-full h-3 overflow-hidden mb-2">
+                                <div
+                                  className={`h-3 rounded-full transition-all duration-500 ${
+                                    isPaused
+                                      ? 'bg-amber-500'
+                                      : isFullyChecked
+                                      ? 'bg-[#38A132]'
+                                      : 'bg-gradient-to-r from-blue-500 to-[#38A132]'
+                                  }`}
+                                  style={{ width: `${currentPct}%` }}
+                                />
+                              </div>
+                              <div className="flex justify-between text-[11px] font-bold text-[#7A6C5E]">
+                                <span>Started: {activeTask.started_at ? new Date(activeTask.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Today'}</span>
+                                <span>{checkedCount} of {totalCount} Steps</span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 pt-2">
+                              {/* Complete Stage Button */}
+                              <button
+                                onClick={() => handleOpenCompleteModal(activeTask)}
+                                className={`w-full py-2.5 rounded-xl font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer ${
+                                  isFullyChecked
+                                    ? 'bg-[#38A132] hover:bg-[#2F8829] text-white shadow-[#38A132]/30 ring-2 ring-[#38A132]/40 animate-pulse'
+                                    : 'bg-[#38A132] hover:bg-[#2F8829] text-white shadow-[#38A132]/20'
+                                }`}
+                              >
+                                <Check className="w-4 h-4" />
+                                <span>{isFullyChecked ? '✓ Finalize & Complete Stage' : 'Complete Stage'}</span>
+                              </button>
+
+                              {/* Pause / Resume Button */}
+                              {isPaused ? (
+                                <button
+                                  onClick={() => handleResumeTask(activeTask.task_id)}
+                                  className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-current" />
+                                  <span>▶️ Resume Stage Work</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleOpenPauseModal(activeTask)}
+                                  className="w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer"
+                                >
+                                  <Pause className="w-3.5 h-3.5 fill-current" />
+                                  <span>⏸️ Pause Stage</span>
+                                </button>
+                              )}
+
+                              {/* Report Issue / Hold */}
+                              <button
+                                onClick={() => handleOpenReportIssueModal(activeTask)}
+                                className="w-full py-1.5 rounded-xl bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                              >
+                                <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                                <span>Report Defect / Issue</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
-
-                        <div className="space-y-2 pt-2">
-                          <button
-                            onClick={() => handleOpenCompleteModal(activeTask)}
-                            className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer"
-                          >
-                            <Check className="w-4 h-4" />
-                            <span>Complete Stage</span>
-                          </button>
-                          <button
-                            onClick={() => handleOpenReportIssueModal(activeTask)}
-                            className="w-full py-2 rounded-xl bg-white hover:bg-amber-50 text-amber-800 border border-amber-300 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                          >
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                            <span>Report Issue / Hold</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
+                      );
+                    })()
                   ) : (
                     <div className="py-12 text-center space-y-3">
                       <div className="w-14 h-14 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
@@ -1322,12 +1526,19 @@ export const WorkerDashboardPage: React.FC = () => {
                                 {task.assigned_date ? new Date(task.assigned_date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : 'Today'}
                               </td>
                               <td className="py-3 px-3 text-right">
-                                <button
-                                  onClick={() => handleStartTask(task.task_id)}
-                                  className="px-3 py-1 rounded-lg bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-[11px] transition-all cursor-pointer shadow-2xs"
-                                >
-                                  Start Stage
-                                </button>
+                                {task.is_pickup_pending ? (
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-300 font-bold text-[10px]" title="Customer timber pickup pending via logistics partner before stage start">
+                                    <Truck className="w-3 h-3 text-amber-600 animate-pulse" />
+                                    <span>Pickup Pending</span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => handleStartTask(task.task_id)}
+                                    className="px-3 py-1 rounded-lg bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-[11px] transition-all cursor-pointer shadow-2xs"
+                                  >
+                                    Start Stage
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}
@@ -1562,79 +1773,207 @@ export const WorkerDashboardPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredTasks.map((task) => (
-                      <div
-                        key={task.task_id}
-                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4"
-                      >
-                        <div className="space-y-3">
-                          <div className="flex items-start justify-between">
-                            <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
-                              {task.order_id}
-                            </span>
-                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
-                              task.task_status === 'COMPLETED' ? 'bg-[#E8F5E9] text-[#2D6338]' :
-                              task.task_status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800' :
-                              task.task_status === 'ON_HOLD' ? 'bg-red-100 text-red-800' :
-                              'bg-amber-100 text-amber-800'
-                            }`}>
-                              {task.task_status}
-                            </span>
-                          </div>
+                    {filteredTasks.map((task) => {
+                      const sections = getStageSections(task.stage_name, task.job_name);
+                      const completedList = task.completed_sections || [];
+                      const checkedCount = completedList.length;
+                      const totalCount = sections.length;
+                      const isFullyChecked = checkedCount >= totalCount;
+                      const isPaused = task.task_status === 'PAUSED' || Boolean(task.pause_reason);
+                      const currentPct = task.task_status === 'COMPLETED'
+                        ? 100
+                        : totalCount > 0
+                        ? Math.round((checkedCount / totalCount) * 100)
+                        : (task.progress_percentage || 0);
 
-                          <div>
-                            <h4 className="text-sm font-black text-[#2C241D] leading-snug">
-                              {task.job_name}
-                            </h4>
-                            <span className="text-xs font-extrabold text-[#38A132] block mt-0.5">
-                              Stage: {task.stage_name}
-                            </span>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-[11px] bg-[#FAF7F2] p-2.5 rounded-2xl border border-[#E2D7CB]">
-                            <div>
-                              <span className="text-[10px] text-[#7A6C5E] uppercase block font-bold">Timber</span>
-                              <span className="font-extrabold text-[#2C241D] truncate block">{task.material || 'Standard'}</span>
+                      return (
+                        <div
+                          key={task.task_id}
+                          className={`bg-white/95 rounded-3xl border p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4 ${
+                            isPaused
+                              ? 'border-amber-400 bg-amber-50/20'
+                              : task.task_status === 'IN_PROGRESS'
+                              ? 'border-blue-300'
+                              : 'border-[#E2D7CB]'
+                          }`}
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between">
+                              <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                                {task.order_id}
+                              </span>
+                              <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                                task.task_status === 'COMPLETED' ? 'bg-[#E8F5E9] text-[#2D6338]' :
+                                isPaused ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                                task.task_status === 'IN_PROGRESS' ? 'bg-blue-100 text-blue-800' :
+                                task.task_status === 'ON_HOLD' ? 'bg-red-100 text-red-800' :
+                                'bg-amber-100 text-amber-800'
+                              }`}>
+                                {isPaused ? '⏸️ PAUSED' : task.task_status}
+                              </span>
                             </div>
+
                             <div>
-                              <span className="text-[10px] text-[#7A6C5E] uppercase block font-bold">Dimensions</span>
-                              <span className="font-extrabold text-[#2C241D] truncate block">{task.dimensions || 'Standard'}</span>
+                              <h4 className="text-sm font-black text-[#2C241D] leading-snug">
+                                {task.job_name}
+                              </h4>
+                              <span className="text-xs font-extrabold text-[#38A132] block mt-0.5">
+                                Stage: {task.stage_name}
+                              </span>
+                            </div>
+
+                            {isPaused && (
+                              <div className="p-2 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-[11px] font-bold flex items-center gap-1.5">
+                                <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                <span>Paused: {task.pause_reason || 'Artisan temporarily paused'}</span>
+                              </div>
+                            )}
+
+                            {/* Live Progress Bar & Percentage */}
+                            <div>
+                              <div className="flex items-center justify-between text-[10px] font-extrabold text-[#7A6C5E] mb-1">
+                                <span>Progress ({checkedCount}/{totalCount} Steps)</span>
+                                <span className="font-mono text-xs text-[#38A132] font-black">{currentPct}%</span>
+                              </div>
+                              <div className="w-full bg-[#E2D7CB] rounded-full h-2 overflow-hidden">
+                                <div
+                                  className={`h-2 rounded-full transition-all duration-300 ${
+                                    isPaused ? 'bg-amber-500' : isFullyChecked ? 'bg-[#38A132]' : 'bg-blue-500'
+                                  }`}
+                                  style={{ width: `${currentPct}%` }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Interactive Step Sections Breakdown */}
+                            <div className="space-y-1 bg-[#FAF7F2] p-2 rounded-2xl border border-[#E2D7CB]">
+                              <span className="text-[9px] font-black uppercase text-[#7A6C5E] block px-1">
+                                Procedural Checklist
+                              </span>
+                              {sections.map((sec, idx) => {
+                                const isChecked = completedList.includes(sec.id);
+                                return (
+                                  <div
+                                    key={sec.id}
+                                    onClick={() => {
+                                      if (task.task_status === 'IN_PROGRESS' || isPaused) {
+                                        handleToggleSection(task, sec.id);
+                                      }
+                                    }}
+                                    className={`flex items-center justify-between p-1.5 rounded-lg text-[11px] transition-all ${
+                                      task.task_status === 'IN_PROGRESS' || isPaused ? 'cursor-pointer hover:bg-white' : 'opacity-80'
+                                    } ${isChecked ? 'bg-emerald-50 text-emerald-950 font-bold' : 'text-[#5C4E42] font-medium'}`}
+                                  >
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      {isChecked ? (
+                                        <div className="w-3.5 h-3.5 rounded bg-[#38A132] text-white flex items-center justify-center shrink-0">
+                                          <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                        </div>
+                                      ) : (
+                                        <div className="w-3.5 h-3.5 rounded border border-[#B89768] bg-white shrink-0" />
+                                      )}
+                                      <span className={`truncate ${isChecked ? 'line-through decoration-emerald-600/50' : ''}`}>
+                                        {idx + 1}. {sec.title}
+                                      </span>
+                                    </div>
+                                    <span className="text-[9px] font-mono text-[#7A6C5E] shrink-0 ml-1">+{sec.weightPct}%</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-[10px] bg-[#FAF7F2] p-2 rounded-xl border border-[#E2D7CB]">
+                              <div>
+                                <span className="text-[#7A6C5E] uppercase block font-bold">Timber</span>
+                                <span className="font-extrabold text-[#2C241D] truncate block">{task.material || 'Standard'}</span>
+                              </div>
+                              <div>
+                                <span className="text-[#7A6C5E] uppercase block font-bold">Dimensions</span>
+                                <span className="font-extrabold text-[#2C241D] truncate block">{task.dimensions || 'Standard'}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        {/* Actions */}
-                        <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-between gap-2">
-                          <button
-                            onClick={() => {
-                              setSelectedTaskForDetail(task);
-                              setIsTaskDetailModalOpen(true);
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#EFE8DC] text-[#2C241D] font-bold text-xs border border-[#E2D7CB] cursor-pointer"
-                          >
-                            Details
-                          </button>
-
-                          {task.task_status === 'ASSIGNED' && (
-                            <button
-                              onClick={() => handleStartTask(task.task_id)}
-                              className="px-3.5 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-xs cursor-pointer"
-                            >
-                              Start Stage
-                            </button>
+                          {/* Pickup in transit status alert */}
+                          {task.is_pickup_pending && (
+                            <div className="mx-4 mb-2 p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-[11px] flex items-center gap-2">
+                              <Truck className="w-3.5 h-3.5 text-amber-600 shrink-0 animate-pulse" />
+                              <span className="font-semibold leading-tight">
+                                Material pickup in transit via <strong>{task.pickup_carrier || 'Logistics Partner'}</strong>. Stage start unlocks upon arrival at workshop.
+                              </span>
+                            </div>
                           )}
 
-                          {task.task_status === 'IN_PROGRESS' && (
+                          {/* Actions */}
+                          <div className="pt-2 border-t border-[#EFE7DE] flex flex-wrap items-center justify-between gap-1.5">
                             <button
-                              onClick={() => handleOpenCompleteModal(task)}
-                              className="px-3.5 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-xs cursor-pointer"
+                              onClick={() => {
+                                setSelectedTaskForDetail(task);
+                                setIsTaskDetailModalOpen(true);
+                              }}
+                              className="px-2.5 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#EFE8DC] text-[#2C241D] font-bold text-xs border border-[#E2D7CB] cursor-pointer"
                             >
-                              Complete Stage
+                              Details
                             </button>
-                          )}
+
+                            {task.task_status === 'ASSIGNED' && (
+                              task.is_pickup_pending ? (
+                                <button
+                                  disabled
+                                  className="px-3.5 py-1.5 rounded-xl bg-slate-100 text-slate-400 font-bold text-xs cursor-not-allowed flex items-center gap-1.5 border border-slate-200"
+                                  title="Awaiting customer material delivery to workshop by logistics partner"
+                                >
+                                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>Pickup Pending</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => handleStartTask(task.task_id)}
+                                  className="px-3.5 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-xs cursor-pointer flex items-center gap-1"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-current" />
+                                  <span>Start Stage</span>
+                                </button>
+                              )
+                            )}
+
+                            {isPaused && (
+                              <button
+                                onClick={() => handleResumeTask(task.task_id)}
+                                className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-xs cursor-pointer flex items-center gap-1"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span>Resume</span>
+                              </button>
+                            )}
+
+                            {task.task_status === 'IN_PROGRESS' && (
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleOpenPauseModal(task)}
+                                  className="px-2.5 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs cursor-pointer flex items-center gap-1"
+                                  title="Temporarily pause stage"
+                                >
+                                  <Pause className="w-3 h-3 fill-current" />
+                                  <span>Pause</span>
+                                </button>
+                                <button
+                                  onClick={() => handleOpenCompleteModal(task)}
+                                  className={`px-3 py-1.5 rounded-xl font-extrabold text-xs shadow-xs cursor-pointer flex items-center gap-1 ${
+                                    isFullyChecked
+                                      ? 'bg-[#38A132] hover:bg-[#2F8829] text-white ring-2 ring-[#38A132]/30'
+                                      : 'bg-[#38A132] hover:bg-[#2F8829] text-white'
+                                  }`}
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>Complete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2289,6 +2628,97 @@ export const WorkerDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Interactive Procedural Checklist inside Task Details Modal */}
+            {(() => {
+              const sections = getStageSections(selectedTaskForDetail.stage_name, selectedTaskForDetail.job_name);
+              const completedList = selectedTaskForDetail.completed_sections || [];
+              const checkedCount = completedList.length;
+              const totalCount = sections.length;
+              const isFullyChecked = checkedCount >= totalCount;
+              const isPaused = selectedTaskForDetail.task_status === 'PAUSED' || Boolean(selectedTaskForDetail.pause_reason);
+              const currentPct = selectedTaskForDetail.task_status === 'COMPLETED'
+                ? 100
+                : totalCount > 0
+                ? Math.round((checkedCount / totalCount) * 100)
+                : (selectedTaskForDetail.progress_percentage || 0);
+
+              return (
+                <div className="space-y-3 bg-[#FAF7F2] p-4 rounded-2xl border border-[#E2D7CB]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black text-[#2C241D] flex items-center gap-1.5">
+                      <Sliders className="w-4 h-4 text-[#38A132]" />
+                      <span>Procedural Step Breakdown ({checkedCount}/{totalCount} Completed)</span>
+                    </span>
+                    <span className={`px-2.5 py-0.5 rounded-full font-black text-xs ${
+                      isFullyChecked ? 'bg-emerald-100 text-emerald-800' : 'bg-blue-100 text-blue-800'
+                    }`}>
+                      {currentPct}% Analyzed
+                    </span>
+                  </div>
+
+                  {isPaused && (
+                    <div className="p-2.5 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold flex items-center gap-2">
+                      <Pause className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span>Stage is currently Paused: {selectedTaskForDetail.pause_reason || 'Artisan temporarily paused'}</span>
+                    </div>
+                  )}
+
+                  {/* Progress Bar */}
+                  <div className="w-full bg-[#E2D7CB] rounded-full h-2.5 overflow-hidden">
+                    <div
+                      className={`h-2.5 rounded-full transition-all duration-300 ${
+                        isPaused ? 'bg-amber-500' : isFullyChecked ? 'bg-[#38A132]' : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${currentPct}%` }}
+                    />
+                  </div>
+
+                  {/* Checklist Items */}
+                  <div className="space-y-2 pt-1">
+                    {sections.map((sec, idx) => {
+                      const isChecked = completedList.includes(sec.id);
+                      return (
+                        <div
+                          key={sec.id}
+                          onClick={() => {
+                            if (selectedTaskForDetail.task_status === 'IN_PROGRESS' || isPaused) {
+                              handleToggleSection(selectedTaskForDetail, sec.id);
+                            }
+                          }}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl transition-all border select-none ${
+                            selectedTaskForDetail.task_status === 'IN_PROGRESS' || isPaused
+                              ? 'cursor-pointer hover:border-[#38A132]'
+                              : 'opacity-80'
+                          } ${
+                            isChecked ? 'bg-emerald-50/90 border-emerald-300 text-emerald-950 font-bold' : 'bg-white border-[#E2D7CB] text-[#2C241D]'
+                          }`}
+                        >
+                          <div className="pt-0.5">
+                            {isChecked ? (
+                              <div className="w-4 h-4 rounded-md bg-[#38A132] text-white flex items-center justify-center shrink-0">
+                                <Check className="w-3 h-3 stroke-[3]" />
+                              </div>
+                            ) : (
+                              <div className="w-4 h-4 rounded-md border-2 border-[#B89768] bg-white shrink-0" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between">
+                              <span className={`text-xs font-black ${isChecked ? 'text-emerald-900 line-through decoration-emerald-600/50' : 'text-[#2C241D]'}`}>
+                                Step {idx + 1}: {sec.title}
+                              </span>
+                              <span className="text-[10px] font-mono text-[#7A6C5E]">+{sec.weightPct}%</span>
+                            </div>
+                            <p className="text-[11px] text-[#7A6C5E] font-medium mt-0.5">{sec.description}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {selectedTaskForDetail.technical_instructions && (
               <div className="p-3 rounded-2xl bg-[#F5ECE1]/70 border border-[#E2D7CB] text-xs text-[#2C241D] flex items-start gap-2.5">
                 <FileText className="w-4 h-4 text-[#B89768] shrink-0 mt-0.5" />
@@ -2303,13 +2733,79 @@ export const WorkerDashboardPage: React.FC = () => {
               </div>
             )}
 
-            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+            {/* Inbound Material Pickup Transit Alert */}
+            {selectedTaskForDetail.is_pickup_pending && (
+              <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3">
+                <Truck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5 animate-pulse" />
+                <div className="text-xs space-y-0.5">
+                  <p className="font-extrabold text-amber-950">Prerequisite Pending: Customer Material In Transit</p>
+                  <p className="text-[#6B5542] leading-relaxed">
+                    Customer-owned timber is scheduled for doorstep pickup by logistics carrier <strong>{selectedTaskForDetail.pickup_carrier || 'Assigned Carrier Partner'}</strong>. 
+                    Workshop stage execution is locked until materials arrive at the workshop facility.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-[#EFE7DE] flex flex-wrap items-center justify-between gap-2">
               <button
                 onClick={() => setIsTaskDetailModalOpen(false)}
                 className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
               >
                 Close
               </button>
+
+              <div className="flex items-center gap-2">
+                {selectedTaskForDetail.task_status === 'ASSIGNED' && (
+                  selectedTaskForDetail.is_pickup_pending ? (
+                    <button
+                      disabled
+                      className="px-4 py-2 rounded-xl bg-slate-200 text-slate-500 font-bold text-xs cursor-not-allowed flex items-center gap-1.5 border border-slate-300"
+                      title="Stage start locked until customer material arrives at workshop"
+                    >
+                      <Lock className="w-4 h-4 text-slate-400" />
+                      <span>Awaiting Material Delivery</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleStartTask(selectedTaskForDetail.task_id)}
+                      className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Play className="w-4 h-4 fill-current" />
+                      <span>Start Stage</span>
+                    </button>
+                  )
+                )}
+
+                {selectedTaskForDetail.task_status === 'PAUSED' && (
+                  <button
+                    onClick={() => handleResumeTask(selectedTaskForDetail.task_id)}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Resume Work</span>
+                  </button>
+                )}
+
+                {selectedTaskForDetail.task_status === 'IN_PROGRESS' && (
+                  <>
+                    <button
+                      onClick={() => handleOpenPauseModal(selectedTaskForDetail)}
+                      className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Pause className="w-3.5 h-3.5 fill-current" />
+                      <span>Pause Stage</span>
+                    </button>
+                    <button
+                      onClick={() => handleOpenCompleteModal(selectedTaskForDetail)}
+                      className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>Complete Stage</span>
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -2328,6 +2824,16 @@ export const WorkerDashboardPage: React.FC = () => {
               </button>
             </div>
 
+            <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-xs text-emerald-900 space-y-1">
+              <div className="font-extrabold flex items-center gap-1.5">
+                <CheckCircle2 className="w-4 h-4 text-[#38A132]" />
+                <span>Procedural Analysis: {selectedTaskForDetail.progress_percentage || 100}% Ready</span>
+              </div>
+              <p className="text-[11px] text-emerald-800">
+                Confirming completion will mark this stage finalized and notify production supervisors and customer dashboard.
+              </p>
+            </div>
+
             <div className="space-y-3 text-xs">
               <div>
                 <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Completion Notes / Remarks</label>
@@ -2335,7 +2841,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   rows={3}
                   value={completeNotes}
                   onChange={(e) => setCompleteNotes(e.target.value)}
-                  placeholder="Notes on joinery, tolerances, sanding finish..."
+                  placeholder="Notes on joinery tolerances, sanding smoothness, calibration verification..."
                   className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132]"
                 />
               </div>
@@ -2365,6 +2871,79 @@ export const WorkerDashboardPage: React.FC = () => {
                 className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
               >
                 {isSubmittingComplete ? 'Completing...' : 'Confirm Stage Completion'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* C. PAUSE TASK MODAL */}
+      {isPauseModalOpen && selectedTaskForPause && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
+            <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center text-amber-800">
+                  <Pause className="w-4 h-4 fill-current" />
+                </div>
+                <h3 className="text-base font-extrabold text-[#2C241D]">
+                  Pause Stage Work
+                </h3>
+              </div>
+              <button onClick={() => setIsPauseModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
+                <X className="w-5 h-5 text-[#7A6C5E]" />
+              </button>
+            </div>
+
+            <p className="text-xs text-[#7A6C5E]">
+              Select a reason for temporarily pausing work on <strong>{selectedTaskForPause.job_name} ({selectedTaskForPause.stage_name})</strong>. This will be updated live in the customer tracking portal.
+            </p>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Reason for Pause</label>
+                <select
+                  value={pauseReasonChoice}
+                  onChange={(e) => setPauseReasonChoice(e.target.value)}
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] cursor-pointer"
+                >
+                  <option value="Waiting for glue / adhesive curing">Waiting for glue / adhesive curing</option>
+                  <option value="Waiting for stain / lacquer topcoat drying">Waiting for stain / lacquer topcoat drying</option>
+                  <option value="Tool maintenance & blade realignment">Tool maintenance & blade realignment</option>
+                  <option value="Material replenishment & lumber retrieval">Material replenishment & lumber retrieval</option>
+                  <option value="Artisan shift break / Meal break">Artisan shift break / Meal break</option>
+                  <option value="Technical design clarification with supervisor">Technical design clarification with supervisor</option>
+                  <option value="Other Workshop Impediment">Other Workshop Impediment</option>
+                </select>
+              </div>
+
+              {pauseReasonChoice === 'Other Workshop Impediment' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Specify Reason</label>
+                  <input
+                    type="text"
+                    value={customPauseReason}
+                    onChange={(e) => setCustomPauseReason(e.target.value)}
+                    placeholder="Enter custom pause reason..."
+                    className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-[#EFE7DE] flex justify-end gap-2">
+              <button
+                onClick={() => setIsPauseModalOpen(false)}
+                className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold hover:bg-[#EFE8DC] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPause}
+                disabled={isSubmittingPause}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold shadow-md cursor-pointer"
+              >
+                {isSubmittingPause ? 'Pausing...' : 'Confirm Pause'}
               </button>
             </div>
           </div>

@@ -1558,26 +1558,40 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                           <button
                             onClick={async () => {
                               try {
+                                setUserOrders((prev) =>
+                                  prev.map((o) =>
+                                    o.custom_order_id === activeOrder.custom_order_id
+                                      ? { ...o, order_status: 'CUSTOMER_APPROVED' }
+                                      : o
+                                  )
+                                );
                                 await updateOrderStatus(activeOrder.custom_order_id, 'CUSTOMER_APPROVED');
                                 loadUserCustomOrders();
                               } catch (e) {
                                 console.error(e);
                               }
                             }}
-                            className="flex-1 py-2 px-3 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-xs text-center"
+                            className="flex-1 py-2 px-3 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-xs text-center transition-all"
                           >
                             Approve Quote
                           </button>
                           <button
                             onClick={async () => {
                               try {
+                                setUserOrders((prev) =>
+                                  prev.map((o) =>
+                                    o.custom_order_id === activeOrder.custom_order_id
+                                      ? { ...o, order_status: 'CUSTOMER_REJECTED' }
+                                      : o
+                                  )
+                                );
                                 await updateOrderStatus(activeOrder.custom_order_id, 'CUSTOMER_REJECTED');
                                 loadUserCustomOrders();
                               } catch (e) {
                                 console.error(e);
                               }
                             }}
-                            className="py-2 px-3 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-extrabold cursor-pointer text-center"
+                            className="py-2 px-3 rounded-xl bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-extrabold cursor-pointer text-center transition-all"
                           >
                             Reject
                           </button>

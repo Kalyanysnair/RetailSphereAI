@@ -294,7 +294,7 @@ export const ServicesTab: React.FC = () => {
                     SRV-#{s.service_id}
                   </span>
                   <span className={`${getStatusBadgeColor(s.status)} text-[10px] font-extrabold px-2.5 py-1 rounded-full border`}>
-                    {s.payment_status === 'Paid' ? 'Paid ✓' : formatStatusLabel(s.status)}
+                    {s.payment_status === 'Paid' ? `Paid ✓ (₹${(s.estimated_price || 0).toLocaleString('en-IN')})` : formatStatusLabel(s.status)}
                   </span>
                 </div>
 
@@ -323,9 +323,13 @@ export const ServicesTab: React.FC = () => {
                   )}
 
                   {s.estimated_price && (
-                    <div className="flex justify-between pt-1 border-t border-[#E2D7CB]">
-                      <span className="text-[#7A6C5E]">Service Quote:</span>
-                      <span className="font-extrabold text-[#48A63E]">₹{s.estimated_price.toLocaleString('en-IN')}</span>
+                    <div className={`flex justify-between items-center pt-2 border-t ${s.payment_status === 'Paid' ? 'border-[#38A132]/30 bg-[#38A132]/10 -mx-3 -mb-3 p-3 rounded-b-2xl' : 'border-[#E2D7CB]'}`}>
+                      <span className="text-[#7A6C5E] font-bold">
+                        {s.payment_status === 'Paid' ? <span className="text-[#2E8B29] font-black">✓ Total Amount Paid:</span> : 'Service Quote / Total:'}
+                      </span>
+                      <span className={`font-black text-sm ${s.payment_status === 'Paid' ? 'text-[#2E8B29]' : 'text-[#38A132]'}`}>
+                        ₹{s.estimated_price.toLocaleString('en-IN')}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -339,14 +343,18 @@ export const ServicesTab: React.FC = () => {
                 <span className="text-[10px] text-[#9E9082] font-semibold">
                   {s.created_at ? new Date(s.created_at).toLocaleDateString() : 'Recent'}
                 </span>
-                {s.estimated_price && s.status === 'QUOTED' && s.payment_status !== 'Paid' && (
+                {s.payment_status === 'Paid' ? (
+                  <span className="text-[11px] font-black text-[#2E8B29] bg-[#38A132]/15 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                    ✓ Paid: ₹{(s.estimated_price || 0).toLocaleString('en-IN')}
+                  </span>
+                ) : s.estimated_price && s.status === 'QUOTED' ? (
                   <button
                     onClick={() => handlePayService(s)}
                     className="px-4 py-1.5 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold cursor-pointer shadow-sm"
                   >
                     Approve & Pay ₹{s.estimated_price.toLocaleString('en-IN')}
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
           ))}

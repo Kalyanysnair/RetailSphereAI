@@ -1492,3 +1492,48 @@ export async function assignWorkerToOnsiteJob(serviceId: number, workerId: numbe
   }
 }
 
+// 23. Assign Carrier Partner to Fabrication Pickup Job
+export async function assignFabricationCarrierApi(
+  fabricationId: number,
+  carrierId?: number,
+  carrierName?: string,
+  driverId?: number,
+  transportationProvider: string = 'CARRIER_PARTNER',
+  notes?: string
+): Promise<{ ok: boolean; message?: string; carrier?: string }> {
+  try {
+    const res = await safeFetchProd(`/fabrication/${fabricationId}/assign-carrier`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        carrier_id: carrierId,
+        carrier_name: carrierName,
+        driver_id: driverId,
+        transportation_provider: transportationProvider,
+        notes: notes
+      })
+    });
+    const data = await res.json();
+    return { ok: res.ok, message: data?.message, carrier: data?.carrier };
+  } catch (err: any) {
+    console.error('Error assigning carrier to fabrication:', err);
+    return { ok: false, message: err?.message || 'Failed to assign carrier' };
+  }
+}
+
+// 24. Mark Fabrication Material Received at Workshop
+export async function markFabricationMaterialReceivedApi(
+  fabricationId: number
+): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const res = await safeFetchProd(`/fabrication/${fabricationId}/material-received`, {
+      method: 'POST'
+    });
+    const data = await res.json();
+    return { ok: res.ok, message: data?.message };
+  } catch (err: any) {
+    console.error('Error confirming material receipt:', err);
+    return { ok: false, message: err?.message || 'Failed to mark material received' };
+  }
+}
+

@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   Wrench,
   PackageCheck,
+  Truck,
   Clock,
   CheckCircle2,
   XCircle,
@@ -84,10 +85,12 @@ import {
   assignStageWorker,
   receiveCustomerMaterial,
   fetchOrderProductionHistory,
-  fetchOnsiteJobsForProduction,
   fetchFabricationJobsForProduction,
+  fetchOnsiteJobsForProduction,
   assignWorkerToFabrication,
   assignWorkerToOnsiteJob,
+  assignFabricationCarrierApi,
+  markFabricationMaterialReceivedApi,
   fetchProductionReports,
   fetchSupervisorWorkload,
   assignProductionSupervisor,
@@ -118,6 +121,8 @@ import {
   Coupon,
   CouponAllotment
 } from '../../services/api_coupons';
+import { getCarrierPartnersApi, CarrierPartner } from '../../services/api_carriers';
+import { getStageSections } from '../../utils/manufacturingSections';
 import {
   getMessagesForUser,
   markAdminMessageRead,
@@ -521,6 +526,28 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const [selectedOrderForWorker, setSelectedOrderForWorker] = useState<any | null>(null);
   const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(null);
+  const [carriersList, setCarriersList] = useState<CarrierPartner[]>([
+    { carrier_id: 1, carrier_name: 'BlueDart Express Logistics', contact_phone: '+91 98765 43210', status: true },
+    { carrier_id: 2, carrier_name: 'Delivery Times Logistics', contact_phone: '+91 98765 43211', status: true },
+    { carrier_id: 3, carrier_name: 'Delhivery Surface Logistics', contact_phone: '+91 98765 43212', status: true },
+    { carrier_id: 4, carrier_name: 'DHL Express India', contact_phone: '+91 98765 43213', status: true },
+    { carrier_id: 5, carrier_name: 'FedEx Cargo Services', contact_phone: '+91 98765 43214', status: true }
+  ]);
+  const [selectedLogisticsType, setSelectedLogisticsType] = useState<'CARRIER_PARTNER' | 'INTERNAL_FLEET' | 'CUSTOMER_ARRANGED'>('CARRIER_PARTNER');
+  const [selectedCarrierPartnerId, setSelectedCarrierPartnerId] = useState<string>('1');
+  const [selectedFleetDriverId, setSelectedFleetDriverId] = useState<string>('');
+
+  // Dedicated Inbound Carrier Partner Allotment Modal State
+  const [assignCarrierModalData, setAssignCarrierModalData] = useState<{
+    fabricationId: number;
+    title: string;
+    currentCarrier?: string;
+  } | null>(null);
+  const [carrierModalType, setCarrierModalType] = useState<'CARRIER_PARTNER' | 'INTERNAL_FLEET'>('CARRIER_PARTNER');
+  const [carrierModalPartnerId, setCarrierModalPartnerId] = useState<string>('1');
+  const [carrierModalDriverId, setCarrierModalDriverId] = useState<string>('');
+  const [carrierModalNotes, setCarrierModalNotes] = useState<string>('');
+  const [isAssigningCarrier, setIsAssigningCarrier] = useState<boolean>(false);
 
   const [selectedOrderForProgress, setSelectedOrderForProgress] = useState<CustomOrderData | null>(null);
   const [progressStage, setProgressStage] = useState<string>('Material Sourcing');
@@ -562,6 +589,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     } catch (err) {
       console.error('Error fetching overview:', err);
     }
+    try {
+      const cList = await getCarrierPartnersApi();
+      if (cList && cList.length > 0) {
+        setCarriersList(cList);
+      }
+    } catch (err) {
+      console.warn('Carriers fetch notice:', err);
+    }
   };
 
   const loadQueueData = async (catFilt: string = assessmentCategoryFilter, tabFilt: string = assessmentTabFilter) => {
@@ -600,6 +635,24 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     }
   };
 
+  const getWorkerLiveWorkload = (workerId: number) => {
+    const customCount = orders.filter(
+      (o) => (o.assigned_workers || []).some((aw) => aw.worker_id === workerId) && !['Completed', 'Cancelled', 'Delivered'].includes(o.order_status)
+    ).length;
+    const fabCount = (fabricationJobs || []).filter(
+      (j: any) => j.assigned_worker_id === workerId && !['Completed', 'Delivered'].includes(j.status)
+    ).length;
+    const onsiteCount = (onsiteJobsList || approvedOnsiteRequests || []).filter(
+      (o: any) => o.assigned_worker_id === workerId && !['Completed', 'Delivered'].includes(o.status || o.production_status)
+    ).length;
+    return {
+      customCount,
+      fabCount,
+      onsiteCount,
+      total: customCount + fabCount + onsiteCount
+    };
+  };
+
   const handleOpenAssignWorkerModal = (
     type: 'custom' | 'fabrication' | 'onsite',
     id: number,
@@ -608,7 +661,22 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     stageId?: number
   ) => {
     setAssignWorkerModalData({ type, id, title, currentWorkerId, stageId });
-    setAssignModalWorkerId(currentWorkerId || '');
+    if (currentWorkerId) {
+      setAssignModalWorkerId(currentWorkerId);
+    } else {
+      // Find AI Recommended worker with lowest active workload
+      const activeWorkers = workers.filter(w => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1');
+      if (activeWorkers.length > 0) {
+        const sorted = [...activeWorkers].sort((a, b) => {
+          const loadA = getWorkerLiveWorkload(a.worker_id).total;
+          const loadB = getWorkerLiveWorkload(b.worker_id).total;
+          return loadA - loadB;
+        });
+        setAssignModalWorkerId(sorted[0].worker_id);
+      } else {
+        setAssignModalWorkerId('');
+      }
+    }
     setAssignModalNotes('');
   };
 
@@ -617,14 +685,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     setIsAssigningWorker(true);
     try {
       const wId = Number(assignModalWorkerId);
-      if (assignWorkerModalData.type === 'custom') {
+        if (assignWorkerModalData.type === 'custom') {
         const res = await assignWorkerTask(assignWorkerModalData.id, wId, undefined);
         if (res.error) throw new Error(res.error);
         setSuccessNotice(`Assigned artisan to Custom Order #${assignWorkerModalData.id}`);
       } else if (assignWorkerModalData.type === 'fabrication') {
         const res = await assignWorkerToFabrication(assignWorkerModalData.id, wId, assignWorkerModalData.stageId, assignModalNotes);
         if (!res.ok) throw new Error(res.message);
-        setSuccessNotice(`Assigned artisan to Fabrication Job #${assignWorkerModalData.id}`);
+        if (selectedLogisticsType === 'CARRIER_PARTNER' && selectedCarrierPartnerId) {
+          const cObj = carriersList.find(c => String(c.carrier_id) === String(selectedCarrierPartnerId));
+          await assignFabricationCarrierApi(assignWorkerModalData.id, Number(selectedCarrierPartnerId), cObj?.carrier_name, undefined, 'CARRIER_PARTNER');
+        } else if (selectedLogisticsType === 'INTERNAL_FLEET' && selectedFleetDriverId) {
+          await assignFabricationCarrierApi(assignWorkerModalData.id, undefined, undefined, Number(selectedFleetDriverId), 'INTERNAL_FLEET');
+        }
+        setSuccessNotice(`Assigned artisan & logistics to Fabrication Job #${assignWorkerModalData.id}`);
       } else if (assignWorkerModalData.type === 'onsite') {
         const res = await assignWorkerToOnsiteJob(assignWorkerModalData.id, wId, undefined, assignModalNotes);
         if (!res.ok) throw new Error(res.message);
@@ -639,6 +713,98 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     } finally {
       setIsAssigningWorker(false);
       setTimeout(() => setSuccessNotice(null), 5000);
+    }
+  };
+
+  const handleOpenAssignCarrierModal = (
+    fabricationId: number,
+    title: string,
+    currentCarrier?: string
+  ) => {
+    setAssignCarrierModalData({ fabricationId, title, currentCarrier });
+    setCarrierModalType('CARRIER_PARTNER');
+    if (carriersList.length > 0) {
+      setCarrierModalPartnerId(String(carriersList[0].carrier_id));
+    }
+    const driverWorkers = workers.filter(w => (w.specialization || '').toLowerCase().includes('driver') || (w as any).is_driver);
+    setCarrierModalDriverId(driverWorkers.length > 0 ? String(driverWorkers[0].worker_id) : (workers.length > 0 ? String(workers[0].worker_id) : ''));
+    setCarrierModalNotes('');
+  };
+
+  const handleConfirmAssignCarrier = async () => {
+    if (!assignCarrierModalData) return;
+    setIsAssigningCarrier(true);
+    try {
+      if (carrierModalType === 'CARRIER_PARTNER') {
+        const cObj = carriersList.find((c) => String(c.carrier_id) === String(carrierModalPartnerId));
+        const cName = cObj?.carrier_name || 'BlueDart Express Logistics';
+        const res = await assignFabricationCarrierApi(
+          assignCarrierModalData.fabricationId,
+          Number(carrierModalPartnerId) || 1,
+          cName,
+          undefined,
+          'CARRIER_PARTNER',
+          carrierModalNotes
+        );
+        if (!res.ok) throw new Error(res.message);
+        setSuccessNotice(`Carrier Partner '${cName}' allotted for material pickup of Fabrication #${assignCarrierModalData.fabricationId}`);
+      } else {
+        const dUser = workers.find((w) => String(w.worker_id) === String(carrierModalDriverId));
+        const dName = dUser?.full_name || 'Internal Fleet Driver';
+        const res = await assignFabricationCarrierApi(
+          assignCarrierModalData.fabricationId,
+          undefined,
+          undefined,
+          Number(carrierModalDriverId),
+          'INTERNAL_FLEET',
+          carrierModalNotes
+        );
+        if (!res.ok) throw new Error(res.message);
+        setSuccessNotice(`Internal Fleet Driver '${dName}' allotted for material pickup of Fabrication #${assignCarrierModalData.fabricationId}`);
+      }
+
+      setAssignCarrierModalData(null);
+      await loadFabricationData();
+      if (selectedFabJobModal && selectedFabJobModal.numeric_id === assignCarrierModalData.fabricationId) {
+        const chosenCarrierName = carrierModalType === 'CARRIER_PARTNER'
+          ? (carriersList.find((c) => String(c.carrier_id) === String(carrierModalPartnerId))?.carrier_name || 'BlueDart Express Logistics')
+          : `Internal Fleet (${workers.find((w) => String(w.worker_id) === String(carrierModalDriverId))?.full_name || 'Driver'})`;
+
+        setSelectedFabJobModal((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                pickup_carrier: chosenCarrierName,
+                pickup_status: 'Out for Pickup',
+                is_pickup_completed: false
+              }
+            : null
+        );
+      }
+      setTimeout(() => setSuccessNotice(null), 5000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to allot carrier partner.');
+    } finally {
+      setIsAssigningCarrier(false);
+    }
+  };
+
+  const handleMarkMaterialReceived = async (fabricationId: number) => {
+    if (selectedFabJobModal && !selectedFabJobModal.pickup_carrier) {
+      alert('Please assign a Carrier Partner or Internal Fleet Driver before marking material as received at the workshop.');
+      return;
+    }
+    try {
+      const res = await markFabricationMaterialReceivedApi(fabricationId);
+      if (!res.ok) throw new Error(res.message);
+      setSuccessNotice(`Material marked as received at Workshop Hub for Fabrication #${fabricationId}. Artisans can now proceed with cutting.`);
+      if (selectedFabJobModal && selectedFabJobModal.numeric_id === fabricationId) {
+        setSelectedFabJobModal((prev: any) => prev ? { ...prev, is_pickup_completed: true, pickup_status: 'Delivered' } : null);
+      }
+      await loadFabricationData();
+      setTimeout(() => setSuccessNotice(null), 5000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to mark material as received.');
     }
   };
 
@@ -2356,6 +2522,41 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   </span>
                                 </div>
                               </div>
+
+                              {/* Material Pickup & Logistics Badge */}
+                              {job.needs_pickup && (
+                                <div className="pt-2 border-t border-[#EFE7DE]">
+                                  {job.is_pickup_completed ? (
+                                    <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 text-[10px] font-bold flex items-center justify-between">
+                                      <span className="flex items-center gap-1">
+                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                        <span>Material at Workshop</span>
+                                      </span>
+                                      <span className="text-[9px] font-mono text-emerald-700 font-extrabold">{job.pickup_carrier || 'Direct'}</span>
+                                    </div>
+                                  ) : job.pickup_carrier ? (
+                                    <div className="p-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center justify-between">
+                                      <span className="flex items-center gap-1">
+                                        <Truck className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
+                                        <span>Pickup: {job.pickup_carrier}</span>
+                                      </span>
+                                      <span className="text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded">
+                                        {job.pickup_status}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className="p-1.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-950 text-[10px] font-bold flex items-center justify-between">
+                                      <span className="flex items-center gap-1">
+                                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                        <span>Carrier Allotment Needed</span>
+                                      </span>
+                                      <span className="text-[9px] font-black uppercase text-rose-800 bg-rose-200 px-1.5 py-0.5 rounded">
+                                        Pending
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             {/* Progress Bar Footer */}
@@ -2919,6 +3120,31 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                     )}
                                   </div>
 
+                                  {/* Inbound Logistics Tag if Pickup Required */}
+                                  {job.needs_pickup && (
+                                    <div className="p-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <Truck className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                        <div className="min-w-0">
+                                          <span className="text-[10px] text-[#7A6C5E] block font-bold">Inbound Material Carrier:</span>
+                                          <strong className="text-xs text-[#2C241D] truncate block">
+                                            {job.pickup_carrier || 'None Allotted Yet'}
+                                          </strong>
+                                        </div>
+                                      </div>
+                                      <button
+                                        onClick={() => handleOpenAssignCarrierModal(job.numeric_id, job.product_name, job.pickup_carrier)}
+                                        className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold cursor-pointer shrink-0 ${
+                                          job.pickup_carrier
+                                            ? 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+                                            : 'bg-amber-600 hover:bg-amber-700 text-white shadow-xs'
+                                        }`}
+                                      >
+                                        {job.pickup_carrier ? 'Change Carrier' : '+ Allot Carrier'}
+                                      </button>
+                                    </div>
+                                  )}
+
                                   {/* Progress bar */}
                                   <div>
                                     <div className="flex justify-between text-[10px] font-extrabold text-[#7A6C5E] mb-1">
@@ -3300,14 +3526,61 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   <span className="text-[10px] text-[#9E9082] font-semibold">
                                     Submitted: {item.order_date ? new Date(item.order_date).toLocaleDateString() : 'Recent'}
                                   </span>
-                                  <button
-                                    onClick={() => handleOpenAssessment(item)}
-                                    className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
-                                  >
-                                    <DollarSign className="w-4 h-4 flex-shrink-0" />
-                                    <span>Assess & Prepare Quote</span>
-                                    <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
-                                  </button>
+                                  {(() => {
+                                    const isQuoteReady = Boolean(
+                                      item.is_assessed ||
+                                      item.assessment_status === 'ASSESSMENT_COMPLETE' ||
+                                      item.order_status === 'Quote Provided' ||
+                                      item.order_status === 'QUOTATION_READY' ||
+                                      item.order_status === 'QUOTED'
+                                    );
+                                    const isApprovedOrPaid = Boolean(
+                                      item.order_status === 'CUSTOMER_APPROVED' ||
+                                      item.order_status === 'Approved' ||
+                                      item.order_status === 'PAID' ||
+                                      item.order_status === 'Paid' ||
+                                      item.payment_status === 'Paid'
+                                    );
+
+                                    if (isApprovedOrPaid) {
+                                      return (
+                                        <button
+                                          onClick={() => handleOpenAssessment(item)}
+                                          className="px-3.5 py-2 rounded-xl bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-extrabold transition-all shadow-md shadow-[#2D6338]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
+                                          title="Quotation has been approved by customer"
+                                        >
+                                          <CheckCircle2 className="w-4 h-4 text-emerald-300 flex-shrink-0" />
+                                          <span>Customer Approved ✓</span>
+                                          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+                                        </button>
+                                      );
+                                    }
+
+                                    if (isQuoteReady) {
+                                      return (
+                                        <button
+                                          onClick={() => handleOpenAssessment(item)}
+                                          className="px-3.5 py-2 rounded-xl bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold transition-all shadow-md shadow-[#2C241D]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
+                                          title="Quotation is prepared. Click to view or revise quotation details."
+                                        >
+                                          <Edit3 className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                          <span>Edit / Revise Quote</span>
+                                          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+                                        </button>
+                                      );
+                                    }
+
+                                    return (
+                                      <button
+                                        onClick={() => handleOpenAssessment(item)}
+                                        className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
+                                      >
+                                        <DollarSign className="w-4 h-4 flex-shrink-0" />
+                                        <span>Assess & Prepare Quote</span>
+                                        <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
+                                      </button>
+                                    );
+                                  })()}
                                 </div>
                               </div>
                             );
@@ -4389,6 +4662,84 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* TAB 4: ARTISAN TECHNICIANS DIRECTORY */}
             {activeTab === 'workers' && (
               <div className="space-y-5">
+                {/* Artisan Workforce & Smart Workload AI Recommendation Panel */}
+                <div className="bg-gradient-to-r from-[#2C241D] to-[#4A3B30] p-5 rounded-3xl text-white shadow-xl space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
+                        <h3 className="text-base font-extrabold tracking-wide">Multi-Artisan Workforce & Workload Roster</h3>
+                      </div>
+                      <p className="text-xs text-amber-200/80 mt-0.5">Real-time shop floor task distribution & AI decision support recommendations</p>
+                    </div>
+
+                    <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-2xl border border-white/20 text-xs font-bold">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      <span>{workers.filter(w => w.status).length} Active Technicians Available</span>
+                    </div>
+                  </div>
+
+                  {/* Worker Workload Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {(() => {
+                      const workerWorkloads = workers.map((w) => {
+                        const load = getWorkerLiveWorkload(w.worker_id);
+                        return {
+                          ...w,
+                          assignedCustom: load.customCount,
+                          assignedFab: load.fabCount,
+                          assignedOnsite: load.onsiteCount,
+                          totalActive: load.total,
+                        };
+                      });
+
+                      const activeOnly = workerWorkloads.filter(w => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1');
+                      const minActive = activeOnly.length > 0 ? Math.min(...activeOnly.map(w => w.totalActive)) : 0;
+
+                      return workerWorkloads.map((w) => {
+                        const isActive = w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1';
+                        const isRecommended = isActive && w.totalActive === minActive;
+                        return (
+                          <div
+                            key={w.worker_id}
+                            className={`p-3.5 rounded-2xl border transition-all ${
+                              isRecommended
+                                ? 'bg-amber-500/20 border-amber-400/60 shadow-lg'
+                                : 'bg-white/5 border-white/10 hover:bg-white/10'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-extrabold text-xs text-white flex items-center gap-1.5">
+                                <UserCheck className="w-3.5 h-3.5 text-amber-400" />
+                                {w.full_name}
+                              </span>
+                              {isRecommended && (
+                                <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-amber-400 text-stone-950 rounded-full shadow-xs">
+                                  AI Recommended
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-amber-300 font-semibold truncate">
+                              {w.specialization || 'Woodwork & Carpentry'}
+                            </div>
+                            <div className="text-[11px] text-stone-300 flex items-center justify-between mt-2 flex-wrap gap-1">
+                              <span>Active Workload:</span>
+                              <span className="font-mono font-extrabold text-amber-300 text-xs">
+                                {w.totalActive} active ({w.assignedCustom} Cust • {w.assignedFab} Fab • {w.assignedOnsite} Srv)
+                              </span>
+                            </div>
+                            {isRecommended && (
+                              <div className="text-[9px] text-amber-200 mt-1 italic leading-tight flex items-center gap-1">
+                                ⚡ Lowest active workload ({w.totalActive} active items) • Ready for dispatch
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
                 {/* Search Bar & Department Filter Pills */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2">
                   <div className="flex flex-wrap items-center gap-2">
@@ -5706,7 +6057,104 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
+            {/* Step 1: Logistics & Transportation Assignment */}
+            <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
+                  <Truck className="w-3.5 h-3.5 text-[#38A132]" />
+                  <span>Step 1: Logistics & Carrier Allocation</span>
+                </span>
+                <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800">
+                  Assign First
+                </span>
+              </div>
+
+              {/* Mode Selection */}
+              <div className="grid grid-cols-3 gap-1.5 text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setSelectedLogisticsType('CARRIER_PARTNER')}
+                  className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    selectedLogisticsType === 'CARRIER_PARTNER'
+                      ? 'bg-[#38A132] text-white border-[#38A132] shadow-xs'
+                      : 'bg-white text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#FAF8F5]'
+                  }`}
+                >
+                  🏢 3PL Carrier
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedLogisticsType('INTERNAL_FLEET')}
+                  className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    selectedLogisticsType === 'INTERNAL_FLEET'
+                      ? 'bg-[#38A132] text-white border-[#38A132] shadow-xs'
+                      : 'bg-white text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#FAF8F5]'
+                  }`}
+                >
+                  🚚 Internal Fleet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedLogisticsType('CUSTOMER_ARRANGED')}
+                  className={`p-2 rounded-xl border text-center transition-all cursor-pointer ${
+                    selectedLogisticsType === 'CUSTOMER_ARRANGED'
+                      ? 'bg-[#38A132] text-white border-[#38A132] shadow-xs'
+                      : 'bg-white text-[#7A6C5E] border-[#E2D7CB] hover:bg-[#FAF8F5]'
+                  }`}
+                >
+                  🚶 Self-Arranged
+                </button>
+              </div>
+
+              {selectedLogisticsType === 'CARRIER_PARTNER' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-[#2C241D] block">Designated 3PL Carrier Partner</label>
+                  <select
+                    value={selectedCarrierPartnerId}
+                    onChange={(e) => setSelectedCarrierPartnerId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold"
+                  >
+                    {carriersList.map((c) => (
+                      <option key={c.carrier_id} value={c.carrier_id}>
+                        {c.carrier_name} (Active Fleet Partner)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {selectedLogisticsType === 'INTERNAL_FLEET' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-extrabold text-[#2C241D] block">Select Internal Driver & Vehicle</label>
+                  <select
+                    value={selectedFleetDriverId}
+                    onChange={(e) => setSelectedFleetDriverId(e.target.value)}
+                    className="w-full px-3 py-2 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold"
+                  >
+                    <option value="">-- Choose Company Fleet Driver --</option>
+                    {workers.filter(w => (w.specialization || '').toLowerCase().includes('driver') || (w as any).is_driver).map((w) => (
+                      <option key={w.worker_id} value={w.worker_id}>
+                        🚚 {w.full_name} (Company Driver)
+                      </option>
+                    ))}
+                    {workers.filter(w => !(w.specialization || '').toLowerCase().includes('driver') && !(w as any).is_driver).map((w) => (
+                      <option key={w.worker_id} value={w.worker_id}>
+                        🚚 {w.full_name} ({w.specialization || 'Logistics'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
             <div className="space-y-4 text-xs">
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-[#38A132]" />
+                  <span>Step 2: Skilled Artisan Assignment</span>
+                </span>
+              </div>
+
               <div>
                 <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Production Department Stage</label>
                 <div className="relative">
@@ -6173,11 +6621,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
               <div className="flex justify-between items-center border-b border-[#EFE7DE] pb-2">
                 <span className="font-black text-sm text-[#2C241D]">{selectedAssessmentRequest.title}</span>
-                <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
-                  selectedAssessmentRequest.priority === 'HIGH' || selectedAssessmentRequest.priority === 'URGENT' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
-                }`}>
-                  {selectedAssessmentRequest.priority} PRIORITY
-                </span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {(selectedAssessmentRequest.order_status === 'CUSTOMER_APPROVED' || selectedAssessmentRequest.order_status === 'Approved' || selectedAssessmentRequest.order_status === 'PAID' || selectedAssessmentRequest.order_status === 'Paid' || selectedAssessmentRequest.payment_status === 'Paid') && (
+                    <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
+                      ✓ CUSTOMER APPROVED
+                    </span>
+                  )}
+                  {(selectedAssessmentRequest.order_status === 'QUOTATION_READY' || selectedAssessmentRequest.order_status === 'QUOTED' || selectedAssessmentRequest.order_status === 'Quote Provided') && (
+                    <span className="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                      QUOTATION PUBLISHED
+                    </span>
+                  )}
+                  <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full ${
+                    selectedAssessmentRequest.priority === 'HIGH' || selectedAssessmentRequest.priority === 'URGENT' ? 'bg-rose-100 text-rose-800' : 'bg-blue-100 text-blue-800'
+                  }`}>
+                    {selectedAssessmentRequest.priority} PRIORITY
+                  </span>
+                </div>
               </div>
               {(selectedAssessmentRequest.order_type === 'On-Site Service' || selectedAssessmentRequest.order_type === 'Service' || selectedAssessmentRequest.request_id?.startsWith('ONS-') || selectedAssessmentRequest.request_id?.startsWith('SRV-') || selectedAssessmentRequest.request_id?.startsWith('OSR-')) ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#5C4E42] font-semibold">
@@ -6387,14 +6847,59 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 >
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingAssessment}
-                  className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
-                >
-                  <DollarSign className="w-4 h-4" />
-                  <span>{isSubmittingAssessment ? 'Publishing Quotation...' : 'Submit Assessment & Publish Customer Quotation →'}</span>
-                </button>
+                {(() => {
+                  const isApprovedOrPaid = Boolean(
+                    selectedAssessmentRequest.order_status === 'CUSTOMER_APPROVED' ||
+                    selectedAssessmentRequest.order_status === 'Approved' ||
+                    selectedAssessmentRequest.order_status === 'PAID' ||
+                    selectedAssessmentRequest.order_status === 'Paid' ||
+                    selectedAssessmentRequest.payment_status === 'Paid'
+                  );
+                  const isQuoteReady = Boolean(
+                    selectedAssessmentRequest.is_assessed ||
+                    selectedAssessmentRequest.assessment_status === 'ASSESSMENT_COMPLETE' ||
+                    selectedAssessmentRequest.order_status === 'Quote Provided' ||
+                    selectedAssessmentRequest.order_status === 'QUOTATION_READY' ||
+                    selectedAssessmentRequest.order_status === 'QUOTED'
+                  );
+
+                  if (isApprovedOrPaid) {
+                    return (
+                      <button
+                        type="submit"
+                        disabled={isSubmittingAssessment}
+                        className="px-5 py-2.5 rounded-xl bg-[#2D6338] hover:bg-[#23502C] text-white font-extrabold text-xs shadow-md shadow-[#2D6338]/25 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-emerald-300" />
+                        <span>{isSubmittingAssessment ? 'Updating Production Plan...' : '✓ Customer Approved: Update Assessment & Plan →'}</span>
+                      </button>
+                    );
+                  }
+
+                  if (isQuoteReady) {
+                    return (
+                      <button
+                        type="submit"
+                        disabled={isSubmittingAssessment}
+                        className="px-5 py-2.5 rounded-xl bg-[#2C241D] hover:bg-[#1A1410] text-white font-extrabold text-xs shadow-md shadow-[#2C241D]/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        <Edit3 className="w-4 h-4 text-amber-400" />
+                        <span>{isSubmittingAssessment ? 'Re-Publishing Quotation...' : 'Update & Re-Publish Customer Quotation →'}</span>
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <button
+                      type="submit"
+                      disabled={isSubmittingAssessment}
+                      className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md shadow-[#48A63E]/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      <DollarSign className="w-4 h-4" />
+                      <span>{isSubmittingAssessment ? 'Publishing Quotation...' : 'Submit Assessment & Publish Customer Quotation →'}</span>
+                    </button>
+                  );
+                })()}
               </div>
             </form>
           </div>
@@ -6625,6 +7130,78 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* Inbound Material Pickup Logistics Box */}
+            {selectedFabJobModal.needs_pickup && (
+              <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-300 text-xs space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Truck className="w-4 h-4 text-amber-800" />
+                    <h4 className="font-black text-[#2C241D] uppercase tracking-wider text-[11px]">
+                      Inbound Material Pickup Logistics
+                    </h4>
+                  </div>
+                  <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
+                    selectedFabJobModal.is_pickup_completed
+                      ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                      : 'bg-amber-200 text-amber-950 border border-amber-400'
+                  }`}>
+                    {selectedFabJobModal.is_pickup_completed ? 'Material at Workshop Hub' : selectedFabJobModal.pickup_status || 'Pickup Pending'}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] text-[#5C4E42]">
+                  <div>
+                    <span className="text-[#7A6C5E] font-bold block">Assigned Carrier Partner:</span>
+                    <strong className="text-[#2C241D]">{selectedFabJobModal.pickup_carrier || 'None Allotted Yet'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[#7A6C5E] font-bold block">Arrival Mode:</span>
+                    <strong className="text-[#2C241D]">{selectedFabJobModal.material_arrival_mode || 'Doorstep Pickup'}</strong>
+                  </div>
+                </div>
+
+                {!selectedFabJobModal.is_pickup_completed && (
+                  <div className="pt-2 border-t border-amber-200/80 space-y-2">
+                    {!selectedFabJobModal.pickup_carrier && (
+                      <div className="text-[11px] text-amber-900 bg-amber-100/80 p-2 rounded-xl border border-amber-300 flex items-center gap-2 font-bold">
+                        <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                        <span>Carrier partner or internal driver must be assigned first before marking material as received at the workshop.</span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenAssignCarrierModal(selectedFabJobModal.numeric_id, selectedFabJobModal.product_name, selectedFabJobModal.pickup_carrier)}
+                        className={`px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] cursor-pointer flex items-center gap-1.5 shadow-xs transition-all ${
+                          !selectedFabJobModal.pickup_carrier
+                            ? 'bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20'
+                            : 'bg-white border border-amber-300 text-amber-900 hover:bg-amber-100'
+                        }`}
+                      >
+                        <Truck className="w-3.5 h-3.5" />
+                        <span>{selectedFabJobModal.pickup_carrier ? 'Re-assign Carrier / Driver' : 'Assign Carrier Partner (Required)'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!selectedFabJobModal.pickup_carrier}
+                        onClick={() => handleMarkMaterialReceived(selectedFabJobModal.numeric_id)}
+                        className={`px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] shadow-xs flex items-center gap-1 transition-all ${
+                          !selectedFabJobModal.pickup_carrier
+                            ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-75'
+                            : 'bg-[#38A132] hover:bg-[#2F8829] text-white cursor-pointer'
+                        }`}
+                        title={!selectedFabJobModal.pickup_carrier ? 'Assign a carrier partner or internal fleet driver first' : 'Confirm material received at workshop'}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>Mark Material Received at Workshop</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Production Specifications */}
             <div className="space-y-2.5 text-xs p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]">
               <h4 className="font-black text-[#2C241D] uppercase tracking-wider text-[11px]">Shop Floor Specifications</h4>
@@ -6653,29 +7230,52 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Progress Slider / Update */}
-            <div className="p-4 rounded-2xl bg-white border border-[#E2D7CB] space-y-2">
-              <label className="block text-xs font-black text-[#2C241D]">Update Job Build Progress (%):</label>
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="5"
-                  value={selectedFabJobModal.progress_percentage}
-                  onChange={(e) => {
-                    const val = Number(e.target.value);
-                    const newStatus = val === 100 ? 'Completed' : val >= 85 ? 'Quality Check' : val > 0 ? 'In Progress' : 'Pending';
-                    setSelectedFabJobModal({ ...selectedFabJobModal, progress_percentage: val, status: newStatus });
-                    setFabricationJobs(prev => prev.map(j => j.fabrication_id === selectedFabJobModal.fabrication_id ? { ...j, progress_percentage: val, status: newStatus } : j));
-                  }}
-                  className="flex-1 accent-[#48A63E] cursor-pointer"
-                />
-                <span className="font-mono font-extrabold text-xs text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-1 rounded-lg border border-[#48A63E]/20">
-                  {selectedFabJobModal.progress_percentage}%
-                </span>
-              </div>
-            </div>
+            {/* Procedural Checklist Breakdown */}
+            {(() => {
+              const fabSections = getStageSections(selectedFabJobModal.service_type || 'Wood Cutting', selectedFabJobModal.service_type || 'Wood Cutting');
+              const currentProgress = selectedFabJobModal.progress_percentage || 0;
+              return (
+                <div className="p-4 rounded-2xl bg-white border border-[#E2D7CB] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-black text-[#2C241D] flex items-center gap-1.5">
+                      <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
+                      <span>Procedural Step Progress ({currentProgress}%):</span>
+                    </label>
+                    <span className="font-mono font-extrabold text-xs text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
+                      {currentProgress >= 100 ? 'Completed' : currentProgress > 0 ? `${currentProgress}% Done` : 'Ready to Start'}
+                    </span>
+                  </div>
+
+                  <div className="w-full bg-[#E2D7CB] rounded-full h-2 overflow-hidden">
+                    <div
+                      className="bg-[#38A132] h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${currentProgress}%` }}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    {fabSections.map((sec, sIdx) => {
+                      const isDone = currentProgress >= (sIdx + 1) * 25;
+                      return (
+                        <div
+                          key={sec.id}
+                          className={`p-2 rounded-xl text-[10px] font-bold border flex items-center gap-1.5 ${
+                            isDone ? 'bg-emerald-50 text-emerald-900 border-emerald-300' : 'bg-[#FAF7F2] text-[#7A6C5E] border-[#E2D7CB]'
+                          }`}
+                        >
+                          <span className={`w-4 h-4 rounded flex items-center justify-center text-[9px] font-black shrink-0 ${
+                            isDone ? 'bg-[#38A132] text-white' : 'bg-[#E2D7CB] text-[#5C4E42]'
+                          }`}>
+                            {isDone ? '✓' : sIdx + 1}
+                          </span>
+                          <span className="truncate">{sec.title}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Actions */}
             <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
@@ -6875,42 +7475,90 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               className="space-y-4 text-xs"
             >
               <div>
-                <label className="block font-black text-[#2C241D] mb-1.5">
-                  Select Artisan / Production Worker <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  value={assignModalWorkerId}
-                  onChange={(e) => setAssignModalWorkerId(Number(e.target.value) || '')}
-                  required
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] font-bold focus:outline-none focus:ring-2 focus:ring-[#38A132] shadow-2xs"
-                >
-                  <option value="">-- Choose Artisan from Database --</option>
-                  {workers
-                    .filter((w) => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1')
-                    .map((w) => (
-                      <option key={w.worker_id} value={w.worker_id}>
-                        {w.full_name} — {w.specialization || 'Skilled Artisan'} ({w.email})
-                      </option>
-                    ))}
-                </select>
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mb-1.5">
+                  Select Skilled Workshop Artisan
+                </span>
+                {(() => {
+                  const activeWorkers = workers.filter((w) => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1');
+                  const sorted = [...activeWorkers].sort((a, b) => {
+                    const loadA = getWorkerLiveWorkload(a.worker_id).total;
+                    const loadB = getWorkerLiveWorkload(b.worker_id).total;
+                    return loadA - loadB;
+                  });
+                  const recommendedId = sorted.length > 0 ? sorted[0].worker_id : null;
+
+                  return (
+                    <>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="block font-black text-[#2C241D]">
+                          Artisan Specialist <span className="text-rose-500">*</span>
+                        </label>
+                        {recommendedId && (
+                          <span className="text-[10px] font-black text-amber-700 bg-amber-100/90 px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3 text-amber-600 animate-pulse" />
+                            AI Workload Balancing
+                          </span>
+                        )}
+                      </div>
+
+                      <select
+                        value={assignModalWorkerId}
+                        onChange={(e) => setAssignModalWorkerId(Number(e.target.value) || '')}
+                        required
+                        className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] font-bold focus:outline-none focus:ring-2 focus:ring-[#38A132] shadow-2xs"
+                      >
+                        <option value="">-- Choose Artisan from Database --</option>
+                        {activeWorkers.map((w) => {
+                          const isRec = w.worker_id === recommendedId;
+                          const load = getWorkerLiveWorkload(w.worker_id).total;
+                          return (
+                            <option key={w.worker_id} value={w.worker_id}>
+                              {isRec ? '⭐ [AI RECOMMENDED] ' : ''}{w.full_name} — {w.specialization || 'Artisan'} ({load} active tasks)
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* Selected Worker Details Preview */}
               {assignModalWorkerId && (() => {
                 const sel = workers.find((w) => w.worker_id === Number(assignModalWorkerId));
                 if (!sel) return null;
+                const activeWorkers = workers.filter((w) => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1');
+                const sorted = [...activeWorkers].sort((a, b) => {
+                  const loadA = getWorkerLiveWorkload(a.worker_id).total;
+                  const loadB = getWorkerLiveWorkload(b.worker_id).total;
+                  return loadA - loadB;
+                });
+                const isRec = sorted.length > 0 && sorted[0].worker_id === sel.worker_id;
+
                 return (
-                  <div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-1 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                  <div className={`p-3.5 rounded-2xl border space-y-1.5 text-xs transition-all ${isRec ? 'bg-gradient-to-r from-amber-50 to-emerald-50 border-amber-300 shadow-sm' : 'bg-[#FAF7F2] border-[#E2D7CB]'}`}>
+                    <div className="flex items-center justify-between flex-wrap gap-1">
+                      <span className="font-extrabold text-[#2C241D] flex items-center gap-1.5 text-sm">
                         <span>👷 {sel.full_name}</span>
                       </span>
-                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
-                        {sel.specialization || 'Production Artisan'}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isRec && (
+                          <span className="text-[10px] font-black uppercase bg-amber-400 text-stone-950 px-2.5 py-0.5 rounded-full shadow-xs">
+                            ✨ AI Decision Match
+                          </span>
+                        )}
+                        <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
+                          {sel.specialization || 'Production Artisan'}
+                        </span>
+                      </div>
                     </div>
                     {sel.phone && <p className="text-[11px] text-[#5C4E42]">📞 Contact: <strong className="font-mono text-[#2C241D]">{sel.phone}</strong></p>}
                     <p className="text-[11px] text-[#7A6C5E]">✉️ Email: {sel.email}</p>
+                    {isRec && (
+                      <p className="text-[10px] font-bold text-amber-800 pt-1 border-t border-amber-200/60">
+                        ⚡ Optimal artisan selected based on lowest active workload and department availability.
+                      </p>
+                    )}
                   </div>
                 );
               })()}
@@ -6945,6 +7593,210 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 >
                   <UserCheck className="w-4 h-4" />
                   <span>{isAssigningWorker ? 'Saving Assignment...' : 'Confirm Assignment'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: DEDICATED INBOUND CARRIER PARTNER ALLOTMENT MODAL */}
+      {assignCarrierModalData && (
+        <div className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4 z-[200] animate-fadeIn">
+          <div className="bg-[#FAF7F2] border-2 border-[#D8CCBD] rounded-[2rem] p-6 max-w-lg w-full shadow-2xl space-y-4 animate-scaleUp max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3.5">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center shrink-0 shadow-2xs">
+                  <Truck className="w-5 h-5 text-amber-800" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-[#2C241D]">
+                    Assign Carrier Partner
+                  </h3>
+                  <p className="text-[11px] font-bold text-amber-800">
+                    Customer Doorstep Material Pickup
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setAssignCarrierModalData(null)}
+                disabled={isAssigningCarrier}
+                className="p-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Task Info Summary */}
+            <div className="p-3.5 rounded-2xl bg-white border border-[#E2D7CB] text-xs space-y-1 shadow-2xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Fabrication Work Reference</span>
+                <span className="font-mono text-[11px] font-extrabold text-amber-900 bg-amber-100/70 px-2 py-0.5 rounded-md border border-amber-300">
+                  Job #{assignCarrierModalData.fabricationId}
+                </span>
+              </div>
+              <p className="font-black text-[#2C241D] text-sm truncate">
+                {assignCarrierModalData.title}
+              </p>
+              <p className="text-[11px] text-[#7A6C5E] font-semibold pt-0.5 flex items-center gap-1">
+                <span>📍 Service:</span>
+                <strong className="text-[#2C241D]">Doorstep Material Pickup from Customer</strong>
+              </p>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleConfirmAssignCarrier();
+              }}
+              className="space-y-4 text-xs"
+            >
+              {/* Provider Mode Switch: 2 Channels Only */}
+              <div>
+                <label className="block text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider mb-2">
+                  Select Transportation Channel
+                </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setCarrierModalType('CARRIER_PARTNER')}
+                    className={`p-2.5 rounded-2xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      carrierModalType === 'CARRIER_PARTNER'
+                        ? 'bg-[#38A132] text-white border-[#38A132] shadow-sm font-extrabold'
+                        : 'bg-white text-[#5C4E42] border-[#E2D7CB] hover:bg-[#F5ECE1] font-bold'
+                    }`}
+                  >
+                    <span className="text-base">🏢</span>
+                    <span className="text-xs">3PL Carrier Partner</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setCarrierModalType('INTERNAL_FLEET')}
+                    className={`p-2.5 rounded-2xl border text-center transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                      carrierModalType === 'INTERNAL_FLEET'
+                        ? 'bg-[#38A132] text-white border-[#38A132] shadow-sm font-extrabold'
+                        : 'bg-white text-[#5C4E42] border-[#E2D7CB] hover:bg-[#F5ECE1] font-bold'
+                    }`}
+                  >
+                    <span className="text-base">🚚</span>
+                    <span className="text-xs">Internal Fleet Driver</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 3PL Carrier Selection Cards */}
+              {carrierModalType === 'CARRIER_PARTNER' && (
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-extrabold text-[#2C241D]">
+                    Available 3PL Logistics & Carrier Partners *
+                  </label>
+                  <div className="space-y-2">
+                    {carriersList.map((c) => {
+                      const isSelected = String(carrierModalPartnerId) === String(c.carrier_id);
+                      const isBlueDart = c.carrier_name.toLowerCase().includes('bluedart') || c.carrier_name.toLowerCase().includes('blue dart');
+                      const isDeliveryTimes = c.carrier_name.toLowerCase().includes('delivery times');
+                      return (
+                        <div
+                          key={c.carrier_id}
+                          onClick={() => setCarrierModalPartnerId(String(c.carrier_id))}
+                          className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? 'bg-emerald-50/90 border-[#38A132] ring-2 ring-[#38A132]/30 shadow-xs'
+                              : 'bg-white border-[#E2D7CB] hover:bg-[#FBF8F4]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${
+                              isSelected ? 'bg-[#38A132] text-white' : 'bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB]'
+                            }`}>
+                              {isBlueDart ? '🔷' : isDeliveryTimes ? '⏱️' : '📦'}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-[#2C241D] text-xs truncate">
+                                  {c.carrier_name}
+                                </span>
+                                {(isBlueDart || isDeliveryTimes) && (
+                                  <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-300">
+                                    Primary Partner
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[10px] text-[#7A6C5E] font-medium truncate">
+                                📞 {c.contact_phone || '+91 98765 43210'} • Doorstep Timber Transport
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="shrink-0">
+                            <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                              isSelected ? 'border-[#38A132] bg-[#38A132]' : 'border-[#C4B5A5] bg-white'
+                            }`}>
+                              {isSelected && <Check className="w-3 h-3 text-white stroke-[3]" />}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Internal Fleet Driver Selection */}
+              {carrierModalType === 'INTERNAL_FLEET' && (
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-extrabold text-[#2C241D]">
+                    Select Company Fleet Driver *
+                  </label>
+                  <select
+                    value={carrierModalDriverId}
+                    onChange={(e) => setCarrierModalDriverId(e.target.value)}
+                    required
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] font-bold text-xs focus:outline-none focus:ring-2 focus:ring-[#38A132]"
+                  >
+                    <option value="">-- Choose Company Fleet Driver --</option>
+                    {workers.map((w) => (
+                      <option key={w.worker_id} value={w.worker_id}>
+                        🚚 {w.full_name} ({w.specialization || 'Fleet Driver'}) — 📞 {w.phone || 'N/A'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Dispatch Notes */}
+              <div>
+                <label className="block font-bold text-[#5C4E42] mb-1 text-[11px]">
+                  Pickup Notes & Gate Instructions (Optional)
+                </label>
+                <textarea
+                  value={carrierModalNotes}
+                  onChange={(e) => setCarrierModalNotes(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. 4 Oak timber planks (8ft x 4ft). Contact customer prior to arrival..."
+                  className="w-full px-3.5 py-2 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] text-xs font-medium focus:outline-none focus:ring-2 focus:ring-[#38A132]"
+                />
+              </div>
+
+              {/* Modal Actions */}
+              <div className="pt-3 border-t border-[#E2D7CB] flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setAssignCarrierModalData(null)}
+                  disabled={isAssigningCarrier}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAssigningCarrier}
+                  className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>{isAssigningCarrier ? 'Allotting Carrier...' : 'Confirm Carrier Partner Allotment'}</span>
                 </button>
               </div>
             </form>

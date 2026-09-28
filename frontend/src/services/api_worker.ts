@@ -33,7 +33,7 @@ export interface WorkerTaskItem {
   job_name: string;
   stage_name: string;
   required_skill: string;
-  task_status: 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'ON_HOLD' | string;
+  task_status: 'ASSIGNED' | 'IN_PROGRESS' | 'COMPLETED' | 'ON_HOLD' | 'PAUSED' | string;
   priority: 'NORMAL' | 'HIGH' | 'URGENT' | string;
   assigned_date: string;
   dimensions: string;
@@ -45,6 +45,12 @@ export interface WorkerTaskItem {
   started_at?: string;
   completed_at?: string;
   progress_percentage: number;
+  completed_sections?: string[];
+  current_section?: string;
+  pause_reason?: string;
+  is_pickup_pending?: boolean;
+  pickup_carrier?: string;
+  pickup_status?: string;
 }
 
 export interface WorkerCompletedHistoryItem {
@@ -197,6 +203,55 @@ export async function completeWorkerTaskDB(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Failed to complete task' }));
     throw new Error(err.detail || 'Failed to complete task');
+  }
+  return await res.json();
+}
+
+export async function updateWorkerTaskProgressDB(
+  taskId: string,
+  payload: { completed_sections: string[]; current_section?: string; progress_percentage: number; notes?: string }
+): Promise<{ message: string; progress_percentage: number; completed_sections: string[]; current_section: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/worker/my-tasks/${encodeURIComponent(taskId)}/progress`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to update stage progress' }));
+    throw new Error(err.detail || 'Failed to update stage progress');
+  }
+  return await res.json();
+}
+
+export async function pauseWorkerTaskDB(
+  taskId: string,
+  payload: { pause_reason: string; notes?: string }
+): Promise<{ message: string; task_status: string; pause_reason: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/worker/my-tasks/${encodeURIComponent(taskId)}/pause`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to pause stage' }));
+    throw new Error(err.detail || 'Failed to pause stage');
+  }
+  return await res.json();
+}
+
+export async function resumeWorkerTaskDB(
+  taskId: string
+): Promise<{ message: string; task_status: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/worker/my-tasks/${encodeURIComponent(taskId)}/resume`, {
+    method: 'POST',
+    headers: getAuthHeaders()
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Failed to resume stage' }));
+    throw new Error(err.detail || 'Failed to resume stage');
   }
   return await res.json();
 }

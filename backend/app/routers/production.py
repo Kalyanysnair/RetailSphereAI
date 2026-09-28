@@ -2305,7 +2305,18 @@ def get_fabrication_jobs_for_production(db: Session = Depends(get_db)):
             })
             total_progress += (s.progress_percentage or 0)
 
-        calc_progress = int(total_progress / len(stages)) if stages else (65 if fst == "IN_PRODUCTION" else 0)
+        # Check pickup logistics for customer-owned / requested pickup material
+        pickup_ful = db.query(models.OrderFulfillment).filter(
+            models.OrderFulfillment.fabrication_id == f.fabrication_id,
+            models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+        ).first()
+
+        arr_mode = getattr(f, "material_arrival_mode", "") or "CUSTOMER_BRINGS"
+        mat_src = getattr(f, "material_source", "") or ""
+        needs_pickup = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or "Customer" in mat_src and arr_mode != "CUSTOMER_BRINGS"
+        is_pickup_done = not needs_pickup or (pickup_ful is not None and pickup_ful.delivery_status in ["Delivered", "COMPLETED", "Received", "RECEIVED_AT_WORKSHOP"])
+
+        calc_progress = int(total_progress / len(stages)) if stages else 0
 
         card_status = "Pending"
         if fst == "COMPLETED" or (len(stages) > 0 and all(st.status == "COMPLETED" for st in stages)):
@@ -2323,6 +2334,13 @@ def get_fabrication_jobs_for_production(db: Session = Depends(get_db)):
             "product_thumbnail": f.drawing_image or "https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?w=300&auto=format&fit=crop&q=60",
             "quantity": f"{f.quantity} Units" if f.quantity > 1 else "1 Unit",
             "material_required": f.material_source if f.material_source else "Hardwood / Timber",
+            "material_arrival_mode": arr_mode,
+            "needs_pickup": needs_pickup,
+            "is_pickup_completed": is_pickup_done,
+            "pickup_carrier": pickup_ful.carrier if pickup_ful else None,
+            "pickup_carrier_id": pickup_ful.carrier_id if pickup_ful else None,
+            "pickup_status": pickup_ful.delivery_status if pickup_ful else ("Delivered" if not needs_pickup else "Pending Allotment"),
+            "pickup_fulfillment_id": pickup_ful.fulfillment_id if pickup_ful else None,
             "assigned_team": ", ".join(assigned_worker_names) if assigned_worker_names else "No Artisan Assigned",
             "assigned_workers": assigned_workers_list,
             "priority": f.priority or "High",
@@ -2337,6 +2355,131 @@ def get_fabrication_jobs_for_production(db: Session = Depends(get_db)):
             "stages": stages_list
         })
     return res
+
+
+class AssignFabricationCarrierPayload(BaseModel):
+    carrier_id: Optional[int] = None
+    carrier_name: Optional[str] = None
+    driver_id: Optional[int] = None
+    transportation_provider: str = "CARRIER_PARTNER"  # CARRIER_PARTNER vs INTERNAL_FLEET
+    notes: Optional[str] = None
+
+
+@router.post("/fabrication/{fabrication_id}/assign-carrier")
+def assign_fabrication_carrier_partner(
+    fabrication_id: int,
+    payload: AssignFabricationCarrierPayload,
+    db: Session = Depends(get_db)
+):
+    fab = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == fabrication_id).first()
+    if not fab:
+        raise HTTPException(status_code=404, detail="Fabrication request not found")
+
+    ful = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.fabrication_id == fabrication_id,
+        models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+    ).first()
+
+    carrier_title = payload.carrier_name or "3PL Carrier Partner"
+    if payload.carrier_id:
+        c_obj = db.query(models.CarrierPartner).filter(models.CarrierPartner.carrier_id == payload.carrier_id).first()
+        if c_obj:
+            carrier_title = c_obj.carrier_name
+
+    driver_name = None
+    if payload.driver_id:
+        d_user = db.query(models.User).filter(models.User.user_id == payload.driver_id).first()
+        if d_user:
+            driver_name = d_user.full_name
+            carrier_title = f"Internal Fleet — {driver_name}"
+
+    if payload.driver_id:
+        ful_status = "In Transit"
+        del_status = "Out for Pickup"
+    else:
+        ful_status = "Assigned to Carrier"
+        del_status = "Pending Driver Allotment"
+
+    if not ful:
+        from datetime import timedelta
+        ful = models.OrderFulfillment(
+            fabrication_id=fabrication_id,
+            job_type="FABRICATION_PICKUP",
+            fulfillment_status=ful_status,
+            delivery_status=del_status,
+            transportation_provider=payload.transportation_provider,
+            carrier_id=payload.carrier_id,
+            carrier=carrier_title,
+            driver_id=payload.driver_id,
+            pickup_address=fab.material_pickup_address or "Customer Location",
+            destination_address="RetailSphere Central Workshop Hub",
+            expected_delivery_date=(datetime.utcnow() + timedelta(days=1)).strftime("%d %B %Y"),
+            tracking_number=f"TRK-FABPK-{fabrication_id:04d}-{int(time.time()) % 10000}"
+        )
+        db.add(ful)
+    else:
+        ful.carrier_id = payload.carrier_id
+        ful.carrier = carrier_title
+        ful.driver_id = payload.driver_id
+        ful.transportation_provider = payload.transportation_provider
+        ful.fulfillment_status = ful_status
+        ful.delivery_status = del_status
+        if payload.notes:
+            ful.delivery_notes = payload.notes
+
+    db.commit()
+    return {
+        "message": f"Carrier partner '{carrier_title}' assigned for material pickup of Fabrication #{fabrication_id}.",
+        "pickup_status": del_status,
+        "carrier": carrier_title
+    }
+
+
+@router.post("/fabrication/{fabrication_id}/material-received")
+def mark_fabrication_material_received(
+    fabrication_id: int,
+    db: Session = Depends(get_db)
+):
+    fab = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == fabrication_id).first()
+    if not fab:
+        raise HTTPException(status_code=404, detail="Fabrication request not found")
+
+    ful = db.query(models.OrderFulfillment).filter(
+        models.OrderFulfillment.fabrication_id == fabrication_id,
+        models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+    ).first()
+
+    arr_mode = (fab.material_arrival_mode or "").upper()
+    needs_pickup = arr_mode == "DOORSTEP_PICKUP" or (arr_mode == "" and "CUSTOMER" in (fab.material_source or "").upper())
+
+    if needs_pickup and (not ful or (not ful.carrier_id and not ful.driver_id and not ful.carrier)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot mark material as received before assigning a carrier partner or internal fleet driver for pickup."
+        )
+
+    if ful:
+        ful.delivery_status = "Delivered"
+        ful.fulfillment_status = "Delivered"
+        ful.delivered_at = datetime.utcnow()
+    else:
+        ful = models.OrderFulfillment(
+            fabrication_id=fabrication_id,
+            job_type="FABRICATION_PICKUP",
+            fulfillment_status="Delivered",
+            delivery_status="Delivered",
+            delivered_at=datetime.utcnow(),
+            pickup_address="Customer Location",
+            destination_address="RetailSphere Central Workshop Hub",
+            carrier="Self / Direct Received"
+        )
+        db.add(ful)
+
+    db.commit()
+    return {
+        "message": f"Material marked as Received at Workshop Hub for Fabrication #{fabrication_id}. Artisan can now proceed with cutting & production.",
+        "is_pickup_completed": True
+    }
 
 
 class AssignOnsiteWorkerPayload(BaseModel):

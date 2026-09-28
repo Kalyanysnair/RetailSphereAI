@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -14,6 +15,16 @@ class TaskCompletePayload(BaseModel):
     work_images: Optional[str] = None
     progress_percentage: Optional[int] = 100
 
+class TaskProgressPayload(BaseModel):
+    completed_sections: Optional[List[str]] = []
+    current_section: Optional[str] = None
+    progress_percentage: int = 0
+    notes: Optional[str] = None
+
+class TaskPausePayload(BaseModel):
+    pause_reason: str = "Work paused by artisan"
+    notes: Optional[str] = None
+
 class TaskIssuePayload(BaseModel):
     issue_type: str  # Material / Design / Tool / Damage / Other
     description: str
@@ -24,6 +35,36 @@ class OnsiteStatusPayload(BaseModel):
     customer_notes: Optional[str] = None
     before_photos: Optional[str] = None
     after_photos: Optional[str] = None
+
+
+def parse_stage_meta(remarks_str: Optional[str]):
+    if not remarks_str:
+        return {"completed_sections": [], "current_section": None, "pause_reason": None, "user_notes": ""}
+    try:
+        data = json.loads(remarks_str)
+        if isinstance(data, dict):
+            return {
+                "completed_sections": data.get("completed_sections", []) or [],
+                "current_section": data.get("current_section"),
+                "pause_reason": data.get("pause_reason"),
+                "user_notes": data.get("user_notes", "") or data.get("notes", "") or ""
+            }
+    except Exception:
+        pass
+    return {"completed_sections": [], "current_section": None, "pause_reason": None, "user_notes": remarks_str}
+
+
+def dump_stage_meta(existing_remarks: Optional[str], completed_sections: Optional[List[str]] = None, current_section: Optional[str] = None, pause_reason: Optional[str] = None, user_notes: Optional[str] = None) -> str:
+    meta = parse_stage_meta(existing_remarks)
+    if completed_sections is not None:
+        meta["completed_sections"] = completed_sections
+    if current_section is not None:
+        meta["current_section"] = current_section
+    if pause_reason is not None:
+        meta["pause_reason"] = pause_reason if pause_reason.strip() else None
+    if user_notes is not None:
+        meta["user_notes"] = user_notes
+    return json.dumps(meta)
 
 
 def format_duration(started: Optional[datetime], completed: Optional[datetime]) -> str:
@@ -52,7 +93,7 @@ def get_worker_summary(
     active_count = sum(1 for t in tasks if t.get("task_status") == "IN_PROGRESS")
 
     # Pending tasks (assigned / on hold / ready)
-    pending_count = sum(1 for t in tasks if t.get("task_status") in ["ASSIGNED", "READY_FOR_ASSIGNMENT", "ON_HOLD"])
+    pending_count = sum(1 for t in tasks if t.get("task_status") in ["ASSIGNED", "READY_FOR_ASSIGNMENT", "ON_HOLD", "PAUSED"])
 
     # Completed today
     today_str = date.today().strftime("%Y-%m-%d")
@@ -139,7 +180,11 @@ def get_worker_tasks(
                 prio = getattr(ord_obj, "priority", "NORMAL") or "NORMAL"
             else:
                 dims, mat, col, desc, img, prio = "N/A", "Wood", "Natural", "", "", "NORMAL"
-        else:
+        is_pickup_pending = False
+        pickup_carrier_name = None
+        pickup_status_str = None
+
+        if stg.order_type == "Fabrication":
             fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stg.order_id).first()
             if fab_obj:
                 job_title = f"Fabrication {fab_obj.service_type}"
@@ -149,8 +194,30 @@ def get_worker_tasks(
                 desc = fab_obj.requirements
                 img = fab_obj.drawing_image
                 prio = getattr(fab_obj, "priority", "NORMAL") or "NORMAL"
+                arr_mode = getattr(fab_obj, "material_arrival_mode", "") or "CUSTOMER_BRINGS"
+                mat_src = getattr(fab_obj, "material_source", "") or ""
+                needs_pk = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or ("Customer" in mat_src and arr_mode != "CUSTOMER_BRINGS")
+                if needs_pk:
+                    ful = db.query(models.OrderFulfillment).filter(
+                        models.OrderFulfillment.fabrication_id == fab_obj.fabrication_id,
+                        models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+                    ).first()
+                    if ful:
+                        pickup_carrier_name = ful.carrier
+                        pickup_status_str = ful.delivery_status
+                        is_pickup_pending = ful.delivery_status not in ["Delivered", "COMPLETED", "Received", "RECEIVED_AT_WORKSHOP"]
+                    else:
+                        is_pickup_pending = True
+                        pickup_status_str = "Awaiting Carrier Allotment"
             else:
                 dims, mat, col, desc, img, prio = "N/A", "Material", "Standard", "", "", "NORMAL"
+
+        meta = parse_stage_meta(stg.remarks)
+        raw_st = (stg.status or "ASSIGNED").upper()
+        if meta.get("pause_reason") and raw_st in ["IN_PROGRESS", "PAUSED", "ON_HOLD"]:
+            task_st = "PAUSED"
+        else:
+            task_st = raw_st
 
         tasks.append({
             "task_id": f"stg-{stg.stage_id}",
@@ -161,7 +228,7 @@ def get_worker_tasks(
             "job_name": job_title,
             "stage_name": stg.stage_name,
             "required_skill": stg.required_skill or current_user.specialization or "Woodwork & Carpentry",
-            "task_status": stg.status.upper() if stg.status else "ASSIGNED",
+            "task_status": task_st,
             "priority": prio,
             "assigned_date": stg.started_at.strftime("%Y-%m-%d") if stg.started_at else (date.today().strftime("%Y-%m-%d")),
             "dimensions": dims,
@@ -169,10 +236,20 @@ def get_worker_tasks(
             "color": col,
             "customer_requirements": desc or "Fulfill production requirement according to specifications",
             "reference_image": img or "",
-            "technical_instructions": stg.remarks or "Proceed with stage execution according to specs.",
+            "technical_instructions": meta.get("user_notes") or "Proceed with stage execution according to specs.",
             "started_at": stg.started_at.isoformat() if stg.started_at else None,
             "completed_at": stg.completed_at.isoformat() if stg.completed_at else None,
-            "progress_percentage": stg.progress_percentage
+            "progress_percentage": (
+                100 if raw_st == "COMPLETED"
+                else (len(meta.get("completed_sections", [])) * 25 if meta.get("completed_sections") is not None and len(meta.get("completed_sections", [])) > 0
+                      else (0 if not meta.get("completed_sections") else (stg.progress_percentage or 0)))
+            ),
+            "completed_sections": meta.get("completed_sections", []),
+            "current_section": meta.get("current_section"),
+            "pause_reason": meta.get("pause_reason"),
+            "is_pickup_pending": is_pickup_pending,
+            "pickup_carrier": pickup_carrier_name,
+            "pickup_status": pickup_status_str
         })
 
     # 2. WorkerAssignment records (for Custom Orders not already covered by ProductionStage)
@@ -199,6 +276,8 @@ def get_worker_tasks(
             st_part = parts[1].strip().lower()
             if "completed" in st_part:
                 mapped_status = "COMPLETED"
+            elif "paused" in st_part:
+                mapped_status = "PAUSED"
             elif "in progress" in st_part:
                 mapped_status = "IN_PROGRESS"
             elif "hold" in st_part:
@@ -209,6 +288,8 @@ def get_worker_tasks(
             st_lower = raw_status.lower()
             if "completed" in st_lower:
                 mapped_status = "COMPLETED"
+            elif "paused" in st_lower:
+                mapped_status = "PAUSED"
             elif "in progress" in st_lower:
                 mapped_status = "IN_PROGRESS"
             elif "hold" in st_lower:
@@ -217,6 +298,8 @@ def get_worker_tasks(
         latest_prog = db.query(models.ProductionProgress).filter(
             models.ProductionProgress.custom_order_id == order.custom_order_id
         ).order_by(models.ProductionProgress.updated_at.desc()).first()
+
+        meta = parse_stage_meta(latest_prog.remarks if latest_prog else "")
 
         tasks.append({
             "task_id": f"asgn-{asgn.assignment_id}",
@@ -235,10 +318,13 @@ def get_worker_tasks(
             "color": order.color,
             "customer_requirements": order.design_description or "Standard custom specification",
             "reference_image": order.reference_image or "",
-            "technical_instructions": latest_prog.remarks if latest_prog else "Follow attached reference drawing and dimensions.",
+            "technical_instructions": meta.get("user_notes") or "Follow attached reference drawing and dimensions.",
             "started_at": None,
             "completed_at": None,
-            "progress_percentage": latest_prog.progress_percentage if latest_prog else (100 if mapped_status == "COMPLETED" else (50 if mapped_status == "IN_PROGRESS" else 0))
+            "progress_percentage": latest_prog.progress_percentage if latest_prog else (100 if mapped_status == "COMPLETED" else (50 if mapped_status == "IN_PROGRESS" else 0)),
+            "completed_sections": meta.get("completed_sections", []),
+            "current_section": meta.get("current_section"),
+            "pause_reason": meta.get("pause_reason")
         })
 
     # Apply optional status filter
@@ -290,12 +376,14 @@ def start_worker_task(
         if order and order.order_status in ["Approved", "Pending"]:
             order.order_status = "In Production"
 
+        init_meta = dump_stage_meta("", completed_sections=[], current_section="Stage Started", pause_reason="", user_notes="Stage started by artisan.")
+
         prog = models.ProductionProgress(
             custom_order_id=asgn.custom_order_id,
             updated_by=worker_id,
             stage=f"{dept_prefix} — In Progress",
-            progress_percentage=25,
-            remarks=f"Stage started by worker {current_user.full_name} at {now.strftime('%I:%M %p')}."
+            progress_percentage=0,
+            remarks=init_meta
         )
         db.add(prog)
 
@@ -322,9 +410,30 @@ def start_worker_task(
         if not stg:
             raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
 
+        # Enforce prerequisite: If customer material pickup is required, it must be completed before workshop cutting/fabrication starts
+        if stg.order_type == "Fabrication":
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stg.order_id).first()
+            if fab_obj:
+                arr_mode = getattr(fab_obj, "material_arrival_mode", "") or "CUSTOMER_BRINGS"
+                mat_src = getattr(fab_obj, "material_source", "") or ""
+                needs_pk = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or ("Customer" in mat_src and arr_mode != "CUSTOMER_BRINGS")
+                if needs_pk:
+                    ful = db.query(models.OrderFulfillment).filter(
+                        models.OrderFulfillment.fabrication_id == fab_obj.fabrication_id,
+                        models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+                    ).first()
+                    if not ful or ful.delivery_status not in ["Delivered", "COMPLETED", "Received", "RECEIVED_AT_WORKSHOP"]:
+                        c_title = ful.carrier if (ful and ful.carrier) else "an assigned Carrier Partner"
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Cannot start fabrication stage yet. Customer-owned material pickup by {c_title} is still pending receipt at workshop hub."
+                        )
+
         stg.status = "IN_PROGRESS"
         stg.started_at = now
-        stg.progress_percentage = max(stg.progress_percentage, 25)
+        stg_meta = parse_stage_meta(stg.remarks)
+        stg.progress_percentage = len(stg_meta.get("completed_sections", [])) * 25
+        stg.remarks = dump_stage_meta(stg.remarks, pause_reason="", user_notes=stg_meta["user_notes"])
 
         hist = models.ProductionHistory(
             order_type=stg.order_type,
@@ -345,6 +454,239 @@ def start_worker_task(
 
     db.commit()
     return {"message": f"Task '{task_id}' started successfully.", "task_status": "IN_PROGRESS", "started_at": now.isoformat()}
+
+
+@router.post("/my-tasks/{task_id}/progress")
+def update_task_progress(
+    task_id: str,
+    payload: TaskProgressPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    now = datetime.utcnow()
+    pct = max(0, min(100, payload.progress_percentage))
+    completed_secs = payload.completed_sections or []
+    curr_sec = payload.current_section or (f"{len(completed_secs)} sections completed")
+
+    if task_id.startswith("asgn-"):
+        asgn_id = int(task_id.replace("asgn-", ""))
+        asgn = db.query(models.WorkerAssignment).filter(
+            models.WorkerAssignment.assignment_id == asgn_id,
+            models.WorkerAssignment.worker_id == worker_id
+        ).first()
+        if not asgn:
+            raise HTTPException(status_code=404, detail="Task assignment not found or unauthorized.")
+
+        dept_prefix = asgn.task_status.split(":")[0] if ":" in asgn.task_status else (current_user.specialization or "Production")
+        meta_str = dump_stage_meta(None, completed_sections=completed_secs, current_section=curr_sec, pause_reason="", user_notes=payload.notes or "")
+
+        prog = models.ProductionProgress(
+            custom_order_id=asgn.custom_order_id,
+            updated_by=worker_id,
+            stage=f"{dept_prefix} — {curr_sec}",
+            progress_percentage=pct,
+            remarks=meta_str
+        )
+        db.add(prog)
+
+    elif task_id.startswith("stg-"):
+        stg_id = int(task_id.replace("stg-", ""))
+        stg = db.query(models.ProductionStage).filter(
+            models.ProductionStage.stage_id == stg_id,
+            models.ProductionStage.assigned_worker_id == worker_id
+        ).first()
+        if not stg:
+            raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
+
+        stg.progress_percentage = pct
+        stg.remarks = dump_stage_meta(
+            stg.remarks,
+            completed_sections=completed_secs,
+            current_section=curr_sec,
+            user_notes=payload.notes if payload.notes else parse_stage_meta(stg.remarks)["user_notes"]
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid task ID format.")
+
+    db.commit()
+    return {
+        "message": f"Progress updated to {pct}%.",
+        "progress_percentage": pct,
+        "completed_sections": completed_secs,
+        "current_section": curr_sec
+    }
+
+
+@router.post("/my-tasks/{task_id}/pause")
+def pause_worker_task(
+    task_id: str,
+    payload: TaskPausePayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    now = datetime.utcnow()
+    reason_clean = payload.pause_reason.strip() if payload.pause_reason else "Artisan paused stage"
+
+    if task_id.startswith("asgn-"):
+        asgn_id = int(task_id.replace("asgn-", ""))
+        asgn = db.query(models.WorkerAssignment).filter(
+            models.WorkerAssignment.assignment_id == asgn_id,
+            models.WorkerAssignment.worker_id == worker_id
+        ).first()
+        if not asgn:
+            raise HTTPException(status_code=404, detail="Task assignment not found or unauthorized.")
+
+        dept_prefix = asgn.task_status.split(":")[0] if ":" in asgn.task_status else (current_user.specialization or "Production")
+        asgn.task_status = f"{dept_prefix}: Paused"
+
+        latest_prog = db.query(models.ProductionProgress).filter(
+            models.ProductionProgress.custom_order_id == asgn.custom_order_id
+        ).order_by(models.ProductionProgress.updated_at.desc()).first()
+
+        existing_meta = latest_prog.remarks if latest_prog else ""
+        meta_str = dump_stage_meta(existing_meta, pause_reason=reason_clean, user_notes=payload.notes)
+
+        prog = models.ProductionProgress(
+            custom_order_id=asgn.custom_order_id,
+            updated_by=worker_id,
+            stage=f"{dept_prefix} — Paused ({reason_clean})",
+            progress_percentage=latest_prog.progress_percentage if latest_prog else 50,
+            remarks=meta_str
+        )
+        db.add(prog)
+
+        hist = models.ProductionHistory(
+            order_type="Custom",
+            order_id=asgn.custom_order_id,
+            stage_name=dept_prefix,
+            worker_id=worker_id,
+            action_by_id=worker_id,
+            action="PAUSE_STAGE",
+            previous_status="IN_PROGRESS",
+            new_status="PAUSED",
+            notes=f"Paused: {reason_clean}",
+            timestamp=now
+        )
+        db.add(hist)
+
+    elif task_id.startswith("stg-"):
+        stg_id = int(task_id.replace("stg-", ""))
+        stg = db.query(models.ProductionStage).filter(
+            models.ProductionStage.stage_id == stg_id,
+            models.ProductionStage.assigned_worker_id == worker_id
+        ).first()
+        if not stg:
+            raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
+
+        stg.status = "PAUSED"
+        stg.remarks = dump_stage_meta(stg.remarks, pause_reason=reason_clean, user_notes=payload.notes if payload.notes else parse_stage_meta(stg.remarks)["user_notes"])
+
+        hist = models.ProductionHistory(
+            order_type=stg.order_type,
+            order_id=stg.order_id,
+            stage_name=stg.stage_name,
+            worker_id=worker_id,
+            action_by_id=worker_id,
+            action="PAUSE_STAGE",
+            previous_status="IN_PROGRESS",
+            new_status="PAUSED",
+            notes=f"Paused: {reason_clean}",
+            timestamp=now
+        )
+        db.add(hist)
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid task ID format.")
+
+    db.commit()
+    return {"message": f"Stage paused: {reason_clean}", "task_status": "PAUSED", "pause_reason": reason_clean}
+
+
+@router.post("/my-tasks/{task_id}/resume")
+def resume_worker_task(
+    task_id: str,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    worker_id = current_user.user_id
+    now = datetime.utcnow()
+
+    if task_id.startswith("asgn-"):
+        asgn_id = int(task_id.replace("asgn-", ""))
+        asgn = db.query(models.WorkerAssignment).filter(
+            models.WorkerAssignment.assignment_id == asgn_id,
+            models.WorkerAssignment.worker_id == worker_id
+        ).first()
+        if not asgn:
+            raise HTTPException(status_code=404, detail="Task assignment not found or unauthorized.")
+
+        dept_prefix = asgn.task_status.split(":")[0] if ":" in asgn.task_status else (current_user.specialization or "Production")
+        asgn.task_status = f"{dept_prefix}: In Progress"
+
+        latest_prog = db.query(models.ProductionProgress).filter(
+            models.ProductionProgress.custom_order_id == asgn.custom_order_id
+        ).order_by(models.ProductionProgress.updated_at.desc()).first()
+
+        existing_meta = latest_prog.remarks if latest_prog else ""
+        meta_str = dump_stage_meta(existing_meta, pause_reason="")
+
+        prog = models.ProductionProgress(
+            custom_order_id=asgn.custom_order_id,
+            updated_by=worker_id,
+            stage=f"{dept_prefix} — In Progress",
+            progress_percentage=latest_prog.progress_percentage if latest_prog else 50,
+            remarks=meta_str
+        )
+        db.add(prog)
+
+        hist = models.ProductionHistory(
+            order_type="Custom",
+            order_id=asgn.custom_order_id,
+            stage_name=dept_prefix,
+            worker_id=worker_id,
+            action_by_id=worker_id,
+            action="RESUME_STAGE",
+            previous_status="PAUSED",
+            new_status="IN_PROGRESS",
+            notes="Stage resumed by artisan",
+            timestamp=now
+        )
+        db.add(hist)
+
+    elif task_id.startswith("stg-"):
+        stg_id = int(task_id.replace("stg-", ""))
+        stg = db.query(models.ProductionStage).filter(
+            models.ProductionStage.stage_id == stg_id,
+            models.ProductionStage.assigned_worker_id == worker_id
+        ).first()
+        if not stg:
+            raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
+
+        stg.status = "IN_PROGRESS"
+        stg.remarks = dump_stage_meta(stg.remarks, pause_reason="")
+
+        hist = models.ProductionHistory(
+            order_type=stg.order_type,
+            order_id=stg.order_id,
+            stage_name=stg.stage_name,
+            worker_id=worker_id,
+            action_by_id=worker_id,
+            action="RESUME_STAGE",
+            previous_status="PAUSED",
+            new_status="IN_PROGRESS",
+            notes="Stage resumed by artisan",
+            timestamp=now
+        )
+        db.add(hist)
+
+    else:
+        raise HTTPException(status_code=400, detail="Invalid task ID format.")
+
+    db.commit()
+    return {"message": "Stage resumed successfully.", "task_status": "IN_PROGRESS"}
 
 
 @router.post("/my-tasks/{task_id}/complete")
@@ -371,12 +713,14 @@ def complete_worker_task(
         dept_prefix = asgn.task_status.split(":")[0] if ":" in asgn.task_status else (current_user.specialization or "Production")
         asgn.task_status = f"{dept_prefix}: Completed"
 
+        meta_str = dump_stage_meta("", completed_sections=["sec-1", "sec-2", "sec-3", "sec-4"], current_section="Completed", pause_reason="", user_notes=notes_clean or "Stage completed")
+
         prog = models.ProductionProgress(
             custom_order_id=asgn.custom_order_id,
             updated_by=worker_id,
             stage=f"{dept_prefix} Completed",
             progress_percentage=pct,
-            remarks=notes_clean or f"Stage completed by worker {current_user.full_name}."
+            remarks=meta_str
         )
         db.add(prog)
 
@@ -417,8 +761,13 @@ def complete_worker_task(
         stg.status = "COMPLETED"
         stg.completed_at = now
         stg.progress_percentage = pct
-        if notes_clean:
-            stg.remarks = notes_clean
+        stg.remarks = dump_stage_meta(
+            stg.remarks,
+            completed_sections=["sec-1", "sec-2", "sec-3", "sec-4"],
+            current_section="Completed",
+            pause_reason="",
+            user_notes=notes_clean or parse_stage_meta(stg.remarks)["user_notes"]
+        )
 
         hist = models.ProductionHistory(
             order_type=stg.order_type,
@@ -439,6 +788,7 @@ def complete_worker_task(
 
     db.commit()
     return {"message": f"Task '{task_id}' completed successfully.", "task_status": "COMPLETED", "completed_at": now.isoformat()}
+
 
 
 @router.post("/my-tasks/{task_id}/report-issue")

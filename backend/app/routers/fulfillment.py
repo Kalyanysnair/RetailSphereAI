@@ -376,16 +376,23 @@ def mark_order_dispatched(order_id_str: str, payload: DispatchOrderPayload, db: 
         exp = datetime.utcnow() + timedelta(days=1)
         fulfillment.expected_delivery_date = exp.strftime("%d %B %Y")
 
-    fulfillment.delivery_status = "Dispatched"
+    if vehicle_obj or target_driver_id:
+        vehicle_obj.status = "ASSIGNED" if vehicle_obj else None
+        fulfillment.vehicle_id = vehicle_obj.vehicle_id if vehicle_obj else None
+        fulfillment.driver_id = target_driver_id
+        fulfillment.dispatch_date = datetime.utcnow()
+        fulfillment.delivery_status = "Out for Delivery"
+        fulfillment.fulfillment_status = "In Transit"
+    elif fulfillment.transportation_provider == "CARRIER_PARTNER" or fulfillment.carrier_id:
+        fulfillment.delivery_status = "Pending Driver Allotment"
+        fulfillment.fulfillment_status = "Assigned to Carrier"
+    else:
+        fulfillment.delivery_status = "Pending Driver Allotment"
+        fulfillment.fulfillment_status = "Dispatched"
+
     if payload.dispatch_note:
         fulfillment.delivery_notes = payload.dispatch_note
         fulfillment.dispatch_note = payload.dispatch_note
-
-    if vehicle_obj:
-        vehicle_obj.status = "ASSIGNED"
-        fulfillment.vehicle_id = vehicle_obj.vehicle_id
-        fulfillment.driver_id = target_driver_id
-        fulfillment.dispatch_date = datetime.utcnow()
 
     record_status_history(
         db,
