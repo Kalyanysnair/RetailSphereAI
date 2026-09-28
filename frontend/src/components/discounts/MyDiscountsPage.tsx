@@ -107,17 +107,17 @@ export const MyDiscountsPage: React.FC = () => {
   });
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] font-sans antialiased flex flex-col selection:bg-[#48A63E]/20 overflow-x-hidden">
-      {/* Ambient Warm Luxury Living Room Background Image Layer */}
-      <div 
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
+    <div className="relative min-h-screen text-[#1C1814] font-sans antialiased flex flex-col selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden">
+      {/* Ambient Luxury Living Room Background with Enhanced Visibility */}
+      <div
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-45 pointer-events-none scale-105 transition-all duration-700"
         style={{
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
         }}
       />
-
-      {/* Lighter Translucent Warm Cream Overlay Layer */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+      {/* Warm Linen & Silk Ivory Translucent Studio Gradient */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#FAF8F5]/60 via-[#F1EDE6]/50 to-[#E6E0D5]/55 pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.5),_transparent_70%)] pointer-events-none" />
 
       {/* Foreground Content */}
       <div className="relative z-10 flex flex-col min-h-screen">

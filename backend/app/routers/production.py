@@ -788,9 +788,18 @@ def update_production_progress(payload: ProgressUpdatePayload, db: Session = Dep
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
 
+    valid_updater_id = order.production_staff_id
+    if valid_updater_id:
+        u_exists = db.query(models.User.user_id).filter(models.User.user_id == valid_updater_id).first()
+        if not u_exists:
+            valid_updater_id = None
+    if not valid_updater_id:
+        fallback_u = db.query(models.User.user_id).filter(models.User.role_id.in_([3, 2, 4])).first() or db.query(models.User.user_id).first()
+        valid_updater_id = fallback_u[0] if fallback_u else None
+
     progress = models.ProductionProgress(
         custom_order_id=payload.custom_order_id,
-        updated_by=order.production_staff_id or 1,
+        updated_by=valid_updater_id,
         stage=payload.stage,
         progress_percentage=payload.progress_percentage,
         remarks=payload.remarks
@@ -830,6 +839,35 @@ def get_order_tracking(order_id: int, db: Session = Depends(get_db)):
     progress_history = db.query(models.ProductionProgress).filter(
         models.ProductionProgress.custom_order_id == order_id
     ).order_by(models.ProductionProgress.progress_id.asc()).all()
+
+    workers_info = []
+    assignments = db.query(models.WorkerAssignment).filter(models.WorkerAssignment.custom_order_id == order_id).all()
+    for asgn in assignments:
+        w_user = db.query(models.User).filter(models.User.user_id == asgn.worker_id).first()
+        if w_user:
+            workers_info.append({
+                "assignment_id": asgn.assignment_id,
+                "worker_id": w_user.user_id,
+                "worker_name": w_user.full_name,
+                "specialization": getattr(w_user, "specialization", "Woodwork & Carpentry") or "Woodwork & Carpentry",
+                "task_status": asgn.task_status
+            })
+
+    timeline = []
+    for p in progress_history:
+        updater_name = "Production Team"
+        if p.updated_by:
+            u = db.query(models.User).filter(models.User.user_id == p.updated_by).first()
+            if u:
+                updater_name = u.full_name
+        timeline.append({
+            "progress_id": p.progress_id,
+            "stage": p.stage,
+            "progress_percentage": getattr(p, "progress_percentage", 0) or 0,
+            "remarks": p.remarks,
+            "updated_by": updater_name,
+            "updated_at": p.updated_at.isoformat() if getattr(p, "updated_at", None) else None
+        })
 
     return {
         "custom_order_id": order.custom_order_id,

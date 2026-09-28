@@ -52,16 +52,16 @@ export const ServicesShowcaseSection: React.FC = () => {
       </div>
 
       {/* CTA Banner */}
-      <div className="bg-gradient-to-r from-[#2C241D] via-[#3D3025] to-[#2C241D] text-white rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+      <div className="bg-gradient-to-r from-[#FAF8F5] via-[#F4ECE1] to-[#FAF8F5] border-2 border-[#E2D7CB] text-[#1A1410] rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
         <div className="space-y-1">
-          <h4 className="text-lg font-extrabold flex items-center gap-2">
-            <UserCheck className="w-5 h-5 text-[#48A63E]" /> Book an Artisan Visit for Your Home
+          <h4 className="text-lg font-extrabold flex items-center gap-2 text-[#1A1410]">
+            <UserCheck className="w-5 h-5 text-[#38A132]" /> Book an Artisan Visit for Your Home
           </h4>
-          <p className="text-xs text-[#D9CEBF]">Select your preferred date, time window, and location in Kottayam or surrounding areas.</p>
+          <p className="text-xs text-[#5C4E42] font-semibold">Select your preferred date, time window, and location in Kottayam or surrounding areas.</p>
         </div>
         <Link
           to="/signup"
-          className="px-6 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
+          className="px-6 py-3 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-lg shadow-[#38A132]/25 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
         >
           <span>Schedule Service Visit</span>
           <ArrowRight className="w-4 h-4" />

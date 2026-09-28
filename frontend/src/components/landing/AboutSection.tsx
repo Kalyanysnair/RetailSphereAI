@@ -33,14 +33,14 @@ export const AboutSection: React.FC = () => {
   ];
 
   return (
-    <section id="about" className="scroll-mt-24 py-12 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
+    <section id="about" className="scroll-mt-24 py-2 sm:py-4 max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-10">
+      <div>
         {/* Header */}
-        <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+        <div className="text-center max-w-2xl mx-auto mb-6 space-y-1.5">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#38A132]/15 border border-[#38A132]/30 text-[#38A132] text-[11px] font-extrabold uppercase tracking-wider">
             DESIGN PHILOSOPHY
           </span>
-          <h2 className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
             Where Craftsmanship Meets Spatial Harmony
           </h2>
           <p className="text-xs sm:text-sm text-[#524538] font-bold leading-relaxed">
@@ -49,7 +49,7 @@ export const AboutSection: React.FC = () => {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-12">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           {stats.map((st, idx) => (
             <div
               key={idx}

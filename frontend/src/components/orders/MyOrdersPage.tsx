@@ -839,7 +839,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   };
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] font-sans selection:bg-[#38A132] selection:text-white overflow-x-hidden">
+    <div className="relative min-h-screen text-[#1C1814] font-sans selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden">
       {/* Toast Notice */}
       {toastMessage && (
         <div className="fixed top-20 right-6 z-50 bg-[#38A132] text-white px-5 py-3 rounded-2xl shadow-xl font-extrabold text-xs flex items-center gap-2 animate-bounce">
@@ -848,16 +848,16 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
         </div>
       )}
 
-      {/* Ambient Warm Luxury Living Room Background Image Layer */}
+      {/* Ambient Luxury Living Room Background with Enhanced Visibility */}
       <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-45 pointer-events-none scale-105 transition-all duration-700"
         style={{
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
         }}
       />
-
-      {/* Lighter Translucent Warm Cream Overlay Layer */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/75 via-[#F3EDE5]/65 to-[#EAE1D5]/70 pointer-events-none" />
+      {/* Warm Linen & Silk Ivory Translucent Studio Gradient */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#FAF8F5]/60 via-[#F1EDE6]/50 to-[#E6E0D5]/55 pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.5),_transparent_70%)] pointer-events-none" />
 
       {/* ORIGINAL MASTER NAVIGATION HEADER (Rendered only when not embedded inside MyActivityTab) */}
       {!hideHeader && <Header />}
@@ -1448,25 +1448,15 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                               Status: {f.payment_status === 'Paid' ? 'Paid & Scheduled' : formatStatusLabel(f.status)}
                             </span>
 
-                            {/* Pay Now and Add to Cart Buttons */}
+                            {/* Pay Now Button */}
                             {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' && f.status !== 'Cancelled' && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleAddFabricationToCart(f)}
-                                  className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                                  title="Add to Shopping Cart"
-                                >
-                                  <ShoppingCart className="w-3.5 h-3.5 text-[#48A63E]" />
-                                  <span>Add to Cart</span>
-                                </button>
-                                <button
-                                  onClick={() => handlePayNowFabrication(f)}
-                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                                >
-                                  <CreditCard className="w-3.5 h-3.5 text-white" />
-                                  <span>Pay Now</span>
-                                </button>
-                              </div>
+                              <button
+                                onClick={() => handlePayNowFabrication(f)}
+                                className="px-3.5 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
+                              >
+                                <CreditCard className="w-3.5 h-3.5 text-white" />
+                                <span>Pay Now</span>
+                              </button>
                             )}
 
                             {/* Cancel Button */}
@@ -1568,25 +1558,15 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                               Status: {s.payment_status === 'Paid' ? 'Paid & Confirmed' : formatStatusLabel(s.status)}
                             </span>
 
-                            {/* Pay Now and Add to Cart */}
+                            {/* Pay Now Button */}
                             {s.estimated_price && s.payment_status !== 'Paid' && s.status !== 'PAID' && s.status !== 'Paid' && s.status !== 'Cancelled' && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleAddServiceToCart(s)}
-                                  className="px-3 py-1.5 rounded-xl bg-white border border-[#D6C9B9] hover:bg-[#FAF7F2] text-[#2C241D] text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                                  title="Add to Shopping Cart"
-                                >
-                                  <ShoppingCart className="w-3.5 h-3.5 text-[#48A63E]" />
-                                  <span>Add to Cart</span>
-                                </button>
-                                <button
-                                  onClick={() => handlePayNowService(s)}
-                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                                >
-                                  <CreditCard className="w-3.5 h-3.5 text-white" />
-                                  <span>Pay Now</span>
-                                </button>
-                              </div>
+                              <button
+                                onClick={() => handlePayNowService(s)}
+                                className="px-3.5 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-95"
+                              >
+                                <CreditCard className="w-3.5 h-3.5 text-white" />
+                                <span>Pay Now</span>
+                              </button>
                             )}
 
                             {/* Cancel Button */}

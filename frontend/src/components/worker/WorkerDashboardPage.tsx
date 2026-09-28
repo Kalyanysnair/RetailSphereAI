@@ -192,8 +192,7 @@ export const WorkerDashboardPage: React.FC = () => {
 
       const currentUser = await getCurrentUser();
       if (!currentUser) {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user');
+        clearUserSession();
         navigate('/login', { replace: true });
         return;
       }

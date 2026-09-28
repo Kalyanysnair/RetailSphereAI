@@ -29,27 +29,23 @@ export const LandingPage: React.FC = () => {
         <HeaderNav />
       </div>
 
-      {/* Main Content Modules */}
-      <main className="relative z-10">
-        {/* 1st Section: Full-Screen Hero Carousel (Kept as earlier) */}
+      {/* Main Content Modules with Crisp, High-Contrast Luxury Surface */}
+      <main className="relative z-10 bg-[#F9F7F4] text-[#1A1410]">
+        {/* 1st Section: Full-Screen Hero Carousel */}
         <HeroCarousel />
 
-        {/* 2nd Part Onwards: Wrapped inside Master Luxury Glass Card Container (Matching other pages) */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="w-full ultra-glass-panel rounded-[2.5rem] p-6 sm:p-10 shadow-2xl transition-all duration-300 relative space-y-12 sm:space-y-16">
-            <CategorySection />
-            <CustomizationSection />
-            <FabricationShowcaseSection />
-            <AboutSection />
-            <ContactSection />
-          </div>
+        {/* Modular Landing Sections */}
+        <div className="space-y-6 sm:space-y-8 py-3 sm:py-5">
+          <CategorySection />
+          <CustomizationSection />
+          <FabricationShowcaseSection />
+          <AboutSection />
+          <ContactSection />
         </div>
-      </main>
 
-      {/* Footer */}
-      <div className="relative z-20">
+        {/* Footer seamlessly integrated */}
         <Footer />
-      </div>
+      </main>
     </div>
   );
 };

@@ -1489,7 +1489,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="flex-1 space-y-3.5 text-xs max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5 scrollbar-none">
+        <nav className="flex-1 space-y-2 text-xs overflow-y-auto pr-0.5 pb-10 scrollbar-thin scrollbar-thumb-[#DFD2C0] scrollbar-track-transparent">
           {/* Category 1: Workshop Control Center */}
           <div className="space-y-0.5">
             <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
@@ -1498,7 +1498,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Workshop Control
                 </div>
               )}
@@ -1518,7 +1518,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
@@ -1537,7 +1537,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             })}
           </div>
 
-          {/* Category 2: Artisan & Work Force */}
+          {/* Category 2: Artisan & Machinery Workforce */}
           <div className="space-y-0.5">
             <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
               isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
@@ -1545,8 +1545,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
-                  Artisan Workforce
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
+                  Artisan & Machinery
                 </div>
               )}
             </div>
@@ -1554,6 +1554,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {[
               { id: 'workers', label: 'Workers Directory', icon: Users },
               { id: 'leave', label: 'Worker Leave Requests', icon: Clock },
+              { id: 'machines', label: 'Machinery Manager', icon: Sliders },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -1562,7 +1563,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
@@ -1589,7 +1590,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Material & Quality
                 </div>
               )}
@@ -1608,7 +1609,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
@@ -1635,7 +1636,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Intelligence & Admin
                 </div>
               )}
@@ -1643,7 +1644,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
             {[
               { id: 'reports', label: 'Reports & Analytics', icon: FileText },
-              { id: 'machines', label: 'Machinery Manager', icon: Sliders },
               { id: 'ai_insights', label: 'AI Production Suite', icon: Sparkles },
               { id: 'queries', label: 'Queries & Support', icon: MessageSquare },
               { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
@@ -1656,7 +1656,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'

@@ -163,19 +163,18 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                     </button>
                   )}
 
-                  {/* Quick View Button on Hover */}
-                  <div className="absolute inset-x-3 bottom-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setQuickViewProduct(product);
-                      }}
-                      className="w-full py-2 bg-white/95 hover:bg-[#FAF7F2] text-[#2C241D] font-extrabold text-xs rounded-full shadow-lg border border-[#D6C9B9] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    >
-                      <Eye className="w-3.5 h-3.5 text-[#48A63E]" />
-                      <span>Quick View</span>
-                    </button>
-                  </div>
+                  {/* Quick View Button on Hover (Top-Left Side) */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setQuickViewProduct(product);
+                    }}
+                    className="absolute top-2.5 left-2.5 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-[#2C241D] hover:text-[#48A63E] shadow-sm border border-[#D6C9B9] flex items-center justify-center transition-all duration-200 opacity-0 group-hover:opacity-100 hover:scale-110 cursor-pointer"
+                    title="Quick View"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </button>
                 </div>
 
                 {/* Content Card Info */}
@@ -183,13 +182,11 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   <div>
                     <div className="flex items-center justify-between text-[10px] font-black tracking-wider uppercase mb-1 text-[#6E6458]">
                       <span>{product.category ? product.category.replace(/-/g, ' ') : 'CATEGORY'}</span>
-                      {product.reviewCount && product.reviewCount > 0 && product.rating && product.rating > 0 ? (
+                      {Boolean(product.reviewCount && product.reviewCount > 0 && product.rating && product.rating > 0) && (
                         <div className="flex items-center gap-1 font-extrabold text-[#2C241D]">
                           <Star className="w-3 h-3 text-amber-500 fill-amber-500" />
                           <span>{product.rating} ({product.reviewCount})</span>
                         </div>
-                      ) : (
-                        <span className="text-[10px] text-[#9E9082] font-semibold italic">No reviews yet</span>
                       )}
                     </div>
 
@@ -218,26 +215,13 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleWishlistClick(product);
-                        }}
-                        className={`text-[11px] font-extrabold hover:underline transition-colors ${
-                          isWishlisted ? 'text-rose-600' : 'text-[#6E6458] hover:text-[#1C1814]'
-                        }`}
-                      >
-                        Wishlist
-                      </button>
-                      <button
-                        onClick={() => handleCartClick(product)}
-                        className={`px-4 py-1.5 rounded-full text-[11px] font-extrabold text-white shadow-2xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap bg-[#48A63E] hover:bg-[#3D9134]`}
-                      >
-                        <ShoppingBag className="w-3.5 h-3.5" />
-                        <span>{isCartAdded ? 'Go to Cart' : 'Add to Cart'}</span>
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleCartClick(product)}
+                      className={`px-4 py-1.5 rounded-full text-[11px] font-extrabold text-white shadow-2xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap bg-[#48A63E] hover:bg-[#3D9134]`}
+                    >
+                      <ShoppingBag className="w-3.5 h-3.5" />
+                      <span>{isCartAdded ? 'Go to Cart' : 'Add to Cart'}</span>
+                    </button>
                   </div>
                 </div>
               </div>

@@ -72,13 +72,13 @@ export const CustomizationSection: React.FC = () => {
   };
 
   return (
-    <section id="customization" className="py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <section id="customization" className="py-2 sm:py-4 px-6 sm:px-8 lg:px-10 max-w-[1360px] mx-auto">
       {/* Floating Warm Luxury Glass Card Container */}
-      <div className="ultra-glass-card rounded-[2.5rem] p-8 sm:p-12 lg:p-14 shadow-2xl relative overflow-hidden transition-all duration-500 text-[#1A1410] border-2 border-white/80">
+      <div className="ultra-glass-card rounded-2xl sm:rounded-3xl p-5 sm:p-8 lg:p-10 shadow-xl relative overflow-hidden transition-all duration-500 text-[#1A1410] border-2 border-white/80">
         {/* Ambient Accent Glow */}
         <div className="absolute -top-32 -right-32 w-[500px] h-[500px] rounded-full bg-[#38A132]/10 blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center">
           {/* Left Column: Title, Subtitle, & Swatch Controls */}
           <div className="lg:col-span-7 space-y-6">
             <div>

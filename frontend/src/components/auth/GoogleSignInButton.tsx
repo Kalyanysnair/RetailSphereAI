@@ -3,6 +3,7 @@ import { Loader2, ArrowRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { googleLoginUser } from '../../services/api';
 import { signInWithGoogleFirebase } from '../../services/firebase';
+import { getRoleDashboardPath, markSessionActive } from '../../utils/sessionUtils';
 
 interface GoogleSignInButtonProps {
   text?: string;
@@ -35,6 +36,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       });
 
       if (res?.access_token) {
+        markSessionActive();
         localStorage.setItem('access_token', res.access_token);
         localStorage.setItem('user', JSON.stringify(res.user));
         window.dispatchEvent(new Event('storage'));
@@ -48,7 +50,8 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       } else if (redirectUrl && redirectUrl.startsWith('/')) {
         navigate(redirectUrl);
       } else {
-        navigate('/dashboard');
+        const targetPath = getRoleDashboardPath(res?.user);
+        navigate(targetPath);
       }
     } catch (err: any) {
       console.warn('Google Sign-In notice:', err);
@@ -75,6 +78,7 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       });
 
       if (res?.access_token) {
+        markSessionActive();
         localStorage.setItem('access_token', res.access_token);
         localStorage.setItem('user', JSON.stringify(res.user));
         window.dispatchEvent(new Event('storage'));
@@ -88,7 +92,8 @@ export const GoogleSignInButton: React.FC<GoogleSignInButtonProps> = ({
       } else if (redirectUrl && redirectUrl.startsWith('/')) {
         navigate(redirectUrl);
       } else {
-        navigate('/dashboard');
+        const targetPath = getRoleDashboardPath(res?.user);
+        navigate(targetPath);
       }
     } catch (err: any) {
       console.warn('Direct Google email sign in error:', err);

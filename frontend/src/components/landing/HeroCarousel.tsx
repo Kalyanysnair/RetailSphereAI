@@ -84,7 +84,7 @@ export const HeroCarousel: React.FC = () => {
         ))}
 
         {/* Floating Warm Luxury Editorial Glass Card */}
-        <div className="relative z-20 h-full max-w-7xl mx-auto px-6 sm:px-12 flex items-center pt-24 sm:pt-28">
+        <div className="relative z-20 h-full max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-10 flex items-center pt-24 sm:pt-28">
           <div className="max-w-xl w-full bg-[#FAF7F2]/95 backdrop-blur-2xl border-2 border-[#E2D7CB] rounded-[2.5rem] p-7 sm:p-11 shadow-2xl transition-all duration-500 overflow-hidden text-[#1A1410]">
             <div className="relative z-10 space-y-4">
               <h1 className="text-3xl sm:text-5xl font-black text-[#1A1410] tracking-tight leading-[1.15]">
@@ -138,6 +138,9 @@ export const HeroCarousel: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {/* Luxury Seamless Bottom Gradient Blend into Main Content */}
+        <div className="absolute bottom-0 left-0 right-0 h-44 bg-gradient-to-t from-[#F9F7F4] via-[#F9F7F4]/80 to-transparent z-10 pointer-events-none" />
       </div>
     </section>
   );

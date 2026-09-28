@@ -5,9 +5,12 @@ import { Logo } from '../common/Logo';
 
 export const Footer: React.FC = () => {
   return (
-    <footer className="bg-[#FAF7F2]/90 backdrop-blur-xl text-[#2C241D] pt-16 pb-10 border-t border-[#E2D7CB] relative z-20">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 font-sans">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 pb-12 border-b border-[#E2D7CB]">
+    <footer className="bg-[#F9F7F4] text-[#2C241D] pt-14 sm:pt-20 pb-12 relative z-20">
+      <div className="max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-10 font-sans">
+        {/* Subtle Decorative Top Divider */}
+        <div className="w-full h-px bg-gradient-to-r from-transparent via-[#E2D7CB] to-transparent mb-12" />
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-12 pb-12 border-b border-[#E2D7CB]/80">
           {/* Clean Brand Info */}
           <div className="lg:col-span-2 space-y-3">
             <Logo to="/" size="lg" />
@@ -54,7 +57,7 @@ export const Footer: React.FC = () => {
               <input
                 type="email"
                 placeholder="Enter email address"
-                className="w-full bg-[#FAF7F2] border border-[#E2D7CB] rounded-full py-2.5 pl-4 pr-10 text-xs text-[#2C241D] font-bold placeholder-[#9E9082] focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 shadow-xs"
+                className="w-full bg-white border border-[#E2D7CB] rounded-full py-2.5 pl-4 pr-10 text-xs text-[#2C241D] font-bold placeholder-[#9E9082] focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 shadow-xs"
               />
               <button
                 type="submit"

@@ -4,10 +4,10 @@ import { Link } from 'react-router-dom';
 
 export const FabricationShowcaseSection: React.FC = () => {
   return (
-    <section id="fabrication" className="scroll-mt-24 space-y-8 relative">
+    <section id="fabrication" className="scroll-mt-24 max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-10 space-y-6 relative">
       <div id="fabricate" className="absolute -top-24 left-0" />
       {/* Header Badge & Title */}
-      <div className="text-center space-y-3 max-w-3xl mx-auto">
+      <div className="text-center space-y-2 max-w-3xl mx-auto">
         <span className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#48A63E]/10 border border-[#48A63E]/30 text-[#48A63E] text-xs font-mono font-bold uppercase tracking-wider">
           <Scissors className="w-3.5 h-3.5" /> Precision Workshop Services
         </span>
@@ -63,14 +63,14 @@ export const FabricationShowcaseSection: React.FC = () => {
       </div>
 
       {/* CTA Box */}
-      <div className="bg-gradient-to-r from-[#2C241D] to-[#4A3B2C] text-white rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+      <div className="bg-gradient-to-r from-[#FAF8F5] via-[#F4ECE1] to-[#FAF8F5] border-2 border-[#E2D7CB] text-[#1A1410] rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
         <div>
-          <h4 className="text-lg font-extrabold">Have Timber or Board Cuts Needed?</h4>
-          <p className="text-xs text-[#D9CEBF] mt-1">Submit your specifications or drawings to get an instant fabrication quote.</p>
+          <h4 className="text-lg font-extrabold text-[#1A1410]">Have Timber or Board Cuts Needed?</h4>
+          <p className="text-xs text-[#5C4E42] font-semibold mt-1">Submit your specifications or drawings to get an instant fabrication quote.</p>
         </div>
         <Link
           to="/login?redirect=/dashboard"
-          className="px-6 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
+          className="px-6 py-3 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-lg shadow-[#38A132]/25 transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap"
         >
           <span>Request Fabrication</span>
           <ArrowRight className="w-4 h-4" />

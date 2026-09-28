@@ -5,6 +5,7 @@ import { ForgotPasswordForm } from './ForgotPasswordForm';
 import { GoogleSignInButton } from './GoogleSignInButton';
 import { LoginCredentials, ValidationErrors, LoginFormProps } from '../../types/auth';
 import { Logo } from '../common/Logo';
+import { getRoleDashboardPath, markSessionActive } from '../../utils/sessionUtils';
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = false }) => {
   const navigate = useNavigate();
@@ -97,35 +98,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
         localStorage.removeItem('saved_password');
       }
 
-      const roleName = res?.user?.role_name || '';
-      const usernameClean = credentials.username.trim().toLowerCase();
-      const userEmail = res?.user?.email?.toLowerCase() || '';
-      const isAdmin = roleName === 'Admin' || usernameClean === 'admin' || userEmail.includes('admin');
-      const isDeliveryPersonnel = roleName === 'Delivery Personnel' || roleName === 'DELIVERY_PERSONNEL' || roleName === 'Driver' || usernameClean.includes('driver') || usernameClean.includes('personnel') || userEmail === 'deepthidpk004@gmail.com' || userEmail === 'deepthicd2027@mca.ajce.in';
-      const isCarrierPartner = roleName === 'Carrier Partner' || roleName === 'CARRIER_PARTNER' || usernameClean.includes('carrier') || userEmail === 'mariyageorge2027@mca.ajce.in' || userEmail === 'gmariya731@gmail.com';
-      const isRetailStaff = roleName === 'Retail Staff' || usernameClean.includes('retail');
-      const isWorker = roleName === 'Worker' || usernameClean.includes('worker');
-      const isProductionStaff = roleName === 'Production Staff' || usernameClean.includes('production');
+      markSessionActive();
 
       const searchParams = new URLSearchParams(location.search);
       const redirectUrl = searchParams.get('redirect');
 
-      if (isAdmin) {
-        navigate('/admin');
-      } else if (isDeliveryPersonnel) {
-        navigate('/delivery-personnel');
-      } else if (isCarrierPartner) {
-        navigate('/carrier');
-      } else if (isRetailStaff) {
-        navigate('/retail-staff');
-      } else if (isWorker) {
-        navigate('/worker');
-      } else if (isProductionStaff) {
-        navigate('/production-staff');
-      } else if (redirectUrl && redirectUrl.startsWith('/')) {
+      if (redirectUrl && redirectUrl.startsWith('/')) {
         navigate(redirectUrl);
       } else {
-        navigate('/dashboard');
+        const targetPath = getRoleDashboardPath(res?.user);
+        navigate(targetPath);
       }
     } catch (err: any) {
       const msg = typeof err?.message === 'string' ? err.message : 'Authentication failed. Please check your credentials.';

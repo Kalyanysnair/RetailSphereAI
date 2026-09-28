@@ -379,33 +379,30 @@ export const ProfilePage: React.FC = () => {
   const hasSavedAddress = Boolean(userProfile?.customer?.address && userProfile.customer.address.trim());
 
   return (
-    <div className="relative min-h-screen text-[#2C241D] flex flex-col selection:bg-[#48A63E] selection:text-white overflow-x-hidden">
-      {/* Ambient Warm Luxury Living Room Background Image Layer */}
-      <div 
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat transition-all duration-700 pointer-events-none scale-105"
+    <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden font-sans">
+      {/* Ambient Luxury Living Room Background with Enhanced Visibility */}
+      <div
+        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-45 pointer-events-none scale-105 transition-all duration-700"
         style={{
           backgroundImage: `url('https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=2000&q=80')`,
         }}
       />
-
-      {/* Lighter Translucent Warm Cream Overlay Layer */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-b from-[#FAF7F2]/45 via-[#F3EDE5]/35 to-[#EAE1D5]/50 pointer-events-none" />
+      {/* Warm Linen & Silk Ivory Translucent Studio Gradient */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#FAF8F5]/60 via-[#F1EDE6]/50 to-[#E6E0D5]/55 pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.5),_transparent_70%)] pointer-events-none" />
 
       {/* Foreground Interactive Content */}
       <div className="relative z-10 flex flex-col min-h-screen">
         {/* Floating Header Navigation */}
         <Header cartCount={cartCount} wishlistCount={wishlistCount} />
 
-        {/* Main Central Semi-Transparent Glass Container */}
+        {/* Main Central Container */}
         <main className="flex-1 p-3 sm:p-6 lg:p-8 max-w-5xl w-full mx-auto pt-3">
-          <div className="ultra-glass-panel rounded-[2.5rem] p-4 sm:p-5 lg:p-6 pt-3 sm:pt-4 space-y-4 relative overflow-hidden">
-            {/* Glossy Reflection Sheen */}
-            <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-white/60 via-white/20 to-transparent pointer-events-none rounded-t-[2.5rem]" />
-
+          <div className="bg-white/90 backdrop-blur-md rounded-3xl p-5 sm:p-7 space-y-5 relative overflow-hidden shadow-sm border border-[#E2D7CB]">
             {loading ? (
               <div className="py-20 text-center space-y-3 relative z-10">
-                <Loader2 className="w-8 h-8 text-[#48A63E] animate-spin mx-auto" />
-                <p className="text-xs font-bold text-[#2C241D]">Loading profile data...</p>
+                <Loader2 className="w-8 h-8 text-[#38A132] animate-spin mx-auto" />
+                <p className="text-xs font-bold text-[#1C1814]">Loading profile data...</p>
               </div>
             ) : (
               <>
@@ -431,7 +428,7 @@ export const ProfilePage: React.FC = () => {
                 )}
 
                 {/* Profile Header Banner */}
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+                <div className="relative z-10 bg-white rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xs border border-[#E2D7CB]">
                   <div className="flex flex-col sm:flex-row items-center gap-4 text-center sm:text-left">
                     {/* Large Avatar */}
                     <div className="w-16 h-16 sm:w-18 sm:h-18 rounded-full bg-gradient-to-br from-[#48A63E] to-[#3D9134] text-white font-extrabold text-xl flex items-center justify-center shadow-lg shadow-[#48A63E]/30 border-2 border-white">

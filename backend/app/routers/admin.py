@@ -1060,59 +1060,107 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
     if not customer and payload.customerId:
         clean_c_id = str(payload.customerId).replace('cust-', '').replace('user-', '')
         if clean_c_id.isdigit():
-            customer = db.query(models.Customer).filter(models.Customer.customer_id == int(clean_c_id)).first()
+            c_int = int(clean_c_id)
+            customer = db.query(models.Customer).filter(
+                (models.Customer.customer_id == c_int) | (models.Customer.user_id == c_int)
+            ).first()
 
     if not customer:
-        customer = db.query(models.Customer).first()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Valid customer profile not found for the current user. Order cannot be placed."
+        )
 
-    cust_id = customer.customer_id if customer else None
+    cust_id = customer.customer_id
 
-    created_orders = []
+    addr_parts = [p.strip() for p in [customer.address, customer.city, customer.state, customer.pincode] if p and p.strip()]
+    delivery_addr = ", ".join(addr_parts) if addr_parts else None
+
+    if not delivery_addr:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No delivery address found for this customer profile. Please provide and save a delivery address before placing an order."
+        )
+
+    # Pre-validate stock availability for all items in payload
+    validated_items = []
+    if payload.items:
+        for item in payload.items:
+            item_price = float(item.price or 0)
+            item_qty = int(item.quantity or 1)
+            if item_qty <= 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Invalid quantity ({item_qty}) requested for '{item.name}'."
+                )
+
+            prod_id = None
+            raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
+            if raw_id_str.isdigit():
+                prod_id = int(raw_id_str)
+
+            product = None
+            if prod_id:
+                product = db.query(models.Product).filter(models.Product.product_id == prod_id).with_for_update().first()
+            if not product and item.name:
+                product = db.query(models.Product).filter(models.Product.product_name.ilike(item.name.strip())).with_for_update().first()
+
+            if product:
+                avail_stock = product.stock_quantity if product.stock_quantity is not None else 0
+                if avail_stock < item_qty:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Insufficient stock for '{product.product_name}'. Available: {avail_stock}, requested: {item_qty}."
+                    )
+                validated_items.append({
+                    "item": item,
+                    "product": product,
+                    "prod_id": product.product_id,
+                    "item_price": item_price,
+                    "item_qty": item_qty,
+                    "item_total": item_price * item_qty
+                })
+            else:
+                validated_items.append({
+                    "item": item,
+                    "product": None,
+                    "prod_id": prod_id,
+                    "item_price": item_price,
+                    "item_qty": item_qty,
+                    "item_total": item_price * item_qty
+                })
 
     try:
-        if not payload.items:
-            item_total = payload.totalAmount
-            new_order = models.ReadymadeOrder(
-                customer_id=cust_id,
-                customer_name=payload.customerName.strip(),
-                customer_email=payload.email.strip(),
-                total_amount=item_total,
-                payment_status=payload.paymentStatus.strip() or "Paid",
-                payment_id=payload.paymentId.strip() if payload.paymentId else None,
-                order_status="Order Placed",
-                delivery_address="Ettumanoor, Kottayam, Kerala 686631"
-            )
-            db.add(new_order)
-            db.flush()
-            created_orders.append(new_order)
-        else:
-            # Create a separate, itemized order for EACH item in cart
-            for idx, item in enumerate(payload.items):
-                item_price = float(item.price or 0)
-                item_qty = int(item.quantity or 1)
-                item_total = item_price * item_qty
+        order_total = float(payload.totalAmount) if (payload.totalAmount and payload.totalAmount > 0) else (
+            sum(v["item_total"] for v in validated_items) if validated_items else 0.0
+        )
 
-                prod_id = None
-                raw_id_str = str(item.id).replace('inv-', '').replace('rec-', '').replace('item-', '')
-                if raw_id_str.isdigit():
-                    prod_id = int(raw_id_str)
+        new_order = models.ReadymadeOrder(
+            customer_id=cust_id,
+            customer_name=payload.customerName.strip(),
+            customer_email=payload.email.strip(),
+            total_amount=order_total,
+            payment_status=payload.paymentStatus.strip() or "Paid",
+            payment_id=payload.paymentId.strip() if payload.paymentId else None,
+            order_status="Order Placed",
+            delivery_address=delivery_addr
+        )
+        db.add(new_order)
+        db.flush()
 
-                item_pay_id = payload.paymentId
-                if len(payload.items) > 1 and item_pay_id:
-                    item_pay_id = f"{item_pay_id}_{idx+1}"
+        if validated_items:
+            for v_item in validated_items:
+                item = v_item["item"]
+                product = v_item["product"]
+                prod_id = v_item["prod_id"]
+                item_price = v_item["item_price"]
+                item_qty = v_item["item_qty"]
 
-                new_order = models.ReadymadeOrder(
-                    customer_id=cust_id,
-                    customer_name=payload.customerName.strip(),
-                    customer_email=payload.email.strip(),
-                    total_amount=item_total,
-                    payment_status=payload.paymentStatus.strip() or "Paid",
-                    payment_id=item_pay_id,
-                    order_status="Order Placed",
-                    delivery_address="Ettumanoor, Kottayam, Kerala 686631"
-                )
-                db.add(new_order)
-                db.flush()
+                # Decrement stock and update availability
+                if product:
+                    product.stock_quantity = max(0, (product.stock_quantity or 0) - item_qty)
+                    product.availability_status = "Available" if product.stock_quantity > 0 else "Out of Stock"
+                    db.add(product)
 
                 db_item = models.ReadymadeOrderItem(
                     order_id=new_order.order_id,
@@ -1124,23 +1172,23 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
                 )
                 db.add(db_item)
 
-                new_payment = models.Payment(
-                    order_type="Readymade",
-                    order_id=new_order.order_id,
-                    amount=item_total,
-                    payment_method="Razorpay",
-                    transaction_id=item_pay_id or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
-                    payment_status=payload.paymentStatus.strip() or "Paid"
-                )
-                db.add(new_payment)
-                created_orders.append(new_order)
+        new_payment = models.Payment(
+            order_type="Readymade",
+            order_id=new_order.order_id,
+            amount=order_total,
+            payment_method="Razorpay",
+            transaction_id=payload.paymentId or f"PAY-RET-{new_order.order_id}-{int(time.time())}",
+            payment_status=payload.paymentStatus.strip() or "Paid"
+        )
+        db.add(new_payment)
 
-        # Single Atomic Commit for entire checkout batch
+        # Single Atomic Commit for entire checkout
         db.commit()
+        db.refresh(new_order)
 
-        for o in created_orders:
-            db.refresh(o)
-
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         raise HTTPException(
@@ -1148,12 +1196,12 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
             detail=f"Order creation failed: {str(e)}"
         )
 
-    first_ord = created_orders[0]
     return {
-        "message": "Order(s) placed and stored successfully in database",
-        "orderId": f"RET-{first_ord.order_id:06d}",
-        "order_id": first_ord.order_id,
-        "createdCount": len(created_orders)
+        "message": "Order placed and stored successfully in database",
+        "orderId": f"RET-{new_order.order_id:06d}",
+        "order_id": new_order.order_id,
+        "itemsCount": sum(i.quantity for i in new_order.items) if new_order.items else (payload.itemsCount or 1),
+        "totalAmount": float(new_order.total_amount or 0)
     }
 
 

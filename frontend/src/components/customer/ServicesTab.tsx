@@ -248,20 +248,20 @@ export const ServicesTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Hero Banner */}
-      <div className="bg-gradient-to-r from-[#2C241D] via-[#4A3B2C] to-[#2C241D] text-white p-6 sm:p-8 rounded-3xl shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-[#FAF8F5] via-[#F4ECE1] to-[#FAF8F5] border-2 border-[#E2D7CB] text-[#1A1410] p-6 sm:p-8 rounded-3xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-[#48A63E] bg-[#48A63E]/20 px-3 py-1 rounded-full border border-[#48A63E]/30 font-bold">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[#2E8B29] bg-[#38A132]/15 px-3 py-1 rounded-full border border-[#38A132]/30 font-extrabold">
             On-Site Skilled Services
           </span>
-          <h2 className="text-xl sm:text-2xl font-extrabold mt-2 tracking-tight">Artisan On-Site Service Platform</h2>
-          <p className="text-xs text-[#D9CEBF] mt-1 max-w-xl">
+          <h2 className="text-xl sm:text-2xl font-extrabold mt-2 tracking-tight text-[#1A1410]">Artisan On-Site Service Platform</h2>
+          <p className="text-xs text-[#5C4E42] font-semibold mt-1 max-w-xl">
             Book certified workshop artisans for home carpentry, sofa upholstery repair, furniture assembly, door installation & polishing. Staff verified worker matching.
           </p>
         </div>
 
         <button
           onClick={() => setIsBookModalOpen(true)}
-          className="px-5 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-lg shadow-[#48A63E]/30 transition-all flex items-center gap-2 cursor-pointer"
+          className="px-5 py-3 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-lg shadow-[#38A132]/25 transition-all flex items-center gap-2 cursor-pointer"
         >
           <Plus className="w-4 h-4" /> Book On-Site Service
         </button>

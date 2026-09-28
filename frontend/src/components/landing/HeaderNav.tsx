@@ -2,14 +2,54 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Menu, X, ArrowUpRight } from 'lucide-react';
 import { Logo } from '../common/Logo';
+import { getRoleDashboardPath, getStoredUserIdentity } from '../../utils/sessionUtils';
 
 export const HeaderNav: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [visible, setVisible] = useState(true);
+  const [sessionState, setSessionState] = useState<{
+    isLoggedIn: boolean;
+    dashboardPath: string;
+    roleLabel: string;
+  }>(() => {
+    const hasToken = typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('access_token'));
+    const isSessionActive = typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('retailsphere_session_active'));
+    const identity = getStoredUserIdentity();
+    const dashboardPath = getRoleDashboardPath(identity.userObj);
+    return {
+      isLoggedIn: Boolean(hasToken && isSessionActive),
+      dashboardPath,
+      roleLabel: identity.roleName ? `${identity.roleName} Portal` : 'My Dashboard',
+    };
+  });
   const prevScrollPosRef = useRef(0);
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  const syncSession = () => {
+    const hasToken = typeof localStorage !== 'undefined' && Boolean(localStorage.getItem('access_token'));
+    const isSessionActive = typeof sessionStorage !== 'undefined' && Boolean(sessionStorage.getItem('retailsphere_session_active'));
+    const identity = getStoredUserIdentity();
+    const dashboardPath = getRoleDashboardPath(identity.userObj);
+    setSessionState({
+      isLoggedIn: Boolean(hasToken && isSessionActive),
+      dashboardPath,
+      roleLabel: identity.roleName ? `${identity.roleName} Portal` : 'My Dashboard',
+    });
+  };
+
+  useEffect(() => {
+    syncSession();
+    window.addEventListener('storage', syncSession);
+    window.addEventListener('user-logged-in', syncSession);
+    window.addEventListener('user-logout', syncSession);
+    return () => {
+      window.removeEventListener('storage', syncSession);
+      window.removeEventListener('user-logged-in', syncSession);
+      window.removeEventListener('user-logout', syncSession);
+    };
+  }, [location.pathname]);
 
   const navLinks = [
     { name: 'SHOP', hash: '#shop' },
@@ -96,24 +136,36 @@ export const HeaderNav: React.FC = () => {
           ))}
         </nav>
 
-        {/* Right CTA Actions (Log in & Get Started) */}
+        {/* Right CTA Actions (Log in & Get Started OR Dashboard) */}
         <div className="hidden sm:flex items-center gap-4">
-          <Link
-            to="/login"
-            className={`text-xs font-black transition-colors ${
-              location.pathname === '/login' ? 'text-[#38A132]' : 'text-[#1A1410] hover:text-[#38A132]'
-            }`}
-          >
-            Log in
-          </Link>
+          {sessionState.isLoggedIn ? (
+            <Link
+              to={sessionState.dashboardPath}
+              className="inline-flex items-center gap-1.5 text-xs font-extrabold text-white bg-[#38A132] hover:bg-[#32922D] px-5 py-2.5 rounded-full transition-all duration-300 shadow-md shadow-[#38A132]/25"
+            >
+              <span>{sessionState.roleLabel}</span>
+              <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className={`text-xs font-black transition-colors ${
+                  location.pathname === '/login' ? 'text-[#38A132]' : 'text-[#1A1410] hover:text-[#38A132]'
+                }`}
+              >
+                Log in
+              </Link>
 
-          <Link
-            to="/signup"
-            className="inline-flex items-center gap-1.5 text-xs font-extrabold text-white bg-[#38A132] hover:bg-[#32922D] px-5 py-2.5 rounded-full transition-all duration-300 shadow-md shadow-[#38A132]/25"
-          >
-            <span>Get Started</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </Link>
+              <Link
+                to="/signup"
+                className="inline-flex items-center gap-1.5 text-xs font-extrabold text-white bg-[#38A132] hover:bg-[#32922D] px-5 py-2.5 rounded-full transition-all duration-300 shadow-md shadow-[#38A132]/25"
+              >
+                <span>Get Started</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile Toggle Button */}
@@ -144,23 +196,36 @@ export const HeaderNav: React.FC = () => {
             ))}
           </nav>
           <div className="pt-2 border-t border-[#E2D7CB] flex flex-col gap-2">
-            <Link
-              to="/login"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full text-center py-2.5 text-xs font-extrabold text-[#524538] hover:text-[#38A132] rounded-xl hover:bg-[#EFECE8]"
-            >
-              Log in
-            </Link>
-            <Link
-              to="/signup"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full text-center py-2.5 text-xs font-extrabold text-white bg-[#38A132] hover:bg-[#32922D] rounded-xl shadow-md shadow-[#38A132]/25"
-            >
-              Get Started
-            </Link>
+            {sessionState.isLoggedIn ? (
+              <Link
+                to={sessionState.dashboardPath}
+                onClick={() => setMobileMenuOpen(false)}
+                className="w-full text-center py-2.5 text-xs font-extrabold text-white bg-[#38A132] hover:bg-[#32922D] rounded-xl shadow-md shadow-[#38A132]/25"
+              >
+                {sessionState.roleLabel}
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center py-2.5 text-xs font-extrabold text-[#524538] hover:text-[#38A132] rounded-xl hover:bg-[#EFECE8]"
+                >
+                  Log in
+                </Link>
+                <Link
+                  to="/signup"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="w-full text-center py-2.5 text-xs font-extrabold text-white bg-[#38A132] hover:bg-[#32922D] rounded-xl shadow-md shadow-[#38A132]/25"
+                >
+                  Get Started
+                </Link>
+              </>
+            )}
           </div>
         </div>
       )}
     </header>
   );
 };
+

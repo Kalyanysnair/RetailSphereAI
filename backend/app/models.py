@@ -370,8 +370,12 @@ class ProductionProgress(Base):
     custom_order_id = Column(Integer, ForeignKey("tbl_custom_order.custom_order_id"), nullable=False)
     updated_by = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=False)
     stage = Column(String(100), nullable=False)
+    progress_percentage = Column(Integer, default=0, nullable=True)
     remarks = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
     custom_order = relationship("CustomOrder", back_populates="progress_updates")
+
 
 
 class WorkerLeave(Base):

@@ -94,6 +94,10 @@ def startup_db():
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;"))
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP;"))
 
+                # Production Progress migrations
+                conn.execute(text("ALTER TABLE tbl_production_progress ADD COLUMN IF NOT EXISTS progress_percentage INT DEFAULT 0;"))
+                conn.execute(text("ALTER TABLE tbl_production_progress ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
+
                 conn.commit()
                 print("[MIGRATION] Added review metadata, production stage skills, and quotation breakdown columns.")
             except Exception as mig_err:

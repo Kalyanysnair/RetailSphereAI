@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { updateUserProfile, fetchAllUsers } from '../../services/api';
 import { useNavigate, Link } from 'react-router-dom';
+import { clearUserSession } from '../../utils/sessionUtils';
 import {
   Package,
   Plus,
@@ -778,9 +779,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
 
   const handleSignOut = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('user');
-    navigate('/login');
+    clearUserSession();
+    navigate('/login', { replace: true });
   };
 
   // Staff Profile Modal State
@@ -1522,7 +1522,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="flex-1 space-y-3.5 text-xs max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5 scrollbar-none">
+        <nav className="flex-1 space-y-2 text-xs overflow-y-auto pr-0.5 pb-10 scrollbar-thin scrollbar-thumb-[#DFD2C0] scrollbar-track-transparent">
           {/* Category 1: Operations Control Center */}
           <div className="space-y-0.5">
             <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
@@ -1531,7 +1531,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Operations
                 </div>
               )}
@@ -1553,7 +1553,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     refreshControlCenterData();
                   }}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
@@ -1580,7 +1580,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Customer Inbox
                 </div>
               )}
@@ -1603,7 +1603,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     refreshControlCenterData();
                   }}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
@@ -1630,7 +1630,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Catalog & Stock
                 </div>
               )}
@@ -1649,7 +1649,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   key={item.id}
                   onClick={() => setActiveTab(item.id as any)}
                   title={item.label}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
                       ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
@@ -1676,7 +1676,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               {isSidebarCollapsed ? (
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
+                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
                   Staff & Admin
                 </div>
               )}
@@ -1685,7 +1685,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
             <button
               onClick={() => setActiveTab('admin_messages')}
               title="Admin Directives & Queries"
-              className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+              className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                 activeTab === 'admin_messages' || activeTab === 'queries'
                   ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
                   : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'

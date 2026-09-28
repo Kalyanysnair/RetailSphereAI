@@ -272,13 +272,13 @@ export const FabricationTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Hero Header */}
-      <div className="bg-gradient-to-r from-[#2C241D] via-[#3D3025] to-[#2C241D] text-white p-6 sm:p-8 rounded-3xl shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-gradient-to-r from-[#FAF8F5] via-[#F4ECE1] to-[#FAF8F5] border-2 border-[#E2D7CB] text-[#1A1410] p-6 sm:p-8 rounded-3xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <span className="text-[10px] font-mono uppercase tracking-widest text-[#48A63E] bg-[#48A63E]/20 px-3 py-1 rounded-full border border-[#48A63E]/30 font-bold">
+          <span className="text-[10px] font-mono uppercase tracking-widest text-[#2E8B29] bg-[#38A132]/15 px-3 py-1 rounded-full border border-[#38A132]/30 font-extrabold">
             Precision Workshop Services
           </span>
-          <h2 className="text-xl sm:text-2xl font-extrabold mt-2 tracking-tight">Timber & Board Fabrication Studio</h2>
-          <p className="text-xs text-[#D9CEBF] mt-1 max-w-xl">
+          <h2 className="text-xl sm:text-2xl font-extrabold mt-2 tracking-tight text-[#1A1410]">Timber & Board Fabrication Studio</h2>
+          <p className="text-xs text-[#5C4E42] font-semibold mt-1 max-w-xl">
             Custom wood cutting, shaping, edge profiling, drilling & surface finishing. Submit your technical drawings or use our AI 2D Sheet Cutting Optimizer tool!
           </p>
         </div>
@@ -286,13 +286,13 @@ export const FabricationTab: React.FC = () => {
         <div className="flex items-center gap-3 flex-wrap">
           <button
             onClick={() => setIsOptimizerOpen(true)}
-            className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/30 text-white font-bold text-xs transition-all flex items-center gap-2 cursor-pointer"
+            className="px-4 py-2.5 rounded-2xl bg-white hover:bg-[#FAF8F5] border-2 border-[#E2D7CB] text-[#1A1410] font-extrabold text-xs transition-all flex items-center gap-2 shadow-xs cursor-pointer"
           >
-            <Cpu className="w-4 h-4 text-[#48A63E]" /> 2D Cutting Optimizer
+            <Cpu className="w-4 h-4 text-[#38A132]" /> 2D Cutting Optimizer
           </button>
           <button
             onClick={() => setIsRequestModalOpen(true)}
-            className="px-5 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-lg shadow-[#48A63E]/30 transition-all flex items-center gap-2 cursor-pointer"
+            className="px-5 py-2.5 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs shadow-lg shadow-[#38A132]/25 transition-all flex items-center gap-2 cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Request Fabrication
           </button>

@@ -1,12 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Sliders, ArrowUpRight, Heart } from 'lucide-react';
+import { Star, Sliders, ArrowUpRight, Heart, Search, ArrowUpDown, ChevronDown, Check, X, Sparkles } from 'lucide-react';
 import { CatalogItem, CategoryTab } from '../../types/landing';
-import { SearchFilterBar } from './SearchFilterBar';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
 import { fetchInventoryFromDB } from '../../services/api';
 import { getColorHex, parseAvailableColors } from '../../utils/colorUtils';
 import { getStoredRetailOrders } from '../../utils/retailOrdersStorage';
+
+const SORT_OPTIONS = [
+  { value: 'featured', label: 'Featured Items' },
+  { value: 'price-asc', label: 'Price: Low to High' },
+  { value: 'price-desc', label: 'Price: High to Low' },
+  { value: 'rating', label: 'Highest Rated' },
+];
 
 export const CategorySection: React.FC = () => {
   const navigate = useNavigate();
@@ -14,6 +20,9 @@ export const CategorySection: React.FC = () => {
   const [activeSubcategory, setActiveSubcategory] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedSort, setSelectedSort] = useState<string>('featured');
+  const [isSortOpen, setIsSortOpen] = useState<boolean>(false);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
+
   const [wishlistIds, setWishlistIds] = useState<string[]>(() =>
     getWishlistItems().map((item) => item.id)
   );
@@ -23,6 +32,16 @@ export const CategorySection: React.FC = () => {
     typeof localStorage !== 'undefined' &&
     (localStorage.getItem('access_token') || localStorage.getItem('user'))
   );
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
+        setIsSortOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     const loadProductsFromDB = async () => {
@@ -215,7 +234,6 @@ export const CategorySection: React.FC = () => {
   ];
 
   const activeTabObj = categories.find((c) => c.name === activeCategory) || categories[0];
-
   const sourceProducts = dbCatalogProducts.length > 0 ? dbCatalogProducts : demoProducts;
 
   const isSubcategoryMatch = (itemSubcategory: string = '', itemName: string = '', targetSubcategory: string = '') => {
@@ -227,12 +245,10 @@ export const CategorySection: React.FC = () => {
     const name = itemName.toLowerCase().trim();
     const target = targetSubcategory.toLowerCase().trim();
 
-    // Direct exact or inclusion match
     if (sub === target || sub.includes(target) || target.includes(sub)) {
       return true;
     }
 
-    // Tokenize & stem keywords (handle plurals like sofas -> sofa, tables -> table, chairs -> chair)
     const getKeywords = (str: string) =>
       str
         .replace(/[^a-z0-9\s]/g, ' ')
@@ -241,7 +257,6 @@ export const CategorySection: React.FC = () => {
         .filter((w) => w.length >= 3);
 
     const targetKeywords = getKeywords(target);
-
     if (targetKeywords.length === 0) return true;
 
     return targetKeywords.some((kw) => sub.includes(kw) || name.includes(kw));
@@ -265,88 +280,165 @@ export const CategorySection: React.FC = () => {
     return 0;
   });
 
+  const currentSortLabel = SORT_OPTIONS.find(opt => opt.value === selectedSort)?.label || 'Featured Items';
+
   return (
-    <section id="shop" className="scroll-mt-24 py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto relative">
-      {/* Anchor targets for both shop and categories */}
+    <section id="shop" className="scroll-mt-24 max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-10 relative">
+      {/* Anchor targets */}
       <div id="categories" className="absolute -top-24 left-0" />
       <div id="readymade" className="absolute -top-24 left-0" />
 
-      {/* Section Header */}
-      <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#38A132]/15 border border-[#38A132]/30 text-[#38A132] text-[11px] font-extrabold uppercase tracking-wider">
-          READY-MADE FURNITURE CATALOG
-        </span>
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight">
-          Explore Ready-Made & Spatial Collections
-        </h2>
-        <p className="text-xs sm:text-sm text-[#524538] font-bold">
-          Ready-to-ship handcrafted furniture pieces designed for comfort, longevity, and modern spatial harmony.
-        </p>
-      </div>
+      {/* Clean Unboxed Header & Text Navigation */}
+      <div className="pt-10 sm:pt-14 md:pt-16 mb-6 space-y-4">
+        {/* Top Flex: Title + Search/Sort */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div className="flex items-baseline gap-2.5 flex-wrap">
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-[#1A1410] tracking-tight">
+              Ready-Made & Spatial Collections
+            </h2>
+            <span className="text-xs font-bold text-[#7A6C5E]">
+              ({filteredProducts.length} items)
+            </span>
+          </div>
 
-      {/* Toolbar */}
-      <SearchFilterBar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        selectedSort={selectedSort}
-        onSortChange={setSelectedSort}
-      />
+          {/* Search + Sort Toolbar */}
+          <div className="flex items-center gap-2.5 w-full md:w-auto">
+            {/* Search Input */}
+            <div className="relative flex-1 md:w-64">
+              <Search className="w-3.5 h-3.5 text-[#38A132] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search furniture, SKU..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-7 py-2 text-xs bg-white border border-[#E2D7CB] rounded-xl text-[#1A1410] font-bold placeholder-[#8C7C6D] focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 transition-all shadow-xs"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-0.5 text-stone-400 hover:text-stone-700 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
 
-      {/* Category Pills */}
-      <div className="flex items-center justify-center gap-2 flex-wrap mb-6">
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => {
-              setActiveCategory(cat.name);
-              setActiveSubcategory('All');
-            }}
-            className={`px-5 py-2.5 rounded-2xl text-xs font-black transition-all duration-300 cursor-pointer ${
-              activeCategory === cat.name
-                ? 'bg-[#38A132] text-white shadow-lg shadow-[#38A132]/30 scale-105'
-                : 'bg-white/70 hover:bg-white text-[#1A1410] border border-white/80 backdrop-blur-md shadow-xs'
-            }`}
-          >
-            {cat.name}
-          </button>
-        ))}
-      </div>
+            {/* Custom Sort Dropdown */}
+            <div className="relative" ref={sortDropdownRef}>
+              <button
+                type="button"
+                onClick={() => setIsSortOpen(!isSortOpen)}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-[#1A1410] bg-white border border-[#E2D7CB] rounded-xl shadow-xs hover:border-[#38A132] transition-all cursor-pointer whitespace-nowrap"
+              >
+                <ArrowUpDown className="w-3 h-3 text-[#38A132]" />
+                <span>{currentSortLabel}</span>
+                <ChevronDown className={`w-3 h-3 text-[#38A132] transition-transform duration-200 ${isSortOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-      {/* Subcategory Pills */}
-      {activeTabObj.subcategories.length > 1 && (
-        <div className="flex items-center justify-center gap-2 flex-wrap mb-10">
-          <span className="text-xs font-black text-[#1A1410] mr-2 flex items-center gap-1">
-            <Sliders className="w-3.5 h-3.5 text-[#38A132]" />
-            Subcategories:
-          </span>
-          {activeTabObj.subcategories.map((sub) => (
-            <button
-              key={sub}
-              onClick={() => setActiveSubcategory(sub)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
-                activeSubcategory === sub
-                  ? 'bg-[#38A132] text-white shadow-md'
-                  : 'bg-white/70 hover:bg-white text-[#1A1410] border border-white/80 backdrop-blur-md'
-              }`}
-            >
-              {sub}
-            </button>
-          ))}
+              {isSortOpen && (
+                <div className="absolute right-0 top-full mt-1.5 w-48 rounded-xl bg-white border border-[#E2D7CB] p-1.5 shadow-2xl z-50 animate-fadeIn space-y-0.5">
+                  {SORT_OPTIONS.map((opt) => {
+                    const isSelected = opt.value === selectedSort;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setSelectedSort(opt.value);
+                          setIsSortOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-[#38A132] text-white shadow-xs'
+                            : 'text-[#1A1410] hover:bg-[#38A132]/10 hover:text-[#38A132]'
+                        }`}
+                      >
+                        <span>{opt.label}</span>
+                        {isSelected && <Check className="w-3 h-3 text-white" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      )}
 
-      {/* Products Grid */}
+        {/* Clean Text Category Tabs & Subcategories */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1 pb-1">
+          <div className="flex items-center gap-6 overflow-x-auto pb-1 scrollbar-none">
+            {categories.map((cat) => {
+              const count = cat.name === 'All' 
+                ? sourceProducts.length 
+                : sourceProducts.filter(p => p.category === cat.name).length;
+              const isActive = activeCategory === cat.name;
+
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => {
+                    setActiveCategory(cat.name);
+                    setActiveSubcategory('All');
+                  }}
+                  className={`relative pb-2.5 text-sm sm:text-base font-extrabold transition-all duration-150 cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                    isActive
+                      ? 'text-[#2E8B29]'
+                      : 'text-[#6B5C4D] hover:text-[#1A1410]'
+                  }`}
+                >
+                  <span>{cat.name}</span>
+                  <span className={`text-xs font-bold ${
+                    isActive ? 'text-[#2E8B29]' : 'text-[#9E9082]'
+                  }`}>
+                    {count}
+                  </span>
+                  {/* Active underline indicator */}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#38A132] rounded-full" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Subcategory Clean Text Filters */}
+          {activeTabObj.subcategories.length > 1 && (
+            <div className="flex items-center gap-2.5 flex-wrap pb-1">
+              <span className="text-xs font-bold text-[#8C7C6D]">Filter:</span>
+              {activeTabObj.subcategories.map((sub) => {
+                const isActive = activeSubcategory === sub;
+                return (
+                  <button
+                    key={sub}
+                    onClick={() => setActiveSubcategory(sub)}
+                    className={`text-xs font-bold transition-all cursor-pointer px-1 py-0.5 ${
+                      isActive
+                        ? 'text-[#2E8B29] font-extrabold underline underline-offset-4 decoration-2'
+                        : 'text-[#7A6C5E] hover:text-[#1A1410]'
+                    }`}
+                  >
+                    {sub}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modern High-Contrast Product Grid */}
       {filteredProducts.length > 0 ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-7">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 sm:gap-6">
           {filteredProducts.map((product) => (
             <div
               key={product.id}
               onClick={() => navigate(`/product/${product.id}`)}
-              className="group ultra-glass-card rounded-3xl overflow-hidden hover:shadow-2xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between relative text-[#1A1410] border-2 border-white/80 cursor-pointer"
+              className="group bg-white border border-[#E2D7CB] hover:border-[#38A132] rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between cursor-pointer relative"
             >
-              <div className="relative z-10">
+              <div>
                 {/* Product Image */}
-                <div className="relative h-60 w-full overflow-hidden bg-[#EAE1D5]">
+                <div className="relative h-44 sm:h-48 w-full overflow-hidden bg-[#F0EBE4]">
                   <img
                     src={product.image}
                     alt={product.name}
@@ -354,7 +446,7 @@ export const CategorySection: React.FC = () => {
                     loading="lazy"
                   />
                   {product.isPopular && (
-                    <span className="absolute top-3 left-3 text-[10px] font-black tracking-wider uppercase px-3 py-1 rounded-full bg-[#38A132] text-white shadow-md">
+                    <span className="absolute top-2.5 left-2.5 text-[9px] font-black tracking-wider uppercase px-2 py-0.5 rounded-full bg-[#38A132] text-white shadow-md">
                       Bestseller
                     </span>
                   )}
@@ -365,40 +457,40 @@ export const CategorySection: React.FC = () => {
                         e.stopPropagation();
                         handleWishlistToggle(product);
                       }}
-                      className={`absolute top-3 right-3 w-8 h-8 rounded-full backdrop-blur-md border border-white/80 flex items-center justify-center transition-all shadow-sm cursor-pointer ${
+                      className={`absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-white/90 hover:bg-white border border-[#E2D7CB] flex items-center justify-center transition-all shadow-sm cursor-pointer ${
                         wishlistIds.includes(product.id)
-                          ? 'bg-rose-600 text-white'
-                          : 'bg-white/80 text-[#524538] hover:text-rose-600'
+                          ? 'bg-rose-600 text-white border-rose-600'
+                          : 'text-[#524538] hover:text-rose-600'
                       }`}
                       title={wishlistIds.includes(product.id) ? 'Remove from Wishlist' : 'Add to Wishlist'}
                     >
-                      <Heart className={`w-4 h-4 ${wishlistIds.includes(product.id) ? 'fill-white' : ''}`} />
+                      <Heart className={`w-3.5 h-3.5 ${wishlistIds.includes(product.id) ? 'fill-white' : ''}`} />
                     </button>
                   )}
                 </div>
 
-                {/* Info */}
-                <div className="p-5 space-y-1.5">
-                  <div className="flex items-center justify-between text-xs font-black text-[#38A132]">
-                    <span className="font-mono text-[10px] font-black bg-[#38A132]/10 border border-[#38A132]/25 text-[#38A132] px-2 py-0.5 rounded">
+                {/* Info Container */}
+                <div className="p-3.5 space-y-1.5">
+                  <div className="flex items-center justify-between text-xs font-bold text-[#38A132]">
+                    <span className="font-mono text-[9px] font-extrabold bg-[#38A132]/10 border border-[#38A132]/25 text-[#2E8B29] px-1.5 py-0.2 rounded">
                       {product.productCode || `SKU-RS-${product.id}`}
                     </span>
-                    <span className="text-[#4A3E31] font-black text-[11px]">{product.category}</span>
+                    <span className="text-[#6B5C4D] font-extrabold text-[10px]">{product.category}</span>
                   </div>
 
-                  <h3 className="font-black text-base text-[#1A1410] leading-snug group-hover:text-[#38A132] transition-colors">
+                  <h3 className="font-extrabold text-xs sm:text-sm text-[#1A1410] leading-snug group-hover:text-[#38A132] transition-colors line-clamp-1">
                     {product.name}
                   </h3>
 
-                  {/* Available Color Swatch Circles (Matching Reference Image) */}
+                  {/* Available Color Swatch Dots */}
                   {product.available_colors && product.available_colors.length > 0 && (
-                    <div className="flex items-center gap-1.5 py-1">
+                    <div className="flex items-center gap-1 py-0.5">
                       {product.available_colors.map((colorName, idx) => {
                         const cStyle = getColorHex(colorName);
                         return (
                           <span
                             key={idx}
-                            className="w-3.5 h-3.5 rounded-full border shadow-2xs transition-transform hover:scale-125 cursor-pointer"
+                            className="w-3 h-3 rounded-full border shadow-2xs transition-transform hover:scale-125 cursor-pointer"
                             style={{ backgroundColor: cStyle.bg, borderColor: cStyle.border }}
                             title={colorName}
                           />
@@ -409,11 +501,11 @@ export const CategorySection: React.FC = () => {
                 </div>
               </div>
 
-              {/* Action Bar */}
-              <div className="p-5 pt-0 flex items-center justify-between border-t border-white/40 mt-2 relative z-10">
+              {/* Price & Action Bottom Row */}
+              <div className="p-3.5 pt-0 flex items-center justify-between border-t border-[#E2D7CB]/60 mt-1">
                 <div>
-                  <span className="text-[10px] font-black text-[#5C4E42] block uppercase tracking-wider">Price</span>
-                  <span className="text-lg font-black text-[#38A132]">₹{product.price.toLocaleString('en-IN')}</span>
+                  <span className="text-[9px] font-extrabold text-[#7A6C5E] block uppercase tracking-wider">Price</span>
+                  <span className="text-sm sm:text-base font-extrabold text-[#2E8B29]">₹{product.price.toLocaleString('en-IN')}</span>
                 </div>
 
                 <button
@@ -422,27 +514,27 @@ export const CategorySection: React.FC = () => {
                     e.stopPropagation();
                     navigate(`/product/${product.id}`);
                   }}
-                  className="w-9 h-9 rounded-2xl bg-[#38A132] hover:bg-[#32922D] text-white flex items-center justify-center transition-all duration-300 shadow-md shadow-[#38A132]/25 cursor-pointer"
+                  className="w-8 h-8 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white flex items-center justify-center transition-all duration-300 shadow-md shadow-[#38A132]/25 cursor-pointer group-hover:scale-105"
                   title="View Item"
                 >
-                  <ArrowUpRight className="w-4 h-4" />
+                  <ArrowUpRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="text-center py-16 ultra-glass-card rounded-3xl border-2 border-white/80">
-          <p className="text-base font-black text-[#1A1410]">No furniture items match your query</p>
+        <div className="text-center py-12 bg-white rounded-2xl border border-[#E2D7CB] shadow-sm">
+          <p className="text-sm sm:text-base font-extrabold text-[#1A1410]">No furniture items match your search filter</p>
           <button
             onClick={() => {
               setActiveCategory('All');
               setActiveSubcategory('All');
               setSearchQuery('');
             }}
-            className="mt-4 px-5 py-2.5 rounded-2xl bg-[#38A132] text-white text-xs font-extrabold shadow-md"
+            className="mt-3 px-4 py-2 rounded-xl bg-[#38A132] text-white text-xs font-extrabold shadow-md hover:bg-[#32922D] cursor-pointer"
           >
-            Reset Catalog Filters
+            Reset All Filters
           </button>
         </div>
       )}

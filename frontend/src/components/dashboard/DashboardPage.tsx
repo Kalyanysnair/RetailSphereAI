@@ -18,6 +18,7 @@ import { getWishlistCount } from '../../utils/wishlistStorage';
 import { fetchInventoryFromDB, getCurrentUser } from '../../services/api';
 import { fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
 import { fetchCustomOrders } from '../../services/api_production';
+import { getRoleDashboardPath, clearUserSession } from '../../utils/sessionUtils';
 
 export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
   {
@@ -322,11 +323,18 @@ export const DashboardPage: React.FC = () => {
       try {
         const user = await getCurrentUser();
         if (!user) {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('user');
+          clearUserSession();
           navigate('/login', { replace: true });
           return;
         }
+
+        // If a staff or admin user accesses customer dashboard, redirect them to their dedicated portal
+        const targetPath = getRoleDashboardPath(user);
+        if (targetPath && targetPath !== '/dashboard') {
+          navigate(targetPath, { replace: true });
+          return;
+        }
+
         setCurrentUser(user);
       } catch (err) {
         console.warn('Session verification failed:', err);
@@ -780,10 +788,6 @@ export const DashboardPage: React.FC = () => {
 
   return (
     <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden">
-      {/* Warm Linen & Silk Ivory Luxury Studio Background (West Elm / Apple Style) */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#FAF8F5] via-[#F1EDE6] to-[#E6E0D5] pointer-events-none" />
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(255,255,255,0.8),_transparent_70%)] pointer-events-none" />
-
       {/* Foreground Interactive Content */}
       <div className="relative z-10 flex flex-col min-h-screen">
         {/* Floating Header Pill Navigation */}
@@ -826,7 +830,7 @@ export const DashboardPage: React.FC = () => {
                       value={filterState.searchQuery}
                       onChange={(e) => handleFilterChange({ searchQuery: e.target.value })}
                       placeholder={isListening ? "Listening... Speak furniture name..." : "Search furniture..."}
-                      className={`w-full pl-10 ${isListening ? 'pr-32 border-[#48A63E] ring-2 ring-[#48A63E]/40 bg-[#F4FAF4]' : 'pr-20 border-[#48A63E] focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E] bg-white/95'} py-2 backdrop-blur-md rounded-full text-xs font-bold text-[#1C1814] placeholder-[#8A7E72] focus:outline-none shadow-sm transition-all`}
+                      className={`w-full pl-10 ${isListening ? 'pr-28 border-[#48A63E] ring-2 ring-[#48A63E]/40 bg-[#F4FAF4]' : 'pr-14 border-[#48A63E] focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E] bg-white/95'} py-2 backdrop-blur-md rounded-full text-xs font-bold text-[#1C1814] placeholder-[#8A7E72] focus:outline-none shadow-sm transition-all`}
                     />
                     <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                       {filterState.searchQuery && !isListening && (
@@ -840,19 +844,20 @@ export const DashboardPage: React.FC = () => {
                         </button>
                       )}
 
-                      {/* Voice Search Pill Button (RetailSphere Green Theme) */}
+                      {/* Voice Search Mic Button (RetailSphere Green Theme) */}
                       <button
                         type="button"
                         onClick={handleVoiceSearch}
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 whitespace-nowrap ${
+                        className={`rounded-full text-[10px] font-extrabold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95 whitespace-nowrap ${
                           isListening
-                            ? 'bg-[#48A63E] text-white animate-pulse shadow-md shadow-[#48A63E]/40 ring-2 ring-[#48A63E]/50'
-                            : 'bg-[#E8F5E9] text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30'
+                            ? 'px-2.5 py-1 bg-[#48A63E] text-white animate-pulse shadow-md shadow-[#48A63E]/40 ring-2 ring-[#48A63E]/50'
+                            : 'p-1.5 bg-[#E8F5E9] text-[#48A63E] hover:bg-[#48A63E] hover:text-white border border-[#48A63E]/30'
                         }`}
                         title={isListening ? 'Listening active. Click to stop voice input.' : 'Voice Search: Click to speak'}
+                        aria-label="Voice Search"
                       >
                         <Mic className={`w-3.5 h-3.5 ${isListening ? 'text-white' : 'text-[#48A63E]'}`} />
-                        <span>{isListening ? 'LISTENING...' : 'VOICE'}</span>
+                        {isListening && <span>Listening...</span>}
                       </button>
                     </div>
                   </div>

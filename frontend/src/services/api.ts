@@ -77,6 +77,8 @@ export interface AuthResponse {
   user: UserProfile;
 }
 
+import { clearUserSession, markSessionActive } from '../utils/sessionUtils';
+
 export async function signupUser(payload: UserSignupPayload): Promise<AuthResponse> {
   const response = await safeFetch('/auth/signup', {
     method: 'POST',
@@ -99,6 +101,7 @@ export async function signupUser(payload: UserSignupPayload): Promise<AuthRespon
 
   const data: AuthResponse = await response.json();
   if (data.access_token) {
+    markSessionActive();
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('user', JSON.stringify(data.user));
     window.dispatchEvent(new Event('storage'));
@@ -128,6 +131,7 @@ export async function loginUser(payload: UserLoginPayload): Promise<AuthResponse
 
   const data: AuthResponse = await response.json();
   if (data.access_token) {
+    markSessionActive();
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('user', JSON.stringify(data.user));
     window.dispatchEvent(new Event('storage'));
@@ -178,8 +182,7 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
     });
 
     if (!response.ok) {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('user');
+      clearUserSession();
       return null;
     }
 
@@ -193,8 +196,7 @@ export async function getCurrentUser(): Promise<UserProfile | null> {
 }
 
 export function logoutUser(): void {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('user');
+  clearUserSession();
 }
 
 export interface GoogleLoginPayload {
@@ -219,6 +221,7 @@ export async function googleLoginUser(payload: GoogleLoginPayload): Promise<Auth
 
   const data: AuthResponse = await response.json();
   if (data.access_token) {
+    markSessionActive();
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('user', JSON.stringify(data.user));
     window.dispatchEvent(new Event('storage'));

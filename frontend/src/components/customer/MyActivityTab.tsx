@@ -867,18 +867,6 @@ export const MyActivityTab: React.FC = () => {
                               ) : ord.estimated_price ? (
                                 <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
                                   <button
-                                    onClick={(e) => handleAddCustomToCart(ord, e)}
-                                    className={`px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all cursor-pointer flex items-center gap-1 ${
-                                      addedToCartIds[`custom_${ord.custom_order_id}`]
-                                        ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]'
-                                        : 'bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]'
-                                    }`}
-                                    title="Add to Shopping Cart"
-                                  >
-                                    <ShoppingCart className="w-3 h-3" />
-                                    <span>{addedToCartIds[`custom_${ord.custom_order_id}`] ? 'Added ✓' : 'Add to Cart'}</span>
-                                  </button>
-                                  <button
                                     onClick={() => handlePayCustomOrder(ord)}
                                     className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
                                   >
@@ -966,14 +954,6 @@ export const MyActivityTab: React.FC = () => {
                             {f.estimated_price && f.payment_status !== 'Paid' && f.status !== 'PAID' && f.status !== 'Paid' ? (
                               <div className="flex items-center gap-1.5 mt-1.5 justify-end flex-wrap">
                                 <button
-                                  onClick={(e) => handleAddFabricationToCart(f, e)}
-                                  className="px-2.5 py-1 rounded-xl text-[10px] font-black border transition-all cursor-pointer flex items-center gap-1 bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]"
-                                  title="Add to Shopping Cart"
-                                >
-                                  <ShoppingCart className="w-3 h-3" />
-                                  <span>Add to Cart</span>
-                                </button>
-                                <button
                                   onClick={() => handlePayFabricationActivity(f)}
                                   className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1 whitespace-nowrap"
                                 >
@@ -1038,18 +1018,6 @@ export const MyActivityTab: React.FC = () => {
                             </span>
                             {s.estimated_price && s.payment_status !== 'Paid' && (s.status === 'QUOTED' || s.status === 'APPROVED') && (
                               <div className="flex items-center gap-1.5">
-                                <button
-                                  onClick={(e) => handleAddServiceToCart(s, e)}
-                                  className={`px-2 py-1 rounded-xl text-[10px] font-black border transition-all cursor-pointer flex items-center gap-1 ${
-                                    addedToCartIds[`srv_${s.service_id}`]
-                                      ? 'bg-[#38A132]/10 text-[#38A132] border-[#38A132]'
-                                      : 'bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]'
-                                  }`}
-                                  title="Add to Shopping Cart"
-                                >
-                                  <ShoppingCart className="w-3 h-3" />
-                                  <span>{addedToCartIds[`srv_${s.service_id}`] ? 'Added ✓' : 'Add to Cart'}</span>
-                                </button>
                                 <button
                                   onClick={() => handlePayServiceActivity(s)}
                                   className="px-2.5 py-1 rounded-xl bg-[#38A132] hover:bg-[#32922D] text-white text-[10px] font-black shadow-xs cursor-pointer flex items-center gap-1"

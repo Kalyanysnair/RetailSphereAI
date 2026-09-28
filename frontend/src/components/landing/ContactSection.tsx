@@ -113,12 +113,12 @@ export const ContactSection: React.FC = () => {
   };
 
   return (
-    <section id="contact" className="scroll-mt-24 py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-      <div className="text-center max-w-2xl mx-auto mb-10 space-y-2">
+    <section id="contact" className="scroll-mt-24 py-2 sm:py-4 px-6 sm:px-8 lg:px-10 max-w-[1360px] mx-auto">
+      <div className="text-center max-w-2xl mx-auto mb-6 space-y-1.5">
         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#38A132]/15 border border-[#38A132]/30 text-[#38A132] text-[11px] font-extrabold uppercase tracking-wider">
           DIRECT CONSULTATION
         </span>
-        <h2 className="text-3xl sm:text-4xl font-extrabold text-[#2C241D] tracking-tight">
+        <h2 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
           Connect with Our Design Consultants
         </h2>
         <p className="text-xs sm:text-sm text-[#524538] font-bold">
@@ -126,7 +126,7 @@ export const ContactSection: React.FC = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Info Card */}
         <div className="lg:col-span-5 bg-[#FAF7F2]/90 backdrop-blur-xl border border-[#E2D7CB] text-[#2C241D] rounded-3xl p-8 sm:p-10 shadow-lg relative overflow-hidden">
           <div className="relative z-10">
