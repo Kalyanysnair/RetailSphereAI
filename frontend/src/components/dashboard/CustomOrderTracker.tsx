@@ -353,52 +353,7 @@ export const CATEGORY_SPECS: CategorySpec[] = [
   },
 ];
 
-export const BESPOKE_STARTER_PRESETS = [
-  {
-    title: 'Solid Teak Dining Table',
-    category: 'dining',
-    type: 'Dining Table',
-    material: 'Solid Teak Planks',
-    finish: 'Natural Matte Wax',
-    dimensions: '200cm L × 100cm W × 76cm H',
-    image: 'https://images.unsplash.com/photo-1615066390971-03e4e1c36ddf?auto=format&fit=crop&w=400&q=80',
-    notes: '6-seater solid teak wood dining table with hand-chamfered edges and matte PU protective polish.',
-    estimatedDays: '12-16 Days',
-  },
-  {
-    title: 'L-Shaped Sectional Sofa',
-    category: 'sofas',
-    type: 'L-Shape Sectional',
-    material: 'Sheesham Rosewood',
-    finish: 'Cream Bouclé',
-    dimensions: '280cm L × 160cm W × 85cm H',
-    image: 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=400&q=80',
-    notes: 'Modular L-sectional with reversible chaise lounger and high-density orthopedic reflex foam.',
-    estimatedDays: '14-18 Days',
-  },
-  {
-    title: 'Platform Bed with Headboard',
-    category: 'beds',
-    type: 'Platform Bed Frame',
-    material: 'Dark Walnut',
-    finish: 'Cream Bouclé Upholstery',
-    dimensions: '210cm L × 185cm W × 110cm H',
-    image: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=400&q=80',
-    notes: 'Hydraulic lift storage bed frame with fluted timber headboard and soft-closing drawer units.',
-    estimatedDays: '10-14 Days',
-  },
-  {
-    title: 'Minimalist Executive Desk',
-    category: 'workspace',
-    type: 'Executive L-Desk',
-    material: 'Dark Walnut',
-    finish: 'Matte Wood Finish',
-    dimensions: '180cm L × 90cm W × 75cm H',
-    image: 'https://images.unsplash.com/photo-1518455027359-f3f8164ba6bd?auto=format&fit=crop&w=400&q=80',
-    notes: 'Executive ergonomic timber workstation with concealed cable conduits and brass leg caps.',
-    estimatedDays: '8-12 Days',
-  },
-];
+
 
 const COLOR_SWATCHES = [
   { name: 'Cream White', hex: '#FDFBF7' },
@@ -443,7 +398,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   const [studioMinimized, setStudioMinimized] = useState(false);
   const [requestsMaximized, setRequestsMaximized] = useState(false);
   const [requestsMinimized, setRequestsMinimized] = useState(false);
-  const [presetsMinimized, setPresetsMinimized] = useState(false);
   const [minimizedOrderIds, setMinimizedOrderIds] = useState<Record<number, boolean>>({});
   const [maximizedOrderModal, setMaximizedOrderModal] = useState<CustomOrderData | null>(null);
 
@@ -601,40 +555,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
     navigate('/cart?direct=true');
   };
 
-  // Load a starter bespoke preset into customizer
-  const handleLoadPreset = (preset: typeof BESPOKE_STARTER_PRESETS[0]) => {
-    const matchingCat = CATEGORY_SPECS.find((c) => c.id === preset.category) || CATEGORY_SPECS[0];
-    setSelectedCategory(matchingCat);
-    setFurnitureType(preset.type);
-    setMaterial(preset.material);
-    setFabricOrFinish(preset.finish);
 
-    const dimMatch = preset.dimensions.match(/(\d+)cm\s*L\s*[x×]\s*(\d+)cm\s*W\s*[x×]\s*(\d+)cm\s*H/i);
-    if (dimMatch) {
-      setLengthCm(dimMatch[1]);
-      setWidthCm(dimMatch[2]);
-      setHeightCm(dimMatch[3]);
-    } else {
-      setLengthCm(matchingCat.dimDefaults.length);
-      setWidthCm(matchingCat.dimDefaults.width);
-      setHeightCm(matchingCat.dimDefaults.height);
-    }
-
-    setCustomNotes(preset.notes);
-    if (preset.image) {
-      setReferenceImageUrls([preset.image]);
-    }
-
-    const initialAspects: Record<string, string> = {};
-    matchingCat.aspects.forEach((asp) => {
-      initialAspects[asp.key] = asp.options[0];
-    });
-    setAspectSelections(initialAspects);
-
-    setEditingOrderId(null);
-    setModalStep(1);
-    setMobileActiveView('create');
-  };
 
   // Handle Category Change
   const handleCategorySelect = (cat: CategorySpec) => {
@@ -1138,79 +1059,6 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               {/* ==================================================== */}
               {modalStep === 1 && (
                 <div className="space-y-5 animate-fadeIn">
-                  {/* Starter Templates with Photos & Minimise Provision */}
-                  <div className="bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl p-3.5 space-y-2.5 transition-all">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-[#48A63E]" />
-                        <span>Popular Bespoke Starter Presets</span>
-                      </span>
-
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] text-[#7A6C5E] font-medium hidden sm:inline">
-                          1-Click load curated artisan blueprints
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setPresetsMinimized((prev) => !prev)}
-                          className={`px-2.5 py-1 rounded-lg border text-[10px] font-extrabold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs ${
-                            presetsMinimized
-                              ? 'bg-white hover:bg-[#FAF8F5] border-[#48A63E] text-[#48A63E]'
-                              : 'bg-white hover:bg-[#FAF8F5] border-[#D6C9B9] text-[#5C4E42]'
-                          }`}
-                          title={presetsMinimized ? 'Expand starter presets' : 'Minimise starter presets'}
-                        >
-                          {presetsMinimized ? (
-                            <>
-                              <Plus className="w-3 h-3 text-[#48A63E]" />
-                              <span>Show Presets ({BESPOKE_STARTER_PRESETS.length})</span>
-                            </>
-                          ) : (
-                            <>
-                              <Minus className="w-3 h-3 text-[#7A6C5E]" />
-                              <span>Minimise Presets</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </div>
-
-                    {!presetsMinimized && (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 animate-fadeIn">
-                        {BESPOKE_STARTER_PRESETS.map((preset) => (
-                          <div
-                            key={preset.title}
-                            onClick={() => handleLoadPreset(preset)}
-                            className="bg-white hover:bg-[#FAF8F5] border border-[#E2D7CB] hover:border-[#48A63E] rounded-xl p-2 transition-all cursor-pointer group flex flex-col justify-between shadow-2xs hover:shadow-xs"
-                          >
-                            <div className="relative w-full h-20 rounded-lg overflow-hidden bg-[#F3EDE3] mb-2">
-                              <img
-                                src={preset.image}
-                                alt={preset.title}
-                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                              />
-                              <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-xs text-white text-[9px] font-bold">
-                                {preset.estimatedDays}
-                              </span>
-                            </div>
-                            <div>
-                              <h4 className="text-[11px] font-bold text-[#2C241D] group-hover:text-[#48A63E] transition-colors truncate">
-                                {preset.title}
-                              </h4>
-                              <span className="text-[10px] text-[#7A6C5E] font-medium truncate block mt-0.5">
-                                {preset.material}
-                              </span>
-                            </div>
-                            <span className="text-[10px] font-bold text-[#48A63E] mt-1.5 flex items-center justify-between border-t border-[#EFE7DE] pt-1">
-                              <span>Load Specs</span>
-                              <span className="text-[#48A63E] font-black">➔</span>
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
                   {/* Category Selection with Photos */}
                   <div>
                     <label className="block text-xs font-black text-[#5C4E42] uppercase tracking-wider mb-2 flex items-center justify-between">
