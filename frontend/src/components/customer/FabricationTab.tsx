@@ -16,12 +16,14 @@ import {
   Pause,
   Sliders,
   Check,
-  Hammer
+  Hammer,
+  Home,
+  AlertCircle
 } from 'lucide-react';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 import { estimateTransportCostAPI } from '../../services/retailOrdersFulfillmentApi';
-import { LeafletMapPicker } from '../common/LeafletMapPicker';
+import { LeafletMapPicker, QUICK_KERALA_PRESETS } from '../common/LeafletMapPicker';
 import { getStageSections, StageSection } from '../../utils/manufacturingSections';
 
 export interface FulfillmentSummaryItem {
@@ -128,6 +130,51 @@ export const FabricationTab: React.FC = () => {
   const [deliveryGpsStatusMessage, setDeliveryGpsStatusMessage] = useState('');
   const [deliveryCoords, setDeliveryCoords] = useState<{ lat: number; lng: number }>({ lat: 9.5916, lng: 76.5222 });
 
+  // User Saved Account Profile Address
+  const [userProfileAddress, setUserProfileAddress] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      if (raw) {
+        const u = JSON.parse(raw);
+        const addr = u.customer?.address || u.address || '';
+        const city = u.customer?.city || u.city || '';
+        const pin = u.customer?.pincode || u.pincode || '';
+        const full = [addr, city, pin ? `- ${pin}` : ''].filter(Boolean).join(', ');
+        if (full.trim().length > 3) {
+          setUserProfileAddress(full);
+        }
+      }
+    } catch (err) {
+      console.warn('Could not read user profile address:', err);
+    }
+  }, []);
+
+  const handleUseProfileAddressForPickup = () => {
+    if (!userProfileAddress) return;
+    setMaterialPickupAddress(userProfileAddress);
+    setPickupGpsStatusMessage(`🏠 Using Saved Profile Address: ${userProfileAddress}`);
+  };
+
+  const handleUseProfileAddressForDelivery = () => {
+    if (!userProfileAddress) return;
+    setReturnDeliveryAddress(userProfileAddress);
+    setDeliveryGpsStatusMessage(`🏠 Using Saved Profile Address: ${userProfileAddress}`);
+  };
+
+  const handleSelectQuickPickupTown = (p: typeof QUICK_KERALA_PRESETS[0]) => {
+    setPickupCoords({ lat: p.lat, lng: p.lng });
+    setMaterialPickupAddress(p.address);
+    setPickupGpsStatusMessage(`📍 Selected: ${p.name}`);
+  };
+
+  const handleSelectQuickDeliveryTown = (p: typeof QUICK_KERALA_PRESETS[0]) => {
+    setDeliveryCoords({ lat: p.lat, lng: p.lng });
+    setReturnDeliveryAddress(p.address);
+    setDeliveryGpsStatusMessage(`📍 Selected: ${p.name}`);
+  };
+
   const handleDetectPickupLocation = () => {
     if (!navigator.geolocation) {
       setPickupGpsStatusMessage('Geolocation is not supported by your browser.');
@@ -135,12 +182,13 @@ export const FabricationTab: React.FC = () => {
     }
 
     setIsDetectingPickupGps(true);
-    setPickupGpsStatusMessage('Acquiring high-accuracy GPS signal...');
+    setPickupGpsStatusMessage('Acquiring location signal...');
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = Number(pos.coords.latitude.toFixed(5));
         const lng = Number(pos.coords.longitude.toFixed(5));
+        const accuracy = Math.round(pos.coords.accuracy || 0);
         setPickupCoords({ lat, lng });
 
         try {
@@ -162,7 +210,20 @@ export const FabricationTab: React.FC = () => {
 
             setMaterialPickupAddress(finalAddress);
             setIsDetectingPickupGps(false);
-            setPickupGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
+
+            const isTrivandrumIsp =
+              accuracy > 1500 ||
+              finalAddress.toLowerCase().includes('thiruvananthapuram') ||
+              finalAddress.toLowerCase().includes('kowdiar') ||
+              finalAddress.toLowerCase().includes('nalanda');
+
+            if (isTrivandrumIsp) {
+              setPickupGpsStatusMessage(
+                `⚠️ Browser returned ISP gateway location (${finalAddress}). If you are not in Trivandrum, click "Saved Address" or pick your town below.`
+              );
+            } else {
+              setPickupGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
+            }
             return;
           }
         } catch (err) {
@@ -171,12 +232,12 @@ export const FabricationTab: React.FC = () => {
 
         setMaterialPickupAddress(`GPS Pin (${lat}, ${lng}), Kerala`);
         setIsDetectingPickupGps(false);
-        setPickupGpsStatusMessage(`📍 Live GPS Coordinates Pinned: ${lat}° N, ${lng}° E`);
+        setPickupGpsStatusMessage(`📍 Live Coordinates: ${lat}° N, ${lng}° E`);
       },
       (err) => {
         console.warn('GPS location error:', err);
         setIsDetectingPickupGps(false);
-        setPickupGpsStatusMessage('📍 Could not detect GPS. Please pick on map or enter address manually.');
+        setPickupGpsStatusMessage('📍 Could not detect GPS. Please pick your town or use the map.');
       },
       {
         enableHighAccuracy: true,
@@ -199,12 +260,13 @@ export const FabricationTab: React.FC = () => {
     }
 
     setIsDetectingDeliveryGps(true);
-    setDeliveryGpsStatusMessage('Acquiring high-accuracy GPS signal...');
+    setDeliveryGpsStatusMessage('Acquiring location signal...');
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = Number(pos.coords.latitude.toFixed(5));
         const lng = Number(pos.coords.longitude.toFixed(5));
+        const accuracy = Math.round(pos.coords.accuracy || 0);
         setDeliveryCoords({ lat, lng });
 
         try {
@@ -226,7 +288,20 @@ export const FabricationTab: React.FC = () => {
 
             setReturnDeliveryAddress(finalAddress);
             setIsDetectingDeliveryGps(false);
-            setDeliveryGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
+
+            const isTrivandrumIsp =
+              accuracy > 1500 ||
+              finalAddress.toLowerCase().includes('thiruvananthapuram') ||
+              finalAddress.toLowerCase().includes('kowdiar') ||
+              finalAddress.toLowerCase().includes('nalanda');
+
+            if (isTrivandrumIsp) {
+              setDeliveryGpsStatusMessage(
+                `⚠️ Browser returned ISP gateway location (${finalAddress}). If you are not in Trivandrum, click "Saved Address" or pick your town below.`
+              );
+            } else {
+              setDeliveryGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
+            }
             return;
           }
         } catch (err) {
@@ -235,12 +310,12 @@ export const FabricationTab: React.FC = () => {
 
         setReturnDeliveryAddress(`GPS Pin (${lat}, ${lng}), Kerala`);
         setIsDetectingDeliveryGps(false);
-        setDeliveryGpsStatusMessage(`📍 Live GPS Coordinates Pinned: ${lat}° N, ${lng}° E`);
+        setDeliveryGpsStatusMessage(`📍 Live Coordinates: ${lat}° N, ${lng}° E`);
       },
       (err) => {
         console.warn('GPS location error:', err);
         setIsDetectingDeliveryGps(false);
-        setDeliveryGpsStatusMessage('📍 Could not detect GPS. Please pick on map or enter address manually.');
+        setDeliveryGpsStatusMessage('📍 Could not detect GPS. Please pick your town or use the map.');
       },
       {
         enableHighAccuracy: true,
@@ -971,13 +1046,25 @@ export const FabricationTab: React.FC = () => {
                       <div className="flex flex-wrap items-center justify-between gap-1.5">
                         <label className="text-[10px] text-[#7A6C5E] font-bold">Pickup Location Address:</label>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {userProfileAddress && (
+                            <button
+                              type="button"
+                              onClick={handleUseProfileAddressForPickup}
+                              className="px-2.5 py-1 rounded-lg bg-[#B89768]/15 hover:bg-[#B89768]/25 text-[#73542B] border border-[#B89768]/40 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                              title="Use my registered profile address"
+                            >
+                              <Home className="w-3 h-3 text-[#B89768]" />
+                              <span>My Saved Address</span>
+                            </button>
+                          )}
+
                           {/* Current Location / Detect GPS Button */}
                           <button
                             type="button"
                             onClick={handleDetectPickupLocation}
                             disabled={isDetectingPickupGps}
-                            className="px-2.5 py-1 rounded-lg bg-[#48A63E]/10 hover:bg-[#48A63E]/20 text-[#48A63E] border border-[#48A63E]/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all"
+                            className="px-2.5 py-1 rounded-lg bg-[#48A63E]/10 hover:bg-[#48A63E]/20 text-[#48A63E] border border-[#48A63E]/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
                             title="Detect current location using GPS"
                           >
                             <Navigation className={`w-3 h-3 ${isDetectingPickupGps ? 'animate-spin' : ''}`} />
@@ -988,7 +1075,7 @@ export const FabricationTab: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => setIsPickupMapOpen(!isPickupMapOpen)}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all border ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all border shadow-2xs ${
                               isPickupMapOpen
                                 ? 'bg-[#2C241D] text-white border-[#2C241D]'
                                 : 'bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]'
@@ -1008,6 +1095,21 @@ export const FabricationTab: React.FC = () => {
                         required
                         className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] text-xs font-semibold"
                       />
+
+                      {/* Quick Kerala Towns Jump Presets */}
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Quick Towns:</span>
+                        {QUICK_KERALA_PRESETS.map((p) => (
+                          <button
+                            key={p.name}
+                            type="button"
+                            onClick={() => handleSelectQuickPickupTown(p)}
+                            className="px-2 py-0.5 rounded-lg bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] hover:border-[#48A63E] text-[10px] font-bold text-[#5C4E42] transition-colors cursor-pointer shadow-2xs"
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
 
                       {/* GPS Status Message Feedback */}
                       {pickupGpsStatusMessage && (
@@ -1069,13 +1171,25 @@ export const FabricationTab: React.FC = () => {
                       <div className="flex flex-wrap items-center justify-between gap-1.5">
                         <label className="text-[10px] text-[#7A6C5E] font-bold">Destination Delivery Address:</label>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {userProfileAddress && (
+                            <button
+                              type="button"
+                              onClick={handleUseProfileAddressForDelivery}
+                              className="px-2.5 py-1 rounded-lg bg-[#B89768]/15 hover:bg-[#B89768]/25 text-[#73542B] border border-[#B89768]/40 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                              title="Use my registered profile address"
+                            >
+                              <Home className="w-3 h-3 text-[#B89768]" />
+                              <span>My Saved Address</span>
+                            </button>
+                          )}
+
                           {/* Current Location / Detect GPS Button */}
                           <button
                             type="button"
                             onClick={handleDetectDeliveryLocation}
                             disabled={isDetectingDeliveryGps}
-                            className="px-2.5 py-1 rounded-lg bg-[#48A63E]/10 hover:bg-[#48A63E]/20 text-[#48A63E] border border-[#48A63E]/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all"
+                            className="px-2.5 py-1 rounded-lg bg-[#48A63E]/10 hover:bg-[#48A63E]/20 text-[#48A63E] border border-[#48A63E]/30 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
                             title="Detect current location using GPS"
                           >
                             <Navigation className={`w-3 h-3 ${isDetectingDeliveryGps ? 'animate-spin' : ''}`} />
@@ -1086,7 +1200,7 @@ export const FabricationTab: React.FC = () => {
                           <button
                             type="button"
                             onClick={() => setIsDeliveryMapOpen(!isDeliveryMapOpen)}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all border ${
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-all border shadow-2xs ${
                               isDeliveryMapOpen
                                 ? 'bg-[#2C241D] text-white border-[#2C241D]'
                                 : 'bg-white text-[#2C241D] border-[#E2D7CB] hover:bg-[#FAF7F2]'
@@ -1106,6 +1220,21 @@ export const FabricationTab: React.FC = () => {
                         required
                         className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] text-xs font-semibold"
                       />
+
+                      {/* Quick Kerala Towns Jump Presets */}
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Quick Towns:</span>
+                        {QUICK_KERALA_PRESETS.map((p) => (
+                          <button
+                            key={p.name}
+                            type="button"
+                            onClick={() => handleSelectQuickDeliveryTown(p)}
+                            className="px-2 py-0.5 rounded-lg bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] hover:border-[#48A63E] text-[10px] font-bold text-[#5C4E42] transition-colors cursor-pointer shadow-2xs"
+                          >
+                            {p.name}
+                          </button>
+                        ))}
+                      </div>
 
                       {/* GPS Status Message Feedback */}
                       {deliveryGpsStatusMessage && (
