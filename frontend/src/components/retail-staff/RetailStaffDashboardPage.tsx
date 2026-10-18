@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { updateUserProfile, fetchAllUsers } from '../../services/api';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
@@ -46,8 +46,15 @@ import {
   Layers,
   Sparkles,
   MapPin,
-  Phone
+  Phone,
+  Calendar,
+  ClipboardList,
+  Printer,
+  FileText,
+  Maximize2,
+  ZoomIn
 } from 'lucide-react';
+import { fetchMyLeaveApplications, applyWorkerLeave, type WorkerLeaveItem } from '../../services/api_leave';
 import { getCouponsApi, createCouponApi, deleteCouponApi, regenerateCouponApi, Coupon, CouponAllotment } from '../../services/api_coupons';
 import { fetchAvailableVehiclesDB, VehicleItem } from '../../services/api_fleet';
 import { deleteStoredRetailOrder } from '../../utils/retailOrdersStorage';
@@ -194,9 +201,9 @@ export const INITIAL_ORDERS: RetailOrder[] = [];
 export const RetailStaffDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
-  // Active Tab: dashboard | retail_orders | orders | request_inbox | customizations | fabrication | services | fulfillment | returns | communication | products | inventory | suppliers | coupons | queries | admin_messages
+  // Active Tab: dashboard | retail_orders | orders | request_inbox | customizations | fabrication | services | fulfillment | returns | communication | products | inventory | suppliers | coupons | queries | admin_messages | leave
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'retail_orders' | 'orders' | 'request_inbox' | 'customizations' | 'fabrication' | 'services' | 'fulfillment' | 'returns' | 'communication' | 'products' | 'inventory' | 'suppliers' | 'coupons' | 'queries' | 'admin_messages'
+    'dashboard' | 'retail_orders' | 'orders' | 'request_inbox' | 'customizations' | 'fabrication' | 'services' | 'fulfillment' | 'returns' | 'communication' | 'products' | 'inventory' | 'suppliers' | 'coupons' | 'queries' | 'admin_messages' | 'leave'
   >('dashboard');
 
   // Control Center State
@@ -217,6 +224,23 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const handleSidebarItemMouseLeave = () => {
     setHoveredSidebarTooltip(null);
   };
+
+  // Mobile Dropdown Navigation State
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (mobileNavRef.current && !mobileNavRef.current.contains(event.target as Node)) {
+        setIsMobileNavOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
   const [dashboardSummary, setDashboardSummary] = useState<RetailDashboardSummary | null>(null);
   const [requestInboxItems, setRequestInboxItems] = useState<RequestInboxItem[]>([]);
   const [inboxCategoryFilter, setInboxCategoryFilter] = useState<string>('ALL');
@@ -233,6 +257,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const [universalChatRequest, setUniversalChatRequest] = useState<{ type: string; id: number; title: string; customer: string } | null>(null);
   const [universalChatMessages, setUniversalChatMessages] = useState<UniversalRequestMessage[]>([]);
   const [universalNewMsg, setUniversalNewMsg] = useState('');
+  const [activeCommFilter, setActiveCommFilter] = useState<'ALL' | 'CUSTOMIZATION' | 'FABRICATION' | 'STORE_ORDER'>('ALL');
+  const [commSearchTerm, setCommSearchTerm] = useState('');
+
+  // Printable Packing Slip / Shipping Label State
+  const [shippingSlipModalOrder, setShippingSlipModalOrder] = useState<RetailOrder | null>(null);
+
+  // Reference Image Lightbox Modal State
+  const [lightboxImage, setLightboxImage] = useState<{ url: string; title: string } | null>(null);
+
+  // Inventory Stock Status Filter
+  const [stockStatusFilter, setStockStatusFilter] = useState<'all' | 'low_stock' | 'out_of_stock' | 'in_stock'>('all');
 
   // Order Fulfillment Center State
   const [fulfillmentSummary, setFulfillmentSummary] = useState<FulfillmentSummary>({
@@ -565,6 +600,59 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const unreadAdminMsgsCount = adminMessages.filter(m => !isMessageReadByUser(m, currentUser?.email || '')).length;
 
   const unreadCount = notifications.filter(n => n.unread).length;
+
+  // Staff Leave Management State
+  const [leaveApplications, setLeaveApplications] = useState<WorkerLeaveItem[]>([]);
+  const [leaveType, setLeaveType] = useState('Casual Leave');
+  const [leaveStartDate, setLeaveStartDate] = useState('');
+  const [leaveEndDate, setLeaveEndDate] = useState('');
+  const [leaveReason, setLeaveReason] = useState('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
+  const [leaveFilterStatus, setLeaveFilterStatus] = useState<string>('ALL');
+
+  const loadLeaveData = async () => {
+    try {
+      const leaves = await fetchMyLeaveApplications();
+      setLeaveApplications(leaves);
+    } catch (err) {
+      console.warn('Failed to load leave applications:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadLeaveData();
+    window.addEventListener('leave-requests-updated', loadLeaveData);
+    return () => {
+      window.removeEventListener('leave-requests-updated', loadLeaveData);
+    };
+  }, []);
+
+  const handleSubmitLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!leaveStartDate || !leaveEndDate || !leaveReason.trim()) {
+      alert('Please fill out start date, end date, and reason.');
+      return;
+    }
+    setIsSubmittingLeave(true);
+    try {
+      const newLeave = await applyWorkerLeave({
+        leave_type: leaveType,
+        start_date: leaveStartDate,
+        end_date: leaveEndDate,
+        reason: leaveReason.trim(),
+      });
+      setLeaveApplications((prev) => [newLeave, ...prev]);
+      setLeaveStartDate('');
+      setLeaveEndDate('');
+      setLeaveReason('');
+      setSuccessNotice('Leave application submitted successfully for supervisor/admin review.');
+      setTimeout(() => setSuccessNotice(null), 5000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit leave application.');
+    } finally {
+      setIsSubmittingLeave(false);
+    }
+  };
 
 
 
@@ -1497,7 +1585,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
   const activeOrdersCount = orderList.length;
 
   return (
-    <div className="relative min-h-screen text-[#2C2016] flex selection:bg-[#38A132] selection:text-white overflow-x-hidden admin-theme">
+    <div className="relative min-h-screen text-[#2C2016] flex selection:bg-[#48A63E] selection:text-white overflow-x-hidden admin-theme">
       {/* Floating Tooltip for Collapsed Sidebar */}
       {isSidebarCollapsed && hoveredSidebarTooltip && (
         <div
@@ -1552,7 +1640,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
             }`}>
               <div className="text-sm font-black text-[#2C2016] tracking-tight flex items-center gap-1">
                 <span className="truncate">RetailSphere</span>
-                <span className="text-[#38A132]">AI</span>
+                <span className="text-[#48A63E]">AI</span>
               </div>
               <div className="text-[9px] font-bold text-[#8F745D] uppercase tracking-wider font-mono truncate">
                 Retail Staff
@@ -1579,6 +1667,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+              { id: 'orders', label: 'Customer Orders', icon: ClipboardList },
               { id: 'fulfillment', label: 'Retail Orders & Fulfillment', icon: ShoppingBag },
               { id: 'returns', label: 'Returns & Cancels', icon: RefreshCw },
               { id: 'communication', label: 'Customer Messaging', icon: MessageCircle },
@@ -1598,7 +1687,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
-                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 font-bold hover:bg-[#3D9134]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
                   }`}
                 >
@@ -1651,7 +1740,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
-                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 font-bold hover:bg-[#3D9134]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
                   }`}
                 >
@@ -1702,7 +1791,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   title={!isSidebarCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
                     isActive
-                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
+                      ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 font-bold hover:bg-[#3D9134]'
                       : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
                   }`}
                 >
@@ -1733,65 +1822,207 @@ export const RetailStaffDashboardPage: React.FC = () => {
               )}
             </div>
 
-            <button
-              onClick={() => {
-                setActiveTab('admin_messages');
-                setHoveredSidebarTooltip(null);
-              }}
-              onMouseEnter={(e) => handleSidebarItemMouseEnter(e, 'Admin Directives & Queries')}
-              onMouseLeave={handleSidebarItemMouseLeave}
-              title={!isSidebarCollapsed ? "Admin Directives & Queries" : undefined}
-              className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
-                activeTab === 'admin_messages' || activeTab === 'queries'
-                  ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
-                  : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
-              }`}
-            >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Mail className="w-4 h-4 shrink-0 transition-transform duration-300" />
-                <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
-                  isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
-                }`}>
-                  Admin Directives
-                </span>
-              </div>
-            </button>
+            {[
+              { id: 'admin_messages', label: 'Admin Directives', icon: Mail, action: () => { setActiveTab('admin_messages'); setAdminSubTab('directives'); } },
+              { id: 'queries', label: 'Staff Inquiries', icon: MessageSquare, action: () => { setActiveTab('queries'); setAdminSubTab('queries'); } },
+              { id: 'leave', label: 'Leave Applications', icon: Calendar, action: () => { setActiveTab('leave'); loadLeaveData(); } },
+            ].map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    item.action();
+                    setHoveredSidebarTooltip(null);
+                  }}
+                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
+                  onMouseLeave={handleSidebarItemMouseLeave}
+                  title={!isSidebarCollapsed ? item.label : undefined}
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-1.5' : 'justify-start px-3 py-1.5'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
+                    isActive
+                      ? 'bg-[#48A63E] text-white shadow-md shadow-[#48A63E]/25 font-bold hover:bg-[#3D9134]'
+                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
+                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
+                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
+                    }`}>
+                      {item.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </nav>
       </aside>
 
       {/* MAIN RIGHT CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
-        {/* Mobile Top Header */}
-        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 flex items-center justify-between sticky top-0 z-30">
-          <div className="flex items-center gap-2">
-            <span className="font-extrabold text-xs text-slate-900">Retail Staff</span>
-          </div>
-          <select
-            value={activeTab}
-            onChange={(e) => {
-              setActiveTab(e.target.value as any);
-              refreshControlCenterData();
-            }}
-            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D]"
-          >
-            <option value="dashboard">📊 Dashboard</option>
-            <option value="retail_orders">🛒 Retail Orders</option>
-            <option value="request_inbox">📥 Request Inbox</option>
-            <option value="customizations">🛋️ Customizations</option>
-            <option value="fabrication">🪵 Fabrication</option>
-            <option value="services">🔧 On-Site Services</option>
-            <option value="fulfillment">📦 Fulfillment</option>
-            <option value="returns">🔄 Returns & Cancels</option>
-            <option value="communication">💬 Customer Messaging</option>
-            <option value="products">🏷️ Products & Catalog</option>
-            <option value="inventory">📦 Stock & Inventory</option>
-            <option value="suppliers">🏢 Suppliers</option>
-            <option value="coupons">🎟️ Discounts & Coupons</option>
-            <option value="admin_messages">✉️ Admin Directives</option>
-            <option value="queries">❓ Staff Queries</option>
-          </select>
-        </div>
+        {/* Modern Luxury Glassmorphic Mobile Top Header */}
+        {(() => {
+          interface MobileNavItem {
+            id: string;
+            label: string;
+            icon: React.ComponentType<{ className?: string }>;
+            categoryFilter?: string;
+            onSelect?: () => void;
+          }
+
+          interface MobileNavSection {
+            category: string;
+            items: MobileNavItem[];
+          }
+
+          const mobileNavSections: MobileNavSection[] = [
+            {
+              category: 'Operations',
+              items: [
+                { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+                { id: 'orders', label: 'Customer Orders', icon: ClipboardList },
+                { id: 'fulfillment', label: 'Order Fulfillment', icon: ShoppingBag },
+                { id: 'returns', label: 'Returns & Cancels', icon: RefreshCw },
+                { id: 'communication', label: 'Customer Messaging', icon: MessageCircle },
+              ]
+            },
+            {
+              category: 'Customer Inbox',
+              items: [
+                { id: 'request_inbox', label: 'All Requests', icon: Inbox, categoryFilter: 'ALL' },
+                { id: 'customizations', label: 'Customizations', icon: Layers, categoryFilter: 'CUSTOMIZATION' },
+                { id: 'fabrication', label: 'Fabrication', icon: Sparkles, categoryFilter: 'FABRICATION' },
+                { id: 'services', label: 'On-Site Services', icon: Wrench, categoryFilter: 'ON-SITE SERVICES' },
+              ]
+            },
+            {
+              category: 'Catalog & Stock',
+              items: [
+                { id: 'products', label: 'Products & Catalog', icon: Package },
+                { id: 'inventory', label: 'Stock & Inventory', icon: SlidersHorizontal },
+                { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
+                { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
+              ]
+            },
+            {
+              category: 'Staff & Admin',
+              items: [
+                { id: 'admin_messages', label: 'Admin Directives', icon: Mail, onSelect: () => setAdminSubTab('directives') },
+                { id: 'queries', label: 'Staff Inquiries', icon: MessageSquare, onSelect: () => setAdminSubTab('queries') },
+                { id: 'leave', label: 'Leave Applications', icon: Calendar, onSelect: () => loadLeaveData() },
+              ]
+            }
+          ];
+
+          const currentMobileItem: MobileNavItem = mobileNavSections
+            .flatMap(s => s.items)
+            .find(it => {
+              if (it.categoryFilter) {
+                return (activeTab === it.id || activeTab === 'request_inbox') && inboxCategoryFilter === it.categoryFilter;
+              }
+              return activeTab === it.id || (it.id === 'fulfillment' && activeTab === 'retail_orders');
+            }) || { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard };
+          const CurrentIcon = currentMobileItem.icon;
+
+          return (
+            <div className="md:hidden bg-[#FAF7F2]/95 backdrop-blur-xl border-b border-[#E2D7CB] px-3.5 py-2.5 flex items-center justify-between sticky top-0 z-40 shadow-xs">
+              {/* Left Brand Identity */}
+              <div className="flex items-center gap-2 min-w-0">
+                <img
+                  src="/retailsphere_logo.jpg"
+                  alt="RetailSphere AI"
+                  className="w-7 h-7 rounded-full object-cover border border-[#D0BEA9] shadow-xs shrink-0"
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-black text-[#2C2016] tracking-tight leading-none flex items-center gap-1">
+                    <span>RetailSphere</span>
+                    <span className="text-[#48A63E]">AI</span>
+                  </div>
+                  <div className="text-[9px] font-bold text-[#8F745D] uppercase tracking-wider font-mono">
+                    Retail Staff
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Luxury Custom Dropdown Trigger */}
+              <div className="relative" ref={mobileNavRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white hover:bg-[#FAF7F2] border border-[#D5C6B4] shadow-xs text-xs font-extrabold text-[#2C2016] transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#48A63E]/30 active:scale-95 relative z-[9995]"
+                >
+                  <div className="w-5 h-5 rounded-lg bg-[#48A63E]/15 text-[#48A63E] flex items-center justify-center shrink-0">
+                    <CurrentIcon className="w-3.5 h-3.5" />
+                  </div>
+                  <span className="truncate max-w-[130px] sm:max-w-[180px]">{currentMobileItem.label}</span>
+                  <ChevronDown className={`w-3.5 h-3.5 text-[#7A6C5E] transition-transform duration-200 shrink-0 ${isMobileNavOpen ? 'rotate-180 text-[#48A63E]' : ''}`} />
+                </button>
+
+                {/* Dimmed Backdrop Overlay to completely isolate dropdown and prevent background bleed-through */}
+                {isMobileNavOpen && (
+                  <div
+                    onClick={() => setIsMobileNavOpen(false)}
+                    className="fixed inset-0 bg-[#1A1410]/40 backdrop-blur-xs z-[9990] md:hidden"
+                  />
+                )}
+
+                {/* Floating Luxury Opaque Solid Menu */}
+                {isMobileNavOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-72 sm:w-80 max-h-[75vh] overflow-y-auto bg-[#FAF7F2] border-2 border-[#D5C6B4] rounded-2xl shadow-[0_25px_60px_rgba(44,32,22,0.35)] p-2.5 z-[9999] animate-in fade-in zoom-in-95 duration-150 space-y-2.5 scrollbar-thin scrollbar-thumb-[#D5C6B4]">
+                    {mobileNavSections.map((group, gIdx) => (
+                      <div key={group.category} className={gIdx > 0 ? 'pt-2 border-t border-[#E8DDCF]' : ''}>
+                        <div className="text-[10px] font-black tracking-widest text-[#8F745D] uppercase px-2.5 py-1 font-mono bg-[#F2E8DC]/80 rounded-lg mb-1">
+                          {group.category}
+                        </div>
+                        <div className="space-y-0.5 mt-0.5">
+                          {group.items.map((item) => {
+                            const IconComponent = item.icon;
+                            const isSelected = item.categoryFilter
+                              ? (activeTab === item.id || activeTab === 'request_inbox') && inboxCategoryFilter === item.categoryFilter
+                              : activeTab === item.id || (item.id === 'fulfillment' && activeTab === 'retail_orders');
+
+                            return (
+                              <button
+                                key={item.id + (item.categoryFilter || '')}
+                                type="button"
+                                onClick={() => {
+                                  if (item.categoryFilter) {
+                                    setActiveTab('request_inbox');
+                                    setInboxCategoryFilter(item.categoryFilter);
+                                  } else {
+                                    setActiveTab(item.id as any);
+                                  }
+                                  if (item.onSelect) item.onSelect();
+                                  refreshControlCenterData();
+                                  setIsMobileNavOpen(false);
+                                }}
+                                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-[#48A63E] text-white shadow-sm'
+                                    : 'text-[#2C2016] bg-white hover:bg-[#EAE0D4] border border-[#EBE1D4]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <IconComponent className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-[#48A63E]'}`} />
+                                  <span className="truncate">{item.label}</span>
+                                </div>
+                                {isSelected && (
+                                  <Check className="w-4 h-4 text-white shrink-0" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
 
         <main className={`space-y-6 w-full transition-all duration-300 ${
           isSidebarCollapsed 
@@ -1823,6 +2054,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <div>
                   <h1 className="text-2xl sm:text-3xl font-extrabold text-[#2C241D] tracking-tight">
                     {activeTab === 'dashboard' && 'Retail Operations & Customer Request Control Center'}
+                    {activeTab === 'orders' && 'Customer Store Orders Management'}
                     {activeTab === 'retail_orders' && 'Ready-Made Retail Orders Management'}
                     {activeTab === 'request_inbox' && 'Customer Request Inbox (Initial Reviews)'}
                     {activeTab === 'customizations' && 'Customization Requests (Retail Review Gateway)'}
@@ -1837,15 +2069,25 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     {activeTab === 'suppliers' && 'Supplier Network & Vendor Management'}
                     {activeTab === 'coupons' && 'Coupons & Customer Discounts Management'}
                     {activeTab === 'admin_messages' && 'Admin Directives & Messages'}
+                    {activeTab === 'leave' && 'Staff Leave & Absence Management'}
                   </h1>
                   <p className="text-xs text-[#6B5C4D] mt-1 font-medium">
                     {activeTab === 'dashboard' && 'Central operations dashboard for retail orders, customer requests, packing, dispatch, and returns.'}
+                    {activeTab === 'orders' && 'Comprehensive overview and status management of customer furniture and retail orders.'}
                     {activeTab === 'request_inbox' && 'Review incoming customer requests before forwarding approved requests to Production Staff.'}
                     {activeTab === 'customizations' && 'Initial customer-facing review for bespoke furniture builds.'}
                     {activeTab === 'fabrication' && 'Initial customer-facing review for timber cutting, shaping, and board fabrication.'}
                     {activeTab === 'services' && 'Coordinate on-site carpentry, upholstery, assembly, and repair visits.'}
                     {activeTab === 'fulfillment' && 'Quality packing, dispatch carrier tracking, and delivery status updates.'}
+                    {activeTab === 'returns' && 'Returns & order cancellations center with approval workflows.'}
                     {activeTab === 'communication' && 'Order and request-specific communication threads with customers.'}
+                    {activeTab === 'products' && 'Full inventory catalog, product specifications, and pricing controls.'}
+                    {activeTab === 'inventory' && 'Live warehouse stock monitoring, threshold alerts, and reorder triggers.'}
+                    {activeTab === 'suppliers' && 'Direct contact directory for wholesale material and wood vendors.'}
+                    {activeTab === 'coupons' && 'Promotional codes, customer allowances, and marketing discounts.'}
+                    {activeTab === 'admin_messages' && 'Official organizational broadcasts, notices, and operational directives.'}
+                    {activeTab === 'queries' && 'Submit technical inquiries, profile update requests, and supervisor tickets.'}
+                    {activeTab === 'leave' && 'Apply for time-off, view approval status, and track annual leave allowance.'}
                   </p>
                 </div>
 
@@ -2006,42 +2248,89 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <div className="space-y-6">
                   {/* TODAY OPERATIONAL OVERVIEW */}
                   <div>
-                    <h3 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider mb-3">Today's Operations Summary</h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-black uppercase text-[#7A6C5E] tracking-wider">Today's Operations Summary</h3>
+                      <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-full">
+                        ⚡ Click any metric to filter queue
+                      </span>
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-                      <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase">New Orders</div>
-                        <div className="text-2xl font-black text-[#2C241D]">{dashboardSummary?.today.new_orders || 0}</div>
-                        <div className="text-[10px] text-[#38A132] font-semibold">Ready-made purchases</div>
+                      <div
+                        onClick={() => { setActiveTab('fulfillment'); setOrdersSubTab('new_orders'); }}
+                        className="bg-white/90 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-[#48A63E] transition-all cursor-pointer space-y-1 group"
+                        title="View all newly placed ready-made store orders"
+                      >
+                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase flex items-center justify-between">
+                          <span>New Orders</span>
+                          <ArrowRight className="w-3 h-3 text-[#48A63E] opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        <div className="text-2xl font-black text-[#2C241D] group-hover:text-[#48A63E] transition-colors">{dashboardSummary?.today.new_orders || 0}</div>
+                        <div className="text-[10px] text-[#48A63E] font-semibold">Ready-made purchases ➔</div>
                       </div>
 
-                      <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase">Pending Reviews</div>
+                      <div
+                        onClick={() => { setActiveTab('request_inbox'); setInboxStatusFilter('PENDING'); }}
+                        className="bg-white/90 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-amber-500 transition-all cursor-pointer space-y-1 group"
+                        title="View pending customer requests needing review"
+                      >
+                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase flex items-center justify-between">
+                          <span>Pending Reviews</span>
+                          <ArrowRight className="w-3 h-3 text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                         <div className="text-2xl font-black text-amber-700">{dashboardSummary?.today.pending_reviews || 0}</div>
-                        <div className="text-[10px] text-amber-800 font-semibold">Awaiting staff review</div>
+                        <div className="text-[10px] text-amber-800 font-semibold">Awaiting review ➔</div>
                       </div>
 
-                      <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase">To Pack</div>
+                      <div
+                        onClick={() => { setActiveTab('fulfillment'); setOrdersSubTab('to_pack'); }}
+                        className="bg-white/90 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-indigo-500 transition-all cursor-pointer space-y-1 group"
+                        title="View orders waiting for 5-point quality packing checklist"
+                      >
+                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase flex items-center justify-between">
+                          <span>To Pack</span>
+                          <ArrowRight className="w-3 h-3 text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                         <div className="text-2xl font-black text-indigo-700">{dashboardSummary?.today.to_pack || 0}</div>
-                        <div className="text-[10px] text-indigo-800 font-semibold">Ready for 5-pt checklist</div>
+                        <div className="text-[10px] text-indigo-800 font-semibold">5-pt checklist queue ➔</div>
                       </div>
 
-                      <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase">Ready to Dispatch</div>
+                      <div
+                        onClick={() => { setActiveTab('fulfillment'); setOrdersSubTab('to_dispatch'); }}
+                        className="bg-white/90 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-blue-500 transition-all cursor-pointer space-y-1 group"
+                        title="View packed orders ready for vehicle/carrier assignment"
+                      >
+                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase flex items-center justify-between">
+                          <span>Ready to Dispatch</span>
+                          <ArrowRight className="w-3 h-3 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                         <div className="text-2xl font-black text-blue-700">{dashboardSummary?.today.ready_to_dispatch || 0}</div>
-                        <div className="text-[10px] text-blue-800 font-semibold">Packed & ready</div>
+                        <div className="text-[10px] text-blue-800 font-semibold">Packed & ready ➔</div>
                       </div>
 
-                      <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase">Out for Delivery</div>
+                      <div
+                        onClick={() => { setActiveTab('fulfillment'); setOrdersSubTab('out_for_delivery'); }}
+                        className="bg-white/90 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-purple-500 transition-all cursor-pointer space-y-1 group"
+                        title="View orders in active transit"
+                      >
+                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase flex items-center justify-between">
+                          <span>Out for Delivery</span>
+                          <ArrowRight className="w-3 h-3 text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                         <div className="text-2xl font-black text-purple-700">{dashboardSummary?.today.out_for_delivery || 0}</div>
-                        <div className="text-[10px] text-purple-800 font-semibold">In courier transit</div>
+                        <div className="text-[10px] text-purple-800 font-semibold">In transit ➔</div>
                       </div>
 
-                      <div className="bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase">Return Requests</div>
+                      <div
+                        onClick={() => setActiveTab('returns')}
+                        className="bg-white/90 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-rose-500 transition-all cursor-pointer space-y-1 group"
+                        title="View return and cancellation requests"
+                      >
+                        <div className="text-[10px] font-bold text-[#7A6C5E] uppercase flex items-center justify-between">
+                          <span>Return Requests</span>
+                          <ArrowRight className="w-3 h-3 text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
                         <div className="text-2xl font-black text-rose-700">{dashboardSummary?.today.return_requests || 0}</div>
-                        <div className="text-[10px] text-rose-800 font-semibold">Under review</div>
+                        <div className="text-[10px] text-rose-800 font-semibold">Review returns ➔</div>
                       </div>
                     </div>
                   </div>
@@ -2052,42 +2341,42 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <div
                         onClick={() => setActiveTab('customizations')}
-                        className="bg-gradient-to-br from-[#FAF7F2] to-[#F2ECE1] p-4 rounded-2xl border-2 border-[#E2D7CB] shadow-sm hover:border-[#38A132] transition-all cursor-pointer flex justify-between items-center"
+                        className="bg-gradient-to-br from-[#FAF7F2] to-[#F2ECE1] p-4 rounded-2xl border-2 border-[#E2D7CB] shadow-sm hover:border-[#48A63E] transition-all cursor-pointer flex justify-between items-center"
                       >
                         <div>
                           <span className="text-[10px] font-bold uppercase text-[#7A6C5E]">Customization Requests</span>
                           <div className="text-2xl font-black text-[#2C241D]">{dashboardSummary?.inbox_counts.new_customizations || 0} New</div>
-                          <span className="text-[11px] text-[#38A132] font-extrabold">Review & Approve →</span>
+                          <span className="text-[11px] text-[#48A63E] font-extrabold">Review & Approve →</span>
                         </div>
-                        <div className="w-10 h-10 rounded-xl bg-[#38A132]/10 text-[#38A132] flex items-center justify-center font-bold text-lg">
+                        <div className="w-10 h-10 rounded-xl bg-[#48A63E]/10 text-[#48A63E] flex items-center justify-center font-bold text-lg">
                           🛋️
                         </div>
                       </div>
 
                       <div
                         onClick={() => setActiveTab('fabrication')}
-                        className="bg-gradient-to-br from-[#FAF7F2] to-[#F2ECE1] p-4 rounded-2xl border-2 border-[#E2D7CB] shadow-sm hover:border-[#38A132] transition-all cursor-pointer flex justify-between items-center"
+                        className="bg-gradient-to-br from-[#FAF7F2] to-[#F2ECE1] p-4 rounded-2xl border-2 border-[#E2D7CB] shadow-sm hover:border-[#48A63E] transition-all cursor-pointer flex justify-between items-center"
                       >
                         <div>
                           <span className="text-[10px] font-bold uppercase text-[#7A6C5E]">Fabrication Requests</span>
                           <div className="text-2xl font-black text-[#2C241D]">{dashboardSummary?.inbox_counts.new_fabrication || 0} New</div>
-                          <span className="text-[11px] text-[#38A132] font-extrabold">Review & Approve →</span>
+                          <span className="text-[11px] text-[#48A63E] font-extrabold">Review & Approve →</span>
                         </div>
-                        <div className="w-10 h-10 rounded-xl bg-[#38A132]/10 text-[#38A132] flex items-center justify-center font-bold text-lg">
+                        <div className="w-10 h-10 rounded-xl bg-[#48A63E]/10 text-[#48A63E] flex items-center justify-center font-bold text-lg">
                           🪵
                         </div>
                       </div>
 
                       <div
                         onClick={() => setActiveTab('services')}
-                        className="bg-gradient-to-br from-[#FAF7F2] to-[#F2ECE1] p-4 rounded-2xl border-2 border-[#E2D7CB] shadow-sm hover:border-[#38A132] transition-all cursor-pointer flex justify-between items-center"
+                        className="bg-gradient-to-br from-[#FAF7F2] to-[#F2ECE1] p-4 rounded-2xl border-2 border-[#E2D7CB] shadow-sm hover:border-[#48A63E] transition-all cursor-pointer flex justify-between items-center"
                       >
                         <div>
                           <span className="text-[10px] font-bold uppercase text-[#7A6C5E]">On-Site Service Bookings</span>
                           <div className="text-2xl font-black text-[#2C241D]">{dashboardSummary?.inbox_counts.new_onsite_requests || 0} New</div>
-                          <span className="text-[11px] text-[#38A132] font-extrabold">Coordinate Visits →</span>
+                          <span className="text-[11px] text-[#48A63E] font-extrabold">Coordinate Visits →</span>
                         </div>
-                        <div className="w-10 h-10 rounded-xl bg-[#38A132]/10 text-[#38A132] flex items-center justify-center font-bold text-lg">
+                        <div className="w-10 h-10 rounded-xl bg-[#48A63E]/10 text-[#48A63E] flex items-center justify-center font-bold text-lg">
                           🔧
                         </div>
                       </div>
@@ -2114,7 +2403,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             <div key={idx} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] flex items-center justify-between gap-3 text-xs">
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <span className="font-mono font-extrabold text-[#38A132]">{item.id}</span>
+                                  <span className="font-mono font-extrabold text-[#48A63E]">{item.id}</span>
                                   <span className="font-extrabold text-[#2C241D]">{item.title}</span>
                                   <span className="px-2 py-0.2 rounded-full text-[9px] font-black uppercase bg-rose-100 text-rose-800 border border-rose-300">
                                     {item.priority}
@@ -2127,7 +2416,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   if (item.type === 'Retail Order') setActiveTab('fulfillment');
                                   else setActiveTab('request_inbox');
                                 }}
-                                className="px-3 py-1 bg-[#38A132] hover:bg-[#32922D] text-white text-[11px] font-extrabold rounded-xl shrink-0 cursor-pointer shadow-xs"
+                                className="px-3 py-1 bg-[#48A63E] hover:bg-[#3D9134] text-white text-[11px] font-extrabold rounded-xl shrink-0 cursor-pointer shadow-xs"
                               >
                                 {item.action}
                               </button>
@@ -2141,7 +2430,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="bg-white/80 p-5 rounded-3xl border border-[#E2D7CB] shadow-md space-y-4">
                       <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
                         <h4 className="text-xs font-black uppercase text-[#2C241D] tracking-wider flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-[#38A132]" />
+                          <Clock className="w-4 h-4 text-[#48A63E]" />
                           Recent Operations Activity Log
                         </h4>
                         <span className="text-[10px] text-[#7A6C5E] font-bold">Live Activity Stream</span>
@@ -2157,7 +2446,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 <span>{act.text}</span>
                                 <span className="text-[10px] font-mono text-[#7A6C5E]">{act.time ? new Date(act.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</span>
                               </div>
-                              <span className="text-[10px] font-bold text-[#38A132] bg-[#38A132]/10 px-2 py-0.2 rounded inline-block">
+                              <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.2 rounded inline-block">
                                 {act.category}
                               </span>
                             </div>
@@ -2286,7 +2575,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           onClick={() => setInboxStatusFilter(st.id)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                             inboxStatusFilter === st.id
-                              ? 'bg-[#38A132] text-white shadow-sm'
+                              ? 'bg-[#48A63E] text-white shadow-sm'
                               : 'bg-[#FAF7F2] text-[#6E6458] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
                           }`}
                         >
@@ -2320,7 +2609,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         ) : (
                           requestInboxItems.map((item) => (
                             <tr key={item.request_id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                              <td className="py-3.5 px-3 font-mono font-extrabold text-[#38A132] whitespace-nowrap">
+                              <td className="py-3.5 px-3 font-mono font-extrabold text-[#48A63E] whitespace-nowrap">
                                 <div>{item.request_id}</div>
                                 <span className="text-[10px] text-[#7A6C5E] font-extrabold bg-[#FAF7F2] px-2 py-0.5 rounded border border-[#E2D7CB] inline-block mt-0.5">
                                   {item.type}
@@ -2338,10 +2627,10 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               <td className="py-3.5 px-3 whitespace-nowrap">
                                 <button
                                   onClick={() => setSelectedReviewItem(item)}
-                                  className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#38A132] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
+                                  className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#48A63E] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
                                   title="View Detailed Specifications & Drawings"
                                 >
-                                  <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                  <Eye className="w-3.5 h-3.5 text-[#48A63E]" />
                                   <span>View Spec</span>
                                 </button>
                               </td>
@@ -2367,7 +2656,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 ) : (
                                   <button
                                     onClick={() => setSelectedReviewItem(item)}
-                                    className="px-2.5 py-1 bg-[#38A132] hover:bg-[#32922D] text-white text-[11px] font-extrabold rounded-xl shadow-xs cursor-pointer"
+                                    className="px-2.5 py-1 bg-[#48A63E] hover:bg-[#3D9134] text-white text-[11px] font-extrabold rounded-xl shadow-xs cursor-pointer"
                                   >
                                     Review Request
                                   </button>
@@ -2391,7 +2680,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
                       <div className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider">Total Readymade Orders</div>
                       <div className="text-2xl font-black text-[#2C241D] mt-1">{orderList.length}</div>
-                      <div className="text-[10px] text-[#38A132] font-bold mt-0.5">Live Store Orders</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-0.5">Live Store Orders</div>
                     </div>
 
                     <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
@@ -2425,7 +2714,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       onClick={() => setFulfillmentTypeTab('readymade')}
                       className={`px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
                         fulfillmentTypeTab === 'readymade'
-                          ? 'bg-[#38A132] text-white shadow-md'
+                          ? 'bg-[#48A63E] text-white shadow-md'
                           : 'bg-white text-[#6E6458] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
                       }`}
                     >
@@ -2436,7 +2725,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       onClick={() => setFulfillmentTypeTab('fabrication')}
                       className={`px-4 py-2 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
                         fulfillmentTypeTab === 'fabrication'
-                          ? 'bg-[#38A132] text-white shadow-md'
+                          ? 'bg-[#48A63E] text-white shadow-md'
                           : 'bg-white text-[#6E6458] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
                       }`}
                     >
@@ -2466,7 +2755,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 onClick={() => setOrdersSubTab(st.id as any)}
                                 className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer shrink-0 ${
                                   ordersSubTab === st.id
-                                    ? 'bg-[#38A132] text-white shadow-xs'
+                                    ? 'bg-[#48A63E] text-white shadow-xs'
                                     : 'bg-[#FAF7F2] text-[#6E6458] border border-[#E2D7CB] hover:bg-[#F2ECE1]'
                                 }`}
                               >
@@ -2483,7 +2772,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               placeholder="Search order ID or customer..."
                               value={searchQuery}
                               onChange={(e) => setSearchQuery(e.target.value)}
-                              className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#38A132]"
+                              className="w-full pl-9 pr-3 py-1.5 rounded-xl text-xs font-bold bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#48A63E]"
                             />
                           </div>
                         </div>
@@ -2543,7 +2832,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     <tr key={ord.orderId} className="hover:bg-[#FAF7F2]/60 transition-colors">
                                       {/* Order ID & Date */}
                                       <td className="py-4 px-4 whitespace-nowrap">
-                                        <span className="font-mono font-black text-xs text-[#38A132]">#{ord.orderId}</span>
+                                        <span className="font-mono font-black text-xs text-[#48A63E]">#{ord.orderId}</span>
                                         <div className="text-[10px] text-[#7A6C5E] font-medium mt-0.5">
                                           {formatPaymentTime(ord)}
                                         </div>
@@ -2597,14 +2886,24 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                                       {/* View Spec */}
                                       <td className="py-4 px-4 whitespace-nowrap">
-                                        <button
-                                          onClick={() => setSelectedOrderSpecModal(ord)}
-                                          className="px-2.5 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#38A132] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1.5 cursor-pointer shadow-2xs transition-all"
-                                          title="View Readymade Order Specs & Items Breakdown"
-                                        >
-                                          <Eye className="w-3.5 h-3.5 text-[#38A132]" />
-                                          <span>View Spec</span>
-                                        </button>
+                                        <div className="flex items-center gap-1.5">
+                                          <button
+                                            onClick={() => setSelectedOrderSpecModal(ord)}
+                                            className="px-2 py-1 bg-[#FAF7F2] hover:bg-[#F2ECE1] text-[#48A63E] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1 cursor-pointer shadow-2xs transition-all"
+                                            title="View Readymade Order Specs & Items Breakdown"
+                                          >
+                                            <Eye className="w-3.5 h-3.5 text-[#48A63E]" />
+                                            <span>Spec</span>
+                                          </button>
+                                          <button
+                                            onClick={() => setShippingSlipModalOrder(ord)}
+                                            className="px-2 py-1 bg-white hover:bg-[#FAF7F2] text-[#7A6C5E] hover:text-[#2C241D] text-[11px] font-extrabold rounded-xl border border-[#E2D7CB] flex items-center gap-1 cursor-pointer shadow-2xs transition-all"
+                                            title="Print Official Packing Slip & Box Shipping Label"
+                                          >
+                                            <Printer className="w-3.5 h-3.5 text-[#48A63E]" />
+                                            <span>Slip</span>
+                                          </button>
+                                        </div>
                                       </td>
 
                                       {/* Pack Column */}
@@ -2630,7 +2929,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                               }`}
                                               title={canPack ? "5-Point Quality Packing Checklist" : "Packing completed or not applicable"}
                                             >
-                                              <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#38A132]' : 'text-stone-400'}`} />
+                                              <CheckCircle2 className={`w-3.5 h-3.5 ${canPack ? 'text-[#48A63E]' : 'text-stone-400'}`} />
                                               <span>Pack</span>
                                             </button>
                                           );
@@ -2723,7 +3022,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 return (
                                   <tr key={job.fulfillment_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
                                     <td className="py-4 px-4 whitespace-nowrap">
-                                      <div className="font-mono font-black text-xs text-[#38A132]">FAB-#{job.fabrication_id}</div>
+                                      <div className="font-mono font-black text-xs text-[#48A63E]">FAB-#{job.fabrication_id}</div>
                                       <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-extrabold mt-1 border ${
                                         isPickup ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-blue-100 text-blue-800 border-blue-300'
                                       }`}>
@@ -2737,7 +3036,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     <td className="py-4 px-4">
                                       <div className="font-extrabold text-[#2C241D] text-xs">{job.service_type}</div>
                                       <div className="text-[11px] text-[#7A6C5E] font-medium">{job.customer_name}</div>
-                                      {job.customer_phone && <div className="text-[10px] text-[#38A132] font-mono">{job.customer_phone}</div>}
+                                      {job.customer_phone && <div className="text-[10px] text-[#48A63E] font-mono">{job.customer_phone}</div>}
                                     </td>
 
                                     <td className="py-4 px-4 max-w-xs">
@@ -2755,7 +3054,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                     <td className="py-4 px-4 whitespace-nowrap">
                                       {job.carrier_name ? (
                                         <div>
-                                          <span className="font-extrabold text-[#38A132] text-xs block">{job.carrier_name}</span>
+                                          <span className="font-extrabold text-[#48A63E] text-xs block">{job.carrier_name}</span>
                                           {job.driver_name && <span className="text-[10px] text-[#7A6C5E]">Driver: {job.driver_name}</span>}
                                         </div>
                                       ) : (
@@ -2783,7 +3082,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                       ) : (
                                         <button
                                           onClick={() => handleOpenDispatchModalForFabrication(job)}
-                                          className="px-3 py-1.5 bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                                          className="px-3 py-1.5 bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1.5"
                                         >
                                           <Truck className="w-3.5 h-3.5" />
                                           <span>Dispatch</span>
@@ -2811,7 +3110,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     /* Empty State Card when no return requests exist */
                     <div className="bg-white p-12 rounded-3xl border border-[#E2D7CB] shadow-md text-center space-y-4">
                       <div className="w-16 h-16 rounded-3xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-amber-700 shadow-xs">
-                        <RotateCcw className="w-8 h-8 text-[#38A132]" />
+                        <RotateCcw className="w-8 h-8 text-[#48A63E]" />
                       </div>
                       <div className="max-w-md mx-auto space-y-1">
                         <h4 className="text-base font-black text-[#2C241D]">No Active Return Requests or Cancellations</h4>
@@ -2842,7 +3141,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             {returnRequestsList.map((ret: any) => (
                               <tr key={ret.return_id || ret.id} className="hover:bg-[#FAF7F2]/60 transition-colors">
                                 <td className="py-4 px-4 whitespace-nowrap">
-                                  <span className="font-mono font-black text-xs text-[#38A132]">#RET-{ret.return_id || ret.id}</span>
+                                  <span className="font-mono font-black text-xs text-[#48A63E]">#RET-{ret.return_id || ret.id}</span>
                                   <div className="text-[10px] text-[#7A6C5E] font-medium mt-0.5">
                                     Order #{ret.order_id || ret.orderId}
                                   </div>
@@ -2870,7 +3169,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                       setSuccessNotice(`Action logged for Return #RET-${ret.return_id || ret.id}`);
                                       setTimeout(() => setSuccessNotice(null), 4000);
                                     }}
-                                    className="px-3 py-1.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
+                                    className="px-3 py-1.5 bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer"
                                   >
                                     Review & Process
                                   </button>
@@ -2885,11 +3184,283 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* SECTION 9: CUSTOMER COMMUNICATION */}
+              {/* SECTION 9: CUSTOMER COMMUNICATION HUB */}
               {activeTab === 'communication' && (
-                <div className="bg-white p-6 rounded-3xl border border-[#E2D7CB] shadow-xl space-y-4">
-                  <div className="p-12 text-center text-xs font-semibold text-[#7A6C5E] bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB]">
-                    Select any order or request from the Request Inbox to open its direct message thread.
+                <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-xl overflow-hidden animate-fadeIn">
+                  {/* Communication Center Header */}
+                  <div className="p-5 bg-gradient-to-r from-[#FAF7F2] to-[#F2ECE1] border-b border-[#E2D7CB] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
+                        <MessageCircle className="w-5 h-5 text-[#48A63E]" />
+                        <span>Customer Communication & Live Inquiries</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
+                        Direct conversation threads for bespoke customization quotes, fabrication details, and store orders.
+                      </p>
+                    </div>
+
+                    {/* Filter Category Chips */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto">
+                      {[
+                        { id: 'ALL', label: 'All Threads' },
+                        { id: 'CUSTOMIZATION', label: 'Custom' },
+                        { id: 'FABRICATION', label: 'Fabrication' },
+                        { id: 'STORE_ORDER', label: 'Store Orders' }
+                      ].map(f => (
+                        <button
+                          key={f.id}
+                          onClick={() => setActiveCommFilter(f.id as any)}
+                          className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                            activeCommFilter === f.id
+                              ? 'bg-[#48A63E] text-white shadow-xs'
+                              : 'bg-white border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#FAF7F2]'
+                          }`}
+                        >
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[560px]">
+                    {/* Left Column: Conversation List */}
+                    <div className="lg:col-span-4 border-r border-[#E2D7CB] bg-[#FAF8F5]/60 flex flex-col">
+                      <div className="p-3 border-b border-[#E2D7CB]">
+                        <div className="relative">
+                          <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Search by customer or title..."
+                            value={commSearchTerm}
+                            onChange={(e) => setCommSearchTerm(e.target.value)}
+                            className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-medium"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex-1 overflow-y-auto max-h-[500px] divide-y divide-[#EFE7DE]">
+                        {(() => {
+                          const customItems = requestInboxItems.map(item => ({
+                            type: item.type,
+                            id: item.numeric_id || parseInt(String(item.request_id).replace(/\D/g, '')) || 0,
+                            title: item.title,
+                            customer: item.customer_name,
+                            email: item.customer_email,
+                            date: item.date || 'Recent',
+                            status: item.review_status || item.order_status || 'Pending'
+                          }));
+
+                          const orderItems = orderList.slice(0, 20).map((ord: RetailOrder) => ({
+                            type: 'STORE_ORDER',
+                            id: Number(ord.orderId) || 0,
+                            title: `Store Order #${ord.orderId} (${ord.items?.[0]?.name || 'Retail Item'})`,
+                            customer: ord.customerName || ord.user_name || 'Store Customer',
+                            email: ord.customerEmail || ord.email,
+                            date: ord.orderDate ? new Date(ord.orderDate).toLocaleDateString() : 'Recent',
+                            status: ord.orderStatus || 'Order Placed'
+                          }));
+
+                          const combined = [...customItems, ...orderItems].filter(item => {
+                            if (activeCommFilter === 'CUSTOMIZATION' && item.type !== 'CUSTOMIZATION') return false;
+                            if (activeCommFilter === 'FABRICATION' && item.type !== 'FABRICATION') return false;
+                            if (activeCommFilter === 'STORE_ORDER' && item.type !== 'STORE_ORDER') return false;
+                            if (commSearchTerm.trim()) {
+                              const q = commSearchTerm.toLowerCase();
+                              return item.title.toLowerCase().includes(q) || item.customer.toLowerCase().includes(q) || String(item.id).includes(q);
+                            }
+                            return true;
+                          });
+
+                          if (combined.length === 0) {
+                            return (
+                              <div className="p-8 text-center text-xs text-[#7A6C5E] font-medium">
+                                No conversations found matching your filter.
+                              </div>
+                            );
+                          }
+
+                          return combined.map((conv) => {
+                            const isSelected = universalChatRequest?.id === conv.id && universalChatRequest?.type === conv.type;
+                            return (
+                              <div
+                                key={`${conv.type}-${conv.id}`}
+                                onClick={async () => {
+                                  setUniversalChatRequest({
+                                    type: conv.type,
+                                    id: conv.id,
+                                    title: conv.title,
+                                    customer: conv.customer
+                                  });
+                                  try {
+                                    const msgs = await fetchRequestMessagesAPI(conv.type, conv.id);
+                                    setUniversalChatMessages(msgs || []);
+                                  } catch (e) {
+                                    console.error('Error fetching messages:', e);
+                                  }
+                                }}
+                                className={`p-3 cursor-pointer transition-colors flex items-start justify-between gap-2 ${
+                                  isSelected ? 'bg-white border-l-4 border-l-[#48A63E] shadow-2xs' : 'hover:bg-white/80'
+                                }`}
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-[9px] font-mono font-black text-[#48A63E] bg-[#48A63E]/10 px-1.5 py-0.5 rounded">
+                                      #{conv.id}
+                                    </span>
+                                    <h4 className="text-xs font-bold text-[#2C241D] truncate">{conv.customer}</h4>
+                                  </div>
+                                  <p className="text-[11px] text-[#6E6458] font-medium truncate mt-0.5">{conv.title}</p>
+                                  <span className="text-[10px] text-[#9E9082] font-mono mt-1 block">{conv.date}</span>
+                                </div>
+                                <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[#5C4E42] shrink-0">
+                                  {conv.status}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                    </div>
+
+                    {/* Right Column: Chat Box & Canned Replies */}
+                    <div className="lg:col-span-8 flex flex-col bg-white">
+                      {universalChatRequest ? (
+                        <>
+                          {/* Chat Active Header */}
+                          <div className="p-4 border-b border-[#E2D7CB] bg-[#FAF8F5]/40 flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 rounded-full bg-[#48A63E]/15 text-[#48A63E] font-black text-xs flex items-center justify-center">
+                                {universalChatRequest.customer.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div>
+                                <h4 className="text-xs font-extrabold text-[#2C241D] flex items-center gap-1.5">
+                                  <span>{universalChatRequest.customer}</span>
+                                  <span className="text-[10px] font-mono text-[#48A63E]">({universalChatRequest.type} #{universalChatRequest.id})</span>
+                                </h4>
+                                <p className="text-[11px] text-[#7A6C5E] font-medium truncate max-w-md">
+                                  {universalChatRequest.title}
+                                </p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Live Thread
+                            </span>
+                          </div>
+
+                          {/* Chat Messages List */}
+                          <div className="flex-1 p-4 overflow-y-auto max-h-[360px] space-y-3 bg-[#FAF8F5]/30">
+                            {universalChatMessages.length === 0 ? (
+                              <div className="py-12 text-center text-xs text-[#7A6C5E] font-medium">
+                                <MessageCircle className="w-8 h-8 text-[#C8BCAC] mx-auto mb-2" />
+                                No messages exchanged yet with {universalChatRequest.customer}. Start the conversation below!
+                              </div>
+                            ) : (
+                              universalChatMessages.map((msg, index) => {
+                                const isStaff = msg.sender_role === 'RETAIL_STAFF' || msg.sender_role === 'PRODUCTION_STAFF' || msg.sender_role === 'STAFF';
+                                return (
+                                  <div
+                                    key={index}
+                                    className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'}`}
+                                  >
+                                    <div
+                                      className={`max-w-[75%] p-3 rounded-2xl text-xs font-medium ${
+                                        isStaff
+                                          ? 'bg-[#48A63E] text-white rounded-br-2xs shadow-xs'
+                                          : 'bg-white border border-[#E2D7CB] text-[#2C241D] rounded-bl-2xs shadow-xs'
+                                      }`}
+                                    >
+                                      <div className={`text-[9px] font-bold mb-0.5 ${isStaff ? 'text-white/80' : 'text-[#7A6C5E]'}`}>
+                                        {msg.sender_name} ({msg.sender_role || 'Customer'})
+                                      </div>
+                                      <p className="leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                                      <div className={`text-[8px] mt-1 text-right font-mono ${isStaff ? 'text-white/70' : 'text-[#9E9082]'}`}>
+                                        {msg.created_at ? new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+
+                          {/* Canned Responses Quick Bar */}
+                          <div className="px-4 py-2 bg-[#F3EDE3]/70 border-t border-[#E2D7CB] overflow-x-auto flex items-center gap-1.5">
+                            <span className="text-[10px] font-extrabold uppercase text-[#7A6C5E] shrink-0">
+                              ⚡ Quick Replies:
+                            </span>
+                            {[
+                              'Could you please share your room dimensions & wall clearance?',
+                              'Our artisan team is reviewing your material & finish choices.',
+                              'Your piece is packed with protective foam and ready for dispatch.',
+                              'Quotation updated. Please review in your customer portal.',
+                              'Our on-site carpentry team will contact you for slot confirmation.'
+                            ].map((quick, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setUniversalNewMsg(quick)}
+                                className="px-2.5 py-1 rounded-lg bg-white hover:bg-[#FAF7F2] border border-[#E2D7CB] text-[10px] font-bold text-[#2C241D] whitespace-nowrap cursor-pointer shadow-2xs hover:border-[#48A63E] transition-all"
+                              >
+                                {quick.slice(0, 32)}...
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Message Input & Send */}
+                          <form
+                            onSubmit={async (e) => {
+                              e.preventDefault();
+                              if (!universalChatRequest || !universalNewMsg.trim()) return;
+                              const text = universalNewMsg.trim();
+                              setUniversalNewMsg('');
+                              try {
+                                const ok = await sendRequestMessageAPI(
+                                  universalChatRequest.type,
+                                  universalChatRequest.id,
+                                  text,
+                                  currentUser.name || 'Retail Staff',
+                                  'RETAIL_STAFF'
+                                );
+                                if (ok) {
+                                  const updated = await fetchRequestMessagesAPI(universalChatRequest.type, universalChatRequest.id);
+                                  setUniversalChatMessages(updated || []);
+                                }
+                              } catch (err) {
+                                console.error('Error sending message:', err);
+                              }
+                            }}
+                            className="p-3 border-t border-[#E2D7CB] flex items-center gap-2"
+                          >
+                            <input
+                              type="text"
+                              placeholder={`Type a message to ${universalChatRequest.customer}...`}
+                              value={universalNewMsg}
+                              onChange={(e) => setUniversalNewMsg(e.target.value)}
+                              className="flex-1 px-4 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl text-xs font-semibold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                            />
+                            <button
+                              type="submit"
+                              disabled={!universalNewMsg.trim()}
+                              className="px-5 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-black rounded-2xl shadow-sm disabled:opacity-50 cursor-pointer flex items-center gap-1.5 transition-all"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>Send</span>
+                            </button>
+                          </form>
+                        </>
+                      ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-3 text-[#7A6C5E]">
+                          <div className="w-14 h-14 rounded-2xl bg-[#48A63E]/10 text-[#48A63E] flex items-center justify-center">
+                            <MessageCircle className="w-7 h-7" />
+                          </div>
+                          <h4 className="text-sm font-extrabold text-[#2C241D]">Select a Customer Conversation</h4>
+                          <p className="text-xs text-[#7A6C5E] max-w-sm font-medium">
+                            Choose any request or order thread from the left sidebar to start live chatting and providing status updates.
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -2903,7 +3474,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       onClick={() => setAdminSubTab('directives')}
                       className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                         adminSubTab === 'directives'
-                          ? 'bg-[#38A132] text-white shadow-sm'
+                          ? 'bg-[#48A63E] text-white shadow-sm'
                           : 'text-[#5C4E42] hover:bg-[#EAE0D4]/60'
                       }`}
                     >
@@ -2922,7 +3493,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       onClick={() => setAdminSubTab('queries')}
                       className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-2 cursor-pointer ${
                         adminSubTab === 'queries'
-                          ? 'bg-[#38A132] text-white shadow-sm'
+                          ? 'bg-[#48A63E] text-white shadow-sm'
                           : 'text-[#5C4E42] hover:bg-[#EAE0D4]/60'
                       }`}
                     >
@@ -3070,7 +3641,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="bg-white p-6 rounded-3xl border border-[#E2D7CB] shadow-md space-y-4">
                         <div className="border-b border-[#EFE7DE] pb-3">
                           <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
-                            <MessageSquare className="w-4 h-4 text-[#38A132]" />
+                            <MessageSquare className="w-4 h-4 text-[#48A63E]" />
                             Submit Query / Request to System Admin
                           </h3>
                           <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
@@ -3085,7 +3656,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               <select
                                 value={newQueryCategory}
                                 onChange={(e) => setNewQueryCategory(e.target.value as any)}
-                                className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                                className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                               >
                                 <option value="Email Change Request">Email Change Request</option>
                                 <option value="Role & Access Permission">Role & Access Permission</option>
@@ -3100,7 +3671,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                 placeholder="e.g., Requesting email update to work address"
                                 value={newQuerySubject}
                                 onChange={(e) => setNewQuerySubject(e.target.value)}
-                                className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                                className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                                 required
                               />
                             </div>
@@ -3113,14 +3684,14 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               placeholder="Explain your query or request details for the System Admin..."
                               value={newQueryMessage}
                               onChange={(e) => setNewQueryMessage(e.target.value)}
-                              className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-semibold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                              className="w-full px-3 py-2 text-xs rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] font-semibold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                               required
                             />
                           </div>
 
                           <button
                             type="submit"
-                            className="px-5 py-2.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer flex items-center gap-2"
+                            className="px-5 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold rounded-xl shadow-xs cursor-pointer flex items-center gap-2"
                           >
                             <Send className="w-3.5 h-3.5" />
                             <span>Submit Request to Admin</span>
@@ -3467,8 +4038,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   {/* Category & Price Filters & Search Bar at the Top */}
                   <div className="space-y-3 border-b border-[#EFE7DE] pb-4">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                      {/* Category Filter */}
-                      <div className="flex items-center gap-2 w-full lg:w-auto overflow-x-auto">
+                      {/* Category & Stock Filter */}
+                      <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs font-bold text-[#7A6C5E] mr-1 flex items-center gap-1.5 flex-shrink-0">
                           <SlidersHorizontal className="w-3.5 h-3.5 text-[#48A63E]" /> Category:
                         </span>
@@ -3482,6 +4053,27 @@ export const RetailStaffDashboardPage: React.FC = () => {
                               }`}
                           >
                             {cat}
+                          </button>
+                        ))}
+
+                        <div className="h-4 w-px bg-[#E2D7CB] mx-1 hidden sm:block" />
+
+                        {/* Stock Status Pills */}
+                        {[
+                          { id: 'all', label: 'All Stock' },
+                          { id: 'low_stock', label: '⚠️ Low Stock (≤5)' },
+                          { id: 'out_of_stock', label: '❌ Out of Stock' },
+                          { id: 'in_stock', label: '✓ Healthy Stock' }
+                        ].map((st) => (
+                          <button
+                            key={st.id}
+                            onClick={() => setStockStatusFilter(st.id as any)}
+                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex-shrink-0 ${stockStatusFilter === st.id
+                                ? 'bg-[#2C241D] text-white shadow-xs'
+                                : 'bg-white border border-[#E2D7CB] text-[#6B5C4D] hover:bg-[#F2ECE1]'
+                              }`}
+                          >
+                            {st.label}
                           </button>
                         ))}
                       </div>
@@ -3500,19 +4092,65 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <h2 className="text-base font-extrabold text-[#2C241D]">
-                    Live Inventory Stock Monitoring ({filteredProducts.length} Items Displayed)
-                  </h2>
+                  {/* Low Stock Urgent Warning Banner */}
+                  {filteredProducts.filter(p => p.stockCount <= 5).length > 0 && (
+                    <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fadeIn">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-amber-200/80 text-amber-900 flex items-center justify-center shrink-0">
+                          <AlertTriangle className="w-5 h-5 text-amber-800" />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-extrabold text-amber-950">
+                            Attention: {filteredProducts.filter(p => p.stockCount <= 5).length} Items with Low or Zero Stock Levels
+                          </h4>
+                          <p className="text-[11px] text-amber-800 font-medium mt-0.5">
+                            Critical inventory thresholds reached. Initiate vendor purchase orders to prevent fulfillment delays.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab('suppliers')}
+                        className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white font-extrabold text-xs rounded-xl shadow-xs shrink-0 cursor-pointer flex items-center gap-1.5 transition-all"
+                      >
+                        <Briefcase className="w-3.5 h-3.5" />
+                        <span>Request Supplier Restock ➔</span>
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-base font-extrabold text-[#2C241D]">
+                      Live Inventory Stock Monitoring ({
+                        filteredProducts.filter(p => {
+                          if (stockStatusFilter === 'low_stock') return p.stockCount <= 5 && p.stockCount > 0;
+                          if (stockStatusFilter === 'out_of_stock') return p.stockCount === 0;
+                          if (stockStatusFilter === 'in_stock') return p.stockCount > 5;
+                          return true;
+                        }).length
+                      } Items Displayed)
+                    </h2>
+                  </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {filteredProducts.length === 0 ? (
-                      <div className="col-span-full py-12 text-center text-[#7A6C5E]">
-                        <Package className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
-                        <p className="font-extrabold text-sm text-[#2C241D]">No Inventory Products Found</p>
-                        <p className="text-xs text-[#7A6C5E] mt-1">No stock items matched your search query or category filter.</p>
-                      </div>
-                    ) : (
-                      filteredProducts.map((prod) => (
+                    {(() => {
+                      const displayed = filteredProducts.filter(p => {
+                        if (stockStatusFilter === 'low_stock') return p.stockCount <= 5 && p.stockCount > 0;
+                        if (stockStatusFilter === 'out_of_stock') return p.stockCount === 0;
+                        if (stockStatusFilter === 'in_stock') return p.stockCount > 5;
+                        return true;
+                      });
+
+                      if (displayed.length === 0) {
+                        return (
+                          <div className="col-span-full py-12 text-center text-[#7A6C5E]">
+                            <Package className="w-8 h-8 text-[#9E9082] mx-auto mb-2 opacity-50" />
+                            <p className="font-extrabold text-sm text-[#2C241D]">No Inventory Products Found</p>
+                            <p className="text-xs text-[#7A6C5E] mt-1">No stock items matched your search query or selected stock filter.</p>
+                          </div>
+                        );
+                      }
+
+                      return displayed.map((prod) => (
                         <div key={prod.id} className="p-4 rounded-2xl border border-[#E2D7CB] bg-[#F9F6F0] space-y-3 shadow-xs">
                           <div className="flex items-center justify-between">
                             <span className="text-[10px] font-mono font-bold text-[#7A6C5E]">{prod.sku}</span>
@@ -3560,8 +4198,8 @@ export const RetailStaffDashboardPage: React.FC = () => {
                             </div>
                           </div>
                         </div>
-                      ))
-                    )}
+                      ));
+                    })()}
                   </div>
                 </div>
               )}
@@ -3586,7 +4224,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                           await handleAutoGenerateAllCompletionStatuses();
                           await refreshFulfillmentData();
                         }}
-                        className="px-3.5 py-2 bg-[#48A63E] hover:bg-[#38A132] text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
+                        className="px-3.5 py-2 bg-[#48A63E] hover:bg-[#48A63E] text-white rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm shrink-0 cursor-pointer"
                         title="Calculate and update status for all customer orders logically"
                       >
                         <span>⚡ Refresh & Auto-Sync All Statuses</span>
@@ -3838,7 +4476,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   </td>
                                   <td className="py-4 px-4 min-w-[200px]">
                                     <div className="space-y-1">
-                                      <span className="px-2.5 py-1 rounded-lg border bg-[#FAF7F2] border-[#E2D7CB] text-[#38A132] text-[11px] font-black uppercase inline-block">
+                                      <span className="px-2.5 py-1 rounded-lg border bg-[#FAF7F2] border-[#E2D7CB] text-[#48A63E] text-[11px] font-black uppercase inline-block">
                                         {displayStatus}
                                       </span>
                                       <div className="w-full bg-[#EFE7DE] rounded-full h-1.5 overflow-hidden">
@@ -3907,7 +4545,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                       className="px-2.5 py-1.5 bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs rounded-xl transition-colors cursor-pointer inline-flex items-center gap-1 shadow-2xs"
                                       title="Chat with customer regarding this order"
                                     >
-                                      <MessageSquare className="w-3.5 h-3.5 text-[#38A132]" />
+                                      <MessageSquare className="w-3.5 h-3.5 text-[#48A63E]" />
                                       <span>Chat</span>
                                     </button>
 
@@ -4516,7 +5154,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                                   onClick={() => setAllotmentCurrentPage(pageNum)}
                                   className={`w-7 h-7 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
                                     validAllotmentPage === pageNum
-                                      ? 'bg-[#38A132] text-white shadow-xs'
+                                      ? 'bg-[#48A63E] text-white shadow-xs'
                                       : 'bg-white text-[#5C4E42] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
                                   }`}
                                 >
@@ -4537,6 +5175,234 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       </div>
                     );
                   })()}
+                </div>
+              )}
+
+              {/* TAB 7: STAFF LEAVE & ABSENCE APPLICATIONS */}
+              {activeTab === 'leave' && (
+                <div className="space-y-6 pt-2 animate-fadeIn">
+                  {/* Top Leave KPI Summary Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Total Requests</span>
+                        <Calendar className="w-4 h-4 text-[#48A63E]" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-[#2C241D]">{leaveApplications.length}</div>
+                      <p className="text-[11px] font-semibold text-[#8C7C6D]">Submitted applications</p>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Approved</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-emerald-700">
+                        {leaveApplications.filter(l => l.status === 'Approved').length}
+                      </div>
+                      <p className="text-[11px] font-semibold text-emerald-600">Granted leaves</p>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Pending Review</span>
+                        <Clock className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-amber-700">
+                        {leaveApplications.filter(l => l.status === 'Pending').length}
+                      </div>
+                      <p className="text-[11px] font-semibold text-amber-600">Awaiting supervisor decision</p>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md space-y-1">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Annual Allowance</span>
+                        <ShieldCheck className="w-4 h-4 text-blue-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-blue-700">
+                        {Math.max(0, 18 - leaveApplications.filter(l => l.status === 'Approved').reduce((sum, l) => sum + (l.duration_days || 1), 0))} / 18 Days
+                      </div>
+                      <p className="text-[11px] font-semibold text-blue-600">Paid time off balance</p>
+                    </div>
+                  </div>
+
+                  {/* Leave Application Form & Past History Feed */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Form Card */}
+                    <div className="bg-[#FAF7F2] p-5 rounded-3xl border-2 border-[#E2D7CB] shadow-sm space-y-4">
+                      <div className="flex items-center gap-2 border-b border-[#E2D7CB] pb-3">
+                        <Calendar className="w-5 h-5 text-[#48A63E]" />
+                        <h4 className="font-extrabold text-sm text-[#2C241D]">Apply for Absence / Leave</h4>
+                      </div>
+
+                      <form onSubmit={handleSubmitLeave} className="space-y-3.5 text-xs">
+                        <div>
+                          <label className="block font-extrabold text-[#2C241D] mb-1">Leave Category</label>
+                          <select
+                            value={leaveType}
+                            onChange={(e) => setLeaveType(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-extrabold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                          >
+                            <option value="Casual Leave">Casual Leave (CL)</option>
+                            <option value="Medical Leave">Medical / Sick Leave (ML)</option>
+                            <option value="Earned Leave">Earned Vacation Leave (EL)</option>
+                            <option value="Special Duty Off">Special Duty Off</option>
+                            <option value="Emergency Personal Leave">Emergency Personal Leave</option>
+                          </select>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block font-extrabold text-[#2C241D] mb-1">Start Date</label>
+                            <input
+                              type="date"
+                              value={leaveStartDate}
+                              onChange={(e) => setLeaveStartDate(e.target.value)}
+                              className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="block font-extrabold text-[#2C241D] mb-1">End Date</label>
+                            <input
+                              type="date"
+                              value={leaveEndDate}
+                              onChange={(e) => setLeaveEndDate(e.target.value)}
+                              className="w-full px-3 py-2 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        {leaveStartDate && leaveEndDate && (
+                          <div className="px-3 py-2 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-[11px] font-bold flex items-center justify-between">
+                            <span>Calculated Duration:</span>
+                            <span className="font-extrabold font-mono">
+                              {Math.max(1, Math.ceil((new Date(leaveEndDate).getTime() - new Date(leaveStartDate).getTime()) / (1000 * 3600 * 24)) + 1)} Day(s)
+                            </span>
+                          </div>
+                        )}
+
+                        <div>
+                          <label className="block font-extrabold text-[#2C241D] mb-1">Reason for Absence</label>
+                          <textarea
+                            rows={4}
+                            placeholder="Provide reason for absence, coverage arrangement, or medical details..."
+                            value={leaveReason}
+                            onChange={(e) => setLeaveReason(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] placeholder-[#8C7C6D] focus:outline-none focus:border-[#48A63E]"
+                            required
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingLeave}
+                          className="w-full py-3 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold flex items-center justify-center gap-2 transition-all shadow-md shadow-[#48A63E]/20 cursor-pointer disabled:opacity-60"
+                        >
+                          <Calendar className="w-4 h-4" />
+                          <span>{isSubmittingLeave ? 'Submitting...' : 'Submit Leave Application'}</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* History Feed */}
+                    <div className="lg:col-span-2 space-y-4">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#E2D7CB] pb-3">
+                        <h4 className="font-extrabold text-sm text-[#2C241D] flex items-center gap-2">
+                          <span>My Leave History & Decision Logs</span>
+                          <span className="px-2 py-0.5 rounded-full bg-[#48A63E]/15 text-[#48A63E] text-xs font-extrabold">
+                            {leaveApplications.length}
+                          </span>
+                        </h4>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {['ALL', 'Pending', 'Approved', 'Rejected'].map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={() => setLeaveFilterStatus(st)}
+                              className={`px-3 py-1 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                                leaveFilterStatus === st
+                                  ? 'bg-[#48A63E] text-white shadow-sm'
+                                  : 'bg-[#FAF7F2] text-[#6B5542] border border-[#E2D7CB] hover:bg-[#EAE0D4]'
+                              }`}
+                            >
+                              {st}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {leaveApplications
+                        .filter(l => leaveFilterStatus === 'ALL' || l.status === leaveFilterStatus)
+                        .length === 0 ? (
+                        <div className="p-8 text-center bg-[#FAF7F2] rounded-3xl border border-[#E2D7CB] text-[#6B5C4D]">
+                          <Calendar className="w-10 h-10 mx-auto text-[#8C7C6D] mb-2 opacity-50" />
+                          <p className="font-extrabold text-sm">No leave records matching filter</p>
+                          <p className="text-xs">Your submitted leave applications and supervisor approvals will appear here.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {leaveApplications
+                            .filter(l => leaveFilterStatus === 'ALL' || l.status === leaveFilterStatus)
+                            .map((l) => (
+                              <div
+                                key={l.leave_id}
+                                className="p-4 rounded-2xl bg-[#FAF7F2] border-2 border-[#E2D7CB] shadow-xs space-y-2.5 transition-all hover:bg-white"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="space-y-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-black text-sm text-[#2C241D]">{l.leave_type}</span>
+                                      <span className="text-xs font-extrabold px-2 py-0.5 rounded-md bg-[#48A63E]/10 text-[#48A63E] border border-[#48A63E]/20">
+                                        {l.duration_days || 1} Day(s)
+                                      </span>
+                                    </div>
+                                    <div className="text-xs font-semibold text-[#7A6C5E] flex items-center gap-1.5">
+                                      <Clock className="w-3.5 h-3.5" />
+                                      <span>{l.start_date} to {l.end_date}</span>
+                                      {l.applied_on && (
+                                        <span className="text-[10px] text-[#9E9082]">
+                                          (Applied: {new Date(l.applied_on).toLocaleDateString()})
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <span
+                                    className={`px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider border ${
+                                      l.status === 'Approved'
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                        : l.status === 'Rejected'
+                                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                                    }`}
+                                  >
+                                    {l.status}
+                                  </span>
+                                </div>
+
+                                <div className="p-3 rounded-xl bg-white/80 border border-[#E2D7CB] text-xs text-[#5C4E42]">
+                                  <span className="font-bold text-[#2C241D]">Reason: </span>
+                                  {l.reason}
+                                </div>
+
+                                {(l.reviewed_by || l.review_notes) && (
+                                  <div className="p-2.5 rounded-xl bg-[#E8F5E9]/70 border border-[#A5D6A7] text-xs text-[#3D9134] space-y-1">
+                                    <div className="font-extrabold text-[11px] flex items-center gap-1">
+                                      <ShieldCheck className="w-3.5 h-3.5" />
+                                      <span>Supervisor Review ({l.reviewed_by || 'Admin / Supervisor'})</span>
+                                    </div>
+                                    {l.review_notes && <p className="text-xs">{l.review_notes}</p>}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -5745,7 +6611,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#48A63E] text-white font-extrabold shadow-md hover:bg-[#38A132] transition-colors cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-[#48A63E] text-white font-extrabold shadow-md hover:bg-[#48A63E] transition-colors cursor-pointer"
                 >
                   Save Order
                 </button>
@@ -5823,7 +6689,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     }
                   }
                 }}
-                className="px-5 py-2 bg-[#48A63E] hover:bg-[#38A132] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
+                className="px-5 py-2 bg-[#48A63E] hover:bg-[#48A63E] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
               >
                 Confirm & Mark Packed
               </button>
@@ -5842,7 +6708,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   {dispatchModalOrder ? `#${dispatchModalOrder.orderId}` : `FAB-#${dispatchModalFabJob?.fabrication_id} (${dispatchModalFabJob?.job_type})`}
                 </span>
                 <h3 className="text-lg font-extrabold text-[#2C241D] mt-1 flex items-center gap-2">
-                  <Truck className="w-5 h-5 text-[#38A132]" />
+                  <Truck className="w-5 h-5 text-[#48A63E]" />
                   <span>
                     {dispatchModalFabJob
                       ? `Dispatch ${dispatchModalFabJob.job_type === 'FABRICATION_PICKUP' ? 'Material Pickup' : 'Return Delivery'}`
@@ -5871,11 +6737,11 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
                       <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1.5">
                         <div className="flex items-center gap-1.5 font-extrabold text-[#2C241D]">
-                          <User className="w-3.5 h-3.5 text-[#38A132]" />
+                          <User className="w-3.5 h-3.5 text-[#48A63E]" />
                           <span>{job.customer_name}</span>
                         </div>
                         {job.customer_phone && (
-                          <div className="font-mono font-extrabold text-[#38A132] flex items-center gap-1 text-[11px]">
+                          <div className="font-mono font-extrabold text-[#48A63E] flex items-center gap-1 text-[11px]">
                             <Phone className="w-3.5 h-3.5" />
                             <span>{job.customer_phone}</span>
                           </div>
@@ -5883,7 +6749,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-start gap-1.5 text-[11px]">
-                        <MapPin className="w-3.5 h-3.5 text-[#38A132] shrink-0 mt-0.5" />
+                        <MapPin className="w-3.5 h-3.5 text-[#48A63E] shrink-0 mt-0.5" />
                         <div>
                           <span className="font-bold text-[#7A6C5E] uppercase block text-[9px]">
                             {isPickup ? 'Material Pickup Address:' : 'Return Delivery Address:'}
@@ -5896,7 +6762,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
                       <div className="flex justify-between items-center pt-1 border-t border-[#E2D7CB]/60 text-[10px] text-[#7A6C5E]">
                         <span>Service: <strong className="text-[#2C241D]">{job.service_type}</strong></span>
-                        <span>Distance / Fee: <strong className="text-[#38A132]">{job.distance_km} km (₹{job.transportation_charge})</strong></span>
+                        <span>Distance / Fee: <strong className="text-[#48A63E]">{job.distance_km} km (₹{job.transportation_charge})</strong></span>
                       </div>
                     </div>
                   );
@@ -5923,17 +6789,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
                     <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1.5">
                       <div className="flex items-center gap-1.5 font-extrabold text-[#2C241D]">
-                        <User className="w-3.5 h-3.5 text-[#38A132]" />
+                        <User className="w-3.5 h-3.5 text-[#48A63E]" />
                         <span>{customerName}</span>
                       </div>
-                      <div className="font-mono font-extrabold text-[#38A132] flex items-center gap-1 text-[11px]">
+                      <div className="font-mono font-extrabold text-[#48A63E] flex items-center gap-1 text-[11px]">
                         <Phone className="w-3.5 h-3.5" />
                         <span>{customerPhone}</span>
                       </div>
                     </div>
 
                     <div className="flex items-start gap-1.5 text-[11px]">
-                      <MapPin className="w-3.5 h-3.5 text-[#38A132] shrink-0 mt-0.5" />
+                      <MapPin className="w-3.5 h-3.5 text-[#48A63E] shrink-0 mt-0.5" />
                       <div>
                         <span className="font-bold text-[#7A6C5E] uppercase block text-[9px]">Delivery Destination Address:</span>
                         <span className="font-semibold text-[#2C241D] leading-snug block">{customerAddress}</span>
@@ -5952,7 +6818,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     onClick={() => setDispatchType('internal')}
                     className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                       dispatchType === 'internal'
-                        ? 'bg-[#38A132] text-white shadow-sm'
+                        ? 'bg-[#48A63E] text-white shadow-sm'
                         : 'text-[#7A6C5E] hover:text-[#2C241D]'
                     }`}
                   >
@@ -5964,7 +6830,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     onClick={() => setDispatchType('external')}
                     className={`py-2 px-3 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
                       dispatchType === 'external'
-                        ? 'bg-[#38A132] text-white shadow-sm'
+                        ? 'bg-[#48A63E] text-white shadow-sm'
                         : 'text-[#7A6C5E] hover:text-[#2C241D]'
                     }`}
                   >
@@ -5991,7 +6857,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <select
                         value={selectedDispatchVehicleId}
                         onChange={(e) => setSelectedDispatchVehicleId(e.target.value)}
-                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                       >
                         {availableVehiclesList.map((v) => (
                           <option key={v.vehicle_id} value={v.vehicle_id}>
@@ -6010,7 +6876,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1.5 text-[11px]">
                         <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1">
                           <span className="font-bold text-[#7A6C5E]">Assigned Driver:</span>
-                          <span className="font-extrabold text-[#38A132]">{sel.assigned_driver_name}</span>
+                          <span className="font-extrabold text-[#48A63E]">{sel.assigned_driver_name}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-[#7A6C5E]">Vehicle Registration:</span>
@@ -6044,7 +6910,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <select
                           value={dispatchCarrier}
                           onChange={(e) => setDispatchCarrier(e.target.value)}
-                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                         >
                           <option value="">Select Carrier Partner</option>
                           {activeOnly.map((cp) => (
@@ -6065,7 +6931,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                       <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1.5 text-[11px]">
                         <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1">
                           <span className="font-bold text-[#7A6C5E]">Carrier Partner:</span>
-                          <span className="font-extrabold text-[#38A132]">{selCarrier.carrier_name}</span>
+                          <span className="font-extrabold text-[#48A63E]">{selCarrier.carrier_name}</span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="font-bold text-[#7A6C5E]">Contact Phone:</span>
@@ -6090,7 +6956,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   placeholder="Auto-generated by backend (TRK-XXXXXXXX)"
                   value={dispatchTrackingNumber}
                   onChange={(e) => setDispatchTrackingNumber(e.target.value)}
-                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-mono font-bold text-[#38A132]"
+                  className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-mono font-bold text-[#48A63E]"
                 />
               </div>
 
@@ -6185,7 +7051,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                     }
                   }
                 }}
-                className="px-5 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
+                className="px-5 py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
               >
                 Dispatch Logistics
               </button>
@@ -6234,17 +7100,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
                     <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-1.5">
                       <div className="flex items-center gap-1.5 font-extrabold text-[#2C241D]">
-                        <User className="w-3.5 h-3.5 text-[#38A132]" />
+                        <User className="w-3.5 h-3.5 text-[#48A63E]" />
                         <span>{customerName}</span>
                       </div>
-                      <div className="font-mono font-extrabold text-[#38A132] flex items-center gap-1 text-[11px]">
+                      <div className="font-mono font-extrabold text-[#48A63E] flex items-center gap-1 text-[11px]">
                         <Phone className="w-3.5 h-3.5" />
                         <span>{customerPhone}</span>
                       </div>
                     </div>
 
                     <div className="flex items-start gap-1.5 text-[11px]">
-                      <MapPin className="w-3.5 h-3.5 text-[#38A132] shrink-0 mt-0.5" />
+                      <MapPin className="w-3.5 h-3.5 text-[#48A63E] shrink-0 mt-0.5" />
                       <div>
                         <span className="font-bold text-[#7A6C5E] uppercase block text-[9px]">Delivery Destination Address:</span>
                         <span className="font-semibold text-[#2C241D] leading-snug block">{customerAddress}</span>
@@ -6329,7 +7195,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 historyData.map((h) => (
                   <div key={h.history_id} className="p-3 bg-[#FAF7F2] rounded-xl border border-[#E2D7CB] text-xs space-y-1">
                     <div className="flex justify-between font-extrabold">
-                      <span className="text-[#38A132]">{h.new_status}</span>
+                      <span className="text-[#48A63E]">{h.new_status}</span>
                       <span className="text-[10px] text-[#7A6C5E]">{h.changed_at ? new Date(h.changed_at).toLocaleString() : ''}</span>
                     </div>
                     <div className="text-[10px] text-[#7A6C5E] font-medium">By: {h.changed_by_role || 'Staff'}</div>
@@ -6358,7 +7224,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
             <div className="flex items-start justify-between border-b border-[#EFE7DE] pb-3 shrink-0">
               <div>
                 <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
-                  <MessageSquare className="w-4 h-4 text-[#38A132]" />
+                  <MessageSquare className="w-4 h-4 text-[#48A63E]" />
                   <span>Customer Communication — {staffChatModalOrder.orderId}</span>
                 </h3>
                 <p className="text-xs text-[#7A6C5E]">Customer: {staffChatModalOrder.customerName} ({staffChatModalOrder.email})</p>
@@ -6377,7 +7243,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   return (
                     <div key={msg.message_id} className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'}`}>
                       <div className={`max-w-[80%] p-3 rounded-2xl text-xs font-semibold shadow-xs ${
-                        isStaff ? 'bg-[#38A132] text-white rounded-br-none' : 'bg-white text-[#2C241D] border border-[#E2D7CB] rounded-bl-none'
+                        isStaff ? 'bg-[#48A63E] text-white rounded-br-none' : 'bg-white text-[#2C241D] border border-[#E2D7CB] rounded-bl-none'
                       }`}>
                         <div className="text-[10px] font-black opacity-80 mb-0.5">{msg.sender_name} ({msg.sender_role})</div>
                         <p>{msg.message}</p>
@@ -6409,12 +7275,12 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 placeholder="Type reply to customer..."
                 value={staffNewMessage}
                 onChange={(e) => setStaffNewMessage(e.target.value)}
-                className="flex-1 px-4 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                className="flex-1 px-4 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
               />
               <button
                 type="submit"
                 disabled={!staffNewMessage.trim()}
-                className="px-4 py-2.5 bg-[#38A132] hover:bg-[#32922D] text-white text-xs font-extrabold rounded-xl shadow-md flex items-center gap-1 disabled:opacity-50 cursor-pointer"
+                className="px-4 py-2.5 bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold rounded-xl shadow-md flex items-center gap-1 disabled:opacity-50 cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>Send</span>
@@ -6431,7 +7297,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
             {/* Header */}
             <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4 shrink-0">
               <div>
-                <span className="font-mono text-xs font-black text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded border border-[#38A132]/20">
+                <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded border border-[#48A63E]/20">
                   {selectedReviewItem.request_id} • {selectedReviewItem.type}
                 </span>
                 <h3 className="text-xl font-extrabold text-[#2C241D] mt-1">
@@ -6452,7 +7318,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
               <h4 className="font-extrabold text-[#7A6C5E] uppercase tracking-wider text-[10px]">Specifications & Customer Requirements</h4>
               <div className="grid grid-cols-2 gap-2 bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
                 <div><span className="font-bold text-[#7A6C5E]">Category:</span> {selectedReviewItem.type}</div>
-                <div><span className="font-bold text-[#7A6C5E]">Current Status:</span> <span className="font-black text-[#38A132]">{selectedReviewItem.review_status}</span></div>
+                <div><span className="font-bold text-[#7A6C5E]">Current Status:</span> <span className="font-black text-[#48A63E]">{selectedReviewItem.review_status}</span></div>
                 {selectedReviewItem.material && <div><span className="font-bold text-[#7A6C5E]">Material:</span> {selectedReviewItem.material}</div>}
                 {selectedReviewItem.dimensions && <div><span className="font-bold text-[#7A6C5E]">Dimensions:</span> {selectedReviewItem.dimensions}</div>}
                 {selectedReviewItem.color && <div><span className="font-bold text-[#7A6C5E]">Color:</span> {selectedReviewItem.color}</div>}
@@ -6512,7 +7378,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <button
                     onClick={() => setReviewActionModal({ item: selectedReviewItem, action: 'APPROVE' })}
-                    className="p-4 bg-[#38A132] hover:bg-[#32922D] text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
+                    className="p-4 bg-[#48A63E] hover:bg-[#3D9134] text-white rounded-2xl font-extrabold text-xs shadow-md transition-all cursor-pointer text-center space-y-1"
                   >
                     <div className="text-base">✅ APPROVE</div>
                     <div className="text-[10px] font-normal opacity-90">Send to Production Staff for Technical Assessment</div>
@@ -6551,7 +7417,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   {reviewActionModal.action === 'MORE_INFO' && '❓ Request Information from Customer'}
                   {reviewActionModal.action === 'REJECT' && '❌ Reject Customer Request'}
                 </h3>
-                <span className="text-[11px] font-mono font-extrabold text-[#38A132]">{reviewActionModal.item.request_id}</span>
+                <span className="text-[11px] font-mono font-extrabold text-[#48A63E]">{reviewActionModal.item.request_id}</span>
               </div>
               <button
                 onClick={() => setReviewActionModal(null)}
@@ -6594,7 +7460,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   }
                   value={reviewNotesInput}
                   onChange={(e) => setReviewNotesInput(e.target.value)}
-                  className="w-full mt-1 px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-medium text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  className="w-full mt-1 px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-medium text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
                 />
               </div>
 
@@ -6611,7 +7477,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                   disabled={submittingReview}
                   className={`px-5 py-2 text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer disabled:opacity-50 ${
                     reviewActionModal.action === 'APPROVE'
-                      ? 'bg-[#38A132] hover:bg-[#32922D]'
+                      ? 'bg-[#48A63E] hover:bg-[#3D9134]'
                       : reviewActionModal.action === 'MORE_INFO'
                       ? 'bg-purple-700 hover:bg-purple-800'
                       : 'bg-rose-700 hover:bg-rose-800'
@@ -6632,7 +7498,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
             {/* Header */}
             <div className="flex items-start justify-between border-b border-[#E2D7CB] pb-4 shrink-0">
               <div>
-                <span className="font-mono text-xs font-black text-[#38A132] bg-[#38A132]/10 px-2.5 py-0.5 rounded border border-[#38A132]/20">
+                <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded border border-[#48A63E]/20">
                   #{selectedOrderSpecModal.orderId} • READYMADE STORE ORDER
                 </span>
                 <h3 className="text-xl font-extrabold text-[#2C241D] mt-1">
@@ -6670,7 +7536,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Total Amount</span>
-                  <span className="font-black text-[#38A132] text-sm">₹{Number(selectedOrderSpecModal.totalPrice || selectedOrderSpecModal.totalAmount || 0).toLocaleString('en-IN')}</span>
+                  <span className="font-black text-[#48A63E] text-sm">₹{Number(selectedOrderSpecModal.totalPrice || selectedOrderSpecModal.totalAmount || 0).toLocaleString('en-IN')}</span>
                 </div>
                 <div>
                   <span className="font-bold text-[#7A6C5E] text-[10px] uppercase block">Assigned Worker</span>
@@ -6697,7 +7563,7 @@ export const RetailStaffDashboardPage: React.FC = () => {
                         <div className="font-extrabold text-[#2C241D] truncate">{item.name}</div>
                         <div className="text-[10px] text-[#7A6C5E] font-medium">Quantity: {item.quantity || 1} • Unit Price: ₹{Number(item.price || 0).toLocaleString('en-IN')}</div>
                       </div>
-                      <div className="font-black text-[#38A132] text-xs">
+                      <div className="font-black text-[#48A63E] text-xs">
                         ₹{Number((item.price || 0) * (item.quantity || 1)).toLocaleString('en-IN')}
                       </div>
                     </div>
@@ -6709,10 +7575,212 @@ export const RetailStaffDashboardPage: React.FC = () => {
             <div className="pt-2 border-t border-[#E2D7CB] flex justify-end">
               <button
                 onClick={() => setSelectedOrderSpecModal(null)}
-                className="px-5 py-2 bg-[#38A132] hover:bg-[#32922D] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
+                className="px-5 py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer"
               >
                 Close Specifications
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: OFFICIAL PRINTABLE PACKING SLIP & BOX SHIPPING LABEL */}
+      {shippingSlipModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn overflow-y-auto">
+          <div className="bg-white text-[#1C1814] rounded-3xl p-6 sm:p-8 w-full max-w-2xl shadow-2xl border border-[#E2D7CB] space-y-6 my-8">
+            {/* Header & Print Action */}
+            <div className="flex items-start justify-between border-b-2 border-black/10 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[#48A63E] text-white font-black text-xs flex items-center justify-center">
+                    RS
+                  </div>
+                  <h3 className="text-lg font-serif font-black tracking-tight text-[#1C1814]">
+                    RetailSphere AI Atelier
+                  </h3>
+                </div>
+                <p className="text-[11px] text-[#7A6C5E] font-medium mt-0.5">
+                  Official Packing Verification Slip & Logistics Dispatch Label
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition-all"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Print Slip</span>
+                </button>
+                <button
+                  onClick={() => setShippingSlipModalOrder(null)}
+                  className="p-2 rounded-xl bg-[#FAF7F2] hover:bg-[#EAE0D4] text-[#7A6C5E] cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Slip Content */}
+            <div className="space-y-4 text-xs">
+              {/* Order Meta Barcode Simulation */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 bg-[#FAF8F5] rounded-2xl border border-[#E2D7CB]">
+                <div>
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Order Identification</span>
+                  <span className="font-mono text-base font-black text-[#48A63E]">
+                    #{shippingSlipModalOrder.orderId}
+                  </span>
+                  <div className="text-[10px] text-[#6E6458] font-medium mt-0.5">
+                    Date: {shippingSlipModalOrder.orderDate ? new Date(shippingSlipModalOrder.orderDate).toLocaleDateString() : new Date().toLocaleDateString()}
+                  </div>
+                </div>
+
+                {/* Simulated Barcode */}
+                <div className="flex flex-col items-center bg-white px-3 py-2 rounded-xl border border-[#E2D7CB]">
+                  <div className="flex items-center gap-0.5 h-8">
+                    {[3, 1, 2, 4, 1, 3, 2, 1, 4, 2, 1, 3, 1, 2, 4, 1, 3, 2, 1, 2].map((w, i) => (
+                      <div key={i} className="bg-black h-full" style={{ width: `${w}px` }} />
+                    ))}
+                  </div>
+                  <span className="font-mono text-[9px] tracking-widest text-[#7A6C5E] mt-1 font-bold">
+                    RS-ORD-{shippingSlipModalOrder.orderId}
+                  </span>
+                </div>
+              </div>
+
+              {/* Customer & Shipping Destination */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3.5 bg-[#FAF8F5] rounded-2xl border border-[#E2D7CB] space-y-1">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Ship To Customer</span>
+                  <div className="font-extrabold text-[#2C241D] text-sm">
+                    {shippingSlipModalOrder.customerName || shippingSlipModalOrder.user_name || 'Valued Customer'}
+                  </div>
+                  <div className="text-[11px] text-[#6E6458] font-medium">
+                    {(shippingSlipModalOrder as any).delivery_address || (shippingSlipModalOrder as any).address || 'Standard Store Shipping Address'}
+                  </div>
+                  <div className="text-[11px] text-[#48A63E] font-mono font-bold mt-1">
+                    {shippingSlipModalOrder.customerEmail || shippingSlipModalOrder.email || 'customer@retailsphere.ai'}
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-[#FAF8F5] rounded-2xl border border-[#E2D7CB] space-y-1">
+                  <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Fulfillment Details</span>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#6E6458] font-medium">Payment Status:</span>
+                    <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      {shippingSlipModalOrder.paymentStatus || 'Paid ✓'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#6E6458] font-medium">Handling Staff:</span>
+                    <span className="font-bold text-[#2C241D]">{currentUser.name || 'Retail Atelier Staff'}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-[#6E6458] font-medium">Inspection Quality:</span>
+                    <span className="font-bold text-[#48A63E]">5-Point Checked ✓</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Itemized Table */}
+              <div className="border border-[#E2D7CB] rounded-2xl overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-[#F3EDE3] text-[10px] font-black uppercase text-[#5C4E42]">
+                    <tr>
+                      <th className="py-2.5 px-3">Item Description</th>
+                      <th className="py-2.5 px-3 text-center">SKU</th>
+                      <th className="py-2.5 px-3 text-center">Qty</th>
+                      <th className="py-2.5 px-3 text-right">Price</th>
+                      <th className="py-2.5 px-3 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#E2D7CB] text-xs">
+                    {(shippingSlipModalOrder.items || [
+                      { name: 'Artisan Solid Teak Furniture', sku: `SKU-ORD-${shippingSlipModalOrder.orderId}`, quantity: 1, price: shippingSlipModalOrder.totalAmount || shippingSlipModalOrder.totalPrice || 5000 }
+                    ]).map((item: any, idx: number) => (
+                      <tr key={idx} className="hover:bg-[#FAF8F5]">
+                        <td className="py-2.5 px-3 font-bold text-[#2C241D]">{item.name}</td>
+                        <td className="py-2.5 px-3 text-center font-mono text-[10px] text-[#7A6C5E]">{item.sku || `SKU-${idx + 1}`}</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-[#2C241D]">{item.quantity || 1}</td>
+                        <td className="py-2.5 px-3 text-right font-mono text-[#6E6458]">₹{Number(item.price || 0).toLocaleString('en-IN')}</td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-[#48A63E]">
+                          ₹{Number((item.price || 0) * (item.quantity || 1)).toLocaleString('en-IN')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-[#FAF8F5] border-t-2 border-[#E2D7CB]">
+                    <tr>
+                      <td colSpan={4} className="py-2.5 px-3 font-black text-right text-xs uppercase text-[#5C4E42]">Grand Total</td>
+                      <td className="py-2.5 px-3 font-mono font-black text-right text-sm text-[#48A63E]">
+                        ₹{Number(shippingSlipModalOrder.totalAmount || shippingSlipModalOrder.totalPrice || 0).toLocaleString('en-IN')}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Packaging Sign-off Seal */}
+              <div className="flex items-center justify-between p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-2xl">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-700" />
+                  <div>
+                    <span className="text-xs font-black text-emerald-950 block">Atelier Certified Packaging</span>
+                    <span className="text-[10px] text-emerald-800 font-medium">Foam corner protectors and moisture-proof wrap applied.</span>
+                  </div>
+                </div>
+                <span className="font-mono text-[10px] text-emerald-800 font-bold">
+                  {new Date().toISOString().slice(0, 10)}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-[#E2D7CB] flex justify-end gap-2">
+              <button
+                onClick={() => setShippingSlipModalOrder(null)}
+                className="px-5 py-2 bg-[#FAF7F2] hover:bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs rounded-xl cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2 bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5"
+              >
+                <Printer className="w-4 h-4" />
+                <span>Print Official Slip</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: REFERENCE IMAGE LIGHTBOX & ZOOM */}
+      {lightboxImage && (
+        <div
+          onClick={() => setLightboxImage(null)}
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn cursor-pointer"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative max-w-4xl max-h-[90vh] bg-white rounded-3xl p-4 border border-white/20 shadow-2xl flex flex-col space-y-3 cursor-default"
+          >
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
+              <h4 className="text-xs font-bold text-[#1C1814] truncate max-w-md">
+                {lightboxImage.title || 'Customer Reference Image Inspection'}
+              </h4>
+              <button
+                onClick={() => setLightboxImage(null)}
+                className="p-1.5 rounded-full bg-[#FAF7F2] hover:bg-[#EAE0D4] text-[#7A6C5E] hover:text-[#1C1814] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="overflow-hidden rounded-2xl bg-[#F3EDE3] flex items-center justify-center">
+              <img
+                src={lightboxImage.url}
+                alt={lightboxImage.title}
+                className="max-h-[75vh] w-auto object-contain rounded-xl"
+              />
             </div>
           </div>
         </div>

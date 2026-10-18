@@ -70,6 +70,7 @@ export interface FabricationItem {
   quantity: number;
   drawing_image?: string;
   requirements?: string;
+  cutting_layout?: any;
   deadline?: string;
   estimated_price?: number;
   status: string; // REQUESTED, ASSESSED, QUOTED, APPROVED, PAID, IN_PRODUCTION, QC_PENDING, COMPLETED, CANCELLED
@@ -96,6 +97,9 @@ export const FabricationTab: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [isOptimizerOpen, setIsOptimizerOpen] = useState(false);
+  const [selectedStrategyIdx, setSelectedStrategyIdx] = useState(0);
+  const [attachedCuttingLayoutJson, setAttachedCuttingLayoutJson] = useState('');
+  const [viewingBlueprintModal, setViewingBlueprintModal] = useState<any | null>(null);
 
   // Form State
   const [serviceType, setServiceType] = useState('Wood Cutting');
@@ -357,6 +361,7 @@ export const FabricationTab: React.FC = () => {
         quantity: parseInt(quantity) || 1,
         drawing_image: drawingImage,
         requirements,
+        cutting_layout: attachedCuttingLayoutJson || undefined,
         deadline: deadline || undefined,
         material_arrival_mode: materialArrivalMode,
         material_pickup_address: materialArrivalMode === 'DOORSTEP_PICKUP' ? materialPickupAddress : undefined,
@@ -374,6 +379,7 @@ export const FabricationTab: React.FC = () => {
         setIsRequestModalOpen(false);
         setRequirements('');
         setDrawingImage('');
+        setAttachedCuttingLayoutJson('');
         fetchFabrications();
       }
     } catch (err) {
@@ -402,12 +408,47 @@ export const FabricationTab: React.FC = () => {
       if (res.ok) {
         const data = await res.json();
         setOptimizationResult(data);
+        setSelectedStrategyIdx(0);
       }
     } catch (err) {
       console.error('Cutting optimization error:', err);
     } finally {
       setIsOptimizing(false);
     }
+  };
+
+  const handleApplyCuttingPlanToRequest = () => {
+    if (!optimizationResult) return;
+    const strategies = optimizationResult.strategies || [optimizationResult];
+    const activeStrat = strategies[selectedStrategyIdx] || strategies[0] || optimizationResult;
+
+    const planPayload = {
+      sheet_dimensions: optimizationResult.sheet_dimensions,
+      strategy_id: activeStrat.strategy_id || 'strategy_selected',
+      strategy_name: activeStrat.strategy_name || 'Custom Optimized 2D Cutting Plan',
+      badge: activeStrat.badge || 'Optimized Layout',
+      description: activeStrat.description || 'Optimized timber cutting plan for workshop precision.',
+      total_pieces_placed: activeStrat.total_pieces_placed,
+      material_utilization_percent: activeStrat.material_utilization_percent,
+      waste_percent: activeStrat.waste_percent,
+      placed_layout: activeStrat.placed_layout || [],
+      cutting_sequence_instructions: activeStrat.cutting_sequence_instructions || [],
+      items_summary: [
+        { label: 'Table Top Panels', width: parseFloat(cutP1W) || 600, height: parseFloat(cutP1H) || 400, quantity: parseInt(cutP1Qty) || 1 },
+        { label: 'Side Shelves', width: parseFloat(cutP2W) || 800, height: parseFloat(cutP2H) || 300, quantity: parseInt(cutP2Qty) || 1 },
+      ],
+      created_at: new Date().toISOString()
+    };
+
+    const planJson = JSON.stringify(planPayload);
+    setAttachedCuttingLayoutJson(planJson);
+    setServiceType('Wood Cutting');
+    setDimensions(`Stock Sheet: ${sheetW} x ${sheetH} mm (${activeStrat.total_pieces_placed} Cut Pieces)`);
+    setRequirements(
+      `[2D Cutting Blueprint Attached]: ${activeStrat.strategy_name} (${activeStrat.material_utilization_percent}% Yield, ${activeStrat.waste_percent}% Waste). Requires precision rip and cross cutting for ${activeStrat.total_pieces_placed} cut panels.`
+    );
+    setIsOptimizerOpen(false);
+    setIsRequestModalOpen(true);
   };
 
   const handlePayFabrication = async (r: FabricationItem) => {
@@ -583,6 +624,32 @@ export const FabricationTab: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* 2D Cutting Blueprint Action (Customer View) */}
+                  {r.cutting_layout && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        try {
+                          const parsed = typeof r.cutting_layout === 'string' ? JSON.parse(r.cutting_layout) : r.cutting_layout;
+                          setViewingBlueprintModal({ ...parsed, fabrication_id: r.fabrication_id });
+                        } catch (e) {
+                          setViewingBlueprintModal(null);
+                        }
+                      }}
+                      className="w-full py-2 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-900 text-xs font-black flex items-center justify-center gap-1.5 transition-all shadow-2xs cursor-pointer active:scale-98"
+                    >
+                      <Cpu className="w-3.5 h-3.5 text-[#2E7D32]" />
+                      <span>📐 View 2D Cutting Blueprint ({(() => {
+                        try {
+                          const p = typeof r.cutting_layout === 'string' ? JSON.parse(r.cutting_layout) : r.cutting_layout;
+                          return p.strategy_name?.split(':')[0] || 'Layout Plan';
+                        } catch {
+                          return 'Plan';
+                        }
+                      })()})</span>
+                    </button>
+                  )}
+
                   {/* Live Workshop Manufacturing Widget */}
                   {(isPaid || r.status === 'IN_PRODUCTION' || r.active_stage || (r.production_stages && r.production_stages.length > 0)) && (() => {
                     const activeStg = r.active_stage || (r.production_stages && r.production_stages.find(s => s.status === 'IN_PROGRESS' || s.status === 'PAUSED')) || (r.production_stages && r.production_stages[0]);
@@ -592,7 +659,7 @@ export const FabricationTab: React.FC = () => {
                     const checkedCount = completedSections.length;
                     const totalSections = sections.length;
                     const isPaused = Boolean(r.is_paused || (activeStg && (activeStg.status === 'PAUSED' || activeStg.pause_reason)));
-                    const pauseReason = r.pause_reason || (activeStg && activeStg.pause_reason) || 'Temporarily paused by artisan for curing/drying';
+                    const pauseReason = r.pause_reason || (activeStg && activeStg.pause_reason) || 'Temporarily paused by worker for curing/drying';
                     const progressPct = r.status === 'COMPLETED' || (activeStg && activeStg.status === 'COMPLETED')
                       ? 100
                       : totalSections > 0
@@ -619,10 +686,10 @@ export const FabricationTab: React.FC = () => {
                           </span>
                         </div>
 
-                        {/* Artisan Note if available */}
+                        {/* Worker Note if available */}
                         {activeStg && activeStg.assigned_worker_name && (
                           <div className="text-[10px] text-[#6B5C4D]">
-                            Artisan: <strong className="text-[#1C1814]">{activeStg.assigned_worker_name}</strong>
+                            Worker: <strong className="text-[#1C1814]">{activeStg.assigned_worker_name}</strong>
                           </div>
                         )}
 
@@ -1069,6 +1136,28 @@ export const FabricationTab: React.FC = () => {
                 </div>
               </div>
 
+              {/* 2D Cutting Blueprint Attachment Notice */}
+              {attachedCuttingLayoutJson && (
+                <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-3 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-[#38A132] shrink-0" />
+                    <div>
+                      <span className="text-xs font-black text-emerald-900 block">2D Cutting Blueprint Attached ✓</span>
+                      <span className="text-[10px] text-emerald-700 font-bold">
+                        Stock sheet size, cut piece positions, and sawing sequence instructions will be sent to the workshop artisans.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAttachedCuttingLayoutJson('')}
+                    className="text-xs text-red-600 font-bold hover:underline cursor-pointer shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[11px] font-extrabold text-[#7A6C5E] uppercase mb-1">Technical Drawing / Diagram (Optional)</label>
                 <div className="flex items-center gap-3">
@@ -1080,7 +1169,7 @@ export const FabricationTab: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-extrabold text-[#7A6C5E] uppercase mb-1">Additional Requirements</label>
-                <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} rows={3} placeholder="Tolerance specs, edge bevel angles, hole diameters..." className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white" />
+                <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} rows={3} placeholder="Tolerance specs, edge bevel angles, hole diameters..." className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white text-xs font-medium" />
               </div>
 
               <div className="pt-3 flex items-center justify-end gap-3 border-t border-[#E2D7CB]">
@@ -1095,13 +1184,13 @@ export const FabricationTab: React.FC = () => {
       {/* 2D Cutting Optimization Visualizer Tool Modal */}
       {isOptimizerOpen && (
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-3xl max-w-3xl w-full p-6 sm:p-8 space-y-6 shadow-2xl animate-scaleUp max-h-[90vh] overflow-y-auto">
+          <div className="bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-3xl max-w-4xl w-full p-6 sm:p-8 space-y-5 shadow-2xl animate-scaleUp max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
               <div className="flex items-center gap-2">
                 <Cpu className="w-5 h-5 text-[#48A63E]" />
                 <div>
                   <h3 className="text-base font-extrabold text-[#2C241D]">AI 2D Sheet Cutting Optimizer Tool</h3>
-                  <p className="text-xs text-[#7A6C5E] font-medium">Algorithmic Bin-Packing Layout Solver for Timber & Plywood Sheet Cutting.</p>
+                  <p className="text-xs text-[#7A6C5E] font-medium">Algorithmic Multi-Strategy Bin-Packing & Sheet Nesting Solver.</p>
                 </div>
               </div>
               <button onClick={() => setIsOptimizerOpen(false)} className="text-[#7A6C5E] hover:text-[#2C241D] font-bold text-lg cursor-pointer">✕</button>
@@ -1138,9 +1227,10 @@ export const FabricationTab: React.FC = () => {
                 <button
                   onClick={handleRunOptimizer}
                   disabled={isOptimizing}
-                  className="w-full py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all shadow-md cursor-pointer mt-2"
+                  className="w-full py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all shadow-md cursor-pointer mt-2 flex items-center justify-center gap-2"
                 >
-                  {isOptimizing ? 'Running Guillotine Bin-Packing Solver...' : 'Calculate Optimal Cutting Plan'}
+                  <Cpu className="w-4 h-4" />
+                  <span>{isOptimizing ? 'Computing Multi-Strategy Cutting Solver...' : 'Calculate Optimal Cutting Plan'}</span>
                 </button>
               </div>
 
@@ -1148,52 +1238,201 @@ export const FabricationTab: React.FC = () => {
               <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-3">
                 <h4 className="font-extrabold text-xs text-[#2C241D] uppercase border-b border-[#E2D7CB] pb-1">Optimization Metrics & Cutting Canvas</h4>
 
-                {optimizationResult ? (
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2 text-center text-xs">
-                      <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
-                        <span className="text-[10px] text-emerald-800 font-bold block">Utilization Rate</span>
-                        <span className="text-base font-extrabold text-emerald-700">{optimizationResult.material_utilization_percent}%</span>
-                      </div>
-                      <div className="bg-amber-50 border border-amber-200 p-2 rounded-xl">
-                        <span className="text-[10px] text-amber-800 font-bold block">Predicted Scrap Waste</span>
-                        <span className="text-base font-extrabold text-amber-700">{optimizationResult.waste_percent}%</span>
-                      </div>
-                    </div>
+                {optimizationResult ? (() => {
+                  const strategies = optimizationResult.strategies || [optimizationResult];
+                  const currentStrat = strategies[selectedStrategyIdx] || strategies[0] || optimizationResult;
 
-                    {/* Canvas Representation */}
-                    <div className="relative aspect-[2/1] w-full bg-[#2C241D] rounded-xl overflow-hidden border-2 border-[#E2D7CB] p-2 flex items-center justify-center">
-                      <div className="relative w-full h-full bg-[#8C6D4F] rounded border border-amber-200/50">
-                        {optimizationResult.placed_layout.map((item: any) => (
-                          <div
-                            key={item.id}
-                            style={{
-                              left: `${(item.x / optimizationResult.sheet_dimensions.width) * 100}%`,
-                              top: `${(item.y / optimizationResult.sheet_dimensions.height) * 100}%`,
-                              width: `${(item.width / optimizationResult.sheet_dimensions.width) * 100}%`,
-                              height: `${(item.height / optimizationResult.sheet_dimensions.height) * 100}%`,
-                            }}
-                            className="absolute bg-[#48A63E]/90 border border-white text-white text-[8px] font-extrabold flex items-center justify-center shadow-xs overflow-hidden"
-                          >
-                            {item.id}
-                          </div>
+                  return (
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-2 gap-2 text-center text-xs">
+                        <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
+                          <span className="text-[10px] text-emerald-800 font-bold block">Utilization Rate</span>
+                          <span className="text-base font-extrabold text-emerald-700">{currentStrat.material_utilization_percent}%</span>
+                        </div>
+                        <div className="bg-amber-50 border border-amber-200 p-2 rounded-xl">
+                          <span className="text-[10px] text-amber-800 font-bold block">Predicted Scrap Waste</span>
+                          <span className="text-base font-extrabold text-amber-700">{currentStrat.waste_percent}%</span>
+                        </div>
+                      </div>
+
+                      {/* Canvas Representation */}
+                      <div className="relative aspect-[2/1] w-full bg-[#2C241D] rounded-xl overflow-hidden border-2 border-[#E2D7CB] p-2 flex items-center justify-center">
+                        <div className="relative w-full h-full bg-[#8C6D4F] rounded border border-amber-200/50">
+                          {currentStrat.placed_layout?.map((item: any) => (
+                            <div
+                              key={item.id}
+                              style={{
+                                left: `${(item.x / (optimizationResult.sheet_dimensions?.width || 2440)) * 100}%`,
+                                top: `${(item.y / (optimizationResult.sheet_dimensions?.height || 1220)) * 100}%`,
+                                width: `${(item.width / (optimizationResult.sheet_dimensions?.width || 2440)) * 100}%`,
+                                height: `${(item.height / (optimizationResult.sheet_dimensions?.height || 1220)) * 100}%`,
+                              }}
+                              className="absolute bg-[#48A63E]/90 border border-white text-white text-[8px] font-extrabold flex items-center justify-center shadow-xs overflow-hidden"
+                              title={`${item.label} (${item.width}x${item.height}mm)`}
+                            >
+                              <span className="truncate px-0.5">{item.id}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="text-[10px] text-[#7A6C5E] space-y-1">
+                        <p className="font-bold text-[#2C241D]">Cutting Instructions:</p>
+                        {currentStrat.cutting_sequence_instructions?.map((inst: string, idx: number) => (
+                          <p key={idx}>• {inst}</p>
                         ))}
                       </div>
                     </div>
-
-                    <div className="text-[10px] text-[#7A6C5E] space-y-1">
-                      <p className="font-bold text-[#2C241D]">Cutting Instructions:</p>
-                      {optimizationResult.cutting_sequence_instructions.map((inst: string, idx: number) => (
-                        <p key={idx}>• {inst}</p>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
+                  );
+                })() : (
                   <div className="py-12 text-center text-[#7A6C5E] text-xs">
                     Click "Calculate Optimal Cutting Plan" to render visual cutting map and calculate timber waste %.
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Design Change / Strategy Selection Tabs */}
+            {optimizationResult && (
+              <div className="space-y-2 bg-white p-3.5 rounded-2xl border border-[#E2D7CB]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase text-[#7A6C5E] tracking-wider">
+                    Design Change / Layout Options (Select Below):
+                  </span>
+                  <span className="text-[10px] text-[#48A63E] font-extrabold bg-[#48A63E]/10 px-2.5 py-0.5 rounded-full">
+                    {((optimizationResult.strategies || [optimizationResult]).length)} Options Generated
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {(optimizationResult.strategies || [optimizationResult]).map((strat: any, sIdx: number) => {
+                    const isSelected = selectedStrategyIdx === sIdx;
+                    return (
+                      <button
+                        key={strat.strategy_id || sIdx}
+                        type="button"
+                        onClick={() => setSelectedStrategyIdx(sIdx)}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-50 border-[#48A63E] ring-2 ring-[#48A63E]/30 shadow-xs'
+                            : 'bg-[#FAF7F2] border-[#E2D7CB] hover:border-[#48A63E]/60 text-[#5C4E42]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-mono font-black text-[#48A63E] uppercase">{strat.badge || `Option ${sIdx + 1}`}</span>
+                          <span className="text-[10px] font-black text-[#2C241D]">{strat.material_utilization_percent}% Yield</span>
+                        </div>
+                        <h5 className="font-extrabold text-xs text-[#2C241D] leading-tight mt-1 truncate">{strat.strategy_name}</h5>
+                        <p className="text-[9.5px] text-[#7A6C5E] mt-0.5 line-clamp-2 leading-relaxed">{strat.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Modal Bottom Actions */}
+            <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-[#E2D7CB]">
+              <button
+                type="button"
+                onClick={() => setIsOptimizerOpen(false)}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-[#E2D7CB] text-[#7A6C5E] font-bold hover:bg-white cursor-pointer"
+              >
+                Close Optimizer
+              </button>
+
+              {optimizationResult && (
+                <button
+                  type="button"
+                  onClick={handleApplyCuttingPlanToRequest}
+                  className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-lg shadow-[#48A63E]/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Apply Selected Cutting Plan to Request</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Blueprint Interactive Viewer Modal (Customer View) */}
+      {viewingBlueprintModal && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-3xl max-w-2xl w-full p-6 sm:p-8 space-y-5 shadow-2xl animate-scaleUp max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+              <div className="flex items-center gap-2">
+                <Cpu className="w-5 h-5 text-[#48A63E]" />
+                <div>
+                  <h3 className="text-base font-extrabold text-[#2C241D]">
+                    2D Cutting Blueprint {viewingBlueprintModal.fabrication_id ? `#FAB-${viewingBlueprintModal.fabrication_id}` : ''}
+                  </h3>
+                  <p className="text-xs text-[#7A6C5E] font-medium">
+                    {viewingBlueprintModal.strategy_name || 'Workshop Timber Sawing Blueprint'}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => setViewingBlueprintModal(null)} className="text-[#7A6C5E] hover:text-[#2C241D] font-bold text-lg cursor-pointer">✕</button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="bg-white border border-[#E2D7CB] p-2.5 rounded-xl">
+                <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Stock Sheet Size</span>
+                <span className="font-extrabold text-[#2C241D]">
+                  {viewingBlueprintModal.sheet_dimensions?.width} × {viewingBlueprintModal.sheet_dimensions?.height} mm
+                </span>
+              </div>
+              <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl">
+                <span className="text-[10px] text-emerald-800 font-bold block uppercase">Material Yield</span>
+                <span className="font-extrabold text-emerald-700">{viewingBlueprintModal.material_utilization_percent}%</span>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl">
+                <span className="text-[10px] text-amber-800 font-bold block uppercase">Scrap Waste</span>
+                <span className="font-extrabold text-amber-700">{viewingBlueprintModal.waste_percent}%</span>
+              </div>
+            </div>
+
+            {/* Visual Canvas Representation */}
+            <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2">
+              <span className="text-[11px] font-black uppercase text-[#7A6C5E] block">Timber Sheet Cutting Layout</span>
+              <div className="relative aspect-[2/1] w-full bg-[#2C241D] rounded-xl overflow-hidden border-2 border-[#E2D7CB] p-2 flex items-center justify-center">
+                <div className="relative w-full h-full bg-[#8C6D4F] rounded border border-amber-200/50">
+                  {viewingBlueprintModal.placed_layout?.map((item: any) => (
+                    <div
+                      key={item.id}
+                      style={{
+                        left: `${(item.x / (viewingBlueprintModal.sheet_dimensions?.width || 2440)) * 100}%`,
+                        top: `${(item.y / (viewingBlueprintModal.sheet_dimensions?.height || 1220)) * 100}%`,
+                        width: `${(item.width / (viewingBlueprintModal.sheet_dimensions?.width || 2440)) * 100}%`,
+                        height: `${(item.height / (viewingBlueprintModal.sheet_dimensions?.height || 1220)) * 100}%`,
+                      }}
+                      className="absolute bg-[#48A63E]/90 border border-white text-white text-[8px] font-extrabold flex items-center justify-center shadow-xs overflow-hidden"
+                      title={`${item.label} (${item.width}x${item.height}mm)`}
+                    >
+                      <span className="truncate px-0.5">{item.id}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Step-by-step instructions */}
+            {viewingBlueprintModal.cutting_sequence_instructions && (
+              <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] text-xs space-y-1.5">
+                <h5 className="font-bold text-[#2C241D]">Sawing Instructions for Artisans:</h5>
+                {viewingBlueprintModal.cutting_sequence_instructions.map((inst: string, idx: number) => (
+                  <p key={idx} className="text-[#6B5C4D] text-[11px]">• {inst}</p>
+                ))}
+              </div>
+            )}
+
+            <div className="pt-2 flex justify-end border-t border-[#E2D7CB]">
+              <button
+                type="button"
+                onClick={() => setViewingBlueprintModal(null)}
+                className="px-5 py-2.5 rounded-xl bg-[#48A63E] text-white font-extrabold text-xs shadow-md cursor-pointer"
+              >
+                Close Blueprint
+              </button>
             </div>
           </div>
         </div>

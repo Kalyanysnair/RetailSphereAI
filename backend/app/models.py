@@ -519,6 +519,7 @@ class FabricationRequest(Base):
     quantity = Column(Integer, default=1, nullable=False)
     drawing_image = Column(Text, nullable=True)
     requirements = Column(Text, nullable=True)
+    cutting_layout = Column(Text, nullable=True)  # JSON-encoded 2D cutting layout, design strategy & instructions
     deadline = Column(Date, nullable=True)
     estimated_price = Column(Numeric(10, 2), nullable=True)
     status = Column(String(50), default="REQUESTED", nullable=False)  # REQUESTED, ASSESSED, QUOTED, APPROVED, PAID, IN_PRODUCTION, QC_PENDING, COMPLETED, CANCELLED

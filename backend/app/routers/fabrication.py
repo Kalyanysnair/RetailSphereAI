@@ -38,6 +38,7 @@ class FabricationRequestCreatePayload(BaseModel):
     quantity: int = 1
     drawing_image: Optional[str] = None
     requirements: Optional[str] = None
+    cutting_layout: Optional[str] = None  # JSON-encoded 2D cutting layout, design strategy & instructions
     deadline: Optional[str] = None
     # Transportation Options
     material_arrival_mode: Optional[str] = "CUSTOMER_BRINGS"  # CUSTOMER_BRINGS vs DOORSTEP_PICKUP
@@ -180,6 +181,7 @@ def get_fabrication_requests(
             "quantity": f.quantity,
             "drawing_image": f.drawing_image,
             "requirements": f.requirements,
+            "cutting_layout": f.cutting_layout,
             "deadline": f.deadline.isoformat() if f.deadline else None,
             "estimated_price": float(f.estimated_price) if f.estimated_price else None,
             "status": f.status,
@@ -254,6 +256,7 @@ def create_fabrication_request(payload: FabricationRequestCreatePayload, db: Ses
         quantity=payload.quantity,
         drawing_image=payload.drawing_image,
         requirements=payload.requirements,
+        cutting_layout=payload.cutting_layout,
         deadline=deadline_obj,
         material_arrival_mode=arr_mode,
         material_pickup_address=payload.material_pickup_address.strip() if payload.material_pickup_address else None,

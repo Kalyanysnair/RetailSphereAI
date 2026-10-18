@@ -337,66 +337,186 @@ def predict_material_waste(req: WastePredictRequest, db: Session = Depends(get_d
         ]
     }
 
-# 11. Algorithmic 2D Cutting Optimization (Guillotine / Bin-Packing Solver)
+# 11. Algorithmic 2D Cutting Optimization (Multi-Strategy Bin-Packing & Nesting Solver)
 @router.post("/optimize-cutting")
 def optimize_cutting(req: CuttingOptimizeRequest, db: Session = Depends(get_db)):
     sheet_w = req.sheet_width
     sheet_h = req.sheet_height
     sheet_area = sheet_w * sheet_h
 
-    total_used_area = 0.0
-    total_pieces = 0
-    placed_pieces = []
-
-    cur_x = 20.0
-    cur_y = 20.0
-    row_h = 0.0
-
-    piece_id = 1
+    raw_items = []
     for item in req.items:
         for _ in range(item.quantity):
-            pw = item.width
-            ph = item.height
-            
-            # Check if fits in current row
+            raw_items.append({
+                "width": float(item.width),
+                "height": float(item.height),
+                "label": item.label or "Cut Piece"
+            })
+
+    # Strategy 1: Standard Horizontal Guillotine (Row / Width-First Rip Cut)
+    def solve_horizontal(items_list):
+        placed = []
+        cur_x, cur_y, row_h = 20.0, 20.0, 0.0
+        used_area = 0.0
+        p_id = 1
+        for itm in items_list:
+            pw, ph = itm["width"], itm["height"]
             if cur_x + pw > sheet_w - 20:
                 cur_x = 20.0
-                cur_y += row_h + 10.0
+                cur_y += row_h + 12.0
                 row_h = 0.0
-
             if cur_y + ph <= sheet_h - 20:
-                placed_pieces.append({
-                    "id": f"P-{piece_id}",
-                    "label": f"{item.label or 'Piece'} #{piece_id}",
+                placed.append({
+                    "id": f"P-{p_id}",
+                    "label": f"{itm['label']} #{p_id}",
                     "x": cur_x,
                     "y": cur_y,
                     "width": pw,
                     "height": ph,
-                    "area": pw * ph
+                    "area": pw * ph,
+                    "rotated": False
                 })
-                total_used_area += (pw * ph)
-                total_pieces += 1
+                used_area += (pw * ph)
+                cur_x += pw + 12.0
+                if ph > row_h:
+                    row_h = ph
+                p_id += 1
+        util = round((used_area / sheet_area) * 100.0, 1) if sheet_area > 0 else 0.0
+        return {
+            "strategy_id": "strategy_standard",
+            "strategy_name": "Layout 1: Standard Rip-Cut (Width-First)",
+            "badge": "Fastest Workshop Sawing",
+            "description": "Standard horizontal rip-cuts. Minimizes saw fence adjustments and reduces workshop labor time.",
+            "total_pieces_placed": len(placed),
+            "material_utilization_percent": util,
+            "waste_percent": round(100.0 - util, 1),
+            "placed_layout": placed,
+            "cutting_sequence_instructions": [
+                f"1. Make primary horizontal rip-cuts across sheet width at spacing intervals.",
+                f"2. Execute vertical cross-cuts for individual {len(placed)} panels.",
+                "3. Sort clean edge off-cuts for joinery corner blocks and scrap bin."
+            ]
+        }
+
+    # Strategy 2: Compact Nesting & Rotation (Max Material Yield)
+    def solve_compact(items_list):
+        placed = []
+        cur_x, cur_y, row_h = 15.0, 15.0, 0.0
+        used_area = 0.0
+        p_id = 1
+        # Sort items by largest dimension descending for better packing
+        sorted_items = sorted(items_list, key=lambda x: x["width"] * x["height"], reverse=True)
+        for itm in sorted_items:
+            pw, ph = itm["width"], itm["height"]
+            # Attempt normal orientation first, then auto-orient for optimal fit
+            if cur_x + pw > sheet_w - 15 and cur_x + ph <= sheet_w - 15 and cur_y + pw <= sheet_h - 15:
+                pw, ph = ph, pw  # rotate 90 deg for tighter nesting
+
+            if cur_x + pw > sheet_w - 15:
+                cur_x = 15.0
+                cur_y += row_h + 10.0
+                row_h = 0.0
+
+            if cur_y + ph <= sheet_h - 15:
+                placed.append({
+                    "id": f"P-{p_id}",
+                    "label": f"{itm['label']} #{p_id}",
+                    "x": cur_x,
+                    "y": cur_y,
+                    "width": pw,
+                    "height": ph,
+                    "area": pw * ph,
+                    "rotated": pw != itm["width"]
+                })
+                used_area += (pw * ph)
                 cur_x += pw + 10.0
                 if ph > row_h:
                     row_h = ph
-                piece_id += 1
+                p_id += 1
+        util = round((used_area / sheet_area) * 100.0, 1) if sheet_area > 0 else 0.0
+        return {
+            "strategy_id": "strategy_compact",
+            "strategy_name": "Layout 2: Compact Nesting (Max Material Yield)",
+            "badge": "Lowest Timber Waste ⭐",
+            "description": "2D algorithmic nesting with adaptive piece rotation. Maximizes board utilization and minimizes wood scrap.",
+            "total_pieces_placed": len(placed),
+            "material_utilization_percent": util,
+            "waste_percent": round(100.0 - util, 1),
+            "placed_layout": placed,
+            "cutting_sequence_instructions": [
+                "1. Load board onto CNC / sliding table saw and verify zero origin coordinates.",
+                "2. Perform perimeter trim cut (15mm boundary margin).",
+                f"3. Cut nested rectangular zones in descending size order for all {len(placed)} panels.",
+                "4. Bundle high-yield off-cuts for customer collection or secondary parts."
+            ]
+        }
 
-    utilization_pct = round((total_used_area / sheet_area) * 100.0, 1) if sheet_area > 0 else 0.0
-    waste_pct = round(100.0 - utilization_pct, 1)
+    # Strategy 3: Grain-Aligned / Column-First Precision
+    def solve_vertical(items_list):
+        placed = []
+        cur_x, cur_y, col_w = 20.0, 20.0, 0.0
+        used_area = 0.0
+        p_id = 1
+        for itm in items_list:
+            pw, ph = itm["width"], itm["height"]
+            if cur_y + ph > sheet_h - 20:
+                cur_y = 20.0
+                cur_x += col_w + 14.0
+                col_w = 0.0
+            if cur_x + pw <= sheet_w - 20:
+                placed.append({
+                    "id": f"P-{p_id}",
+                    "label": f"{itm['label']} #{p_id}",
+                    "x": cur_x,
+                    "y": cur_y,
+                    "width": pw,
+                    "height": ph,
+                    "area": pw * ph,
+                    "rotated": False
+                })
+                used_area += (pw * ph)
+                cur_y += ph + 14.0
+                if pw > col_w:
+                    col_w = pw
+                p_id += 1
+        util = round((used_area / sheet_area) * 100.0, 1) if sheet_area > 0 else 0.0
+        return {
+            "strategy_id": "strategy_vertical",
+            "strategy_name": "Layout 3: Grain-Aligned (Length-First Precision)",
+            "badge": "Best for Wood Grain Flow",
+            "description": "Aligns all components uniformly along the sheet length. Ideal for natural veneer and solid grain furniture.",
+            "total_pieces_placed": len(placed),
+            "material_utilization_percent": util,
+            "waste_percent": round(100.0 - util, 1),
+            "placed_layout": placed,
+            "cutting_sequence_instructions": [
+                "1. Orient solid timber board with grain running horizontally.",
+                "2. Make primary vertical column cuts across sheet height.",
+                f"3. Section off individual {len(placed)} grain-matched panels.",
+                "4. Mark face grain direction arrows on piece edges."
+            ]
+        }
+
+    strat1 = solve_horizontal(raw_items)
+    strat2 = solve_compact(raw_items)
+    strat3 = solve_vertical(raw_items)
+
+    strategies = [strat1, strat2, strat3]
+    # Default to Strategy 2 (Max yield) or whichever has highest utilization
+    best_strat = max(strategies, key=lambda s: (s["total_pieces_placed"], s["material_utilization_percent"]))
 
     result = {
         "sheet_dimensions": {"width": sheet_w, "height": sheet_h},
-        "total_pieces_placed": total_pieces,
-        "material_utilization_percent": utilization_pct,
-        "waste_percent": waste_pct,
-        "placed_layout": placed_pieces,
-        "cutting_sequence_instructions": [
-            f"1. Make primary rip cut across sheet width at Y={int(sheet_h/2)}mm.",
-            "2. Execute cross-cuts for panel pieces P-1 through P-4.",
-            "3. Collect edge timber off-cuts for joinery corner blocks."
-        ]
+        "total_pieces_placed": best_strat["total_pieces_placed"],
+        "material_utilization_percent": best_strat["material_utilization_percent"],
+        "waste_percent": best_strat["waste_percent"],
+        "placed_layout": best_strat["placed_layout"],
+        "cutting_sequence_instructions": best_strat["cutting_sequence_instructions"],
+        "selected_strategy_id": best_strat["strategy_id"],
+        "selected_strategy_name": best_strat["strategy_name"],
+        "strategies": strategies
     }
-    log_ai_execution(db, "cutting_optimization", f"Sheet {sheet_w}x{sheet_h}, Items: {len(req.items)}", str(result))
+    log_ai_execution(db, "cutting_optimization", f"Sheet {sheet_w}x{sheet_h}, Items: {len(req.items)}, Strategies: 3", str(result))
     return result
 
 # Helper to optionally authenticate customer for context-aware queries

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Search, X, Mic, MicOff, ArrowLeft } from 'lucide-react';
 import { Header } from './Header';
@@ -153,8 +153,8 @@ export const DEFAULT_CATALOG_PRODUCTS: RecommendationProduct[] = [
     name: 'Artisan Upholstered Oak Dining Chair (Set of 2)',
     category: 'dining-room',
     subcategory: 'dining-chairs',
-    price: 34000,
-    originalPrice: 39100,
+    price: 5000,
+    originalPrice: 5750,
     stock: 14,
     salesCount: 40,
     status: 'In Stock',
@@ -539,7 +539,7 @@ export const DashboardPage: React.FC = () => {
     setFilterState((prev) => ({ ...prev, ...updated }));
   };
 
-  const handleResetFilters = () => {
+  const handleResetFilters = useCallback(() => {
     setFilterState({
       categoryId: 'all',
       subcategoryId: 'all-sub',
@@ -548,52 +548,157 @@ export const DashboardPage: React.FC = () => {
       searchQuery: '',
       sortBy: 'recommended',
     });
-  };
+  }, [maxPriceLimit]);
+
+  // Sync global reset and quick search events
+  useEffect(() => {
+    const handleResetEvent = () => handleResetFilters();
+    const handleSearchEvent = (e: any) => {
+      if (e?.detail) {
+        handleFilterChange({ searchQuery: e.detail });
+      }
+    };
+
+    window.addEventListener('reset-dashboard-filters', handleResetEvent);
+    window.addEventListener('apply-dashboard-search', handleSearchEvent);
+
+    return () => {
+      window.removeEventListener('reset-dashboard-filters', handleResetEvent);
+      window.removeEventListener('apply-dashboard-search', handleSearchEvent);
+    };
+  }, [handleResetFilters]);
 
   // Voice Search Functionality
   const [isListening, setIsListening] = useState(false);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Clean up recognition instance on component unmount
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // ignore
+        }
+      }
+    };
+  }, []);
 
   const handleVoiceSearch = useCallback(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    setVoiceNotice(null);
 
-    if (!SpeechRecognition) {
-      alert('Voice search is not supported in your browser. Please type your search query.');
-      return;
-    }
-
+    // If already listening, stop recording
     if (isListening) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {
+          try {
+            recognitionRef.current.abort();
+          } catch (err) {
+            // ignore
+          }
+        }
+      }
       setIsListening(false);
       return;
     }
 
+    // Check secure context for microphone in deployed environments
+    if (
+      typeof window !== 'undefined' &&
+      window.location.protocol === 'http:' &&
+      window.location.hostname !== 'localhost' &&
+      window.location.hostname !== '127.0.0.1'
+    ) {
+      alert('Voice search requires a secure HTTPS connection in deployed environments. Please access the site via HTTPS.');
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      alert('Voice search is not supported in this browser. For voice input, please use Google Chrome, Microsoft Edge, or Safari.');
+      return;
+    }
+
     try {
+      // Abort any previous instance if running
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {
+          // ignore
+        }
+      }
+
       const recognition = new SpeechRecognition();
+      recognitionRef.current = recognition;
+
       recognition.continuous = false;
-      recognition.interimResults = false;
-      recognition.lang = 'en-US';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = (typeof navigator !== 'undefined' && navigator.language) ? navigator.language : 'en-US';
 
       recognition.onstart = () => {
         setIsListening(true);
+        setVoiceNotice('Listening... Speak now');
       };
 
       recognition.onresult = (event: any) => {
-        const transcript = event.results[0][0].transcript;
-        if (transcript) {
-          handleFilterChange({ searchQuery: transcript });
-          const el = document.getElementById('catalog-section');
-          if (el) {
-            const yOffset = -85;
-            const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
-            window.scrollTo({ top: y, behavior: 'smooth' });
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          const item = event.results[i];
+          if (item.isFinal) {
+            finalTranscript += item[0].transcript;
+          } else {
+            interimTranscript += item[0].transcript;
           }
         }
-        setIsListening(false);
+
+        const rawTranscript = (finalTranscript || interimTranscript).trim();
+        if (rawTranscript) {
+          // Clean trailing periods or special characters
+          const cleanTranscript = rawTranscript.replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, '').trim();
+          handleFilterChange({ searchQuery: cleanTranscript });
+
+          if (finalTranscript) {
+            setVoiceNotice(`Searched for: "${cleanTranscript}"`);
+            setTimeout(() => setVoiceNotice(null), 3000);
+
+            const el = document.getElementById('catalog-section');
+            if (el) {
+              const yOffset = -85;
+              const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+              window.scrollTo({ top: y, behavior: 'smooth' });
+            }
+          }
+        }
       };
 
       recognition.onerror = (err: any) => {
         console.warn('Speech recognition error:', err);
         setIsListening(false);
+        const errType = err?.error || '';
+
+        if (errType === 'not-allowed' || errType === 'permission-denied') {
+          setVoiceNotice('Microphone permission denied.');
+          alert('Microphone access was denied. Please allow microphone access in your browser address bar/site settings to use Voice Search.');
+        } else if (errType === 'no-speech') {
+          setVoiceNotice('No speech detected. Click to try again.');
+          setTimeout(() => setVoiceNotice(null), 3500);
+        } else if (errType === 'network') {
+          setVoiceNotice('Network error with speech recognition.');
+          setTimeout(() => setVoiceNotice(null), 3500);
+        } else if (errType !== 'aborted') {
+          setVoiceNotice('Voice recognition ended.');
+          setTimeout(() => setVoiceNotice(null), 3000);
+        }
       };
 
       recognition.onend = () => {
@@ -604,6 +709,7 @@ export const DashboardPage: React.FC = () => {
     } catch (err) {
       console.warn('Speech recognition start failed:', err);
       setIsListening(false);
+      alert('Unable to access microphone. Please check your browser microphone permissions.');
     }
   }, [isListening]);
 
@@ -787,7 +893,21 @@ export const DashboardPage: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden">
+    <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#F5EFE6] overflow-x-hidden">
+      {/* Light Brown Hint Ambient Atmospheric Background */}
+      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#EFE6DB] via-[#F8F3EC] to-[#EAE0D2] pointer-events-none" />
+      {/* Dedicated Top Light Brown Shade & Aura */}
+      <div className="fixed top-0 left-0 right-0 h-56 bg-gradient-to-b from-[#E5D7C5]/90 via-[#EFE6DB]/75 to-transparent pointer-events-none z-0" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_100%_70%_at_50%_0%,rgba(215,200,180,0.6),rgba(255,255,255,0))] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(226,215,203,0.5),_transparent_60%)] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_bottom_left,_rgba(214,201,185,0.4),_transparent_60%)] pointer-events-none" />
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-75">
+        <div className="absolute -top-24 left-1/4 w-[40rem] h-64 rounded-full bg-[#DFD0BC]/50 blur-3xl" />
+        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-[#E5D7C5]/50 blur-3xl" />
+        <div className="absolute top-1/3 -left-32 w-80 h-80 rounded-full bg-[#DFCEB7]/40 blur-3xl" />
+        <div className="absolute -bottom-32 right-1/4 w-[32rem] h-[32rem] rounded-full bg-[#E8DCCB]/45 blur-3xl" />
+      </div>
+
       {/* Foreground Interactive Content */}
       <div className="relative z-10 flex flex-col min-h-screen">
         {/* Floating Header Pill Navigation */}
@@ -860,6 +980,12 @@ export const DashboardPage: React.FC = () => {
                         {isListening && <span>Listening...</span>}
                       </button>
                     </div>
+                    {voiceNotice && (
+                      <div className="absolute top-full right-0 mt-1.5 px-3 py-1 bg-[#1C1814]/90 backdrop-blur-md text-[#F7F2EB] text-[11px] font-semibold rounded-lg shadow-lg border border-white/20 z-50 flex items-center gap-1.5 animate-fadeIn">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#48A63E] animate-ping" />
+                        <span>{voiceNotice}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -950,9 +1076,13 @@ export const DashboardPage: React.FC = () => {
               <div id="recommendations-grid" className="space-y-4 pt-1 scroll-mt-24">
                 <RecommendationSection
                   products={filteredProducts}
+                  totalCatalogCount={dbProducts.length > 0 ? dbProducts.length : DEFAULT_CATALOG_PRODUCTS.length}
+                  activeSearchQuery={filterState.searchQuery}
                   onAddToCart={handleAddToCart}
                   onToggleWishlist={handleToggleWishlist}
                   onCustomizeProduct={(product) => setSelectedCustomProduct(product)}
+                  onResetFilters={handleResetFilters}
+                  onApplySearch={(term) => handleFilterChange({ searchQuery: term })}
                 />
               </div>
 
@@ -971,9 +1101,9 @@ export const DashboardPage: React.FC = () => {
                         setActiveCustomerTab('create');
                         handleOpenCustomStudioModal();
                       }}
-                      className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#387A46] transition-all cursor-pointer space-y-2 shadow-2xs group"
+                      className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#48A63E] transition-all cursor-pointer space-y-2 shadow-2xs group"
                     >
-                      <div className="w-10 h-10 rounded-xl bg-[#E8F3E8] text-[#387A46] flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
+                      <div className="w-10 h-10 rounded-xl bg-[#E8F5E9] text-[#48A63E] flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
                         🛋️
                       </div>
                       <h4 className="font-extrabold text-xs text-[#1C1814] tracking-tight">Customize furniture</h4>
@@ -988,9 +1118,9 @@ export const DashboardPage: React.FC = () => {
                         setActiveCustomerTab('create');
                         handleOpenCustomStudioModal();
                       }}
-                      className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#387A46] transition-all cursor-pointer space-y-2 shadow-2xs group"
+                      className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#48A63E] transition-all cursor-pointer space-y-2 shadow-2xs group"
                     >
-                      <div className="w-10 h-10 rounded-xl bg-[#E8F3E8] text-[#387A46] flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
+                      <div className="w-10 h-10 rounded-xl bg-[#E8F5E9] text-[#48A63E] flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
                         📐
                       </div>
                       <h4 className="font-extrabold text-xs text-[#1C1814] tracking-tight">Design from scratch</h4>
@@ -1002,9 +1132,9 @@ export const DashboardPage: React.FC = () => {
                     {/* Action 3: Upload inspiration image */}
                     <div
                       onClick={() => setActiveCustomerTab('fabricate')}
-                      className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#387A46] transition-all cursor-pointer space-y-2 shadow-2xs group"
+                      className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#D6C9B9] hover:border-[#48A63E] transition-all cursor-pointer space-y-2 shadow-2xs group"
                     >
-                      <div className="w-10 h-10 rounded-xl bg-[#E8F3E8] text-[#387A46] flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
+                      <div className="w-10 h-10 rounded-xl bg-[#E8F5E9] text-[#48A63E] flex items-center justify-center font-bold text-lg group-hover:scale-110 transition-transform">
                         📷
                       </div>
                       <h4 className="font-extrabold text-xs text-[#1C1814] tracking-tight">Upload inspiration image</h4>
@@ -1055,7 +1185,7 @@ export const DashboardPage: React.FC = () => {
           {/* TAB: SERVICES (On-Site Skilled Services Booking) */}
           {activeCustomerTab === 'services' && <ServicesTab />}
 
-          {/* TAB: ASSISTANT (Customer Context-Aware AI Chatbot & Computer Vision Tools) */}
+          {/* TAB: ASSISTANT (Customer Context-Aware AI Chatbot) */}
           {activeCustomerTab === 'assistant' && <CustomerAssistantTab />}
         </main>
       </div>
@@ -1069,6 +1199,27 @@ export const DashboardPage: React.FC = () => {
           setActiveCustomerTab(tab);
         }}
       />
+
+      {/* Floating Mobile Cart Bar */}
+      {cartItemsCount > 0 && (
+        <div className="sm:hidden fixed bottom-5 left-4 right-22 z-40 animate-fadeIn">
+          <button
+            onClick={() => navigate('/cart')}
+            className="w-full py-3 px-4 rounded-full bg-[#1C1814]/95 text-white border border-white/20 shadow-2xl backdrop-blur-md flex items-center justify-between cursor-pointer active:scale-98"
+          >
+            <div className="flex items-center gap-2 text-xs font-black">
+              <span className="w-6 h-6 rounded-full bg-[#48A63E] text-white flex items-center justify-center text-[10px]">
+                {cartItemsCount}
+              </span>
+              <span>{cartItemsCount === 1 ? 'Item in Cart' : 'Items in Cart'}</span>
+            </div>
+            <div className="text-xs font-extrabold text-[#48A63E] flex items-center gap-1">
+              <span>Checkout</span>
+              <span>➔</span>
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Customization Studio Modal */}
       <CustomizationModal

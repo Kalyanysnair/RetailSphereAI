@@ -1,22 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Star, Heart, ShoppingBag, Eye, Sparkles, Check, X } from 'lucide-react';
+import { Star, Heart, ShoppingBag, Eye, Sparkles, Check, X, RotateCcw, Tag } from 'lucide-react';
 import { RecommendationProduct } from '../../types/dashboard';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems, toggleWishlist } from '../../utils/wishlistStorage';
 
 interface RecommendationSectionProps {
   products: RecommendationProduct[];
+  totalCatalogCount?: number;
+  activeSearchQuery?: string;
   onAddToCart?: (product: RecommendationProduct) => void;
   onToggleWishlist?: (productId: string) => void;
   onCustomizeProduct?: (product: RecommendationProduct) => void;
+  onResetFilters?: () => void;
+  onApplySearch?: (query: string) => void;
 }
 
 export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
   products,
+  totalCatalogCount,
+  activeSearchQuery,
   onAddToCart,
   onToggleWishlist,
   onCustomizeProduct,
+  onResetFilters,
+  onApplySearch,
 }) => {
   const navigate = useNavigate();
   const [wishlistIds, setWishlistIds] = useState<string[]>(() =>
@@ -26,6 +34,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
     getCartItems().map((item) => item.id)
   );
   const [quickViewProduct, setQuickViewProduct] = useState<RecommendationProduct | null>(null);
+  const [recentlyAddedId, setRecentlyAddedId] = useState<string | null>(null);
 
   const isLoggedIn = Boolean(
     typeof localStorage !== 'undefined' &&
@@ -89,45 +98,113 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
       price: product.price,
       imageUrl: product.imageUrl,
     });
+
+    setRecentlyAddedId(product.id);
+    setTimeout(() => {
+      setRecentlyAddedId(null);
+    }, 1800);
+
     onAddToCart?.(product);
   };
 
-  // Mock AI Match score calculations for visual richness
-  const getAiMatchScore = (idx: number) => {
-    const scores = [98, 96, 95, 94, 92, 91, 89, 88, 87, 85];
-    return scores[idx % scores.length];
+  const handleApplyQuickSearch = (term: string) => {
+    if (onApplySearch) {
+      onApplySearch(term);
+    } else {
+      window.dispatchEvent(new CustomEvent('apply-dashboard-search', { detail: term }));
+    }
+  };
+
+  const handleTriggerReset = () => {
+    if (onResetFilters) {
+      onResetFilters();
+    } else {
+      window.dispatchEvent(new CustomEvent('reset-dashboard-filters'));
+    }
   };
 
   return (
     <div className="space-y-4">
-      {/* Product-First Clean Section Header */}
+      {/* Product-First Clean Section Header with Live Count */}
       <div className="flex items-center justify-between pt-1">
-        <h2 className="text-lg sm:text-xl font-extrabold text-[#1C1814] tracking-tight">
-          Featured Furniture Collection
-        </h2>
+        <div className="flex items-center gap-2.5">
+          <h2 className="text-lg sm:text-xl font-extrabold text-[#1C1814] tracking-tight">
+            Featured Furniture Collection
+          </h2>
+          {products.length > 0 && (
+            <span className="px-2.5 py-0.5 rounded-full bg-[#E8F5E9] border border-[#48A63E]/20 text-[#48A63E] text-[11px] font-black">
+              {products.length} {products.length === 1 ? 'Design' : 'Designs'}
+            </span>
+          )}
+        </div>
         <span className="text-xs font-bold text-[#6E6458]">
-          {products.length} Designs Available
+          {totalCatalogCount ? `Showing ${products.length} of ${totalCatalogCount} pieces` : `${products.length} Available`}
         </span>
       </div>
 
-      {/* 4-Column Product Grid (Immediately Showcase 8+ Products) */}
+      {/* 4-Column Product Grid or Interactive Empty State */}
       {products.length === 0 ? (
-        <div className="bg-white/90 border border-[#E6DDD3] rounded-3xl p-12 text-center text-[#6B5C4D] space-y-3 shadow-md backdrop-blur-xl">
-          <p className="text-base font-bold text-[#2C241D]">No furniture designs match your active filter.</p>
-          <p className="text-xs font-medium">Try selecting another category or reset filters to browse the collection.</p>
-          <button
-            onClick={() => window.dispatchEvent(new CustomEvent('reset-dashboard-filters'))}
-            className="mt-2 px-5 py-2 rounded-xl bg-[#48A63E] text-white text-xs font-bold hover:bg-[#3D9134] transition-all shadow-sm cursor-pointer"
-          >
-            Reset All Filters
-          </button>
+        <div className="bg-white/95 border-2 border-dashed border-[#DFD3C4] rounded-3xl p-8 sm:p-12 text-center text-[#6B5C4D] space-y-4 shadow-sm backdrop-blur-xl max-w-2xl mx-auto my-4">
+          <div className="w-14 h-14 rounded-2xl bg-[#E8F5E9] text-[#48A63E] flex items-center justify-center mx-auto shadow-inner">
+            <Sparkles className="w-7 h-7" />
+          </div>
+          <div className="space-y-1">
+            <h3 className="text-base sm:text-lg font-extrabold text-[#2C241D]">
+              No furniture designs match your criteria
+            </h3>
+            <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium">
+              {activeSearchQuery
+                ? `We couldn't find matches for "${activeSearchQuery}". Try another keyword or check out popular suggestions below.`
+                : 'Try adjusting your price slider or selecting another category to view handcrafted pieces.'}
+            </p>
+          </div>
+
+          {/* Quick Suggestion Chips */}
+          <div className="space-y-2 pt-1">
+            <span className="text-[10px] font-extrabold text-[#8C7C6D] uppercase tracking-wider">
+              Popular Searches:
+            </span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {['Teak Dining Table', 'Velvet Lounge Sofa', 'Solid Wood Bed', 'Coffee Table', 'Workstation Desk'].map((chip) => (
+                <button
+                  key={chip}
+                  type="button"
+                  onClick={() => handleApplyQuickSearch(chip)}
+                  className="px-3 py-1 rounded-xl bg-[#FAF8F5] hover:bg-[#E8F5E9] border border-[#D6C9B9] hover:border-[#48A63E] text-xs font-bold text-[#2C241D] hover:text-[#48A63E] transition-all cursor-pointer shadow-xs"
+                >
+                  🔍 {chip}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <button
+              onClick={handleTriggerReset}
+              className="px-6 py-2.5 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold transition-all shadow-md shadow-[#48A63E]/20 cursor-pointer inline-flex items-center gap-2 active:scale-95"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset Filters & Show All Furniture</span>
+            </button>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {products.map((product, idx) => {
+          {products.map((product) => {
             const isWishlisted = wishlistIds.includes(product.id);
             const isCartAdded = cartIds.includes(product.id);
-            const aiScore = getAiMatchScore(idx);
+            const isJustAdded = recentlyAddedId === product.id;
+            
+            const hasDiscount = Boolean(
+              product.originalPrice && product.originalPrice > product.price
+            );
+            const discountPct = hasDiscount
+              ? Math.round((((product.originalPrice! - product.price) / product.originalPrice!) * 100))
+              : 0;
+
+            const isLowStock = Boolean(
+              product.stock !== undefined && product.stock > 0 && product.stock <= 4
+            );
 
             return (
               <div
@@ -145,14 +222,22 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                     className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                   />
 
-                  {/* Wishlist Icon Button overlay */}
+                  {/* Discount Percentage Badge (Top-Left) */}
+                  {hasDiscount && (
+                    <div className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-full bg-[#48A63E] text-white text-[10px] font-black shadow-md flex items-center gap-1 z-10">
+                      <Tag className="w-2.5 h-2.5" />
+                      <span>{discountPct}% OFF</span>
+                    </div>
+                  )}
+
+                  {/* Wishlist Icon Button overlay (Top-Right) */}
                   {isLoggedIn && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         handleWishlistClick(product);
                       }}
-                      className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full backdrop-blur-md transition-all shadow-2xs flex items-center justify-center ${
+                      className={`absolute top-2.5 right-2.5 w-8 h-8 rounded-full backdrop-blur-md transition-all shadow-2xs flex items-center justify-center z-10 ${
                         isWishlisted
                           ? 'bg-rose-600 text-white shadow-rose-600/30'
                           : 'bg-white/90 text-[#2C241D] hover:text-[#48A63E] border border-[#D6C9B9]'
@@ -163,14 +248,14 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                     </button>
                   )}
 
-                  {/* Quick View Button on Hover (Top-Left Side) */}
+                  {/* Quick View Button on Hover (Centered Bottom of Image) */}
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
                       setQuickViewProduct(product);
                     }}
-                    className="absolute top-2.5 left-2.5 w-8 h-8 rounded-full bg-white/90 hover:bg-white text-[#2C241D] hover:text-[#48A63E] shadow-sm border border-[#D6C9B9] flex items-center justify-center transition-all duration-200 opacity-0 group-hover:opacity-100 hover:scale-110 cursor-pointer"
+                    className="absolute bottom-2.5 right-2.5 w-8 h-8 rounded-full bg-white/95 hover:bg-white text-[#2C241D] hover:text-[#48A63E] shadow-md border border-[#D6C9B9] flex items-center justify-center transition-all duration-200 opacity-0 group-hover:opacity-100 hover:scale-110 cursor-pointer z-10"
                     title="Quick View"
                   >
                     <Eye className="w-4 h-4" />
@@ -200,6 +285,14 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                     <p className="text-[11px] font-semibold text-[#6E6458] truncate mt-0.5">
                       {product.material || 'Italian Velvet & Teak'}
                     </p>
+
+                    {/* Low Stock Indicator */}
+                    {isLowStock && (
+                      <div className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded-md mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                        <span>Only {product.stock} left in stock</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* Pricing & Add to Cart Action */}
@@ -208,19 +301,34 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                       <div className="text-sm sm:text-base font-extrabold text-[#1C1814] tracking-tight">
                         ₹{product.price.toLocaleString('en-IN')}
                       </div>
-                      {product.originalPrice && (
+                      {hasDiscount && (
                         <div className="text-[10px] text-[#9E9082] line-through -mt-0.5 font-semibold">
-                          ₹{product.originalPrice.toLocaleString('en-IN')}
+                          ₹{product.originalPrice!.toLocaleString('en-IN')}
                         </div>
                       )}
                     </div>
 
                     <button
                       onClick={() => handleCartClick(product)}
-                      className={`px-4 py-1.5 rounded-full text-[11px] font-extrabold text-white shadow-2xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap bg-[#48A63E] hover:bg-[#3D9134]`}
+                      className={`px-4 py-1.5 rounded-full text-[11px] font-extrabold text-white shadow-2xs transition-all flex items-center gap-1 cursor-pointer active:scale-95 whitespace-nowrap ${
+                        isJustAdded
+                          ? 'bg-[#48A63E] ring-2 ring-[#48A63E]/40 animate-pulse'
+                          : isCartAdded
+                          ? 'bg-[#3D9134] hover:bg-[#327A2B]'
+                          : 'bg-[#48A63E] hover:bg-[#3D9134]'
+                      }`}
                     >
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>{isCartAdded ? 'Go to Cart' : 'Add to Cart'}</span>
+                      {isJustAdded ? (
+                        <>
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Added!</span>
+                        </>
+                      ) : (
+                        <>
+                          <ShoppingBag className="w-3.5 h-3.5" />
+                          <span>{isCartAdded ? 'Go to Cart' : 'Add to Cart'}</span>
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -239,7 +347,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                 <span className="text-xs font-bold text-[#48A63E] uppercase">{quickViewProduct.category}</span>
                 <h3 className="text-lg font-extrabold text-[#2C241D]">{quickViewProduct.name}</h3>
               </div>
-              <button onClick={() => setQuickViewProduct(null)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
+              <button onClick={() => setQuickViewProduct(null)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D] cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -249,7 +357,14 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
             <div className="space-y-1 text-xs text-[#7A6C5E] font-medium">
               <p><strong>Dimensions:</strong> {quickViewProduct.dimensions}</p>
               <p><strong>Material:</strong> {quickViewProduct.material}</p>
-              <p className="text-base font-extrabold text-[#2C241D] pt-2">₹{quickViewProduct.price.toLocaleString('en-IN')}</p>
+              <div className="flex items-center gap-2 pt-2">
+                <span className="text-base font-extrabold text-[#2C241D]">₹{quickViewProduct.price.toLocaleString('en-IN')}</span>
+                {quickViewProduct.originalPrice && quickViewProduct.originalPrice > quickViewProduct.price && (
+                  <span className="text-xs text-[#9E9082] line-through font-semibold">
+                    ₹{quickViewProduct.originalPrice.toLocaleString('en-IN')}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center gap-3 pt-2">
@@ -258,7 +373,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   handleCartClick(quickViewProduct);
                   setQuickViewProduct(null);
                 }}
-                className="flex-1 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                className="flex-1 py-3 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ShoppingBag className="w-4 h-4" /> {cartIds.includes(quickViewProduct.id) ? 'Go to Cart' : 'Add to Cart'}
               </button>
@@ -267,7 +382,7 @@ export const RecommendationSection: React.FC<RecommendationSectionProps> = ({
                   setQuickViewProduct(null);
                   navigate(`/product/${quickViewProduct.id}`);
                 }}
-                className="px-4 py-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs hover:bg-[#EFECE8]"
+                className="px-4 py-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs hover:bg-[#EFECE8] cursor-pointer"
               >
                 Full Details
               </button>

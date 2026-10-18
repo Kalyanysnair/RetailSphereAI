@@ -105,7 +105,7 @@ export const QualityControlTab: React.FC = () => {
       const res = await fetch(`/api/quality/rework/${reworkId}/resolve`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: 'Rework completed by artisan. Re-inspected.' }),
+        body: JSON.stringify({ notes: 'Rework completed by worker. Re-inspected.' }),
       });
       if (res.ok) {
         fetchData();
@@ -123,7 +123,7 @@ export const QualityControlTab: React.FC = () => {
             Quality Assurance & Rework Routing
           </span>
           <h2 className="text-xl font-extrabold mt-2">Quality Control Inspection Center</h2>
-          <p className="text-xs text-[#D9CEBF] mt-1">Four-point inspection checklist, pass/fail validation, and automatic artisan rework routing.</p>
+          <p className="text-xs text-[#D9CEBF] mt-1">Four-point inspection checklist, pass/fail validation, and automatic worker rework routing.</p>
         </div>
 
         <button
@@ -208,7 +208,7 @@ export const QualityControlTab: React.FC = () => {
                   </p>
 
                   <div className="flex items-center justify-between pt-1">
-                    <span className="text-[10px] font-bold text-[#7A6C5E]">Assigned Artisan: {r.worker_name}</span>
+                    <span className="text-[10px] font-bold text-[#7A6C5E]">Assigned Worker: {r.worker_name}</span>
                     {r.status !== 'RESOLVED' && (
                       <button
                         onClick={() => handleResolveRework(r.rework_id)}

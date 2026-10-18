@@ -282,7 +282,7 @@ export const CartPage: React.FC = () => {
     // Update custom orders status in PostgreSQL database
     for (const item of activeItems) {
       if (item.id.startsWith('custom-')) {
-        const numericId = parseInt(item.id.replace('custom-', ''), 10);
+        const numericId = parseInt(item.id.replace(/^(custom-order-|custom-|custom_)/, ''), 10);
         if (!isNaN(numericId)) {
           await payCustomOrder(numericId);
         }

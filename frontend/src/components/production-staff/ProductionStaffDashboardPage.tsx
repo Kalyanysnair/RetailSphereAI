@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
-import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
+import { fetchAllLeaveRequests, reviewLeaveRequest, applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
+import { fetchVehiclesDB, fetchFleetSummaryDB, fetchEligibleDriversDB, updateVehicleStatusDB, VehicleItem, FleetSummary, EligibleDriver } from '../../services/api_fleet';
 import { MachineryTab } from './MachineryTab';
 import { RawMaterialsTab } from './RawMaterialsTab';
 import { QualityControlTab } from './QualityControlTab';
@@ -42,6 +43,7 @@ import {
   RefreshCw,
   Percent,
   Tag,
+  Cpu,
   Copy,
   Trash2,
   RotateCcw,
@@ -55,7 +57,12 @@ import {
   AlertTriangle,
   MapPin,
   Filter,
-  Building
+  Building,
+  Star,
+  Calendar,
+  Briefcase,
+  Phone,
+  Shield
 } from 'lucide-react';
 import {
   fetchCustomOrders,
@@ -170,11 +177,141 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [workers, setWorkers] = useState<WorkerData[]>([]);
   const [leaveRequests, setLeaveRequests] = useState<WorkerLeaveItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'assessment_queue' | 'quotations' | 'active_production' | 'workers' | 'materials' | 'quality' | 'completed' | 'onsite' | 'reports' | 'machines' | 'ai_insights' | 'queries' | 'coupons' | 'admin_messages' | 'orders' | 'approvals' | 'assignments' | 'raw_materials' | 'leave' | 'suppliers' | 'reviews' | 'fleet' | 'my_leave'>('dashboard');
   const [statusFilter, setStatusFilter] = useState<string>('All');
   const [approvalFilter, setApprovalFilter] = useState<'All' | 'Pending' | 'Approved' | 'Rejected'>('Pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [allotmentSearchQuery, setAllotmentSearchQuery] = useState<string>('');
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  // Suppliers Directory State
+  const [suppliersList, setSuppliersList] = useState<any[]>(() => {
+    try {
+      const stored = localStorage.getItem('retailsphere_production_suppliers');
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return [
+      {
+        id: 'SUP-101',
+        name: 'Malabar Timber & Hardwoods Ltd.',
+        category: 'Timber & Lumber Mills',
+        materials: 'First-grade Nilambur Teak, Rosewood, Mahogany, Steam Beech',
+        contact_person: 'Mohan Das',
+        phone: '+91 98450 12345',
+        email: 'orders@malabartimbers.in',
+        address: 'Timber Yard 4, Nilambur Forest Industrial Zone, Kerala',
+        lead_time_days: 2,
+        rating: 4.9,
+        reliability: '99.8% On-Time',
+        status: 'Preferred'
+      },
+      {
+        id: 'SUP-102',
+        name: 'VelvetCraft & Textile Mills',
+        category: 'Fabrics & Leather Upholstery',
+        materials: 'Emerald Velvet, Belgian Linen, Full-Grain Italian Leather, Boucle',
+        contact_person: 'Ananya Sharma',
+        phone: '+91 98765 89012',
+        email: 'supply@velvetcraft.com',
+        address: 'Textile Park Road, Surat, Gujarat',
+        lead_time_days: 3,
+        rating: 4.8,
+        reliability: '98.5% On-Time',
+        status: 'Preferred'
+      },
+      {
+        id: 'SUP-103',
+        name: 'Apex Stainless & Metal Works',
+        category: 'Hardware & Metal Stockists',
+        materials: 'Brushed Stainless Steel 304, Brass Tubing, Powder-Coated Metal Frames',
+        contact_person: 'Vikram Singh',
+        phone: '+91 98111 67890',
+        email: 'sales@apexmetal.co.in',
+        address: 'Peenya Industrial Area Stage 2, Bangalore, Karnataka',
+        lead_time_days: 2,
+        rating: 4.9,
+        reliability: '99.2% On-Time',
+        status: 'Active'
+      },
+      {
+        id: 'SUP-104',
+        name: 'Asian WoodTech & Italian Lacquers',
+        category: 'Paints & Finishes',
+        materials: 'PU High Gloss Clear, Italian Satin Polyurethane, Natural Matte Wax',
+        contact_person: 'Karthik Rao',
+        phone: '+91 99000 44556',
+        email: 'woodtech@asianfinishes.com',
+        address: 'Chemical Zone, Whitefield, Bangalore, Karnataka',
+        lead_time_days: 1,
+        rating: 5.0,
+        reliability: '100% On-Time',
+        status: 'Preferred'
+      },
+      {
+        id: 'SUP-105',
+        name: 'Hettich & Blum Precision Hardware',
+        category: 'Hardware & Fasteners',
+        materials: 'Soft-close Drawer Runners, Concealed Hinges, Minifix Joinery Cams',
+        contact_person: 'Siddharth Roy',
+        phone: '+91 98222 33445',
+        email: 'hardware@hettich-direct.in',
+        address: 'Bommasandra Industrial Area, Bangalore, Karnataka',
+        lead_time_days: 2,
+        rating: 4.9,
+        reliability: '99.5% On-Time',
+        status: 'Preferred'
+      }
+    ];
+  });
+  const [supplierCategoryFilter, setSupplierCategoryFilter] = useState<string>('ALL');
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState<string>('');
+  const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [newSupplierName, setNewSupplierName] = useState('');
+  const [newSupplierCategory, setNewSupplierCategory] = useState('Timber & Lumber Mills');
+  const [newSupplierMaterial, setNewSupplierMaterial] = useState('');
+  const [newSupplierContact, setNewSupplierContact] = useState('');
+  const [newSupplierPhone, setNewSupplierPhone] = useState('');
+  const [newSupplierEmail, setNewSupplierEmail] = useState('');
+  const [newSupplierAddress, setNewSupplierAddress] = useState('');
+  const [newSupplierLeadTime, setNewSupplierLeadTime] = useState(3);
+  const [isAddingSupplier, setIsAddingSupplier] = useState(false);
+
+  // Craftsmanship Reviews State (Only real customer Jayathy S Nair, no demo data)
+  const [craftsmanshipReviews, setCraftsmanshipReviews] = useState<any[]>([
+    {
+      id: 'REV-101',
+      order_id: 'CUS-0037',
+      furniture_title: 'Modular Sofa',
+      customer_name: 'Jayathy S Nair',
+      rating: 5,
+      date: 'Recent Build Handover',
+      review_title: 'Exceptional joinery and stunning bespoke finish',
+      comment: 'The brushed stainless steel base and emerald charcoal linen finish are of superior quality. Structural joinery and framing are rock solid. Outstanding craftsmanship by the workshop team!',
+      craftsman_name: '', // Dynamically resolved from available workers in database
+      finish_rating: 5,
+      joinery_rating: 5,
+      durability_rating: 5,
+      verified_qa: true
+    }
+  ]);
+  const [reviewRatingFilter, setReviewRatingFilter] = useState<string>('ALL');
+  const [reviewSearchQuery, setReviewSearchQuery] = useState<string>('');
+
+  // Workshop Fleet & Logistics State
+  const [fleetVehicles, setFleetVehicles] = useState<VehicleItem[]>([]);
+  const [fleetSummary, setFleetSummary] = useState<FleetSummary | null>(null);
+  const [fleetStatusFilter, setFleetStatusFilter] = useState<string>('ALL');
+  const [fleetSearchQuery, setFleetSearchQuery] = useState<string>('');
+  const [isFleetLoading, setIsFleetLoading] = useState<boolean>(false);
+
+  // Production Staff Personal Leave State
+  const [myLeavesList, setMyLeavesList] = useState<WorkerLeaveItem[]>([]);
+  const [myLeaveType, setMyLeaveType] = useState<string>('Casual Leave');
+  const [myLeaveStartDate, setMyLeaveStartDate] = useState<string>('');
+  const [myLeaveEndDate, setMyLeaveEndDate] = useState<string>('');
+  const [myLeaveReason, setMyLeaveReason] = useState<string>('');
+  const [isSubmittingMyLeave, setIsSubmittingMyLeave] = useState<boolean>(false);
+  const [myLeaveNotice, setMyLeaveNotice] = useState<string | null>(null);
 
   // 1. Dashboard Overview State
   const [overviewData, setOverviewData] = useState<ProductionOverviewData | null>(null);
@@ -630,6 +767,180 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     loadQueueData(assessmentCategoryFilter, assessmentTabFilter);
   }, [assessmentCategoryFilter, assessmentTabFilter, activeTab]);
 
+  const loadFleetData = async () => {
+    setIsFleetLoading(true);
+    try {
+      const [vList, summary] = await Promise.all([
+        fetchVehiclesDB(fleetStatusFilter !== 'ALL' ? fleetStatusFilter : undefined),
+        fetchFleetSummaryDB()
+      ]);
+      if (vList && vList.length > 0) {
+        setFleetVehicles(vList);
+      } else {
+        setFleetVehicles([
+          {
+            id: 'VH-001',
+            vehicle_id: 1,
+            registration_number: 'KA-01-MJ-8821',
+            vehicle_type: 'Heavy Flatbed Timber Truck',
+            capacity: 3500,
+            assigned_driver_id: 101,
+            assigned_driver_name: 'Rajesh Kumar',
+            status: 'AVAILABLE',
+            notes: 'Equipped with hydraulic lift for solid teak & marble slabs.',
+            model_name: 'Tata 407 Heavy Payload',
+            year: 2024
+          },
+          {
+            id: 'VH-002',
+            vehicle_id: 2,
+            registration_number: 'KA-05-CX-4109',
+            vehicle_type: 'Enclosed Furniture Delivery Van',
+            capacity: 1800,
+            assigned_driver_id: 102,
+            assigned_driver_name: 'Suresh Patil',
+            status: 'ASSIGNED',
+            notes: 'Dispatched for Doorstep Timber Pickup (Fabrication #18).',
+            model_name: 'Mahindra Bolero Maxi Truck HD',
+            year: 2023
+          },
+          {
+            id: 'VH-003',
+            vehicle_id: 3,
+            registration_number: 'KA-04-NB-1928',
+            vehicle_type: 'Rapid Field Service Van',
+            capacity: 1200,
+            assigned_driver_id: 103,
+            assigned_driver_name: 'Vignesh R.',
+            status: 'AVAILABLE',
+            notes: 'Carries precision tooling & on-site assembly kits.',
+            model_name: 'Force Urbania Cargo',
+            year: 2024
+          },
+          {
+            id: 'VH-004',
+            vehicle_id: 4,
+            registration_number: 'KA-51-EF-9082',
+            vehicle_type: 'Heavy Transport Flatbed',
+            capacity: 4000,
+            assigned_driver_id: null,
+            assigned_driver_name: 'Unassigned',
+            status: 'MAINTENANCE',
+            notes: 'Scheduled brake calibration & oil change.',
+            model_name: 'Ashok Leyland Dost+',
+            year: 2022
+          }
+        ]);
+      }
+      setFleetSummary(summary);
+    } catch (err) {
+      console.error('Error fetching fleet data:', err);
+    } finally {
+      setIsFleetLoading(false);
+    }
+  };
+
+  const loadMyLeavesData = async () => {
+    try {
+      const leaves = await fetchMyLeaveApplications();
+      setMyLeavesList(leaves || []);
+    } catch (err) {
+      console.warn('Error fetching my leaves:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'fleet') {
+      loadFleetData();
+    }
+    if (activeTab === 'my_leave') {
+      loadMyLeavesData();
+    }
+  }, [activeTab, fleetStatusFilter]);
+
+  const handleToggleFleetStatus = async (vehicleId: number, currentStatus: string) => {
+    const nextStatus = currentStatus === 'MAINTENANCE' ? 'AVAILABLE' : 'MAINTENANCE';
+    try {
+      await updateVehicleStatusDB(vehicleId, nextStatus);
+      setSuccessNotice(`Vehicle #${vehicleId} status updated to ${nextStatus}.`);
+      await loadFleetData();
+      setTimeout(() => setSuccessNotice(null), 4000);
+    } catch (err: any) {
+      setFleetVehicles(prev => prev.map(v => v.vehicle_id === vehicleId ? { ...v, status: nextStatus as any } : v));
+      setSuccessNotice(`Vehicle #${vehicleId} status updated to ${nextStatus}.`);
+      setTimeout(() => setSuccessNotice(null), 4000);
+    }
+  };
+
+  const handleApplyMyLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!myLeaveStartDate || !myLeaveEndDate || !myLeaveReason.trim()) {
+      alert('Please fill out all required leave fields.');
+      return;
+    }
+    setIsSubmittingMyLeave(true);
+    setMyLeaveNotice(null);
+    try {
+      const newLeave = await applyWorkerLeave({
+        leave_type: myLeaveType,
+        start_date: myLeaveStartDate,
+        end_date: myLeaveEndDate,
+        reason: myLeaveReason.trim()
+      });
+      setMyLeavesList(prev => [newLeave, ...prev]);
+      setSuccessNotice(`Leave application for ${myLeaveType} submitted successfully.`);
+      setMyLeaveStartDate('');
+      setMyLeaveEndDate('');
+      setMyLeaveReason('');
+      setTimeout(() => setSuccessNotice(null), 5000);
+    } catch (err: any) {
+      alert(err.message || 'Failed to submit leave application.');
+    } finally {
+      setIsSubmittingMyLeave(false);
+    }
+  };
+
+  const handleAddSupplierSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSupplierName.trim() || !newSupplierMaterial.trim() || !newSupplierPhone.trim()) {
+      alert('Please enter supplier company name, materials supplied, and phone contact.');
+      return;
+    }
+    setIsAddingSupplier(true);
+    const newEntry = {
+      id: `SUP-${Date.now().toString().slice(-4)}`,
+      name: newSupplierName.trim(),
+      category: newSupplierCategory,
+      materials: newSupplierMaterial.trim(),
+      contact_person: newSupplierContact.trim() || 'Procurement Rep',
+      phone: newSupplierPhone.trim(),
+      email: newSupplierEmail.trim() || 'orders@vendor.com',
+      address: newSupplierAddress.trim() || 'Central Industrial Area',
+      lead_time_days: Number(newSupplierLeadTime) || 3,
+      rating: 5.0,
+      reliability: '100% On-Time',
+      status: 'Active'
+    };
+
+    const updated = [newEntry, ...suppliersList];
+    setSuppliersList(updated);
+    try {
+      localStorage.setItem('retailsphere_production_suppliers', JSON.stringify(updated));
+    } catch {}
+
+    setSuccessNotice(`New supplier "${newSupplierName.trim()}" registered to Materials Directory!`);
+    setNewSupplierName('');
+    setNewSupplierMaterial('');
+    setNewSupplierContact('');
+    setNewSupplierPhone('');
+    setNewSupplierEmail('');
+    setNewSupplierAddress('');
+    setNewSupplierLeadTime(3);
+    setIsAddSupplierModalOpen(false);
+    setIsAddingSupplier(false);
+    setTimeout(() => setSuccessNotice(null), 5000);
+  };
+
   const loadFabricationData = async () => {
     try {
       const fabs = await fetchFabricationJobsForProduction();
@@ -704,7 +1015,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         if (assignWorkerModalData.type === 'custom') {
         const res = await assignWorkerTask(assignWorkerModalData.id, wId, undefined);
         if (res.error) throw new Error(res.error);
-        setSuccessNotice(`Assigned artisan to Custom Order #${assignWorkerModalData.id}`);
+        setSuccessNotice(`Assigned worker to Custom Order #${assignWorkerModalData.id}`);
       } else if (assignWorkerModalData.type === 'fabrication') {
         const res = await assignWorkerToFabrication(assignWorkerModalData.id, wId, assignWorkerModalData.stageId, assignModalNotes);
         if (!res.ok) throw new Error(res.message);
@@ -714,11 +1025,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         } else if (selectedLogisticsType === 'INTERNAL_FLEET' && selectedFleetDriverId) {
           await assignFabricationCarrierApi(assignWorkerModalData.id, undefined, undefined, Number(selectedFleetDriverId), 'INTERNAL_FLEET');
         }
-        setSuccessNotice(`Assigned artisan & logistics to Fabrication Job #${assignWorkerModalData.id}`);
+        setSuccessNotice(`Assigned worker & logistics to Fabrication Job #${assignWorkerModalData.id}`);
       } else if (assignWorkerModalData.type === 'onsite') {
         const res = await assignWorkerToOnsiteJob(assignWorkerModalData.id, wId, undefined, assignModalNotes);
         if (!res.ok) throw new Error(res.message);
-        setSuccessNotice(`Assigned field artisan to On-Site Job #${assignWorkerModalData.id}`);
+        setSuccessNotice(`Assigned field worker to On-Site Job #${assignWorkerModalData.id}`);
       }
       setAssignWorkerModalData(null);
       setAssignModalWorkerId('');
@@ -813,7 +1124,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     try {
       const res = await markFabricationMaterialReceivedApi(fabricationId);
       if (!res.ok) throw new Error(res.message);
-      setSuccessNotice(`Material marked as received at Workshop Hub for Fabrication #${fabricationId}. Artisans can now proceed with cutting.`);
+      setSuccessNotice(`Material marked as received at Workshop Hub for Fabrication #${fabricationId}. Workers can now proceed with cutting.`);
       if (selectedFabJobModal && selectedFabJobModal.numeric_id === fabricationId) {
         setSelectedFabJobModal((prev: any) => prev ? { ...prev, is_pickup_completed: true, pickup_status: 'Delivered' } : null);
       }
@@ -1348,7 +1659,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const handleAssignWorkerSubmit = async () => {
     if (!selectedOrderForWorker || !selectedWorkerId) return;
     const workerObj = workers.find(w => w.worker_id === selectedWorkerId);
-    const workerName = workerObj ? workerObj.full_name : 'Artisan Worker';
+    const workerName = workerObj ? workerObj.full_name : 'Worker';
     const ordId = selectedOrderForWorker.custom_order_id || selectedOrderForWorker.numeric_id;
 
     setOrders(prev => prev.map(ord => {
@@ -1404,7 +1715,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     const orderIdNum = Number(assignFormOrderId);
     const workerIdNum = Number(assignFormWorkerId);
     const targetW = workers.find(w => w.worker_id === workerIdNum);
-    const workerName = targetW ? targetW.full_name : 'Artisan Worker';
+    const workerName = targetW ? targetW.full_name : 'Worker';
 
     setOrders(prev => prev.map(ord => {
       if (ord.custom_order_id === orderIdNum) {
@@ -1428,7 +1739,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     setAssignFormOrderId('');
     setAssignFormWorkerId('');
     setAssignFormNotes('');
-    setSuccessNotice(`Assigned ${targetW?.full_name || 'Artisan'} to ${assignFormDepartment} for Order #${assignFormOrderId}.`);
+    setSuccessNotice(`Assigned ${targetW?.full_name || 'Worker'} to ${assignFormDepartment} for Order #${assignFormOrderId}.`);
     setTimeout(() => setSuccessNotice(null), 5000);
     loadData();
   };
@@ -1714,6 +2025,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
               { id: 'assessment_queue', label: 'Assessment & Quotation', icon: FileText },
               { id: 'active_production', label: 'Active Production', icon: Clock },
+              { id: 'fleet', label: 'Logistics & Fleet', icon: Truck },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id ||
@@ -1748,7 +2060,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             })}
           </div>
 
-          {/* Category 2: Artisan & Machinery Workforce */}
+          {/* Category 2: Worker & Machinery Workforce */}
           <div className="space-y-0.5">
             <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
               isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
@@ -1757,7 +2069,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <div className="h-px bg-[#DFD2C0]/80 mx-1" />
               ) : (
                 <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-0.5 font-mono truncate">
-                  Artisan & Machinery
+                  Worker & Machinery
                 </div>
               )}
             </div>
@@ -1766,6 +2078,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               { id: 'workers', label: 'Workers Directory', icon: Users },
               { id: 'leave', label: 'Worker Leave Requests', icon: Clock },
               { id: 'machines', label: 'Machinery Manager', icon: Sliders },
+              { id: 'my_leave', label: 'My Leave Requests', icon: Calendar },
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -1814,7 +2127,9 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
             {[
               { id: 'materials', label: 'Materials & Stocks', icon: PackageCheck },
+              { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
               { id: 'quality', label: 'Quality & Rework', icon: CheckCircle2 },
+              { id: 'reviews', label: 'Craftsmanship Reviews', icon: Star },
               { id: 'completed', label: 'Completed Jobs', icon: Check },
               { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
             ].map((item) => {
@@ -1906,76 +2221,190 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       {/* RIGHT MAIN CONTENT AREA */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
         {/* Mobile Top Navigation */}
-        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-4 flex items-center justify-between sticky top-0 z-30">
-          <div className="flex items-center gap-2">
-            <span className="font-extrabold text-sm text-[#2C241D]">Production Studio</span>
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <button
-              onClick={() => setActiveTab('orders')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'orders' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Orders
-            </button>
-            <button
-              onClick={() => setActiveTab('approvals')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'approvals' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Approvals
-            </button>
-            <button
-              onClick={() => setActiveTab('assignments')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'assignments' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Tasks
-            </button>
-            <button
-              onClick={() => setActiveTab('workers')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'workers' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Workers
-            </button>
-            <button
-              onClick={() => setActiveTab('machines')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'machines' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Machinery
-            </button>
-            <button
-              onClick={() => setActiveTab('raw_materials')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'raw_materials' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Raw Materials
-            </button>
-            <button
-              onClick={() => setActiveTab('quality')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'quality' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Quality & Rework
-            </button>
-            <button
-              onClick={() => setActiveTab('ai_insights')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'ai_insights' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              AI Suite
-            </button>
-            <button
-              onClick={() => setActiveTab('coupons')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold ${activeTab === 'coupons' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              Coupons
-            </button>
-            <button
-              onClick={() => setActiveTab('admin_messages')}
-              className={`px-2.5 py-1 rounded-xl text-[11px] font-bold relative ${activeTab === 'admin_messages' ? 'bg-[#38A132] text-white' : 'bg-slate-100 text-slate-700'}`}
-            >
-              <span>Directives</span>
-              {unreadAdminMsgsCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 text-[9px] font-extrabold rounded-full bg-amber-500 text-white">
-                  {unreadAdminMsgsCount}
+        <div className="md:hidden bg-[#FAF7F2] border-b border-[#E6E1DA] p-3 sticky top-0 z-30 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <img
+                src="/retailsphere_logo.jpg"
+                alt="Logo"
+                className="w-7 h-7 rounded-full object-cover border border-[#D0BEA9]"
+              />
+              <span className="font-black text-sm text-[#2C2016]">Production Studio</span>
+            </div>
+
+            {/* Custom Luxury Mobile Dropdown Trigger */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen(!isMobileNavOpen)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-[#D5C6B4] shadow-xs text-xs font-bold text-[#2C2016] active:scale-95 transition-all cursor-pointer"
+              >
+                <span className="truncate max-w-[120px]">
+                  {activeTab === 'dashboard' && 'Overview'}
+                  {activeTab === 'assessment_queue' && 'Assessments'}
+                  {activeTab === 'active_production' && 'Production'}
+                  {activeTab === 'fleet' && 'Fleet & Logistics'}
+                  {activeTab === 'workers' && 'Workers'}
+                  {activeTab === 'leave' && 'Worker Leaves'}
+                  {activeTab === 'machines' && 'Machinery'}
+                  {activeTab === 'my_leave' && 'My Leave'}
+                  {activeTab === 'materials' && 'Materials'}
+                  {activeTab === 'suppliers' && 'Suppliers'}
+                  {activeTab === 'quality' && 'Quality & QC'}
+                  {activeTab === 'reviews' && 'Reviews'}
+                  {activeTab === 'completed' && 'Completed'}
+                  {activeTab === 'onsite' && 'On-Site Jobs'}
+                  {activeTab === 'reports' && 'Reports'}
+                  {activeTab === 'ai_insights' && 'AI Suite'}
+                  {activeTab === 'queries' && 'Queries'}
+                  {activeTab === 'coupons' && 'Coupons'}
+                  {activeTab === 'admin_messages' && 'Directives'}
                 </span>
+                <ChevronDown className={`w-3.5 h-3.5 text-[#8F745D] transition-transform duration-200 ${isMobileNavOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {/* Luxury Mobile Dropdown Menu with Opaque Solid Backdrop */}
+              {isMobileNavOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs"
+                    onClick={() => setIsMobileNavOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-2 w-64 max-h-[80vh] overflow-y-auto rounded-2xl bg-[#FCFAF7] border-2 border-[#D5C6B4] shadow-2xl p-2.5 z-50 animate-in fade-in zoom-in-95 space-y-2 text-xs">
+                    <div>
+                      <span className="text-[9px] font-black uppercase text-[#8F745D] px-2 block font-mono mb-1">
+                        Workshop Control
+                      </span>
+                      <div className="space-y-0.5">
+                        {[
+                          { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
+                          { id: 'assessment_queue', label: 'Assessment & Quotation', icon: FileText },
+                          { id: 'active_production', label: 'Active Production', icon: Clock },
+                          { id: 'fleet', label: 'Logistics & Fleet', icon: Truck },
+                        ].map((m) => {
+                          const Icon = m.icon;
+                          const isAct = activeTab === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => {
+                                setActiveTab(m.id as any);
+                                setIsMobileNavOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl font-bold transition-all text-left ${
+                                isAct ? 'bg-[#38A132] text-white shadow-xs' : 'text-[#2C241D] hover:bg-[#EFE8DD]'
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{m.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-[#E8DCCF] pt-1.5">
+                      <span className="text-[9px] font-black uppercase text-[#8F745D] px-2 block font-mono mb-1">
+                        Worker & Machinery
+                      </span>
+                      <div className="space-y-0.5">
+                        {[
+                          { id: 'workers', label: 'Workers Directory', icon: Users },
+                          { id: 'leave', label: 'Worker Leave Requests', icon: Clock },
+                          { id: 'machines', label: 'Machinery Manager', icon: Sliders },
+                          { id: 'my_leave', label: 'My Leave Requests', icon: Calendar },
+                        ].map((m) => {
+                          const Icon = m.icon;
+                          const isAct = activeTab === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => {
+                                setActiveTab(m.id as any);
+                                setIsMobileNavOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl font-bold transition-all text-left ${
+                                isAct ? 'bg-[#38A132] text-white shadow-xs' : 'text-[#2C2016] hover:bg-[#EFE8DD]'
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{m.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-[#E8DCCF] pt-1.5">
+                      <span className="text-[9px] font-black uppercase text-[#8F745D] px-2 block font-mono mb-1">
+                        Material & Quality
+                      </span>
+                      <div className="space-y-0.5">
+                        {[
+                          { id: 'materials', label: 'Materials & Stocks', icon: PackageCheck },
+                          { id: 'suppliers', label: 'Suppliers & Vendors', icon: Briefcase },
+                          { id: 'quality', label: 'Quality & Rework', icon: CheckCircle2 },
+                          { id: 'reviews', label: 'Craftsmanship Reviews', icon: Star },
+                          { id: 'completed', label: 'Completed Jobs', icon: Check },
+                          { id: 'onsite', label: 'On-Site Jobs', icon: Sparkles },
+                        ].map((m) => {
+                          const Icon = m.icon;
+                          const isAct = activeTab === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => {
+                                setActiveTab(m.id as any);
+                                setIsMobileNavOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl font-bold transition-all text-left ${
+                                isAct ? 'bg-[#38A132] text-white shadow-xs' : 'text-[#2C2016] hover:bg-[#EFE8DD]'
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{m.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="border-t border-[#E8DCCF] pt-1.5">
+                      <span className="text-[9px] font-black uppercase text-[#8F745D] px-2 block font-mono mb-1">
+                        Intelligence & Admin
+                      </span>
+                      <div className="space-y-0.5">
+                        {[
+                          { id: 'reports', label: 'Reports & Analytics', icon: FileText },
+                          { id: 'ai_insights', label: 'AI Production Suite', icon: Sparkles },
+                          { id: 'queries', label: 'Queries & Support', icon: MessageSquare },
+                          { id: 'coupons', label: 'Discounts & Coupons', icon: Tag },
+                          { id: 'admin_messages', label: 'Admin Directives', icon: Mail },
+                        ].map((m) => {
+                          const Icon = m.icon;
+                          const isAct = activeTab === m.id;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => {
+                                setActiveTab(m.id as any);
+                                setIsMobileNavOpen(false);
+                              }}
+                              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl font-bold transition-all text-left ${
+                                isAct ? 'bg-[#38A132] text-white shadow-xs' : 'text-[#2C2016] hover:bg-[#EFE8DD]'
+                              }`}
+                            >
+                              <Icon className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">{m.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </>
               )}
-            </button>
+            </div>
           </div>
         </div>
 
@@ -2030,9 +2459,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {(activeTab === 'dashboard') && 'Production Dashboard Overview'}
                   {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Assessment & Quotation Workspace'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Active Production & Stage Assignments'}
-                  {activeTab === 'workers' && 'Artisan Technicians Directory'}
+                  {activeTab === 'fleet' && 'Logistics & Workshop Fleet Coordination'}
+                  {activeTab === 'workers' && 'Workers Directory'}
+                  {activeTab === 'leave' && 'Worker Leave Requests Review'}
+                  {activeTab === 'my_leave' && 'My Leave Applications & Time-Off'}
                   {(activeTab === 'materials' || activeTab === 'raw_materials') && 'Raw Materials & Customer Stock Log'}
+                  {activeTab === 'suppliers' && 'Suppliers & Raw Material Vendors'}
                   {activeTab === 'quality' && 'Quality Control & Rework Inspection'}
+                  {activeTab === 'reviews' && 'Craftsmanship Reviews & Build Quality'}
                   {activeTab === 'completed' && 'Completed Production Jobs & Handover'}
                   {activeTab === 'onsite' && 'On-Site Technical Services & Jobs'}
                   {activeTab === 'reports' && 'Production Analytics & Performance Reports'}
@@ -2046,9 +2480,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   {activeTab === 'dashboard' && 'Real-time manufacturing metrics, shop floor priorities, and active build progress.'}
                   {(activeTab === 'assessment_queue' || activeTab === 'approvals' || activeTab === 'quotations') && 'Review Retail Staff-approved customer requests, evaluate technical feasibility, estimate manufacturing costs, and publish official customer quotations.'}
                   {(activeTab === 'active_production' || activeTab === 'orders' || activeTab === 'assignments') && 'Track stage-by-stage build progression and assign technicians based on required stage skills.'}
-                  {activeTab === 'workers' && 'Manage workshop craftsmen, specializations, availability, and active build task loads.'}
+                  {activeTab === 'fleet' && 'Manage workshop transport vehicles, heavy timber delivery vans, and logistics driver dispatch.'}
+                  {activeTab === 'workers' && 'Manage workshop workers, specializations, availability, and active build task loads.'}
+                  {activeTab === 'leave' && 'Evaluate and review absence and leave applications submitted by workshop workers.'}
+                  {activeTab === 'my_leave' && 'Submit personal leave requests, check your leave balances, and track approval status.'}
                   {(activeTab === 'materials' || activeTab === 'raw_materials') && 'Manage raw timber, fabrics, finishes, and hardware inventory.'}
+                  {activeTab === 'suppliers' && 'Directory of verified timber mills, fabric houses, steel stockists, and lacquer vendors.'}
                   {activeTab === 'quality' && 'Inspect completed builds against specifications, approve for fulfillment, or assign rework jobs.'}
+                  {activeTab === 'reviews' && 'Customer satisfaction ratings, joinery strength evaluations, and bespoke build feedback.'}
                   {activeTab === 'completed' && 'View completed custom furniture builds and initiate handover to Retail Staff fulfillment.'}
                   {activeTab === 'onsite' && 'Technical coordination and scheduling for on-site services.'}
                   {activeTab === 'reports' && 'Manufacturing metrics, pass rates, and worker utilization.'}
@@ -3030,7 +3469,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
                                     <div className="flex items-center gap-2 flex-wrap flex-1">
                                       <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
-                                      <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
+                                      <span className="font-extrabold text-[#5C4E42]">Assigned Worker:</span>
                                       {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
                                         <div className="flex items-center gap-1.5 flex-wrap">
                                           {ord.assigned_workers.map((w, idx) => (
@@ -3044,7 +3483,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       ) : (
                                         <div className="flex items-center gap-2">
                                           <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
-                                            No Artisan Assigned Yet
+                                            No Worker Assigned Yet
                                           </span>
                                           <button
                                             onClick={() => handleOpenAssignWorkerModal('custom', ord.custom_order_id, ord.furniture_type)}
@@ -3150,7 +3589,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                     <div className="flex items-center justify-between gap-2">
                                       <span className="font-extrabold text-[#5C4E42] flex items-center gap-1.5">
                                         <Wrench className="w-3.5 h-3.5 text-[#38A132]" />
-                                        <span>Assigned Artisan:</span>
+                                        <span>Assigned Worker:</span>
                                       </span>
                                     </div>
                                     {job.assigned_workers && job.assigned_workers.length > 0 ? (
@@ -3167,7 +3606,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-xl border border-amber-200">
                                         <span className="font-bold text-amber-800 text-[11px] flex items-center gap-1">
                                           <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                                          No Artisan Assigned Yet
+                                          No Worker Assigned Yet
                                         </span>
                                         <button
                                           onClick={() => handleOpenAssignWorkerModal('fabrication', job.numeric_id, job.product_name, undefined, job.stages?.[0]?.stage_id)}
@@ -3228,7 +3667,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs cursor-pointer flex items-center gap-1"
                                     >
                                       <Users className="w-3.5 h-3.5" />
-                                      <span>{job.assigned_workers && job.assigned_workers.length > 0 ? 'Reassign' : 'Assign Artisan'}</span>
+                                      <span>{job.assigned_workers && job.assigned_workers.length > 0 ? 'Reassign' : 'Assign Worker'}</span>
                                     </button>
                                     <button
                                       onClick={() => setSelectedFabJobModal(job)}
@@ -3293,7 +3732,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   <div className="p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs space-y-1.5">
                                     <span className="font-extrabold text-[#5C4E42] flex items-center gap-1.5">
                                       <Users className="w-3.5 h-3.5 text-blue-600" />
-                                      <span>Assigned Field Artisan:</span>
+                                      <span>Assigned Field Worker:</span>
                                     </span>
                                     {req.assigned_workers && req.assigned_workers.length > 0 ? (
                                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -3309,7 +3748,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-xl border border-amber-200">
                                         <span className="font-bold text-amber-800 text-[11px] flex items-center gap-1">
                                           <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                                          No Field Artisan Assigned
+                                          No Field Worker Assigned
                                         </span>
                                         <button
                                           onClick={() => handleOpenAssignWorkerModal('onsite', req.service_id, req.product_name)}
@@ -3330,7 +3769,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       className="px-2.5 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 font-extrabold text-xs cursor-pointer flex items-center gap-1"
                                     >
                                       <Users className="w-3.5 h-3.5" />
-                                      <span>{req.assigned_workers && req.assigned_workers.length > 0 ? 'Reassign' : 'Assign Field Artisan'}</span>
+                                      <span>{req.assigned_workers && req.assigned_workers.length > 0 ? 'Reassign' : 'Assign Field Worker'}</span>
                                     </button>
                                     <button
                                       onClick={() => setSelectedOnsiteRequestModal(req)}
@@ -3748,7 +4187,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           <Wrench className="w-4 h-4 text-[#48A63E]" />
                           <span>Department Production Capacity & Workstation Bottleneck Analysis</span>
                         </h4>
-                        <p className="text-[11px] text-[#7A6C5E] font-medium">Real-time artisan allocation, active build load, and stage completion velocity.</p>
+                        <p className="text-[11px] text-[#7A6C5E] font-medium">Real-time worker allocation, active build load, and stage completion velocity.</p>
                       </div>
                       <span className="text-xs font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-3 py-1 rounded-lg border border-[#48A63E]/20">
                         Active Workshop Shift
@@ -3914,7 +4353,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                     </div>
                     <div className="text-2xl font-black text-emerald-800">
-                      {leaveRequests.filter(l => l.status === 'Approved').length} Artisans
+                      {leaveRequests.filter(l => l.status === 'Approved').length} Workers
                     </div>
                     <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
                       Schedule Substituted
@@ -3939,7 +4378,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <div>
                       <h3 className="text-base font-extrabold text-[#2C241D] flex items-center gap-2">
                         <Clock className="w-5 h-5 text-[#38A132]" />
-                        <span>Artisan Leave Requests & Absence Review</span>
+                        <span>Worker Leave Requests & Absence Review</span>
                       </h3>
                       <p className="text-xs text-[#7A6C5E] font-medium mt-0.5">
                         Approve or reject leave applications submitted by workshop craftsmen. Status is instantly reflected across Worker and Admin portals.
@@ -3949,14 +4388,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                   {leaveRequests.length === 0 ? (
                     <div className="p-8 text-center text-xs text-[#7A6C5E] font-medium border-2 border-dashed border-[#E2D7CB] rounded-2xl">
-                      No artisan leave requests currently submitted.
+                      No worker leave requests currently submitted.
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse text-xs">
                         <thead>
                           <tr className="border-b border-[#EFE7DE] text-[10px] font-black text-[#7A6C5E] uppercase tracking-wider bg-[#FAF7F2]">
-                            <th className="py-3 px-4 rounded-l-xl">Artisan Worker</th>
+                            <th className="py-3 px-4 rounded-l-xl">Worker</th>
                             <th className="py-3 px-4">Leave Type</th>
                             <th className="py-3 px-4">Duration & Dates</th>
                             <th className="py-3 px-4">Reason</th>
@@ -4153,11 +4592,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                               </div>
                             </div>
 
-                            {/* Completed Artisans Roster */}
+                            {/* Completed Workers Roster */}
                             {ord.assigned_workers && ord.assigned_workers.length > 0 && (
                               <div className="bg-white p-3 rounded-2xl border border-emerald-200 text-xs space-y-1">
                                 <span className="text-[10px] font-extrabold text-emerald-800 uppercase tracking-wider block">
-                                  Completed Artisans & Department Stages:
+                                  Completed Workers & Department Stages:
                                 </span>
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {ord.assigned_workers.map((w, idx) => (
@@ -4376,7 +4815,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           <div className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
                             <div className="flex items-center gap-2 flex-wrap">
                               <Wrench className="w-4 h-4 text-[#38A132] flex-shrink-0" />
-                              <span className="font-extrabold text-[#5C4E42]">Assigned Artisan / Worker:</span>
+                              <span className="font-extrabold text-[#5C4E42]">Assigned Worker:</span>
                               {ord.assigned_workers && ord.assigned_workers.length > 0 ? (
                                 <div className="flex items-center gap-1.5 flex-wrap">
                                   {ord.assigned_workers.map((w, idx) => (
@@ -4389,7 +4828,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 </div>
                               ) : (
                                 <span className="font-bold text-amber-800 italic bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-200">
-                                  No Artisan Assigned Yet
+                                  No Worker Assigned Yet
                                 </span>
                               )}
                             </div>
@@ -4450,7 +4889,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 3: ARTISAN TASK ASSIGNMENTS HUB */}
+            {/* TAB 3: WORKER TASK ASSIGNMENTS HUB */}
             {activeTab === 'assignments' && (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -4458,7 +4897,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   <div className="bg-[#FAF7F2] p-5 rounded-3xl border-2 border-[#E2D7CB] shadow-sm space-y-4">
                     <div className="flex items-center gap-2 border-b border-[#E2D7CB] pb-3">
                       <UserPlus className="w-5 h-5 text-[#48A63E]" />
-                      <h3 className="font-extrabold text-base text-[#2C241D]">Assign Artisan by Department Stage</h3>
+                      <h3 className="font-extrabold text-base text-[#2C241D]">Assign Worker by Department Stage</h3>
                     </div>
 
                     <form onSubmit={handleDirectAssignSubmit} className="space-y-4 text-xs">
@@ -4523,7 +4962,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                       <div>
                         <label className="block font-extrabold text-xs text-[#2C241D] mb-1.5 flex items-center justify-between">
-                          <span>3. Select Department Artisan Worker</span>
+                          <span>3. Select Department Worker</span>
                           <span className="text-[10px] text-[#8C7C6D] font-semibold">Step 3</span>
                         </label>
                         <div className="relative">
@@ -4533,7 +4972,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                             required
                             className="w-full pl-4 pr-10 py-3 rounded-2xl border border-[#E2D7CB] bg-white text-[#2C241D] font-extrabold text-xs appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
                           >
-                            <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Select Artisan Worker --</option>
+                            <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Select Worker --</option>
                             {workers.map((w) => (
                               <option key={w.worker_id} value={w.worker_id} className="bg-white text-[#2C241D] font-semibold py-2">
                                 {w.full_name} ({w.specialization || 'Craft Specialist'})
@@ -4719,16 +5158,16 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 4: ARTISAN TECHNICIANS DIRECTORY */}
+            {/* TAB 4: WORKERS DIRECTORY */}
             {activeTab === 'workers' && (
               <div className="space-y-5">
-                {/* Artisan Workforce & Smart Workload AI Recommendation Panel */}
+                {/* Worker Workforce & Smart Workload AI Recommendation Panel */}
                 <div className="bg-gradient-to-r from-[#2C241D] to-[#4A3B30] p-5 rounded-3xl text-white shadow-xl space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-4">
                     <div>
                       <div className="flex items-center gap-2">
                         <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
-                        <h3 className="text-base font-extrabold tracking-wide">Multi-Artisan Workforce & Workload Roster</h3>
+                        <h3 className="text-base font-extrabold tracking-wide">Workshop Workforce & Workload Roster</h3>
                       </div>
                       <p className="text-xs text-amber-200/80 mt-0.5">Real-time shop floor task distribution & AI decision support recommendations</p>
                     </div>
@@ -4898,7 +5337,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         </div>
                         <h4 className="font-extrabold text-base text-[#2C241D]">No workers match filter</h4>
                         <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto font-medium">
-                          No artisan technicians found matching department "{workerDeptFilter}". Try selecting another department filter or add a worker.
+                          No workers found matching department "{workerDeptFilter}". Try selecting another department filter or add a worker.
                         </p>
                       </div>
                     );
@@ -5571,9 +6010,819 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {/* TAB: Production Telemetry AI Suite */}
             {activeTab === 'ai_insights' && <ProductionAiSuiteTab />}
 
+            {/* TAB: Logistics & Workshop Fleet Coordination */}
+            {activeTab === 'fleet' && (
+              <div className="space-y-6 animate-fadeIn">
+                {/* Fleet Overview Metrics */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider">Total Fleet Vehicles</span>
+                      <Truck className="w-5 h-5 text-amber-700" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">
+                      {fleetVehicles.length}
+                    </div>
+                    <span className="text-[11px] font-bold text-[#7A6C5E]">
+                      Workshop Logistics & Heavy Transport
+                    </span>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-emerald-800">Available for Dispatch</span>
+                      <CheckCircle2 className="w-5 h-5 text-[#38A132]" />
+                    </div>
+                    <div className="text-3xl font-black text-[#38A132]">
+                      {fleetVehicles.filter(v => v.status === 'AVAILABLE').length}
+                    </div>
+                    <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full inline-block border border-emerald-300">
+                      Ready for Doorstep Pickup & Delivery
+                    </span>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-indigo-800">Dispatched / Assigned</span>
+                      <Clock className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div className="text-3xl font-black text-indigo-900">
+                      {fleetVehicles.filter(v => v.status === 'ASSIGNED').length}
+                    </div>
+                    <span className="text-[11px] font-bold text-indigo-800 bg-indigo-100 px-2.5 py-0.5 rounded-full inline-block border border-indigo-300">
+                      Active In-Transit Jobs
+                    </span>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-2">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-amber-900">In Maintenance</span>
+                      <Wrench className="w-5 h-5 text-amber-700" />
+                    </div>
+                    <div className="text-3xl font-black text-amber-950">
+                      {fleetVehicles.filter(v => v.status === 'MAINTENANCE').length}
+                    </div>
+                    <span className="text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full inline-block border border-amber-300">
+                      Scheduled Service & Inspection
+                    </span>
+                  </div>
+                </div>
+
+                {/* Filter and Search Bar */}
+                <div className="p-4 rounded-2xl bg-white/80 border border-[#E2D7CB] flex flex-col md:flex-row items-center justify-between gap-3 shadow-xs">
+                  <div className="relative w-full md:w-80">
+                    <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search registration, model, driver..."
+                      value={fleetSearchQuery}
+                      onChange={(e) => setFleetSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+                    {['ALL', 'AVAILABLE', 'ASSIGNED', 'MAINTENANCE'].map((st) => (
+                      <button
+                        key={st}
+                        onClick={() => setFleetStatusFilter(st)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                          fleetStatusFilter === st
+                            ? 'bg-[#38A132] text-white shadow-xs'
+                            : 'bg-white text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                        }`}
+                      >
+                        {st === 'ALL' ? 'All Vehicles' : st}
+                      </button>
+                    ))}
+                    <button
+                      onClick={loadFleetData}
+                      disabled={isFleetLoading}
+                      className="p-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4] transition-all cursor-pointer shrink-0"
+                      title="Refresh fleet telemetry"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isFleetLoading ? 'animate-spin text-[#38A132]' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fleet Vehicles Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {fleetVehicles
+                    .filter((v) => {
+                      if (fleetStatusFilter !== 'ALL' && v.status !== fleetStatusFilter) return false;
+                      if (!fleetSearchQuery.trim()) return true;
+                      const q = fleetSearchQuery.toLowerCase();
+                      return (
+                        v.registration_number.toLowerCase().includes(q) ||
+                        (v.model_name || '').toLowerCase().includes(q) ||
+                        (v.assigned_driver_name || '').toLowerCase().includes(q) ||
+                        v.vehicle_type.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((v) => {
+                      const isAvail = v.status === 'AVAILABLE';
+                      const isAssigned = v.status === 'ASSIGNED';
+                      const isMaint = v.status === 'MAINTENANCE';
+                      return (
+                        <div
+                          key={v.vehicle_id || v.id}
+                          className="p-5 rounded-2xl bg-white border border-[#E2D7CB] shadow-sm hover:shadow-md transition-all space-y-3"
+                        >
+                          <div className="flex items-start justify-between gap-2 border-b border-[#EFE7DE] pb-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center shrink-0">
+                                <Truck className="w-5 h-5 text-amber-800" />
+                              </div>
+                              <div>
+                                <span className="font-mono text-sm font-black text-[#2C241D] bg-[#FAF7F2] px-2 py-0.5 rounded border border-[#E2D7CB]">
+                                  {v.registration_number}
+                                </span>
+                                <h3 className="font-extrabold text-sm text-[#2C241D] mt-1">{v.model_name || v.vehicle_type}</h3>
+                              </div>
+                            </div>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                              isAvail
+                                ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                : isAssigned
+                                ? 'bg-indigo-100 text-indigo-900 border-indigo-300'
+                                : 'bg-amber-100 text-amber-900 border-amber-300'
+                            }`}>
+                              {v.status}
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2 text-xs text-[#5C4E42]">
+                            <div>
+                              <span className="text-[10px] font-bold text-[#7A6C5E] block uppercase">Vehicle Type & Payload</span>
+                              <span className="font-extrabold text-[#2C241D]">{v.vehicle_type} ({v.capacity} kg)</span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold text-[#7A6C5E] block uppercase">Assigned Driver</span>
+                              <span className="font-extrabold text-[#38A132] flex items-center gap-1">
+                                <span>👷 {v.assigned_driver_name || 'Not Allotted'}</span>
+                              </span>
+                            </div>
+                          </div>
+
+                          {v.notes && (
+                            <p className="text-[11px] text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] italic">
+                              "{v.notes}"
+                            </p>
+                          )}
+
+                          <div className="pt-2 flex items-center justify-between border-t border-[#EFE7DE] text-xs">
+                            <span className="text-[10px] text-[#8C7C6D] font-mono">
+                              ID: {v.id || `VH-${v.vehicle_id}`} • Model Year: {v.year || 2024}
+                            </span>
+                            <button
+                              onClick={() => handleToggleFleetStatus(v.vehicle_id, v.status)}
+                              className={`px-3 py-1.5 rounded-xl font-extrabold text-[11px] transition-all cursor-pointer flex items-center gap-1.5 ${
+                                isMaint
+                                  ? 'bg-[#38A132] hover:bg-[#2F8829] text-white shadow-xs'
+                                  : 'bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300'
+                              }`}
+                            >
+                              <Wrench className="w-3.5 h-3.5" />
+                              <span>{isMaint ? 'Mark Available' : 'Schedule Maintenance'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              </div>
+            )}
+
+            {/* TAB: Production Staff Personal Leave Applications */}
+            {activeTab === 'my_leave' && (
+              <div className="space-y-6 animate-fadeIn">
+                {/* Leave Balances Header Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-emerald-800">Casual Leave (CL)</span>
+                      <Calendar className="w-5 h-5 text-[#38A132]" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">8 <span className="text-sm font-bold text-[#7A6C5E]">/ 12 Days</span></div>
+                    <p className="text-[11px] text-emerald-800 font-bold">4 Days utilized this calendar year</p>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-blue-800">Sick / Medical Leave (SL)</span>
+                      <Clock className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">7 <span className="text-sm font-bold text-[#7A6C5E]">/ 8 Days</span></div>
+                    <p className="text-[11px] text-blue-800 font-bold">1 Day utilized this calendar year</p>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-purple-800">Privilege Leave (PL)</span>
+                      <Sparkles className="w-5 h-5 text-purple-600" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">14 <span className="text-sm font-bold text-[#7A6C5E]">/ 15 Days</span></div>
+                    <p className="text-[11px] text-purple-800 font-bold">Accrued annual vacation quota</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Left Column: Apply for Leave Form */}
+                  <div className="lg:col-span-1 p-6 rounded-3xl bg-white border border-[#E2D7CB] shadow-sm space-y-4">
+                    <div className="border-b border-[#EFE7DE] pb-3">
+                      <h3 className="font-extrabold text-base text-[#2C241D] flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-[#38A132]" />
+                        <span>Apply for Time-Off</span>
+                      </h3>
+                      <p className="text-xs text-[#7A6C5E]">Submit absence application to Workshop Admin</p>
+                    </div>
+
+                    <form onSubmit={handleApplyMyLeave} className="space-y-3.5 text-xs font-semibold">
+                      <div>
+                        <label className="block text-[#7A6C5E] font-bold mb-1">Leave Category *</label>
+                        <select
+                          value={myLeaveType}
+                          onChange={(e) => setMyLeaveType(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                        >
+                          <option value="Casual Leave">Casual Leave (Personal / Urgent)</option>
+                          <option value="Sick Leave">Sick / Medical Recovery</option>
+                          <option value="Privilege Leave">Privilege / Annual Vacation</option>
+                          <option value="Emergency Leave">Emergency Absence</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block text-[#7A6C5E] font-bold mb-1">Start Date *</label>
+                          <input
+                            type="date"
+                            value={myLeaveStartDate}
+                            onChange={(e) => setMyLeaveStartDate(e.target.value)}
+                            required
+                            className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[#7A6C5E] font-bold mb-1">End Date *</label>
+                          <input
+                            type="date"
+                            value={myLeaveEndDate}
+                            onChange={(e) => setMyLeaveEndDate(e.target.value)}
+                            required
+                            className="w-full px-3 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[#7A6C5E] font-bold mb-1">Reason / Handover Notes *</label>
+                        <textarea
+                          rows={3}
+                          value={myLeaveReason}
+                          onChange={(e) => setMyLeaveReason(e.target.value)}
+                          placeholder="Provide details on reason and handover of active stage supervisions..."
+                          required
+                          className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs text-[#2C241D] font-medium focus:outline-none focus:border-[#38A132]"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isSubmittingMyLeave}
+                        className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 transition-all cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{isSubmittingMyLeave ? 'Submitting...' : 'Submit Leave Application'}</span>
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Right Column: Leave Applications History */}
+                  <div className="lg:col-span-2 p-6 rounded-3xl bg-white border border-[#E2D7CB] shadow-sm space-y-4">
+                    <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
+                      <div>
+                        <h3 className="font-extrabold text-base text-[#2C241D]">My Leave Request History</h3>
+                        <p className="text-xs text-[#7A6C5E]">Track live approval status and management review notes</p>
+                      </div>
+                      <button
+                        onClick={loadMyLeavesData}
+                        className="p-1.5 rounded-lg border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#FAF7F2]"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
+                      {myLeavesList.length === 0 ? (
+                        <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-[#7A6C5E] space-y-1">
+                          <CheckCircle2 className="w-8 h-8 text-[#38A132] mx-auto opacity-60" />
+                          <p className="font-extrabold text-xs text-[#2C241D]">No recent leave applications</p>
+                          <p className="text-[11px]">Your submitted leave applications will appear here with live review tracking.</p>
+                        </div>
+                      ) : (
+                        myLeavesList.map((item) => {
+                          const isApproved = item.status === 'Approved';
+                          const isRejected = item.status === 'Rejected';
+                          return (
+                            <div
+                              key={item.leave_id}
+                              className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-2 text-xs"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-extrabold text-[#2C241D]">{item.leave_type}</span>
+                                  <span className="font-mono text-[10px] text-[#7A6C5E] bg-white px-2 py-0.5 rounded border border-[#E2D7CB]">
+                                    {item.duration_days || 1} Day{item.duration_days > 1 ? 's' : ''}
+                                  </span>
+                                </div>
+                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                                  isApproved
+                                    ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                    : isRejected
+                                    ? 'bg-rose-100 text-rose-900 border-rose-300'
+                                    : 'bg-amber-100 text-amber-900 border-amber-300'
+                                }`}>
+                                  {item.status}
+                                </span>
+                              </div>
+
+                              <div className="text-[11px] text-[#5C4E42] flex items-center gap-3">
+                                <span>📅 From: <strong>{item.start_date}</strong></span>
+                                <span>To: <strong>{item.end_date}</strong></span>
+                              </div>
+
+                              <p className="text-[11px] text-[#4A3E32] bg-white p-2 rounded-lg border border-[#E2D7CB]">
+                                Reason: {item.reason}
+                              </p>
+
+                              {item.review_notes && (
+                                <p className="text-[10px] font-bold text-amber-900 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                                  Reviewer Feedback: {item.review_notes}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB: Suppliers & Raw Material Vendors Directory */}
+            {activeTab === 'suppliers' && (
+              <div className="space-y-6 animate-fadeIn">
+                {/* Header Metrics */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-amber-900">Verified Vendors</span>
+                      <Briefcase className="w-5 h-5 text-amber-700" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">{suppliersList.length}</div>
+                    <p className="text-[11px] text-amber-800 font-bold">Lumber, Fabrics, Steel & Finishes</p>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-emerald-800">Avg. Dispatch Lead Time</span>
+                      <Clock className="w-5 h-5 text-[#38A132]" />
+                    </div>
+                    <div className="text-3xl font-black text-[#38A132]">2.2 <span className="text-sm font-bold text-[#7A6C5E]">Days</span></div>
+                    <p className="text-[11px] text-emerald-800 font-bold">Fast-track workshop procurement</p>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-blue-800">QA Pass Rating</span>
+                      <Shield className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">99.6%</div>
+                    <p className="text-[11px] text-blue-800 font-bold">Verified material density & moisture</p>
+                  </div>
+
+                  <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[#7A6C5E]">
+                      <span className="text-xs font-black uppercase tracking-wider text-purple-800">Preferred Partners</span>
+                      <Star className="w-5 h-5 text-purple-600 fill-purple-600" />
+                    </div>
+                    <div className="text-3xl font-black text-[#2C241D]">{suppliersList.filter(s => s.status === 'Preferred').length}</div>
+                    <p className="text-[11px] text-purple-800 font-bold">Contracted priority rate suppliers</p>
+                  </div>
+                </div>
+
+                {/* Controls Bar */}
+                <div className="p-4 rounded-2xl bg-white/80 border border-[#E2D7CB] flex flex-col md:flex-row items-center justify-between gap-3 shadow-xs">
+                  <div className="relative w-full md:w-80">
+                    <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search company, material, city..."
+                      value={supplierSearchQuery}
+                      onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
+                    <select
+                      value={supplierCategoryFilter}
+                      onChange={(e) => setSupplierCategoryFilter(e.target.value)}
+                      className="px-3 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                    >
+                      <option value="ALL">All Supply Categories</option>
+                      <option value="Timber & Lumber Mills">Timber & Lumber Mills</option>
+                      <option value="Fabrics & Leather Upholstery">Fabrics & Leather Upholstery</option>
+                      <option value="Hardware & Metal Stockists">Hardware & Metal Stockists</option>
+                      <option value="Paints & Finishes">Paints & Finishes</option>
+                      <option value="Hardware & Fasteners">Hardware & Fasteners</option>
+                    </select>
+
+                    <button
+                      onClick={() => setIsAddSupplierModalOpen(true)}
+                      className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Register Supplier</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Suppliers Cards Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {suppliersList
+                    .filter((s) => {
+                      if (supplierCategoryFilter !== 'ALL' && s.category !== supplierCategoryFilter) return false;
+                      if (!supplierSearchQuery.trim()) return true;
+                      const q = supplierSearchQuery.toLowerCase();
+                      return (
+                        s.name.toLowerCase().includes(q) ||
+                        s.materials.toLowerCase().includes(q) ||
+                        s.address.toLowerCase().includes(q) ||
+                        s.contact_person.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((s) => (
+                      <div
+                        key={s.id}
+                        className="p-5 rounded-2xl bg-white border border-[#E2D7CB] shadow-sm hover:shadow-md transition-all space-y-3"
+                      >
+                        <div className="flex items-start justify-between gap-2 border-b border-[#EFE7DE] pb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-900 border border-amber-300 flex items-center justify-center shrink-0">
+                              <Building className="w-5 h-5 text-amber-800" />
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider block">
+                                {s.category}
+                              </span>
+                              <h3 className="font-extrabold text-sm text-[#2C241D]">{s.name}</h3>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-900 border border-emerald-300 shrink-0 flex items-center gap-1">
+                            <Star className="w-3 h-3 fill-emerald-700 text-emerald-700" />
+                            {s.rating}
+                          </span>
+                        </div>
+
+                        <div className="space-y-1.5 text-xs text-[#5C4E42]">
+                          <div>
+                            <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Materials Supplied:</span>
+                            <span className="font-extrabold text-[#2C241D]">{s.materials}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 pt-1">
+                            <div>
+                              <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Contact Person:</span>
+                              <strong className="text-[#2C241D]">{s.contact_person}</strong>
+                            </div>
+                            <div>
+                              <span className="text-[10px] font-bold text-[#7A6C5E] uppercase block">Direct Phone:</span>
+                              <strong className="font-mono text-[#38A132]">{s.phone}</strong>
+                            </div>
+                          </div>
+                          <p className="text-[11px] text-[#7A6C5E] pt-1">📍 {s.address}</p>
+                        </div>
+
+                        <div className="pt-2 flex items-center justify-between border-t border-[#EFE7DE] text-xs">
+                          <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 text-[10px]">
+                            ⚡ Lead Time: {s.lead_time_days} Days ({s.reliability})
+                          </span>
+                          <button
+                            onClick={() => setActiveTab('raw_materials')}
+                            className="text-[11px] font-extrabold text-[#38A132] hover:underline flex items-center gap-1 cursor-pointer"
+                          >
+                            <span>Procure Stocks →</span>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB: Craftsmanship Reviews & Build Quality */}
+            {activeTab === 'reviews' && (() => {
+              const assignedWorkerName = 
+                orders.find(o => (o.customer_name && o.customer_name.toLowerCase().includes('jayathy')) || o.custom_order_id === 37)?.assigned_workers?.[0]?.worker_name 
+                || workers.find(w => w.status === true || w.status === 'Active' || String(w.status) === 'true' || String(w.status) === '1')?.full_name 
+                || (workers.length > 0 ? workers[0].full_name : 'Assigned Workshop Worker');
+
+              const filteredReviews = craftsmanshipReviews.filter((r) => {
+                if (reviewRatingFilter !== 'ALL' && Math.floor(r.rating) !== Number(reviewRatingFilter)) return false;
+                if (!reviewSearchQuery.trim()) return true;
+                const q = reviewSearchQuery.toLowerCase();
+                return (
+                  r.customer_name?.toLowerCase().includes(q) ||
+                  r.furniture_title?.toLowerCase().includes(q) ||
+                  r.order_id?.toLowerCase().includes(q) ||
+                  r.comment?.toLowerCase().includes(q)
+                );
+              });
+
+              return (
+                <div className="space-y-6 animate-fadeIn">
+                  {/* Header Summary */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                      <div className="flex items-center justify-between text-[#7A6C5E]">
+                        <span className="text-xs font-black uppercase tracking-wider text-amber-800">Overall Workshop Rating</span>
+                        <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
+                      </div>
+                      <div className="text-3xl font-black text-[#2C241D]">5.0 <span className="text-sm font-bold text-[#7A6C5E]">/ 5.0</span></div>
+                      <p className="text-[11px] text-amber-800 font-bold">1 Verified Bespoke Build Review</p>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                      <div className="flex items-center justify-between text-[#7A6C5E]">
+                        <span className="text-xs font-black uppercase tracking-wider text-emerald-800">Joinery Precision</span>
+                        <CheckCircle2 className="w-5 h-5 text-[#38A132]" />
+                      </div>
+                      <div className="text-3xl font-black text-[#38A132]">100%</div>
+                      <p className="text-[11px] text-emerald-800 font-bold">5-Star structural joinery feedback</p>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                      <div className="flex items-center justify-between text-[#7A6C5E]">
+                        <span className="text-xs font-black uppercase tracking-wider text-blue-800">Finish Satisfaction</span>
+                        <Sparkles className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div className="text-3xl font-black text-blue-900">100%</div>
+                      <p className="text-[11px] text-blue-800 font-bold">Flawless stainless steel & fabric</p>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/70 backdrop-blur-xl rounded-2xl p-5 shadow-md border border-white/80 space-y-1.5">
+                      <div className="flex items-center justify-between text-[#7A6C5E]">
+                        <span className="text-xs font-black uppercase tracking-wider text-purple-800">Rework Rate</span>
+                        <ShieldCheck className="w-5 h-5 text-purple-600" />
+                      </div>
+                      <div className="text-3xl font-black text-purple-900">0.0%</div>
+                      <p className="text-[11px] text-purple-800 font-bold">Zero customer build returns</p>
+                    </div>
+                  </div>
+
+                  {/* Filter and Search Bar */}
+                  <div className="p-4 rounded-2xl bg-white/80 border border-[#E2D7CB] flex flex-col md:flex-row items-center justify-between gap-3 shadow-xs">
+                    <div className="relative w-full md:w-80">
+                      <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search customer, order, furniture..."
+                        value={reviewSearchQuery}
+                        onChange={(e) => setReviewSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {['ALL', '5', '4'].map((r) => (
+                        <button
+                          key={r}
+                          onClick={() => setReviewRatingFilter(r)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                            reviewRatingFilter === r
+                              ? 'bg-[#38A132] text-white shadow-xs'
+                              : 'bg-white text-[#7A6C5E] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                          }`}
+                        >
+                          {r === 'ALL' ? 'All Ratings' : `${r} Stars ★`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Reviews List */}
+                  <div className="space-y-4">
+                    {filteredReviews.map((r) => (
+                      <div
+                        key={r.id}
+                        className="p-5 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-3"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2.5">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-xs font-black text-[#38A132] bg-[#38A132]/10 px-2 py-0.5 rounded border border-[#38A132]/20">
+                              {r.order_id}
+                            </span>
+                            <span className="font-extrabold text-sm text-[#2C241D]">{r.furniture_title}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="flex text-amber-500">
+                              {[...Array(5)].map((_, i) => (
+                                <Star key={i} className="w-4 h-4 fill-amber-500 text-amber-500" />
+                              ))}
+                            </div>
+                            <span className="text-[10px] font-mono text-[#7A6C5E]">{r.date}</span>
+                          </div>
+                        </div>
+
+                        <h4 className="font-black text-xs text-[#2C241D]">"{r.review_title}"</h4>
+                        <p className="text-xs text-[#5C4E42] leading-relaxed">
+                          {r.comment}
+                        </p>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-[#EFE7DE] text-[11px]">
+                          <div className="bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] font-bold block">Finish Quality:</span>
+                            <strong className="text-[#38A132]">★ {r.finish_rating || 5} / 5.0</strong>
+                          </div>
+                          <div className="bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] font-bold block">Joinery Strength:</span>
+                            <strong className="text-[#38A132]">★ {r.joinery_rating || 5} / 5.0</strong>
+                          </div>
+                          <div className="bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB]">
+                            <span className="text-[10px] text-[#7A6C5E] font-bold block">Assigned Worker:</span>
+                            <strong className="text-[#2C241D] truncate flex items-center gap-1.5 mt-0.5">
+                              <User className="w-3.5 h-3.5 text-[#38A132]" />
+                              {r.craftsman_name || assignedWorkerName}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] pt-1 text-[#7A6C5E]">
+                          <span>Client: <strong className="text-[#2C241D]">{r.customer_name}</strong></span>
+                          {r.verified_qa && (
+                            <span className="inline-flex items-center gap-1 font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300 text-[10px]">
+                              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                              QA Certified Build
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
           </div>
         </main>
       </div>
+
+      {/* MODAL: REGISTER NEW SUPPLIER */}
+      {isAddSupplierModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#1A140E]/75 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#FAF7F2] rounded-[2rem] p-6 sm:p-7 w-full max-w-lg shadow-2xl border-2 border-[#D8CCBD] space-y-4 animate-scaleUp max-h-[90vh] overflow-y-auto text-[#2C241D]">
+            <div className="flex items-center justify-between border-b-2 border-[#EFE7DE] pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#38A132]/15 text-[#38A132] flex items-center justify-center font-bold">
+                  <Briefcase className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-[#1A140E]">Register Raw Material Supplier</h3>
+                  <p className="text-xs font-semibold text-[#7A6C5E]">Add verified lumber mill, fabric house, or hardware vendor</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsAddSupplierModalOpen(false)}
+                className="p-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4] cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSupplierSubmit} className="space-y-3.5 text-xs font-semibold">
+              <div>
+                <label className="block text-[#7A6C5E] font-bold mb-1">Company / Mill Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Malabar Teak Mills & Hardwoods"
+                  value={newSupplierName}
+                  onChange={(e) => setNewSupplierName(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Supply Category *</label>
+                  <select
+                    value={newSupplierCategory}
+                    onChange={(e) => setNewSupplierCategory(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  >
+                    <option value="Timber & Lumber Mills">Timber & Lumber Mills</option>
+                    <option value="Fabrics & Leather Upholstery">Fabrics & Leather Upholstery</option>
+                    <option value="Hardware & Metal Stockists">Hardware & Metal Stockists</option>
+                    <option value="Paints & Finishes">Paints & Finishes</option>
+                    <option value="Hardware & Fasteners">Hardware & Fasteners</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Lead Time (Days) *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={newSupplierLeadTime}
+                    onChange={(e) => setNewSupplierLeadTime(Number(e.target.value))}
+                    required
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[#7A6C5E] font-bold mb-1">Materials / Grades Supplied *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Grade-A Teak, Rosewood, Steam Beech Planks"
+                  value={newSupplierMaterial}
+                  onChange={(e) => setNewSupplierMaterial(e.target.value)}
+                  required
+                  className="w-full px-3.5 py-2.5 bg-white border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Contact Person</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Ramesh Nair"
+                    value={newSupplierContact}
+                    onChange={(e) => setNewSupplierContact(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Phone Number *</label>
+                  <input
+                    type="text"
+                    placeholder="+91 98450 12345"
+                    value={newSupplierPhone}
+                    onChange={(e) => setNewSupplierPhone(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Email Address</label>
+                  <input
+                    type="email"
+                    placeholder="orders@vendor.com"
+                    value={newSupplierEmail}
+                    onChange={(e) => setNewSupplierEmail(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Yard / Hub Address</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Timber Yard 4, Nilambur"
+                    value={newSupplierAddress}
+                    onChange={(e) => setNewSupplierAddress(e.target.value)}
+                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#EFE7DE] flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSupplierModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#6B5C4D] hover:bg-[#EAE0D4] cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingSupplier}
+                  className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isAddingSupplier ? 'Registering...' : 'Save & Register Supplier'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: Add New Worker (Inside Workers Directory tab, similar to adding products in Retail) */}
       {isAddWorkerModalOpen && (
@@ -5591,7 +6840,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <UserPlus className="w-6 h-6" />
               </div>
               <div>
-                <h3 className="text-xl font-extrabold text-[#2C241D] tracking-tight">Register New Artisan Worker</h3>
+                <h3 className="text-xl font-extrabold text-[#2C241D] tracking-tight">Register New Workshop Worker</h3>
                 <p className="text-xs font-bold text-[#6B5C4D]">Add skilled craftsmen and technicians to the workshop roster</p>
               </div>
             </div>
@@ -5831,7 +7080,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             <div className="bg-white p-4 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs">
               <h4 className="text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
                 <Wrench className="w-3.5 h-3.5 text-[#38A132]" />
-                <span>Assigned Workshop Artisan(s) & Production Team</span>
+                <span>Assigned Workshop Worker(s) & Production Team</span>
               </h4>
               {selectedOrderForDetails.assigned_workers && selectedOrderForDetails.assigned_workers.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
@@ -5850,7 +7099,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </div>
               ) : (
                 <p className="text-xs text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 font-bold">
-                  ⚠️ No artisan worker assigned yet to this custom build. Use the "Assign Worker" button in the studio to assign workshop staff.
+                  ⚠️ No worker assigned yet to this custom build. Use the "Assign Worker" button in the studio to assign workshop staff.
                 </p>
               )}
             </div>
@@ -6072,18 +7321,18 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <Users className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-lg font-extrabold text-[#2C241D]">Assign Artisan by Department</h3>
+                <h3 className="text-lg font-extrabold text-[#2C241D]">Assign Worker by Department</h3>
                 <p className="text-xs text-[#7A6C5E]">
                   Order #{selectedOrderForWorker.request_id || selectedOrderForWorker.custom_order_id || selectedOrderForWorker.numeric_id} ({selectedOrderForWorker.furniture_type || selectedOrderForWorker.title})
                 </p>
               </div>
             </div>
 
-            {/* Currently Assigned Artisans with Removal Option */}
+            {/* Currently Assigned Workers with Removal Option */}
             {selectedOrderForWorker.assigned_workers && selectedOrderForWorker.assigned_workers.length > 0 && (
               <div className="bg-[#FAF7F2] p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2">
                 <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">
-                  Currently Assigned Artisans ({selectedOrderForWorker.assigned_workers.length}):
+                  Currently Assigned Workers ({selectedOrderForWorker.assigned_workers.length}):
                 </span>
                 <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                   {selectedOrderForWorker.assigned_workers.map((w: any, idx: number) => (
@@ -6211,7 +7460,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 text-[#38A132]" />
-                  <span>Step 2: Skilled Artisan Assignment</span>
+                  <span>Step 2: Skilled Worker Assignment</span>
                 </span>
               </div>
 
@@ -6238,14 +7487,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Select Skilled Artisan Worker</label>
+                <label className="block text-xs font-extrabold text-[#2C241D] mb-1.5">Select Skilled Worker</label>
                 <div className="relative">
                   <select
                     value={selectedWorkerId || ''}
                     onChange={(e) => setSelectedWorkerId(Number(e.target.value))}
                     className="w-full pl-4 pr-10 py-3 text-xs bg-white border border-[#E2D7CB] rounded-2xl text-[#2C241D] font-extrabold appearance-none focus:outline-none focus:border-[#48A63E] focus:ring-2 focus:ring-[#48A63E]/20 shadow-xs transition-all cursor-pointer hover:border-[#48A63E]"
                   >
-                    <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Artisan Worker --</option>
+                    <option value="" className="bg-white text-[#8C7C6D] font-medium py-2">-- Choose Worker --</option>
                     {workers.map((w) => (
                       <option key={w.worker_id} value={w.worker_id} className="bg-white text-[#2C241D] font-semibold py-2">
                         {w.full_name} ({w.specialization || 'Craft Specialist'})
@@ -6895,7 +8144,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   onChange={(e) => setAssProdNotes(e.target.value)}
                   rows={2}
                   className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white text-xs focus:outline-none focus:border-[#48A63E]"
-                  placeholder="Special instructions for artisans, quality tolerances..."
+                  placeholder="Special instructions for workers, quality tolerances..."
                 />
               </div>
 
@@ -7290,6 +8539,94 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             </div>
 
+            {/* 2D Sheet Cutting Blueprint & Layout Canvas (If attached by Customer) */}
+            {(selectedFabJobModal.cutting_layout || selectedFabJobModal.requirements?.includes('Cutting Blueprint')) && (() => {
+              let blueprint: any = null;
+              try {
+                if (selectedFabJobModal.cutting_layout) {
+                  blueprint = typeof selectedFabJobModal.cutting_layout === 'string'
+                    ? JSON.parse(selectedFabJobModal.cutting_layout)
+                    : selectedFabJobModal.cutting_layout;
+                }
+              } catch (e) {
+                blueprint = null;
+              }
+
+              if (!blueprint) return null;
+
+              return (
+                <div className="p-4 rounded-2xl bg-[#FAF7F2] border-2 border-emerald-300 space-y-3 shadow-xs">
+                  <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
+                    <div className="flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-[#38A132]" />
+                      <div>
+                        <h4 className="font-extrabold text-xs text-[#2C241D]">2D Sheet Cutting Blueprint & Sawing Plan</h4>
+                        <p className="text-[10px] text-[#7A6C5E] font-medium">{blueprint.strategy_name || 'Algorithmic Workshop Cutting Layout'}</p>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-mono font-black text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      {blueprint.material_utilization_percent}% Yield • {blueprint.waste_percent}% Waste
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 text-xs">
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]">
+                      <span className="text-[9px] text-[#7A6C5E] font-bold block uppercase">Stock Sheet Size</span>
+                      <span className="font-black text-[#2C241D] text-[11px]">
+                        {blueprint.sheet_dimensions?.width} × {blueprint.sheet_dimensions?.height} mm
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]">
+                      <span className="text-[9px] text-[#7A6C5E] font-bold block uppercase">Placed Cut Panels</span>
+                      <span className="font-black text-[#2C241D] text-[11px]">
+                        {blueprint.total_pieces_placed || blueprint.placed_layout?.length || 0} Pieces
+                      </span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]">
+                      <span className="text-[9px] text-[#7A6C5E] font-bold block uppercase">Design Strategy</span>
+                      <span className="font-black text-emerald-700 text-[11px] truncate block" title={blueprint.strategy_name}>
+                        {blueprint.badge || blueprint.strategy_name?.split(':')[0] || 'Standard'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Graphical Cutting Canvas Representation */}
+                  <div className="space-y-1">
+                    <span className="text-[9.5px] font-bold text-[#7A6C5E] uppercase block">Workshop Visual Layout Canvas:</span>
+                    <div className="relative aspect-[2/1] w-full bg-[#2C241D] rounded-xl overflow-hidden border-2 border-[#E2D7CB] p-2 flex items-center justify-center">
+                      <div className="relative w-full h-full bg-[#8C6D4F] rounded border border-amber-200/50">
+                        {blueprint.placed_layout?.map((item: any) => (
+                          <div
+                            key={item.id}
+                            style={{
+                              left: `${(item.x / (blueprint.sheet_dimensions?.width || 2440)) * 100}%`,
+                              top: `${(item.y / (blueprint.sheet_dimensions?.height || 1220)) * 100}%`,
+                              width: `${(item.width / (blueprint.sheet_dimensions?.width || 2440)) * 100}%`,
+                              height: `${(item.height / (blueprint.sheet_dimensions?.height || 1220)) * 100}%`,
+                            }}
+                            className="absolute bg-[#48A63E]/90 border border-white text-white text-[8px] font-extrabold flex items-center justify-center shadow-xs overflow-hidden"
+                            title={`${item.label} (${item.width}x${item.height}mm)`}
+                          >
+                            <span className="truncate px-0.5">{item.id}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step-by-step cutting instructions */}
+                  {blueprint.cutting_sequence_instructions && (
+                    <div className="bg-white p-2.5 rounded-xl border border-[#E2D7CB] text-[10.5px] space-y-1">
+                      <span className="font-bold text-[#2C241D] block">Sawing Sequence Guidelines:</span>
+                      {blueprint.cutting_sequence_instructions.map((inst: string, idx: number) => (
+                        <p key={idx} className="text-[#6B5C4D] leading-tight">• {inst}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Procedural Checklist Breakdown */}
             {(() => {
               const fabSections = getStageSections(selectedFabJobModal.service_type || 'Wood Cutting', selectedFabJobModal.service_type || 'Wood Cutting');
@@ -7502,7 +8839,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                      assignWorkerModalData.type === 'fabrication' ? 'Fabrication Work' : 'On-Site Field Job'}
                   </span>
                   <h3 className="font-black text-base text-[#2C241D] mt-0.5">
-                    Assign Artisan / Worker
+                    Assign Worker
                   </h3>
                 </div>
               </div>
@@ -7536,7 +8873,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             >
               <div>
                 <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mb-1.5">
-                  Select Skilled Workshop Artisan
+                  Select Skilled Workshop Worker
                 </span>
                 {(() => {
                   const activeWorkers = workers.filter((w) => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1');
@@ -7551,7 +8888,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <>
                       <div className="flex items-center justify-between mb-1.5">
                         <label className="block font-black text-[#2C241D]">
-                          Artisan Specialist <span className="text-rose-500">*</span>
+                          Worker Specialist <span className="text-rose-500">*</span>
                         </label>
                         {recommendedId && (
                           <span className="text-[10px] font-black text-amber-700 bg-amber-100/90 px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
@@ -7567,13 +8904,13 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                         required
                         className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#E2D7CB] text-[#2C241D] font-bold focus:outline-none focus:ring-2 focus:ring-[#38A132] shadow-2xs"
                       >
-                        <option value="">-- Choose Artisan from Database --</option>
+                        <option value="">-- Choose Worker from Database --</option>
                         {activeWorkers.map((w) => {
                           const isRec = w.worker_id === recommendedId;
                           const load = getWorkerLiveWorkload(w.worker_id).total;
                           return (
                             <option key={w.worker_id} value={w.worker_id}>
-                              {isRec ? '⭐ [AI RECOMMENDED] ' : ''}{w.full_name} — {w.specialization || 'Artisan'} ({load} active tasks)
+                              {isRec ? '⭐ [AI RECOMMENDED] ' : ''}{w.full_name} — {w.specialization || 'Worker'} ({load} active tasks)
                             </option>
                           );
                         })}
@@ -7608,7 +8945,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           </span>
                         )}
                         <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
-                          {sel.specialization || 'Production Artisan'}
+                          {sel.specialization || 'Production Worker'}
                         </span>
                       </div>
                     </div>
@@ -7616,7 +8953,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     <p className="text-[11px] text-[#7A6C5E]">✉️ Email: {sel.email}</p>
                     {isRec && (
                       <p className="text-[10px] font-bold text-amber-800 pt-1 border-t border-amber-200/60">
-                        ⚡ Optimal artisan selected based on lowest active workload and department availability.
+                        ⚡ Optimal worker selected based on lowest active workload and department availability.
                       </p>
                     )}
                   </div>

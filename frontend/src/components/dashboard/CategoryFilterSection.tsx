@@ -98,35 +98,29 @@ export const CATEGORIES_DATA: CategoryItem[] = [
   }
 ];
 
-export const MATERIALS_LIST = [
-  'All Materials',
-  'Teak Wood',
-  'Bouclé Fabric',
-  'Italian Marble',
-  'Italian Velvet',
-  'Brass & Steel',
-  'Natural Rattan',
-  'Genuine Leather'
-];
-
 export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
   filterState,
   onFilterChange,
   onResetFilters,
-  maxPriceLimit = 60000,
+  maxPriceLimit = 350000,
 }) => {
   const [sortOpen, setSortOpen] = useState(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
 
-  const activeCategory = CATEGORIES_DATA.find((cat) => cat.id === filterState.categoryId) || CATEGORIES_DATA[0];
+  const activeCategory = CATEGORIES_DATA.find((c) => c.id === filterState.categoryId) || CATEGORIES_DATA[4];
 
   const getCategoryIcon = (iconName: string) => {
     switch (iconName) {
-      case 'Sofa': return <Sofa className="w-4 h-4" />;
-      case 'Bed': return <Bed className="w-4 h-4" />;
-      case 'Utensils': return <Utensils className="w-4 h-4" />;
-      case 'Briefcase': return <Briefcase className="w-4 h-4" />;
-      default: return <Grid className="w-4 h-4" />;
+      case 'Sofa':
+        return <Sofa className="w-4 h-4 sm:w-5 sm:h-5" />;
+      case 'Bed':
+        return <Bed className="w-4 h-4 sm:w-5 sm:h-5" />;
+      case 'Utensils':
+        return <Utensils className="w-4 h-4 sm:w-5 sm:h-5" />;
+      case 'Briefcase':
+        return <Briefcase className="w-4 h-4 sm:w-5 sm:h-5" />;
+      default:
+        return <Grid className="w-4 h-4 sm:w-5 sm:h-5" />;
     }
   };
 
@@ -149,8 +143,15 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const BUDGET_PRESETS = [
+    { label: 'All Budgets', maxVal: maxPriceLimit },
+    { label: 'Under ₹15k', maxVal: 15000 },
+    { label: '₹15k – ₹45k', maxVal: 45000 },
+    { label: 'Luxury ₹45k+', maxVal: maxPriceLimit },
+  ];
+
   return (
-    <div id="catalog-section" className="space-y-3 pt-1">
+    <div id="catalog-section" className="space-y-3 pt-1 scroll-mt-20">
       {/* 1. Category Bar */}
       <div className="bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl p-1 shadow-2xs overflow-x-auto scrollbar-none">
         <div className="grid grid-cols-5 min-w-[500px] divide-x divide-[#E0D5C7]">
@@ -179,11 +180,11 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
         </div>
       </div>
 
-      {/* 2. Subcategories Bar + Compact Inline Price Filter & Sort Dropdown */}
-      <div className="flex flex-col md:flex-row items-center justify-between gap-2 px-1">
-        {/* Compact Subcategories Pills (Fits on one line) */}
+      {/* 2. Subcategories Bar + Quick Budget Range Chips & Sort Dropdown */}
+      <div className="flex flex-col lg:flex-row items-center justify-between gap-2 px-1">
+        {/* Compact Subcategories Pills */}
         {activeCategory && activeCategory.subcategories.length > 0 && (
-          <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none w-full md:w-auto flex-nowrap">
+          <div className="flex items-center gap-1 overflow-x-auto py-0.5 scrollbar-none w-full lg:w-auto flex-nowrap">
             {activeCategory.subcategories.map((sub) => {
               const isSubSelected = filterState.subcategoryId === sub.id;
               return (
@@ -207,9 +208,36 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
           </div>
         )}
 
-        {/* Compact Right Control Cluster: Price Filter, Sort Dropdown & Reset Filters Button */}
-        <div className="flex items-center gap-2 flex-shrink-0 w-full md:w-auto justify-between md:justify-end">
-          {/* Reset All Filters Pill Button (Exact Match to User Screenshot) */}
+        {/* Right Cluster: Quick Budget Chips, Slider & Sort */}
+        <div className="flex flex-wrap items-center gap-2 flex-shrink-0 w-full lg:w-auto justify-between lg:justify-end">
+          {/* Quick Budget Chips */}
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+            {BUDGET_PRESETS.map((preset, pIdx) => {
+              const isActivePreset = 
+                preset.maxVal === maxPriceLimit 
+                  ? filterState.maxPrice >= maxPriceLimit 
+                  : filterState.maxPrice === preset.maxVal;
+              return (
+                <button
+                  key={pIdx}
+                  type="button"
+                  onClick={() => {
+                    onFilterChange({ maxPrice: preset.maxVal });
+                    scrollToCollection();
+                  }}
+                  className={`px-2.5 py-1 rounded-full text-[10px] sm:text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap border ${
+                    isActivePreset
+                      ? 'bg-[#E8F5E9] text-[#48A63E] border-[#48A63E]/40 font-extrabold shadow-2xs'
+                      : 'bg-white text-[#6E6458] border-[#E2D7CB] hover:text-[#1C1814]'
+                  }`}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Reset All Filters Button */}
           {onResetFilters && (filterState.categoryId !== 'all' || filterState.subcategoryId !== 'all-sub' || filterState.maxPrice < maxPriceLimit || filterState.searchQuery) && (
             <button
               type="button"
@@ -219,13 +247,13 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
               }}
               className="px-3.5 py-1 rounded-full bg-[#48A63E] hover:bg-[#3D9134] text-white text-[10px] sm:text-[11px] font-extrabold shadow-sm transition-all cursor-pointer whitespace-nowrap active:scale-95 flex items-center justify-center"
             >
-              Reset All Filters
+              Reset Filters
             </button>
           )}
 
           {/* Ultra-compact Price Range Slider */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#1C1814] shadow-2xs">
-            <span className="text-[10px] sm:text-[11px] text-[#6E6458] font-bold whitespace-nowrap">Max Price:</span>
+            <span className="text-[10px] sm:text-[11px] text-[#6E6458] font-bold whitespace-nowrap">Max:</span>
             <span className="font-mono font-extrabold text-[#48A63E] text-[10px] sm:text-[11px] whitespace-nowrap min-w-[36px]">
               ₹{(filterState.maxPrice / 1000).toFixed(0)}k
             </span>
@@ -239,7 +267,7 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
                 onFilterChange({ maxPrice: Number(e.target.value) });
                 scrollToCollection();
               }}
-              className="w-16 sm:w-24 accent-[#48A63E] cursor-pointer"
+              className="w-16 sm:w-20 accent-[#48A63E] cursor-pointer"
             />
           </div>
 
@@ -266,7 +294,7 @@ export const CategoryFilterSection: React.FC<CategoryFilterSectionProps> = ({
                       setSortOpen(false);
                       scrollToCollection();
                     }}
-                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-between ${
+                    className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-between cursor-pointer ${
                       filterState.sortBy === opt.value
                         ? 'bg-[#48A63E] text-white'
                         : 'text-[#1C1814] hover:bg-[#FAF7F2]'

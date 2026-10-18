@@ -10797,6 +10797,79 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
             )}
 
+            {/* 2D Sheet Cutting Blueprint (If attached) */}
+            {(selectedFabForAdminDetails.cutting_layout || selectedFabForAdminDetails.requirements?.includes('Cutting Blueprint')) && (() => {
+              let blueprint: any = null;
+              try {
+                if (selectedFabForAdminDetails.cutting_layout) {
+                  blueprint = typeof selectedFabForAdminDetails.cutting_layout === 'string'
+                    ? JSON.parse(selectedFabForAdminDetails.cutting_layout)
+                    : selectedFabForAdminDetails.cutting_layout;
+                }
+              } catch (e) {
+                blueprint = null;
+              }
+              if (!blueprint) return null;
+
+              return (
+                <div className="space-y-3 p-4 rounded-2xl bg-[#FAF7F2] border-2 border-emerald-300">
+                  <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
+                    <div className="flex items-center gap-2">
+                      <Cpu className="w-4 h-4 text-[#38A132]" />
+                      <h4 className="text-xs font-black text-[#2C241D]">2D Cutting Blueprint & Sawing Plan</h4>
+                    </div>
+                    <span className="text-[10px] font-mono font-black text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-300">
+                      {blueprint.material_utilization_percent}% Yield • {blueprint.waste_percent}% Waste
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]">
+                      <span className="text-[9px] text-[#7A6C5E] font-bold block uppercase">Stock Sheet</span>
+                      <span className="font-black text-[#2C241D] text-[11px]">{blueprint.sheet_dimensions?.width} × {blueprint.sheet_dimensions?.height} mm</span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB]">
+                      <span className="text-[9px] text-[#7A6C5E] font-bold block uppercase">Cut Panels</span>
+                      <span className="font-black text-[#2C241D] text-[11px]">{blueprint.total_pieces_placed || blueprint.placed_layout?.length || 0} Pieces</span>
+                    </div>
+                    <div className="bg-white p-2 rounded-xl border border-[#E2D7CB] sm:col-span-1 col-span-2">
+                      <span className="text-[9px] text-[#7A6C5E] font-bold block uppercase">Strategy</span>
+                      <span className="font-black text-emerald-700 text-[11px] truncate block">{blueprint.strategy_name || 'Standard'}</span>
+                    </div>
+                  </div>
+
+                  <div className="relative aspect-[2/1] w-full bg-[#2C241D] rounded-xl overflow-hidden border-2 border-[#E2D7CB] p-2 flex items-center justify-center">
+                    <div className="relative w-full h-full bg-[#8C6D4F] rounded border border-amber-200/50">
+                      {blueprint.placed_layout?.map((item: any) => (
+                        <div
+                          key={item.id}
+                          style={{
+                            left: `${(item.x / (blueprint.sheet_dimensions?.width || 2440)) * 100}%`,
+                            top: `${(item.y / (blueprint.sheet_dimensions?.height || 1220)) * 100}%`,
+                            width: `${(item.width / (blueprint.sheet_dimensions?.width || 2440)) * 100}%`,
+                            height: `${(item.height / (blueprint.sheet_dimensions?.height || 1220)) * 100}%`,
+                          }}
+                          className="absolute bg-[#48A63E]/90 border border-white text-white text-[8px] font-extrabold flex items-center justify-center shadow-xs overflow-hidden"
+                          title={`${item.label} (${item.width}x${item.height}mm)`}
+                        >
+                          <span className="truncate px-0.5">{item.id}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {blueprint.cutting_sequence_instructions && (
+                    <div className="bg-white p-2.5 rounded-xl border border-[#E2D7CB] text-[10.5px] space-y-1">
+                      <span className="font-bold text-[#2C241D] block">Sawing Sequence:</span>
+                      {blueprint.cutting_sequence_instructions.map((inst: string, idx: number) => (
+                        <p key={idx} className="text-[#6B5C4D] leading-tight">• {inst}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Technical Drawing Image */}
             {selectedFabForAdminDetails.drawing_image && (
               <div className="space-y-2">

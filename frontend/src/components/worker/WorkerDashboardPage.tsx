@@ -623,7 +623,7 @@ export const WorkerDashboardPage: React.FC = () => {
     setIsSubmittingQuery(true);
     try {
       addStaffQuery({
-        staffName: userProfile?.full_name || 'Artisan Worker',
+        staffName: userProfile?.full_name || 'Worker',
         staffEmail: userProfile?.email || 'worker@retailsphere.ai',
         category: queryCategory,
         subject: querySubject.trim(),
@@ -679,7 +679,7 @@ export const WorkerDashboardPage: React.FC = () => {
       // 2. If phone is updated
       if (profilePhone.trim() !== (userProfile?.phone || '')) {
         updatedUser = await updateUserProfile({
-          full_name: userProfile?.full_name || 'Artisan Worker',
+          full_name: userProfile?.full_name || 'Worker',
           phone: profilePhone.trim()
         });
       }
@@ -1079,7 +1079,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   </h1>
                 </div>
                 <p className="text-xs text-[#7A6C5E] font-medium mt-0.5 flex items-center gap-2 flex-wrap">
-                  <span>Artisan ID: #{userProfile?.user_id || '104'}</span>
+                  <span>Worker ID: #{userProfile?.user_id || '104'}</span>
                   <span>•</span>
                   <span>Specialization: <strong className="text-[#2C241D]">{userProfile?.specialization || 'Joinery & Assembly'}</strong></span>
                   {userProfile?.is_driver && (
@@ -1885,7 +1885,7 @@ export const WorkerDashboardPage: React.FC = () => {
                             {isPaused && (
                               <div className="p-2 rounded-xl bg-amber-100/90 border border-amber-300 text-amber-950 text-[11px] font-bold flex items-center gap-1.5">
                                 <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                                <span>Paused: {task.pause_reason || 'Artisan temporarily paused'}</span>
+                                <span>Paused: {task.pause_reason || 'Worker temporarily paused'}</span>
                               </div>
                             )}
 
@@ -2719,7 +2719,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   {isPaused && (
                     <div className="p-2.5 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-xs font-bold flex items-center gap-2">
                       <Pause className="w-4 h-4 text-amber-700 shrink-0" />
-                      <span>Stage is currently Paused: {selectedTaskForDetail.pause_reason || 'Artisan temporarily paused'}</span>
+                      <span>Stage is currently Paused: {selectedTaskForDetail.pause_reason || 'Worker temporarily paused'}</span>
                     </div>
                   )}
 
@@ -2971,7 +2971,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   <option value="Waiting for stain / lacquer topcoat drying">Waiting for stain / lacquer topcoat drying</option>
                   <option value="Tool maintenance & blade realignment">Tool maintenance & blade realignment</option>
                   <option value="Material replenishment & lumber retrieval">Material replenishment & lumber retrieval</option>
-                  <option value="Artisan shift break / Meal break">Artisan shift break / Meal break</option>
+                  <option value="Worker shift break / Meal break">Worker shift break / Meal break</option>
                   <option value="Technical design clarification with supervisor">Technical design clarification with supervisor</option>
                   <option value="Other Workshop Impediment">Other Workshop Impediment</option>
                 </select>
@@ -3305,12 +3305,12 @@ export const WorkerDashboardPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-lg font-black text-[#2C241D] flex items-center gap-2">
-                  <span>{mustChangePasswordModal ? 'Mandatory Password Setup' : 'Artisan Profile & Security'}</span>
+                  <span>{mustChangePasswordModal ? 'Mandatory Password Setup' : 'Worker Profile & Security'}</span>
                 </h3>
                 <p className="text-xs text-[#7A6C5E] font-medium">
                   {mustChangePasswordModal
                     ? 'Please set a secure password for your first login.'
-                    : 'Manage artisan details, workstation assignment and access credentials'}
+                    : 'Manage worker details, workstation assignment and access credentials'}
                 </p>
               </div>
             </div>
@@ -3337,7 +3337,7 @@ export const WorkerDashboardPage: React.FC = () => {
                 <div className="flex items-center gap-2 text-[#6B5C4D]">
                   <User className="w-4 h-4 text-[#48A63E]" />
                   <span className="font-extrabold text-xs uppercase tracking-wider text-[#2C241D]">
-                    Artisan & Station Details
+                    Worker & Station Details
                   </span>
                 </div>
 
@@ -3346,7 +3346,7 @@ export const WorkerDashboardPage: React.FC = () => {
                   <input
                     type="text"
                     readOnly
-                    value={userProfile?.full_name || 'Artisan Worker'}
+                    value={userProfile?.full_name || 'Worker'}
                     className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-bold cursor-not-allowed"
                   />
                 </div>
@@ -3364,7 +3364,7 @@ export const WorkerDashboardPage: React.FC = () => {
                     <label className="block font-bold text-[#6B5C4D] mb-1">Logistics / Driver Status</label>
                     <div className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-bold flex items-center gap-2">
                       <Truck className="w-3.5 h-3.5 text-amber-600" />
-                      <span>{userProfile?.is_driver ? 'Internal Delivery Driver' : 'Workshop Floor Artisan'}</span>
+                      <span>{userProfile?.is_driver ? 'Internal Delivery Driver' : 'Workshop Floor Worker'}</span>
                     </div>
                   </div>
                 </div>

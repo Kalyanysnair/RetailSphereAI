@@ -61,7 +61,7 @@ export async function applyWorkerLeave(payload: {
   const userStr = localStorage.getItem('user_profile') || localStorage.getItem('user');
   const user = userStr ? JSON.parse(userStr) : null;
   const workerId = user?.user_id || user?.id || 104;
-  const workerName = user?.full_name || user?.name || 'Artisan Worker';
+  const workerName = user?.full_name || user?.name || 'Worker';
 
   const start = new Date(payload.start_date);
   const end = new Date(payload.end_date);

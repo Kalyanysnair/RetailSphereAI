@@ -317,7 +317,7 @@ export const ServicesTab: React.FC = () => {
 
                   {s.jobs && s.jobs.length > 0 && (
                     <div className="pt-2 border-t border-[#E2D7CB] space-y-1">
-                      <span className="text-[10px] text-[#48A63E] font-extrabold uppercase">Assigned Artisan:</span>
+                      <span className="text-[10px] text-[#48A63E] font-extrabold uppercase">Assigned Worker:</span>
                       <p className="font-extrabold text-[#2C241D]">{s.jobs[0].worker_name}</p>
                     </div>
                   )}

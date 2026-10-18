@@ -41,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
     { id: 'create', name: 'CREATE' },
     { id: 'fabricate', name: 'FABRICATE' },
     { id: 'services', name: 'SERVICES' },
+    { id: 'orders', name: 'ORDERS', path: '/orders' },
     { id: 'assistant', name: 'ASSISTANT' },
   ];
 
@@ -205,7 +206,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
     >
 
 
-      <div className="max-w-7xl mx-auto h-16 rounded-full bg-[#FAF8F5]/95 backdrop-blur-2xl border border-[#E2D7CB] shadow-[0_4px_20px_rgba(44,36,29,0.06)] px-5 sm:px-8 flex items-center justify-between transition-all gap-4">
+      <div className="max-w-7xl mx-auto h-16 rounded-full bg-[#F8F4EE]/90 backdrop-blur-2xl border border-[#DFD3C4] shadow-[0_4px_20px_rgba(44,36,29,0.06)] px-5 sm:px-8 flex items-center justify-between transition-all gap-4">
         {/* RetailSphere AI Brand Logo */}
         <Logo to="/dashboard" size="md" />
 
@@ -217,7 +218,9 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
               <button
                 key={tab.id}
                 onClick={() => {
-                  if (onSelectTab) {
+                  if (tab.path) {
+                    navigate(tab.path);
+                  } else if (onSelectTab) {
                     onSelectTab(tab.id);
                   } else {
                     navigate('/dashboard', { state: { activeTab: tab.id } });
@@ -260,7 +263,7 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
               <div className="absolute right-0 mt-2.5 w-72 sm:w-80 bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-2xl p-4 shadow-2xl space-y-3 z-[100] animate-fadeIn">
                 <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-2">
                   <h4 className="font-extrabold text-xs text-[#2C241D]">Dashboard Notifications</h4>
-                  <span className="text-[10px] font-bold text-[#387A46] bg-[#387A46]/10 px-2 py-0.5 rounded-md">
+                  <span className="text-[10px] font-bold text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md">
                     {userNotifs.length} Received
                   </span>
                 </div>
@@ -276,26 +279,41 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                     userNotifs.map((n) => (
                       <div key={n.id} className="p-3 rounded-xl bg-white border border-[#E2D7CB] space-y-1.5 shadow-xs">
                         <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-[10px] uppercase tracking-wider text-[#387A46] flex items-center gap-1">
-                            <Tag className="w-3 h-3 text-[#387A46]" /> Exclusive Coupon
+                          <span className="font-extrabold text-[10px] uppercase tracking-wider text-[#48A63E] flex items-center gap-1">
+                            <Tag className="w-3 h-3 text-[#48A63E]" /> Exclusive Coupon
                           </span>
                           <span className="text-[9px] font-mono text-[#8C7C6D]">{n.createdDate}</span>
                         </div>
                         <p className="text-xs font-bold text-[#2C241D] leading-snug">{n.message}</p>
                         <div className="pt-1 flex items-center justify-between">
-                          <span className="font-mono font-extrabold text-xs text-[#387A46] bg-[#387A46]/10 px-2 py-0.5 rounded-md border border-[#387A46]/20">
+                          <span className="font-mono font-extrabold text-xs text-[#48A63E] bg-[#48A63E]/10 px-2 py-0.5 rounded-md border border-[#48A63E]/20">
                             {n.couponCode}
                           </span>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(n.couponCode);
-                              setCopiedCode(n.couponCode);
-                              setTimeout(() => setCopiedCode(null), 2500);
-                            }}
-                            className={`text-[10px] font-extrabold transition-colors ${copiedCode === n.couponCode ? 'text-[#387A46] font-black' : 'text-[#387A46] hover:underline'}`}
-                          >
-                            {copiedCode === n.couponCode ? 'Copied! ✓' : 'Copy Code'}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(n.couponCode);
+                                setCopiedCode(n.couponCode);
+                                setTimeout(() => setCopiedCode(null), 2500);
+                              }}
+                              className={`text-[10px] font-extrabold transition-colors cursor-pointer ${copiedCode === n.couponCode ? 'text-[#48A63E] font-black' : 'text-[#6E6458] hover:text-[#1C1814]'}`}
+                            >
+                              {copiedCode === n.couponCode ? 'Copied! ✓' : 'Copy'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                localStorage.setItem('active_discount_coupon', n.couponCode);
+                                window.dispatchEvent(new CustomEvent('coupon-applied', { detail: n.couponCode }));
+                                setCopiedCode(`applied-${n.couponCode}`);
+                                setTimeout(() => setCopiedCode(null), 2500);
+                              }}
+                              className="px-2 py-0.5 rounded-md bg-[#48A63E] hover:bg-[#3D9134] text-white text-[10px] font-extrabold transition-all cursor-pointer shadow-2xs active:scale-95"
+                            >
+                              {copiedCode === `applied-${n.couponCode}` ? 'Applied ✓' : 'Apply ➔'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))
@@ -359,15 +377,6 @@ export const Header: React.FC<HeaderProps> = ({ cartCount, wishlistCount, active
                 >
                   <User className="w-4 h-4 text-[#48A63E]" />
                   <span>View Profile</span>
-                </Link>
-
-                <Link
-                  to="/orders"
-                  onClick={() => setIsDropdownOpen(false)}
-                  className="flex items-center gap-3 px-3 py-2.5 text-xs font-extrabold text-[#1F1812] hover:bg-[#EAE0D4] rounded-xl transition-all"
-                >
-                  <Package className="w-4 h-4 text-[#48A63E]" />
-                  <span>My Orders & Tracking</span>
                 </Link>
 
                 <button

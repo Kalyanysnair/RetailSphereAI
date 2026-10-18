@@ -78,6 +78,7 @@ def startup_db():
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
+                conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS cutting_layout TEXT;"))
 
                 # Service Request review & priority columns
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))

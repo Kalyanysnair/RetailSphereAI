@@ -42,3 +42,8 @@ frontend/dist/
 .vscode/
 .idea/
 Thumbs.db
+
+# Temporary testing & Browser caches
+.chrome_temp/
+auth_screen.png
+test_*.png

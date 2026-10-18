@@ -7,7 +7,7 @@ export const ProductionAiSuiteTab: React.FC = () => {
     {
       id: '1',
       sender: 'bot',
-      text: 'Production AI Telemetry online. I monitor workshop bottleneck risks, machine availability, and artisan matching scores. How can I assist?',
+      text: 'Production AI Telemetry online. I monitor workshop bottleneck risks, machine availability, and worker matching scores. How can I assist?',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     },
   ]);
@@ -155,7 +155,7 @@ export const ProductionAiSuiteTab: React.FC = () => {
               disabled={isMatching}
               className="w-full py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md cursor-pointer"
             >
-              {isMatching ? 'Calculating Artisan Suitability Scores...' : 'Calculate AI Worker Match Scores'}
+              {isMatching ? 'Calculating Worker Suitability Scores...' : 'Calculate AI Worker Match Scores'}
             </button>
 
             {workerMatches.length > 0 && (

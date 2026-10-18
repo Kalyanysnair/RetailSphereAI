@@ -62,6 +62,7 @@ export interface FabricationItem {
   quantity: number;
   drawing_image?: string;
   requirements?: string;
+  cutting_layout?: any;
   deadline?: string;
   estimated_price?: number;
   status: string;
@@ -900,7 +901,7 @@ export const MyActivityTab: React.FC = () => {
                                 {isPaused && (
                                   <div className="p-2 rounded-xl bg-amber-100 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center gap-1.5">
                                     <Pause className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                                    <span>Production Paused: Artisan temporarily paused stage</span>
+                                    <span>Production Paused: Worker temporarily paused stage</span>
                                   </div>
                                 )}
 
