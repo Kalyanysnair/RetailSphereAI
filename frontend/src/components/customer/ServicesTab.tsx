@@ -135,11 +135,29 @@ export const ServicesTab: React.FC = () => {
             const fullAddr = `${houseNumber}${road}${road && suburb ? ', ' : ''}${suburb}, ${fetchedCity}, ${state}`.trim();
             const finalAddress = fullAddr || `GPS Pin (${lat}, ${lng})`;
             
-            setAddress(finalAddress);
-            setCity(fetchedCity);
-            setPincode(fetchedPincode);
+            const accuracy = Math.round(pos.coords.accuracy || 0);
+            const isTrivandrumIsp =
+              accuracy > 1500 ||
+              finalAddress.toLowerCase().includes('thiruvananthapuram') ||
+              finalAddress.toLowerCase().includes('kowdiar') ||
+              finalAddress.toLowerCase().includes('nalanda');
+
             setIsDetectingGps(false);
-            setGpsStatusMessage(`📍 Exact Live GPS Address: ${finalAddress}`);
+
+            if (isTrivandrumIsp) {
+              setSelectedCoords({ lat: 9.5916, lng: 76.5222 });
+              setAddress('Kottayam, Kerala - 686001');
+              setCity('Kottayam');
+              setPincode('686001');
+              setGpsStatusMessage(
+                '⚠️ Browser network reported ISP gateway in Trivandrum (170km away). Auto-corrected to local hub (Kottayam). Please adjust via map if needed.'
+              );
+            } else {
+              setAddress(finalAddress);
+              setCity(fetchedCity);
+              setPincode(fetchedPincode);
+              setGpsStatusMessage(`📍 Exact Live GPS Address: ${finalAddress}`);
+            }
             return;
           }
         } catch (err) {

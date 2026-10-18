@@ -207,6 +207,12 @@ export const ProfilePage: React.FC = () => {
           const stateVal = addressObj.state || '';
           const pinVal = addressObj.postcode ? addressObj.postcode.replace(/\D/g, '').slice(0, 6) : '';
 
+          const accuracy = Math.round(position.coords.accuracy || 0);
+          const isTrivandrumIsp =
+            accuracy > 1500 ||
+            (cityVal && cityVal.toLowerCase().includes('thiruvananthapuram')) ||
+            (road && (road.toLowerCase().includes('kowdiar') || road.toLowerCase().includes('nalanda')));
+
           setAddressForm((prev) => ({
             ...prev,
             address_line1: road || prev.address_line1 || 'Current Location',
@@ -215,7 +221,11 @@ export const ProfilePage: React.FC = () => {
             pincode: pinVal || prev.pincode,
           }));
 
-          setLocationStatus('✓ Location details loaded! Please review and click Save.');
+          if (isTrivandrumIsp) {
+            setLocationStatus('⚠️ ISP gateway network detected (Trivandrum). If you are in Kottayam or another district, please edit your city/town before saving.');
+          } else {
+            setLocationStatus('✓ Location details loaded! Please review and click Save.');
+          }
         } catch (err: any) {
           setAddressErrorMsg('Could not auto-determine address from coordinates. Please enter manually.');
         } finally {

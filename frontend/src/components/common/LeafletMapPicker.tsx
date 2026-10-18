@@ -3,11 +3,15 @@ import { MapPin, Navigation, Search, Check, RefreshCw, X, AlertCircle } from 'lu
 
 export const QUICK_KERALA_PRESETS = [
   { name: 'Kottayam Central', lat: 9.5916, lng: 76.5222, address: 'Central Junction, Kottayam, Kerala - 686001', city: 'Kottayam', pincode: '686001' },
-  { name: 'Ettumanoor (Hub)', lat: 9.6698, lng: 76.5623, address: 'RetailSphere Operations Facility, MC Road, Ettumanoor, Kottayam, Kerala - 686631', city: 'Kottayam', pincode: '686631' },
   { name: 'Kanjirappally (AJCE)', lat: 9.5583, lng: 76.7914, address: 'Kanjirappally, Kottayam, Kerala - 686507', city: 'Kottayam', pincode: '686507' },
+  { name: 'Ettumanoor (Hub)', lat: 9.6698, lng: 76.5623, address: 'RetailSphere Operations Facility, MC Road, Ettumanoor, Kottayam, Kerala - 686631', city: 'Kottayam', pincode: '686631' },
   { name: 'Pala', lat: 9.7099, lng: 76.6836, address: 'Main Road, Pala, Kottayam, Kerala - 686575', city: 'Kottayam', pincode: '686575' },
   { name: 'Changanassery', lat: 9.4449, lng: 76.5385, address: 'Town Center, Changanassery, Kerala - 686101', city: 'Kottayam', pincode: '686101' },
-  { name: 'Kochi / Ernakulam', lat: 9.9816, lng: 76.2999, address: 'MG Road, Ernakulam, Kochi, Kerala - 682016', city: 'Ernakulam', pincode: '682016' },
+  { name: 'Ernakulam / Kochi', lat: 9.9816, lng: 76.2999, address: 'MG Road, Ernakulam, Kochi, Kerala - 682016', city: 'Ernakulam', pincode: '682016' },
+  { name: 'Alappuzha', lat: 9.4981, lng: 76.3388, address: 'Boat Jetty Road, Alappuzha, Kerala - 688001', city: 'Alappuzha', pincode: '688001' },
+  { name: 'Thrissur', lat: 10.5276, lng: 76.2144, address: 'Round South, Thrissur, Kerala - 680001', city: 'Thrissur', pincode: '680001' },
+  { name: 'Kozhikode', lat: 11.2588, lng: 75.7804, address: 'Mavoor Road, Kozhikode, Kerala - 673001', city: 'Kozhikode', pincode: '673001' },
+  { name: 'Trivandrum', lat: 8.5241, lng: 76.9366, address: 'MG Road, Thiruvananthapuram, Kerala - 695001', city: 'Thiruvananthapuram', pincode: '695001' },
 ];
 
 interface LeafletMapPickerProps {

@@ -152,13 +152,19 @@ export const FabricationTab: React.FC = () => {
   }, []);
 
   const handleUseProfileAddressForPickup = () => {
-    if (!userProfileAddress) return;
+    if (!userProfileAddress) {
+      setPickupGpsStatusMessage('ℹ️ No saved profile address found. Please pick your town below or search on the map.');
+      return;
+    }
     setMaterialPickupAddress(userProfileAddress);
     setPickupGpsStatusMessage(`🏠 Using Saved Profile Address: ${userProfileAddress}`);
   };
 
   const handleUseProfileAddressForDelivery = () => {
-    if (!userProfileAddress) return;
+    if (!userProfileAddress) {
+      setDeliveryGpsStatusMessage('ℹ️ No saved profile address found. Please pick your town below or search on the map.');
+      return;
+    }
     setReturnDeliveryAddress(userProfileAddress);
     setDeliveryGpsStatusMessage(`🏠 Using Saved Profile Address: ${userProfileAddress}`);
   };
@@ -208,20 +214,30 @@ export const FabricationTab: React.FC = () => {
             const fullAddr = `${houseNumber}${road}${road && suburb ? ', ' : ''}${suburb}, ${fetchedCity}, ${state} - ${fetchedPincode}`.trim();
             const finalAddress = fullAddr || `GPS Pin (${lat}, ${lng})`;
 
-            setMaterialPickupAddress(finalAddress);
-            setIsDetectingPickupGps(false);
-
             const isTrivandrumIsp =
               accuracy > 1500 ||
               finalAddress.toLowerCase().includes('thiruvananthapuram') ||
               finalAddress.toLowerCase().includes('kowdiar') ||
               finalAddress.toLowerCase().includes('nalanda');
 
+            setIsDetectingPickupGps(false);
+
             if (isTrivandrumIsp) {
-              setPickupGpsStatusMessage(
-                `⚠️ Browser returned ISP gateway location (${finalAddress}). If you are not in Trivandrum, click "Saved Address" or pick your town below.`
-              );
+              if (userProfileAddress) {
+                setMaterialPickupAddress(userProfileAddress);
+                setPickupGpsStatusMessage(
+                  `⚠️ Browser Wi-Fi detected ISP gateway in Trivandrum (170km away). Auto-applied your registered profile address: "${userProfileAddress}".`
+                );
+              } else {
+                const fallback = QUICK_KERALA_PRESETS[0]; // Kottayam Central
+                setPickupCoords({ lat: fallback.lat, lng: fallback.lng });
+                setMaterialPickupAddress(fallback.address);
+                setPickupGpsStatusMessage(
+                  `⚠️ Browser Wi-Fi reported ISP gateway in Trivandrum (170km away). Auto-corrected to local hub (${fallback.name}). Click any Quick Town below or search on map to set your exact town.`
+                );
+              }
             } else {
+              setMaterialPickupAddress(finalAddress);
               setPickupGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
             }
             return;
@@ -230,9 +246,10 @@ export const FabricationTab: React.FC = () => {
           console.warn('Reverse geocoding error:', err);
         }
 
-        setMaterialPickupAddress(`GPS Pin (${lat}, ${lng}), Kerala`);
+        const fallback = QUICK_KERALA_PRESETS[0];
+        setMaterialPickupAddress(fallback.address);
         setIsDetectingPickupGps(false);
-        setPickupGpsStatusMessage(`📍 Live Coordinates: ${lat}° N, ${lng}° E`);
+        setPickupGpsStatusMessage(`📍 Selected default local hub: ${fallback.name}`);
       },
       (err) => {
         console.warn('GPS location error:', err);
@@ -286,20 +303,30 @@ export const FabricationTab: React.FC = () => {
             const fullAddr = `${houseNumber}${road}${road && suburb ? ', ' : ''}${suburb}, ${fetchedCity}, ${state} - ${fetchedPincode}`.trim();
             const finalAddress = fullAddr || `GPS Pin (${lat}, ${lng})`;
 
-            setReturnDeliveryAddress(finalAddress);
-            setIsDetectingDeliveryGps(false);
-
             const isTrivandrumIsp =
               accuracy > 1500 ||
               finalAddress.toLowerCase().includes('thiruvananthapuram') ||
               finalAddress.toLowerCase().includes('kowdiar') ||
               finalAddress.toLowerCase().includes('nalanda');
 
+            setIsDetectingDeliveryGps(false);
+
             if (isTrivandrumIsp) {
-              setDeliveryGpsStatusMessage(
-                `⚠️ Browser returned ISP gateway location (${finalAddress}). If you are not in Trivandrum, click "Saved Address" or pick your town below.`
-              );
+              if (userProfileAddress) {
+                setReturnDeliveryAddress(userProfileAddress);
+                setDeliveryGpsStatusMessage(
+                  `⚠️ Browser Wi-Fi detected ISP gateway in Trivandrum (170km away). Auto-applied your registered profile address: "${userProfileAddress}".`
+                );
+              } else {
+                const fallback = QUICK_KERALA_PRESETS[0]; // Kottayam Central
+                setDeliveryCoords({ lat: fallback.lat, lng: fallback.lng });
+                setReturnDeliveryAddress(fallback.address);
+                setDeliveryGpsStatusMessage(
+                  `⚠️ Browser Wi-Fi reported ISP gateway in Trivandrum (170km away). Auto-corrected to local hub (${fallback.name}). Click any Quick Town below or search on map to set your exact town.`
+                );
+              }
             } else {
+              setReturnDeliveryAddress(finalAddress);
               setDeliveryGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
             }
             return;
@@ -308,9 +335,10 @@ export const FabricationTab: React.FC = () => {
           console.warn('Reverse geocoding error:', err);
         }
 
-        setReturnDeliveryAddress(`GPS Pin (${lat}, ${lng}), Kerala`);
+        const fallback = QUICK_KERALA_PRESETS[0];
+        setReturnDeliveryAddress(fallback.address);
         setIsDetectingDeliveryGps(false);
-        setDeliveryGpsStatusMessage(`📍 Live Coordinates: ${lat}° N, ${lng}° E`);
+        setDeliveryGpsStatusMessage(`📍 Selected default local hub: ${fallback.name}`);
       },
       (err) => {
         console.warn('GPS location error:', err);
@@ -1099,16 +1127,26 @@ export const FabricationTab: React.FC = () => {
                       {/* Quick Kerala Towns Jump Presets */}
                       <div className="flex flex-wrap items-center gap-1 pt-0.5">
                         <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Quick Towns:</span>
-                        {QUICK_KERALA_PRESETS.map((p) => (
-                          <button
-                            key={p.name}
-                            type="button"
-                            onClick={() => handleSelectQuickPickupTown(p)}
-                            className="px-2 py-0.5 rounded-lg bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] hover:border-[#48A63E] text-[10px] font-bold text-[#5C4E42] transition-colors cursor-pointer shadow-2xs"
-                          >
-                            {p.name}
-                          </button>
-                        ))}
+                        {QUICK_KERALA_PRESETS.map((p) => {
+                          const isSelected =
+                            materialPickupAddress.toLowerCase().includes(p.name.toLowerCase().split(' ')[0]) ||
+                            (p.city && materialPickupAddress.toLowerCase().includes(p.city.toLowerCase()));
+                          return (
+                            <button
+                              key={p.name}
+                              type="button"
+                              onClick={() => handleSelectQuickPickupTown(p)}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer shadow-2xs flex items-center gap-1 ${
+                                isSelected
+                                  ? 'bg-[#48A63E] text-white border border-[#48A63E]'
+                                  : 'bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] text-[#5C4E42]'
+                              }`}
+                            >
+                              {isSelected && <span className="font-black">✓</span>}
+                              <span>{p.name}</span>
+                            </button>
+                          );
+                        })}
                       </div>
 
                       {/* GPS Status Message Feedback */}
@@ -1224,16 +1262,26 @@ export const FabricationTab: React.FC = () => {
                       {/* Quick Kerala Towns Jump Presets */}
                       <div className="flex flex-wrap items-center gap-1 pt-0.5">
                         <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Quick Towns:</span>
-                        {QUICK_KERALA_PRESETS.map((p) => (
-                          <button
-                            key={p.name}
-                            type="button"
-                            onClick={() => handleSelectQuickDeliveryTown(p)}
-                            className="px-2 py-0.5 rounded-lg bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] hover:border-[#48A63E] text-[10px] font-bold text-[#5C4E42] transition-colors cursor-pointer shadow-2xs"
-                          >
-                            {p.name}
-                          </button>
-                        ))}
+                        {QUICK_KERALA_PRESETS.map((p) => {
+                          const isSelected =
+                            returnDeliveryAddress.toLowerCase().includes(p.name.toLowerCase().split(' ')[0]) ||
+                            (p.city && returnDeliveryAddress.toLowerCase().includes(p.city.toLowerCase()));
+                          return (
+                            <button
+                              key={p.name}
+                              type="button"
+                              onClick={() => handleSelectQuickDeliveryTown(p)}
+                              className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer shadow-2xs flex items-center gap-1 ${
+                                isSelected
+                                  ? 'bg-[#48A63E] text-white border border-[#48A63E]'
+                                  : 'bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] text-[#5C4E42]'
+                              }`}
+                            >
+                              {isSelected && <span className="font-black">✓</span>}
+                              <span>{p.name}</span>
+                            </button>
+                          );
+                        })}
                       </div>
 
                       {/* GPS Status Message Feedback */}
