@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -406,6 +406,11 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   const [modalStep, setModalStep] = useState<1 | 2 | 3>(1);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
+  const stepEnteredTimestampRef = useRef<number>(Date.now());
+
+  useEffect(() => {
+    stepEnteredTimestampRef.current = Date.now();
+  }, [modalStep]);
 
   // Selected Customization Options State
   const [selectedCategory, setSelectedCategory] = useState<CategorySpec>(CATEGORY_SPECS[0]);
@@ -671,8 +676,21 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   };
 
   // Submit or Update Custom Order
-  const handleCreateOrUpdateCustomOrder = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateOrUpdateCustomOrder = async (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
+
+    // Guard: only allow submission from step 3 (Dimensions & Review)
+    if (modalStep !== 3) {
+      console.warn('Blocked attempt to submit custom order before reaching Step 3');
+      return;
+    }
+
+    // Cooldown guard: block rapid/double click events that originated during the step 2 -> 3 transition
+    if (Date.now() - stepEnteredTimestampRef.current < 500) {
+      console.warn('Blocked rapid click event immediately following step transition');
+      return;
+    }
+
     if (submittingOrder) return;
 
     setSubmittingOrder(true);
@@ -1053,7 +1071,23 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               </p>
             </div>
           ) : (
-            <form onSubmit={handleCreateOrUpdateCustomOrder} className="space-y-5">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (modalStep === 3) {
+                  handleCreateOrUpdateCustomOrder(e);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  const target = e.target as HTMLElement;
+                  if (target.tagName === 'INPUT' || target.tagName === 'SELECT') {
+                    e.preventDefault();
+                  }
+                }
+              }}
+              className="space-y-5"
+            >
               {/* ==================================================== */}
               {/* STEP 1: CATEGORY & PRODUCT SELECTION                 */}
               {/* ==================================================== */}
@@ -1563,8 +1597,13 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               <div className="flex items-center justify-between gap-3 pt-3 border-t border-[#EFE7DE]">
                 {modalStep > 1 ? (
                   <button
+                    key="wizard-back-btn"
                     type="button"
-                    onClick={() => setModalStep((modalStep - 1) as 1 | 2 | 3)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setModalStep((modalStep - 1) as 1 | 2 | 3);
+                    }}
                     className="px-4 py-2 rounded-xl bg-white hover:bg-[#FAF7F2] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold transition-all cursor-pointer shadow-2xs flex items-center gap-1.5"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
@@ -1576,8 +1615,13 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
 
                 {modalStep < 3 ? (
                   <button
+                    key={`wizard-next-step-${modalStep}`}
                     type="button"
-                    onClick={() => setModalStep((modalStep + 1) as 1 | 2 | 3)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setModalStep((modalStep + 1) as 1 | 2 | 3);
+                    }}
                     className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                   >
                     <span>Next: {modalStep === 1 ? 'Materials & Finish' : 'Dimensions & Review'}</span>
@@ -1585,8 +1629,14 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   </button>
                 ) : (
                   <button
-                    type="submit"
+                    key="wizard-final-submit-btn"
+                    type="button"
                     disabled={submittingOrder}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleCreateOrUpdateCustomOrder(e);
+                    }}
                     className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
                   >
                     <Send className="w-3.5 h-3.5" />
