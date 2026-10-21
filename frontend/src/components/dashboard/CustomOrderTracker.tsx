@@ -406,11 +406,33 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   const [modalStep, setModalStep] = useState<1 | 2 | 3>(1);
   const [submittingOrder, setSubmittingOrder] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState(false);
-  const stepEnteredTimestampRef = useRef<number>(Date.now());
+  const [step3Ready, setStep3Ready] = useState(false);
+  const step3EnteredAtRef = useRef<number>(0);
 
   useEffect(() => {
-    stepEnteredTimestampRef.current = Date.now();
+    if (modalStep === 3) {
+      setStep3Ready(false);
+      step3EnteredAtRef.current = Date.now();
+      const timer = setTimeout(() => {
+        setStep3Ready(true);
+      }, 1200);
+      return () => clearTimeout(timer);
+    } else {
+      setStep3Ready(false);
+    }
   }, [modalStep]);
+
+  const handleNextStep = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (modalStep === 1) {
+      setModalStep(2);
+    } else if (modalStep === 2) {
+      step3EnteredAtRef.current = Date.now();
+      setStep3Ready(false);
+      setModalStep(3);
+    }
+  };
 
   // Selected Customization Options State
   const [selectedCategory, setSelectedCategory] = useState<CategorySpec>(CATEGORY_SPECS[0]);
@@ -676,7 +698,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
   };
 
   // Submit or Update Custom Order
-  const handleCreateOrUpdateCustomOrder = async (e?: React.FormEvent) => {
+  const handleCreateOrUpdateCustomOrder = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e && typeof e.preventDefault === 'function') e.preventDefault();
 
     // Guard: only allow submission from step 3 (Dimensions & Review)
@@ -686,8 +708,8 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
     }
 
     // Cooldown guard: block rapid/double click events that originated during the step 2 -> 3 transition
-    if (Date.now() - stepEnteredTimestampRef.current < 500) {
-      console.warn('Blocked rapid click event immediately following step transition');
+    if (!step3Ready || Date.now() - step3EnteredAtRef.current < 1000) {
+      console.warn('Blocked attempt to submit custom order: Step 3 review cooldown is active');
       return;
     }
 
@@ -1071,23 +1093,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
               </p>
             </div>
           ) : (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (modalStep === 3) {
-                  handleCreateOrUpdateCustomOrder(e);
-                }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  const target = e.target as HTMLElement;
-                  if (target.tagName === 'INPUT' || target.tagName === 'SELECT') {
-                    e.preventDefault();
-                  }
-                }
-              }}
-              className="space-y-5"
-            >
+            <div className="space-y-5">
               {/* ==================================================== */}
               {/* STEP 1: CATEGORY & PRODUCT SELECTION                 */}
               {/* ==================================================== */}
@@ -1617,11 +1623,7 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   <button
                     key={`wizard-next-step-${modalStep}`}
                     type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setModalStep((modalStep + 1) as 1 | 2 | 3);
-                    }}
+                    onClick={handleNextStep}
                     className="px-5 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
                   >
                     <span>Next: {modalStep === 1 ? 'Materials & Finish' : 'Dimensions & Review'}</span>
@@ -1631,20 +1633,39 @@ export const CustomOrderTracker: React.FC<CustomOrderTrackerProps> = ({ openModa
                   <button
                     key="wizard-final-submit-btn"
                     type="button"
-                    disabled={submittingOrder}
+                    disabled={submittingOrder || !step3Ready}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
+                      if (!step3Ready) return;
                       handleCreateOrUpdateCustomOrder(e);
                     }}
-                    className="px-6 py-2.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-md shadow-[#48A63E]/20 transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+                    className={`px-6 py-2.5 rounded-xl text-white text-xs font-extrabold shadow-md transition-all flex items-center gap-2 ${
+                      !step3Ready
+                        ? 'bg-[#8F8375] cursor-not-allowed opacity-75 pointer-events-none'
+                        : 'bg-[#48A63E] hover:bg-[#3D9134] cursor-pointer shadow-[#48A63E]/20'
+                    }`}
                   >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{submittingOrder ? 'Submitting...' : editingOrderId ? 'Update Specifications' : 'Submit Custom Request'}</span>
+                    {submittingOrder ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Submitting Custom Build...</span>
+                      </>
+                    ) : !step3Ready ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 opacity-80" />
+                        <span>Review Dimensions & Notes...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>{editingOrderId ? 'Update Custom Specifications' : 'Submit Custom Request'}</span>
+                      </>
+                    )}
                   </button>
                 )}
               </div>
-            </form>
+            </div>
           )}
         </div>
 
