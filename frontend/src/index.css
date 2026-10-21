@@ -312,3 +312,52 @@ select option:checked {
 .admin-theme textarea::placeholder {
   color: #A08C79 !important;
 }
+
+/* ==========================================================================
+   Artisanal Subtle Wood Finish for Customer Dashboard
+   ========================================================================== */
+.wood-grain-finish {
+  background-color: #F6EFE6;
+  background-image: 
+    /* 1. Architectural Solid Wood Plank Seams (vertical planks with subtle bevel highlight) */
+    repeating-linear-gradient(
+      90deg,
+      rgba(145, 105, 68, 0.026) 0px,
+      rgba(145, 105, 68, 0.026) 1px,
+      transparent 1px,
+      transparent 179px,
+      rgba(120, 80, 48, 0.038) 179px,
+      rgba(120, 80, 48, 0.038) 180px,
+      rgba(255, 255, 255, 0.065) 180px,
+      rgba(255, 255, 255, 0.065) 181px,
+      transparent 181px,
+      transparent 360px
+    ),
+    /* 2. Longitudinal Open-Pore Micro Timber Grain Striations */
+    repeating-linear-gradient(
+      180deg,
+      rgba(135, 95, 60, 0.022) 0px,
+      rgba(135, 95, 60, 0.022) 1px,
+      transparent 1px,
+      transparent 3px,
+      rgba(160, 115, 75, 0.016) 3px,
+      rgba(160, 115, 75, 0.016) 4px,
+      transparent 4px,
+      transparent 7px
+    ),
+    /* 3. Base Warm Nordic Oak & Ash Wood Tone Gradient */
+    linear-gradient(
+      150deg,
+      #FAF6EE 0%,
+      #F4ECE0 25%,
+      #EBE0D0 55%,
+      #E3D3BF 85%,
+      #D9C5AD 100%
+    );
+}
+
+.wood-grain-overlay {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='720' viewBox='0 0 360 720'%3E%3Cdefs%3E%3Cpattern id='wood' width='360' height='720' patternUnits='userSpaceOnUse'%3E%3Cpath d='M18,0 C22,150 14,300 20,460 C24,590 17,660 18,720' fill='none' stroke='%237D5733' stroke-width='0.75' opacity='0.35'/%3E%3Cpath d='M58,0 C54,120 62,250 56,400 C50,540 60,640 58,720' fill='none' stroke='%237D5733' stroke-width='0.6' opacity='0.28'/%3E%3Cpath d='M108,0 C104,100 114,210 106,330 C100,450 110,580 108,720' fill='none' stroke='%237D5733' stroke-width='0.7' opacity='0.32'/%3E%3Cpath d='M180,0 C174,75 166,140 162,205 C158,265 168,305 180,325 C192,305 202,265 198,205 C194,140 186,75 180,0' fill='none' stroke='%237D5733' stroke-width='0.85' opacity='0.38'/%3E%3Cpath d='M180,55 C170,120 162,180 156,240 C152,290 166,335 180,358 C194,335 208,290 204,240 C198,180 190,120 180,55' fill='none' stroke='%237D5733' stroke-width='0.7' opacity='0.32'/%3E%3Cpath d='M180,120 C166,175 156,225 152,280 C148,328 164,372 180,395 C196,372 212,328 208,280 C204,225 194,175 180,120' fill='none' stroke='%237D5733' stroke-width='0.65' opacity='0.30'/%3E%3Cpath d='M180,180 C160,240 148,285 144,338 C140,385 162,430 180,452 C198,430 220,385 216,338 C212,285 200,240 180,180' fill='none' stroke='%237D5733' stroke-width='0.8' opacity='0.34'/%3E%3Cpath d='M180,480 C168,520 155,570 152,625 C150,665 158,695 180,720' fill='none' stroke='%237D5733' stroke-width='0.65' opacity='0.28'/%3E%3Cpath d='M180,480 C192,520 205,570 208,625 C210,665 202,695 180,720' fill='none' stroke='%237D5733' stroke-width='0.65' opacity='0.28'/%3E%3Cpath d='M252,0 C258,160 250,305 254,445 C258,575 252,650 252,720' fill='none' stroke='%237D5733' stroke-width='0.65' opacity='0.28'/%3E%3Cpath d='M302,0 C298,110 306,240 300,380 C296,510 304,615 302,720' fill='none' stroke='%237D5733' stroke-width='0.7' opacity='0.32'/%3E%3Cpath d='M342,0 C345,135 338,280 343,425 C347,560 341,640 342,720' fill='none' stroke='%237D5733' stroke-width='0.75' opacity='0.35'/%3E%3Cpath d='M84,230 C89,300 81,390 85,480 C89,560 83,645 84,720' fill='none' stroke='%237D5733' stroke-width='0.55' opacity='0.22'/%3E%3Cpath d='M276,210 C271,280 280,370 275,460 C271,545 277,625 276,720' fill='none' stroke='%237D5733' stroke-width='0.55' opacity='0.22'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23wood)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 360px 720px;
+}

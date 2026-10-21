@@ -422,12 +422,23 @@ def cancel_custom_order(order_id: int, db: Session = Depends(get_db)):
     db.refresh(order)
     return {"message": f"Order #{order_id} has been cancelled successfully", "order_id": order_id}
 
-# 2d. Record Payment for Custom Order
 @router.put("/custom-orders/{order_id}/pay")
 def pay_custom_order(order_id: int, db: Session = Depends(get_db)):
     order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
+
+    # Enforce address validation: customer must have saved a valid delivery address in PostgreSQL
+    if order.customer_id:
+        customer = db.query(models.Customer).filter(models.Customer.customer_id == order.customer_id).first()
+        user = customer.user if customer else None
+        from app.utils.address_validator import is_valid_customer_address
+        is_valid, err_msg = is_valid_customer_address(customer, user)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"A complete delivery address is required before payment: {err_msg}"
+            )
 
     order.payment_status = "Paid"
     order.order_status = "Paid"

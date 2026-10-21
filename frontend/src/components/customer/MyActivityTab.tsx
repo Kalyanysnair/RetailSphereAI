@@ -47,6 +47,7 @@ import { setDirectCheckoutItem, addToCart } from '../../utils/cartStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 import { fetchOrderFulfillmentDetails, fetchOrderMessagesAPI, sendOrderMessageAPI, FulfillmentDetails } from '../../services/retailOrdersFulfillmentApi';
 import { openRazorpayCheckout } from '../../services/razorpay';
+import { validateAddressApi } from '../../services/api';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 import { getStageSections, StageSection } from '../../utils/manufacturingSections';
 
@@ -357,6 +358,15 @@ export const MyActivityTab: React.FC = () => {
 
   const handlePayCustomOrder = async (ord: CustomOrderData) => {
     if (!ord.estimated_price) return;
+
+    // Check delivery address before payment
+    const addressStatus = await validateAddressApi();
+    if (!addressStatus || !addressStatus.is_valid) {
+      const returnUrl = window.location.pathname + window.location.hash;
+      navigate(`/profile?address_required=true&return_to=${encodeURIComponent(returnUrl)}&reason=custom_order`);
+      return;
+    }
+
     const amountInPaise = Math.round(ord.estimated_price * 100);
     await openRazorpayCheckout({
       amount: amountInPaise,
@@ -383,6 +393,15 @@ export const MyActivityTab: React.FC = () => {
 
   const handlePayFabricationActivity = async (f: FabricationItem) => {
     if (!f.estimated_price) return;
+
+    // Check delivery address before payment
+    const addressStatus = await validateAddressApi();
+    if (!addressStatus || !addressStatus.is_valid) {
+      const returnUrl = window.location.pathname + window.location.hash;
+      navigate(`/profile?address_required=true&return_to=${encodeURIComponent(returnUrl)}&reason=fabrication`);
+      return;
+    }
+
     const amountInPaise = Math.round(f.estimated_price * 100);
     await openRazorpayCheckout({
       amount: amountInPaise,
@@ -408,6 +427,15 @@ export const MyActivityTab: React.FC = () => {
 
   const handlePayServiceActivity = async (s: ServiceItem) => {
     if (!s.estimated_price) return;
+
+    // Check delivery address before payment
+    const addressStatus = await validateAddressApi();
+    if (!addressStatus || !addressStatus.is_valid) {
+      const returnUrl = window.location.pathname + window.location.hash;
+      navigate(`/profile?address_required=true&return_to=${encodeURIComponent(returnUrl)}&reason=service`);
+      return;
+    }
+
     const amountInPaise = Math.round(s.estimated_price * 100);
     await openRazorpayCheckout({
       amount: amountInPaise,

@@ -234,7 +234,12 @@ def create_fabrication_request(payload: FabricationRequestCreatePayload, db: Ses
     pickup_dist = 0.0
     pickup_charge = 0.0
     arr_mode = payload.material_arrival_mode or "CUSTOMER_BRINGS"
-    if arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] and payload.material_pickup_address and payload.material_pickup_address.strip():
+    if arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"]:
+        if not payload.material_pickup_address or len(payload.material_pickup_address.strip()) < 5:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A valid material pickup address is required when selecting doorstep material collection."
+            )
         calc = compute_transportation_charge(db, payload.material_pickup_address.strip(), HUB_ADDRESS, "FABRICATION_PICKUP")
         pickup_dist = calc["distance_km"]
         pickup_charge = calc["calculated_charge"]
@@ -242,7 +247,12 @@ def create_fabrication_request(payload: FabricationRequestCreatePayload, db: Ses
     return_dist = 0.0
     return_charge = 0.0
     ret_mode = payload.return_delivery_mode or "CUSTOMER_COLLECTS"
-    if ret_mode in ["DOORSTEP_DELIVERY", "RETAILSPHERE_DELIVERY"] and payload.return_delivery_address and payload.return_delivery_address.strip():
+    if ret_mode in ["DOORSTEP_DELIVERY", "RETAILSPHERE_DELIVERY"]:
+        if not payload.return_delivery_address or len(payload.return_delivery_address.strip()) < 5:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A valid return delivery address is required when selecting doorstep finished goods delivery."
+            )
         calc = compute_transportation_charge(db, HUB_ADDRESS, payload.return_delivery_address.strip(), "FABRICATION_RETURN")
         return_dist = calc["distance_km"]
         return_charge = calc["calculated_charge"]
@@ -303,6 +313,19 @@ def pay_fabrication_request(fabrication_id: int, db: Session = Depends(get_db)):
     fab = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == fabrication_id).first()
     if not fab:
         raise HTTPException(status_code=404, detail="Fabrication request not found")
+
+    # Enforce address validation for doorstep services
+    if fab.material_arrival_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or fab.return_delivery_mode in ["DOORSTEP_DELIVERY", "RETAILSPHERE_DELIVERY"]:
+        if fab.customer_id:
+            customer = db.query(models.Customer).filter(models.Customer.customer_id == fab.customer_id).first()
+            user = customer.user if customer else None
+            from app.utils.address_validator import is_valid_customer_address
+            is_valid, err_msg = is_valid_customer_address(customer, user)
+            if not is_valid:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Valid delivery address required before confirming payment: {err_msg}"
+                )
 
     rzp_id = f"pay_Rzp{int(time.time())}{fabrication_id:02d}"
 

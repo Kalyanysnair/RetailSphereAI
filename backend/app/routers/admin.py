@@ -1073,14 +1073,19 @@ def create_readymade_order(payload: CreateReadymadeOrderPayload, db: Session = D
 
     cust_id = customer.customer_id
 
-    addr_parts = [p.strip() for p in [customer.address, customer.city, customer.state, customer.pincode] if p and p.strip()]
-    delivery_addr = ", ".join(addr_parts) if addr_parts else None
+    from app.utils.address_validator import is_valid_customer_address, get_formatted_customer_address
+    user_obj = customer.user if customer else None
+    if not user_obj and payload.email:
+        user_obj = db.query(models.User).filter(models.User.email.ilike(payload.email.strip())).first()
 
-    if not delivery_addr:
+    is_addr_valid, addr_err = is_valid_customer_address(customer, user_obj)
+    if not is_addr_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No delivery address found for this customer profile. Please provide and save a delivery address before placing an order."
+            detail=f"Incomplete delivery destination: {addr_err} Please update and save your delivery address in your Profile before placing an order."
         )
+
+    delivery_addr = get_formatted_customer_address(customer, user_obj)
 
     # Pre-validate stock availability for all items in payload
     validated_items = []

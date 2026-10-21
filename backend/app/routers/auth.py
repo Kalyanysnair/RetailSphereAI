@@ -368,6 +368,25 @@ def reset_password(payload: schemas.ResetPasswordRequest, db: Session = Depends(
 def get_me(current_user: models.User = Depends(auth.get_current_user)):
     return build_user_response(current_user)
 
+@router.get("/validate-address")
+def validate_address_status(current_user: models.User = Depends(auth.get_current_user)):
+    from app.utils.address_validator import is_valid_customer_address, get_formatted_customer_address
+    customer = current_user.customer_profile
+    is_valid, err_msg = is_valid_customer_address(customer, current_user)
+    return {
+        "is_valid": is_valid,
+        "error_message": err_msg,
+        "formatted_address": get_formatted_customer_address(customer, current_user) if is_valid and customer else None,
+        "address": {
+            "address": customer.address if customer else "",
+            "city": customer.city if customer else "",
+            "state": customer.state if customer else "",
+            "pincode": customer.pincode if customer else "",
+            "phone": current_user.phone or "",
+            "recipient_name": current_user.full_name or ""
+        } if customer else None
+    }
+
 @router.post("/contact")
 def send_contact_inquiry(payload: schemas.ContactInquiryRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(

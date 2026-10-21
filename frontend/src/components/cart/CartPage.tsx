@@ -18,7 +18,7 @@ import { saveStoredRetailOrder } from '../../utils/retailOrdersStorage';
 import { payCustomOrder } from '../../services/api_production';
 import { validateCouponApi, redeemCouponApi, getCouponsApi, Coupon } from '../../services/api_coupons';
 import { calculateOrderPricing } from '../../utils/pricingUtils';
-import { getCurrentUser } from '../../services/api';
+import { getCurrentUser, validateAddressApi, ValidateAddressResult } from '../../services/api';
 
 import { parseReferenceImages } from '../../utils/imageUtils';
 
@@ -141,6 +141,26 @@ export const CartPage: React.FC = () => {
   const [lastPaymentId, setLastPaymentId] = useState<string>('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [wishlistCount, setWishlistCount] = useState(0);
+  const [addressStatus, setAddressStatus] = useState<ValidateAddressResult | null>(null);
+  const [loadingAddress, setLoadingAddress] = useState<boolean>(true);
+
+  // Fetch verified address status from backend PostgreSQL source of truth
+  useEffect(() => {
+    let active = true;
+    const fetchAddress = async () => {
+      try {
+        setLoadingAddress(true);
+        const res = await validateAddressApi();
+        if (active) setAddressStatus(res);
+      } catch (e) {
+        console.warn('Failed to load address status:', e);
+      } finally {
+        if (active) setLoadingAddress(false);
+      }
+    };
+    fetchAddress();
+    return () => { active = false; };
+  }, []);
 
   // Auto-redirect to My Orders & Tracking upon successful payment
   useEffect(() => {
@@ -339,24 +359,36 @@ export const CartPage: React.FC = () => {
     }
 
     setIsProcessingPayment(false);
-
-    // Check whether the authenticated customer already has a saved delivery address in PostgreSQL
-    const latestUser = await getCurrentUser();
-    const hasAddress = Boolean(
-      latestUser?.customer?.address && latestUser.customer.address.trim()
-    );
-
-    if (!hasAddress) {
-      // SCENARIO B: Redirect new customer without delivery address to Profile -> Delivery Address section
-      navigate('/profile?address_required=true');
-    } else {
-      setIsOrderPlaced(true);
-    }
+    setIsOrderPlaced(true);
   };
 
   const handleCheckout = async () => {
     setPaymentError(null);
     setIsProcessingPayment(true);
+
+    const token = localStorage.getItem('access_token');
+    const returnUrl = isDirectCheckoutMode ? '/cart?direct=true' : '/cart';
+    if (!token) {
+      setIsProcessingPayment(false);
+      navigate(`/login?redirect=${encodeURIComponent(returnUrl)}`);
+      return;
+    }
+
+    // Database check: verify customer delivery address before payment or order placement
+    let currentAddressStatus = addressStatus;
+    try {
+      currentAddressStatus = await validateAddressApi();
+      setAddressStatus(currentAddressStatus);
+    } catch (err) {
+      console.warn('Backend address check failed:', err);
+    }
+
+    if (!currentAddressStatus || !currentAddressStatus.is_valid) {
+      setIsProcessingPayment(false);
+      navigate(`/profile?address_required=true&return_to=${encodeURIComponent(returnUrl)}&reason=checkout`);
+      return;
+    }
+
     const rawUser = localStorage.getItem('user');
     const userObj = rawUser ? JSON.parse(rawUser) : null;
 
@@ -742,6 +774,87 @@ export const CartPage: React.FC = () => {
                       )}
                     </div>
 
+                    {/* Delivery Destination & Transport Policy (Option A) */}
+                    <div className="pt-3 border-t border-[#E2D7CB]/70 space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-black text-[#1A1410] uppercase tracking-wider flex items-center gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-[#38A132]" />
+                          Delivery & Dispatch Policy
+                        </span>
+                        {addressStatus?.is_valid && (
+                          <Link
+                            to={`/profile?return_to=${encodeURIComponent(isDirectCheckoutMode ? '/cart?direct=true' : '/cart')}`}
+                            className="text-[10px] font-extrabold text-[#38A132] hover:underline"
+                          >
+                            Change Address
+                          </Link>
+                        )}
+                      </div>
+
+                      {/* Store Origin Ground Truth */}
+                      <div className="p-2.5 rounded-xl bg-[#FAF8F5] border border-[#E2D7CB] text-[11px] space-y-1">
+                        <div className="flex items-center gap-1.5 font-bold text-[#5C4E42]">
+                          <span className="w-2 h-2 rounded-full bg-[#38A132] shrink-0" />
+                          <span>Origin: Central Facility, MC Road, Ettumanoor, Kottayam (686631)</span>
+                        </div>
+                      </div>
+
+                      {loadingAddress ? (
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500 animate-pulse">
+                          Verifying delivery destination...
+                        </div>
+                      ) : addressStatus?.is_valid && addressStatus.address ? (
+                        <div className="p-3 rounded-2xl bg-[#38A132]/10 border border-[#38A132]/25 space-y-2 text-xs">
+                          <div>
+                            <div className="text-[10px] font-black text-[#2B7A24] uppercase tracking-wider">
+                              Verified Destination
+                            </div>
+                            <div className="font-extrabold text-[#1A1410] text-[11px] mt-0.5 line-clamp-2">
+                              {addressStatus.address.address}, {addressStatus.address.city}, {addressStatus.address.state} - {addressStatus.address.pincode}
+                            </div>
+                          </div>
+
+                          {/* Transport Policy Option A Distinction */}
+                          {['ettumanoor', 'kottayam', 'pala', 'changanassery', 'kanjirappally', 'koovappally', 'kaduthuruthy', 'vaikom'].includes((addressStatus.address.city || '').toLowerCase().trim()) ? (
+                            <div className="pt-2 border-t border-[#38A132]/20 flex items-start gap-1.5 text-[10.5px] text-[#2E8B29] font-bold">
+                              <span className="text-xs">🚚</span>
+                              <span>Local RetailSphere Fleet Dispatch (Local Hub Coverage &le;35 km).</span>
+                            </div>
+                          ) : (
+                            <div className="pt-2 border-t border-[#38A132]/20 space-y-1 text-[10.5px] text-[#2E8B29] font-bold">
+                              <div className="flex items-start gap-1.5">
+                                <span className="text-xs">📦</span>
+                                <span>Regional Carrier Partner Dispatch (&gt;35 km)</span>
+                              </div>
+                              <p className="text-[10px] font-medium text-[#4A6B46] leading-tight">
+                                Transport Option A: Long-distance destination accepted from Kottayam central facility. Verified carrier partner scheduled prior to dispatch.
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-300 space-y-2 text-xs">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <h4 className="text-[11px] font-black text-amber-900">
+                                Delivery Address Required
+                              </h4>
+                              <p className="text-[10.5px] font-semibold text-amber-800 mt-0.5 leading-tight">
+                                RetailSphere crafts all furniture at our Ettumanoor facility. Please save your complete delivery address before checkout.
+                              </p>
+                            </div>
+                          </div>
+                          <Link
+                            to={`/profile?address_required=true&return_to=${encodeURIComponent(isDirectCheckoutMode ? '/cart?direct=true' : '/cart')}&reason=checkout`}
+                            className="block w-full text-center py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[11px] transition-all shadow-xs"
+                          >
+                            + Add Delivery Address in Profile
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+
                     {/* Checkout Button */}
                     <button
                       onClick={handleCheckout}
@@ -749,7 +862,13 @@ export const CartPage: React.FC = () => {
                       className="w-full py-4 px-4 rounded-full bg-[#38A132] hover:bg-[#32922D] disabled:opacity-70 text-white font-black text-sm transition-all shadow-xl shadow-[#38A132]/30 active:scale-95 cursor-pointer flex items-center justify-center gap-2"
                     >
                       <CreditCard className="w-4 h-4" />
-                      <span>{isProcessingPayment ? 'Connecting Razorpay...' : 'Proceed to Checkout'}</span>
+                      <span>
+                        {isProcessingPayment
+                          ? 'Connecting Razorpay...'
+                          : !addressStatus?.is_valid
+                          ? 'Add Delivery Address to Checkout'
+                          : 'Proceed to Checkout'}
+                      </span>
                     </button>
 
                     <div className="pt-2 flex items-center justify-center gap-1.5 text-[11px] text-[#6B5C4D] font-bold">

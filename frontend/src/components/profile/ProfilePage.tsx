@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { Header } from '../dashboard/Header';
 import { getCurrentUser, updateUserProfile, UserProfile } from '../../services/api';
+import { isProfileAddressValid } from '../../utils/addressValidator';
 import { getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
 import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
@@ -37,6 +38,8 @@ export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isAddressRequired = searchParams.get('address_required') === 'true';
+  const returnToParam = searchParams.get('return_to');
+  const reasonParam = searchParams.get('reason');
 
   const [loading, setLoading] = useState(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -79,13 +82,16 @@ export const ProfilePage: React.FC = () => {
     landmark: '',
   });
 
+  const hasSavedAddress = isProfileAddressValid(userProfile).isValid;
+
   const fetchProfileFromDB = async () => {
     setLoading(true);
     try {
       const data = await getCurrentUser();
       if (data) {
         setUserProfile(data);
-        if (isAddressRequired && (!data.customer?.address || !data.customer.address.trim())) {
+        const val = isProfileAddressValid(data);
+        if (isAddressRequired && !val.isValid) {
           handleOpenAddressModal(data);
         }
       } else {
@@ -93,7 +99,8 @@ export const ProfilePage: React.FC = () => {
         if (stored) {
           const parsed = JSON.parse(stored);
           setUserProfile(parsed);
-          if (isAddressRequired && (!parsed.customer?.address || !parsed.customer.address.trim())) {
+          const val = isProfileAddressValid(parsed);
+          if (isAddressRequired && !val.isValid) {
             handleOpenAddressModal(parsed);
           }
         }
@@ -312,11 +319,19 @@ export const ProfilePage: React.FC = () => {
 
       setUserProfile(updated);
       setIsAddressModalOpen(false);
-      setAddressSuccessMsg('Delivery address saved successfully!');
-      setTimeout(() => setAddressSuccessMsg(null), 4000);
 
-      if (searchParams.get('address_required')) {
-        navigate('/profile', { replace: true });
+      const returnTo = searchParams.get('return_to');
+      if (returnTo && returnTo.startsWith('/') && !returnTo.startsWith('//')) {
+        setAddressSuccessMsg('✓ Delivery address saved! Returning to your order...');
+        setTimeout(() => {
+          navigate(returnTo, { replace: true });
+        }, 1000);
+      } else {
+        setAddressSuccessMsg('Delivery address saved successfully!');
+        setTimeout(() => setAddressSuccessMsg(null), 4000);
+        if (searchParams.get('address_required')) {
+          navigate('/profile', { replace: true });
+        }
       }
     } catch (err: any) {
       setAddressErrorMsg(err.message || 'Failed to save delivery address.');
@@ -386,7 +401,8 @@ export const ProfilePage: React.FC = () => {
         .toUpperCase()
     : 'CU';
 
-  const hasSavedAddress = Boolean(userProfile?.customer?.address && userProfile.customer.address.trim());
+  const addressValidation = isProfileAddressValid(userProfile);
+  const hasValidAddress = addressValidation.isValid;
 
   return (
     <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#FAF8F5] overflow-x-hidden font-sans">
@@ -416,23 +432,30 @@ export const ProfilePage: React.FC = () => {
               </div>
             ) : (
               <>
-                {/* Required Address Banner (After Order if No Address Saved) */}
-                {isAddressRequired && !hasSavedAddress && (
-                  <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 p-4 rounded-2xl text-xs font-extrabold flex flex-col sm:flex-row items-center justify-between gap-3 shadow-md animate-fadeIn relative z-10">
-                    <div className="flex items-center gap-3">
-                      <AlertCircle className="w-6 h-6 text-amber-600 shrink-0" />
+                {/* Required Address Banner Before Completing Order */}
+                {isAddressRequired && !hasValidAddress && (
+                  <div className="bg-amber-50 border-2 border-amber-400 text-amber-900 p-4 sm:p-5 rounded-2xl text-xs font-extrabold flex flex-col sm:flex-row items-center justify-between gap-4 shadow-md animate-fadeIn relative z-10">
+                    <div className="flex items-start sm:items-center gap-3">
+                      <div className="p-2 rounded-xl bg-amber-500/20 text-amber-800 shrink-0 mt-0.5 sm:mt-0">
+                        <AlertCircle className="w-5 h-5 text-amber-700" />
+                      </div>
                       <div>
-                        <p className="text-sm font-black">Delivery Address Required for Order</p>
-                        <p className="text-xs font-semibold text-amber-800 mt-0.5">
-                          Please add your delivery address to continue with your order.
+                        <p className="text-sm font-black text-amber-950">
+                          {reasonParam === 'checkout'
+                            ? 'Delivery Address Required Before Checkout'
+                            : 'Delivery Address Required for Order'}
+                        </p>
+                        <p className="text-xs font-bold text-amber-800 mt-0.5">
+                          A complete delivery destination is required before your order can proceed. Your cart and selected items are safely preserved.
+                          {returnToParam ? ' You will be automatically returned to your checkout once saved.' : ''}
                         </p>
                       </div>
                     </div>
                     <button
                       onClick={() => handleOpenAddressModal()}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-xs shrink-0 cursor-pointer"
+                      className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-black shadow-sm shrink-0 cursor-pointer transition-all active:scale-95"
                     >
-                      Add Address Now
+                      Save Delivery Address
                     </button>
                   </div>
                 )}

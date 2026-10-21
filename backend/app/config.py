@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 env_path = os.path.join(backend_dir, ".env")
 if os.path.exists(env_path):
-    load_dotenv(env_path)
+    load_dotenv(env_path, override=True)
 
 class Settings(BaseSettings):
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/retailsphere_db")

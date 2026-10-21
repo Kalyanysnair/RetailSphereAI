@@ -99,9 +99,45 @@ def create_service_request(payload: ServiceRequestCreatePayload, db: Session = D
         ).first()
 
     if not customer:
-        customer = db.query(models.Customer).first()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Valid customer profile is required to book an on-site service."
+        )
 
-    cust_id = customer.customer_id if customer else 1
+    cust_id = customer.customer_id
+
+    # Validate service destination address
+    srv_address = (payload.address or "").strip()
+    srv_city = (payload.city or "").strip()
+    srv_pin = (payload.pincode or "").strip()
+
+    if not srv_address or len(srv_address) < 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A complete street/building address is required for on-site technician dispatch."
+        )
+
+    if not srv_pin or len(srv_pin) != 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A valid 6-digit PIN code is required for on-site service location."
+        )
+
+    # Check Service Area Coverage Policy
+    from app.utils.distance_calculator import estimate_road_distance_km, HUB_ADDRESS
+    full_loc_str = f"{srv_address}, {srv_city}, Kerala - {srv_pin}"
+    est_distance = estimate_road_distance_km(HUB_ADDRESS, full_loc_str)
+
+    # Standard on-site service coverage limit is 60 km from Ettumanoor, Kottayam
+    is_distant = est_distance > 60.0
+    initial_status = "PENDING_COVERAGE_REVIEW" if is_distant else "PENDING"
+
+    coverage_notice = None
+    if is_distant:
+        coverage_notice = (
+            f"Your service location ({srv_city}) is approximately {round(est_distance, 1)} km from our Ettumanoor, Kottayam workshop "
+            f"(outside the standard 60 km technician coverage zone). Your booking request has been submitted for supervisor travel coverage review."
+        )
 
     date_obj = date.today()
     if payload.preferred_date:
@@ -113,14 +149,14 @@ def create_service_request(payload: ServiceRequestCreatePayload, db: Session = D
     new_srv = models.ServiceRequest(
         customer_id=cust_id,
         service_category=payload.service_category,
-        description=payload.description,
+        description=f"{payload.description}{(' [Note: ' + coverage_notice + ']') if coverage_notice else ''}",
         photos=payload.photos,
-        address=payload.address,
-        city=payload.city,
-        pincode=payload.pincode,
+        address=srv_address,
+        city=srv_city or "Kottayam",
+        pincode=srv_pin,
         preferred_date=date_obj,
         preferred_time=payload.preferred_time,
-        status="PENDING",
+        status=initial_status,
         payment_status="Pending",
         created_at=datetime.utcnow()
     )
@@ -129,9 +165,12 @@ def create_service_request(payload: ServiceRequestCreatePayload, db: Session = D
     db.refresh(new_srv)
 
     return {
-        "message": "On-site skilled service request submitted successfully",
+        "message": coverage_notice or "On-site skilled service request submitted successfully",
         "service_id": new_srv.service_id,
-        "status": new_srv.status
+        "status": new_srv.status,
+        "is_distant": is_distant,
+        "distance_km": est_distance,
+        "coverage_notice": coverage_notice
     }
 
 @router.put("/requests/{service_id}/status")
@@ -153,6 +192,17 @@ def pay_service_request(service_id: int, db: Session = Depends(get_db)):
     srv = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == service_id).first()
     if not srv:
         raise HTTPException(status_code=404, detail="Service request not found")
+
+    if srv.customer_id:
+        customer = db.query(models.Customer).filter(models.Customer.customer_id == srv.customer_id).first()
+        user = customer.user if customer else None
+        from app.utils.address_validator import is_valid_customer_address
+        is_valid, err_msg = is_valid_customer_address(customer, user)
+        if not is_valid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Valid service delivery address required before confirming payment: {err_msg}"
+            )
 
     srv.payment_status = "Paid"
     srv.status = "PAID"

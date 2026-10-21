@@ -893,19 +893,23 @@ export const DashboardPage: React.FC = () => {
   };
 
   return (
-    <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white bg-[#F5EFE6] overflow-x-hidden">
-      {/* Light Brown Hint Ambient Atmospheric Background */}
-      <div className="fixed inset-0 z-0 bg-gradient-to-br from-[#EFE6DB] via-[#F8F3EC] to-[#EAE0D2] pointer-events-none" />
-      {/* Dedicated Top Light Brown Shade & Aura */}
-      <div className="fixed top-0 left-0 right-0 h-56 bg-gradient-to-b from-[#E5D7C5]/90 via-[#EFE6DB]/75 to-transparent pointer-events-none z-0" />
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_100%_70%_at_50%_0%,rgba(215,200,180,0.6),rgba(255,255,255,0))] pointer-events-none" />
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(226,215,203,0.5),_transparent_60%)] pointer-events-none" />
-      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_bottom_left,_rgba(214,201,185,0.4),_transparent_60%)] pointer-events-none" />
-      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-75">
-        <div className="absolute -top-24 left-1/4 w-[40rem] h-64 rounded-full bg-[#DFD0BC]/50 blur-3xl" />
-        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-[#E5D7C5]/50 blur-3xl" />
-        <div className="absolute top-1/3 -left-32 w-80 h-80 rounded-full bg-[#DFCEB7]/40 blur-3xl" />
-        <div className="absolute -bottom-32 right-1/4 w-[32rem] h-[32rem] rounded-full bg-[#E8DCCB]/45 blur-3xl" />
+    <div className="relative min-h-screen text-[#1C1814] flex flex-col selection:bg-[#387A46] selection:text-white wood-grain-finish overflow-x-hidden">
+      {/* Subtle Wood Finish Texture & Ambient Atmospheric Background */}
+      {/* 1. Organic Vector Wood Grain Curves & Cathedral Growth Rings Pattern */}
+      <div className="fixed inset-0 z-0 pointer-events-none opacity-40 wood-grain-overlay mix-blend-multiply" />
+
+      {/* 2. Soft Natural Wood Satin Sheen & Top Ambient Light */}
+      <div className="fixed top-0 left-0 right-0 h-64 bg-gradient-to-b from-[#E5D7C5]/70 via-[#EFE5D7]/40 to-transparent pointer-events-none z-0" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(ellipse_100%_65%_at_50%_0%,rgba(255,250,242,0.6),rgba(245,239,230,0))] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_top_right,_rgba(224,210,192,0.4),_transparent_60%)] pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-[radial-gradient(circle_at_bottom_left,_rgba(215,198,178,0.35),_transparent_60%)] pointer-events-none" />
+
+      {/* 3. Subtle Warm Ambient Atelier Glow Orbs */}
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden opacity-60">
+        <div className="absolute -top-24 left-1/4 w-[40rem] h-64 rounded-full bg-[#DFD0BC]/40 blur-3xl" />
+        <div className="absolute -top-32 -right-32 w-96 h-96 rounded-full bg-[#E5D7C5]/40 blur-3xl" />
+        <div className="absolute top-1/3 -left-32 w-80 h-80 rounded-full bg-[#DFCEB7]/30 blur-3xl" />
+        <div className="absolute -bottom-32 right-1/4 w-[32rem] h-[32rem] rounded-full bg-[#E8DCCB]/35 blur-3xl" />
       </div>
 
       {/* Foreground Interactive Content */}

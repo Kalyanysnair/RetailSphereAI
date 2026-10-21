@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Wrench, Plus, MapPin, Calendar, Clock, CheckCircle2, User, Phone, FileText, Navigation, Map, Compass, Check } from 'lucide-react';
 import { LeafletMapPicker } from '../common/LeafletMapPicker';
 import { openRazorpayCheckout } from '../../services/razorpay';
+import { validateAddressApi } from '../../services/api';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 
 export interface ServiceItem {
@@ -35,6 +37,7 @@ const LOCATION_PRESETS = [
 
 export const ServicesTab: React.FC = () => {
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const navigate = useNavigate();
   const [isLoading, setIsLoading] = useState(true);
   const [isBookModalOpen, setIsBookModalOpen] = useState(false);
 
@@ -197,6 +200,10 @@ export const ServicesTab: React.FC = () => {
 
   const handleBookService = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!address.trim() || !city.trim() || !pincode.trim() || pincode.trim().length !== 6) {
+      alert('Please provide a complete service address with city and 6-digit PIN code.');
+      return;
+    }
     try {
       const rawUser = localStorage.getItem('user');
       const user = rawUser ? JSON.parse(rawUser) : null;
@@ -220,10 +227,18 @@ export const ServicesTab: React.FC = () => {
         body: JSON.stringify(payload),
       });
 
-      if (res.ok) {
-        setIsBookModalOpen(false);
-        fetchServices();
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || 'Service booking failed. Please check address details.');
+        return;
       }
+
+      if (data.service_coverage === 'PENDING_COVERAGE_REVIEW') {
+        alert('📍 Note on Service Coverage: Service location is outside our standard local service radius (60 km from central hub in Ettumanoor, Kottayam). Your request has been registered and submitted for supervisor travel feasibility and coverage review.');
+      }
+
+      setIsBookModalOpen(false);
+      fetchServices();
     } catch (err) {
       console.error('Failed to book service:', err);
     }
@@ -231,6 +246,12 @@ export const ServicesTab: React.FC = () => {
 
   const handlePayService = async (s: ServiceItem) => {
     try {
+      const addressStatus = await validateAddressApi();
+      if (!addressStatus || !addressStatus.is_valid) {
+        navigate(`/profile?address_required=true&return_to=${encodeURIComponent(window.location.pathname + window.location.hash)}&reason=service_payment`);
+        return;
+      }
+
       const rawUser = localStorage.getItem('user');
       const userObj = rawUser ? JSON.parse(rawUser) : null;
       const amountInPaise = Math.round((s.estimated_price || 0) * 100);

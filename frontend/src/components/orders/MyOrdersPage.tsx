@@ -34,6 +34,7 @@ import {
 import { Header } from '../dashboard/Header';
 import { fetchCustomOrders, getFurnitureImageUrl, cancelCustomOrder, payCustomOrder, downloadPaymentReceipt, CustomOrderData, isCustomerOrderMatch } from '../../services/api_production';
 import { openRazorpayCheckout } from '../../services/razorpay';
+import { validateAddressApi } from '../../services/api';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getStoredRetailOrders, cancelStoredRetailOrder, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
 import { parseReferenceImages } from '../../utils/imageUtils';
@@ -305,6 +306,13 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
 
   // Payment Handlers for Fabrication & Services
   const handlePayNowFabrication = async (fab: FabricationItem) => {
+    // Check delivery address before payment
+    const addressStatus = await validateAddressApi();
+    if (!addressStatus || !addressStatus.is_valid) {
+      navigate(`/profile?address_required=true&return_to=${encodeURIComponent('/orders')}&reason=fabrication_payment`);
+      return;
+    }
+
     await openRazorpayCheckout({
       amount: Math.round((fab.estimated_price || 0) * 100),
       name: 'RetailSphere Wood Fabrication',
@@ -332,6 +340,13 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   };
 
   const handlePayNowService = async (srv: ServiceItem) => {
+    // Check delivery address before payment
+    const addressStatus = await validateAddressApi();
+    if (!addressStatus || !addressStatus.is_valid) {
+      navigate(`/profile?address_required=true&return_to=${encodeURIComponent('/orders')}&reason=service_payment`);
+      return;
+    }
+
     await openRazorpayCheckout({
       amount: Math.round((srv.estimated_price || 0) * 100),
       name: 'RetailSphere On-Site Service',

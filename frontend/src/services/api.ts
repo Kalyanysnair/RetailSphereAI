@@ -198,6 +198,38 @@ export function logoutUser(): void {
   clearUserSession();
 }
 
+export interface ValidateAddressResult {
+  is_valid: boolean;
+  error_message?: string | null;
+  formatted_address?: string | null;
+  address?: {
+    address: string;
+    city: string;
+    state: string;
+    pincode: string;
+    phone: string;
+    recipient_name: string;
+  };
+}
+
+export async function validateAddressApi(): Promise<ValidateAddressResult | null> {
+  const token = localStorage.getItem('access_token');
+  if (!token) return null;
+  try {
+    const response = await safeFetch('/auth/validate-address', {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    console.error('Error validating address with backend:', err);
+    return null;
+  }
+}
+
 export interface GoogleLoginPayload {
   email?: string;
   full_name?: string;
@@ -281,9 +313,14 @@ export async function fetchStaffUsers(): Promise<any[]> {
 export async function fetchAllUsers(): Promise<any[]> {
   try {
     const response = await safeFetch('/admin/users');
-    if (!response.ok) return [];
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      console.warn(`[fetchAllUsers] Backend API returned status ${response.status}: ${errText}`);
+      return [];
+    }
     return await response.json();
-  } catch {
+  } catch (err) {
+    console.error('[fetchAllUsers] Failed to fetch users:', err);
     return [];
   }
 }

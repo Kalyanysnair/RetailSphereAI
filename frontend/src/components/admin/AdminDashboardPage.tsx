@@ -1133,6 +1133,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   // System User Management State
   const [allUsersList, setAllUsersList] = useState<SystemUserItem[]>([]);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
   const [userRoleFilter, setUserRoleFilter] = useState<'All Customers' | 'Active' | 'Inactive' | string>('All Customers');
   const [userSearchQuery, setUserSearchQuery] = useState('');
 
@@ -1246,6 +1247,7 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Load All Users from DB (Excluding Admins)
   const loadAllUsersFromDB = async () => {
+    setIsUsersLoading(true);
     try {
       const data = await fetchAllUsers();
       if (data && Array.isArray(data)) {
@@ -1262,12 +1264,22 @@ export const AdminDashboardPage: React.FC = () => {
     } catch (err) {
       console.warn('Could not fetch all users:', err);
       setAllUsersList([]);
+    } finally {
+      setIsUsersLoading(false);
     }
   };
 
   useEffect(() => {
     loadAllUsersFromDB();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      loadAllUsersFromDB();
+    } else if (activeTab === 'staff') {
+      loadStaffFromDB();
+    }
+  }, [activeTab]);
 
   const handleOpenEditUser = (u: SystemUserItem) => {
     setEditingUser(u);
@@ -5165,15 +5177,26 @@ export const AdminDashboardPage: React.FC = () => {
                       ))}
                     </div>
 
-                    <div className="relative w-full sm:w-72">
-                      <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Search customer name, email, phone..."
-                        value={userSearchQuery}
-                        onChange={(e) => setUserSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
-                      />
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      <div className="relative w-full sm:w-72">
+                        <Search className="w-4 h-4 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          placeholder="Search customer name, email, phone..."
+                          value={userSearchQuery}
+                          onChange={(e) => setUserSearchQuery(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                        />
+                      </div>
+                      <button
+                        onClick={() => loadAllUsersFromDB()}
+                        disabled={isUsersLoading}
+                        className="px-3 py-2 bg-[#F9F6F0] hover:bg-[#EFE7DE] border border-[#E2D7CB] rounded-xl text-[#6B5C4D] transition-colors cursor-pointer inline-flex items-center gap-1.5 text-xs font-bold shrink-0 shadow-xs"
+                        title="Refresh Customer Directory"
+                      >
+                        <RotateCcw className={`w-3.5 h-3.5 ${isUsersLoading ? 'animate-spin' : ''}`} />
+                        <span>Refresh</span>
+                      </button>
                     </div>
                   </div>
 
@@ -5191,9 +5214,25 @@ export const AdminDashboardPage: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {allUsersList
-                          .filter((u) => {
-                            const r = u.role || u.role_name || 'Customer';
+                        {isUsersLoading ? (
+                          <tr>
+                            <td colSpan={6} className="py-10 text-center text-[#7A6C5E] font-medium">
+                              <div className="inline-flex items-center gap-2">
+                                <RotateCcw className="w-4 h-4 animate-spin text-[#48A63E]" />
+                                <span>Loading customer directory...</span>
+                              </div>
+                            </td>
+                          </tr>
+                        ) : allUsersList.filter(u => (u.role || u.role_name || 'Customer') === 'Customer').length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="py-10 text-center text-[#7A6C5E] font-medium">
+                              No customer records found in database. Click "Refresh" above to reload.
+                            </td>
+                          </tr>
+                        ) : (
+                          allUsersList
+                            .filter((u) => {
+                              const r = u.role || u.role_name || 'Customer';
                             if (r !== 'Customer') return false; // Strictly show ONLY Customers!
                             if (userRoleFilter === 'Active' && u.status === false) return false;
                             if (userRoleFilter === 'Inactive' && u.status !== false) return false;
@@ -5314,7 +5353,8 @@ export const AdminDashboardPage: React.FC = () => {
                                  </td>
                               </tr>
                             );
-                          })}
+                          })
+                        )}
                       </tbody>
                     </table>
                   </div>

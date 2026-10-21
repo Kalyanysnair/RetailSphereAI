@@ -20,10 +20,12 @@ import {
   Home,
   AlertCircle
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { openRazorpayCheckout } from '../../services/razorpay';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
 import { estimateTransportCostAPI } from '../../services/retailOrdersFulfillmentApi';
-import { LeafletMapPicker, QUICK_KERALA_PRESETS } from '../common/LeafletMapPicker';
+import { LeafletMapPicker } from '../common/LeafletMapPicker';
+import { getCurrentUser, validateAddressApi } from '../../services/api';
 import { getStageSections, StageSection } from '../../utils/manufacturingSections';
 
 export interface FulfillmentSummaryItem {
@@ -95,6 +97,7 @@ export interface FabricationItem {
 }
 
 export const FabricationTab: React.FC = () => {
+  const navigate = useNavigate();
   const [requests, setRequests] = useState<FabricationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -134,68 +137,110 @@ export const FabricationTab: React.FC = () => {
   const [userProfileAddress, setUserProfileAddress] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('user');
-      if (raw) {
-        const u = JSON.parse(raw);
-        const addr = u.customer?.address || u.address || '';
-        const city = u.customer?.city || u.city || '';
-        const pin = u.customer?.pincode || u.pincode || '';
-        const full = [addr, city, pin ? `- ${pin}` : ''].filter(Boolean).join(', ');
-        if (full.trim().length > 3) {
-          setUserProfileAddress(full);
+    const initProfile = async () => {
+      try {
+        const u = await getCurrentUser();
+        if (u?.customer?.address) {
+          const c = u.customer;
+          const full = [c.address, c.city, c.pincode ? `- ${c.pincode}` : ''].filter(Boolean).join(', ');
+          if (full.trim().length > 3) {
+            setUserProfileAddress(full);
+            return;
+          }
         }
+      } catch (e) {
+        console.warn('Could not fetch user profile from API:', e);
       }
-    } catch (err) {
-      console.warn('Could not read user profile address:', err);
-    }
+
+      try {
+        const raw = localStorage.getItem('user');
+        if (raw) {
+          const u = JSON.parse(raw);
+          const addr = u.customer?.address || u.address || '';
+          const city = u.customer?.city || u.city || '';
+          const pin = u.customer?.pincode || u.pincode || '';
+          const full = [addr, city, pin ? `- ${pin}` : ''].filter(Boolean).join(', ');
+          if (full.trim().length > 3) {
+            setUserProfileAddress(full);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not read user profile address:', err);
+      }
+    };
+    initProfile();
   }, []);
 
   const handleUseProfileAddressForPickup = () => {
     if (!userProfileAddress) {
-      setPickupGpsStatusMessage('ℹ️ No saved profile address found. Please pick your town below or search on the map.');
+      setPickupGpsStatusMessage('ℹ️ No saved profile address found. Please enter your address or search on the map.');
       return;
     }
     setMaterialPickupAddress(userProfileAddress);
+    setPickupCoords({ lat: 9.5916, lng: 76.5222 });
     setPickupGpsStatusMessage(`🏠 Using Saved Profile Address: ${userProfileAddress}`);
   };
 
   const handleUseProfileAddressForDelivery = () => {
     if (!userProfileAddress) {
-      setDeliveryGpsStatusMessage('ℹ️ No saved profile address found. Please pick your town below or search on the map.');
+      setDeliveryGpsStatusMessage('ℹ️ No saved profile address found. Please enter your address or search on the map.');
       return;
     }
     setReturnDeliveryAddress(userProfileAddress);
+    setDeliveryCoords({ lat: 9.5916, lng: 76.5222 });
     setDeliveryGpsStatusMessage(`🏠 Using Saved Profile Address: ${userProfileAddress}`);
   };
 
-  const handleSelectQuickPickupTown = (p: typeof QUICK_KERALA_PRESETS[0]) => {
-    setPickupCoords({ lat: p.lat, lng: p.lng });
-    setMaterialPickupAddress(p.address);
-    setPickupGpsStatusMessage(`📍 Selected: ${p.name}`);
-  };
+  const handleDetectPickupLocation = async () => {
+    setIsDetectingPickupGps(true);
+    setPickupGpsStatusMessage('Detecting current location...');
 
-  const handleSelectQuickDeliveryTown = (p: typeof QUICK_KERALA_PRESETS[0]) => {
-    setDeliveryCoords({ lat: p.lat, lng: p.lng });
-    setReturnDeliveryAddress(p.address);
-    setDeliveryGpsStatusMessage(`📍 Selected: ${p.name}`);
-  };
-
-  const handleDetectPickupLocation = () => {
-    if (!navigator.geolocation) {
-      setPickupGpsStatusMessage('Geolocation is not supported by your browser.');
-      return;
+    let resolvedAddress = userProfileAddress;
+    if (!resolvedAddress) {
+      try {
+        const u = await getCurrentUser();
+        if (u?.customer?.address) {
+          const c = u.customer;
+          const full = [c.address, c.city, c.pincode ? `- ${c.pincode}` : ''].filter(Boolean).join(', ');
+          if (full.trim().length > 3) {
+            resolvedAddress = full;
+            setUserProfileAddress(full);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load profile address:', err);
+      }
     }
 
-    setIsDetectingPickupGps(true);
-    setPickupGpsStatusMessage('Acquiring location signal...');
+    const defaultFallback = resolvedAddress || 'Central Junction, Kottayam, Kerala - 686001';
+
+    if (!navigator.geolocation) {
+      setMaterialPickupAddress(defaultFallback);
+      setPickupCoords({ lat: 9.5916, lng: 76.5222 });
+      setIsDetectingPickupGps(false);
+      setPickupGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
+      return;
+    }
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = Number(pos.coords.latitude.toFixed(5));
         const lng = Number(pos.coords.longitude.toFixed(5));
         const accuracy = Math.round(pos.coords.accuracy || 0);
-        setPickupCoords({ lat, lng });
+
+        // Check if browser returns Trivandrum ISP gateway (laptop connected to Wi-Fi/Jio broadband)
+        const isTrivandrumIsp =
+          accuracy > 1500 ||
+          lat < 8.7 ||
+          (lat >= 8.3 && lat <= 8.7 && lng >= 76.8 && lng <= 77.1);
+
+        if (isTrivandrumIsp) {
+          setIsDetectingPickupGps(false);
+          setMaterialPickupAddress(defaultFallback);
+          setPickupCoords({ lat: 9.5916, lng: 76.5222 });
+          setPickupGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
+          return;
+        }
 
         try {
           const res = await fetch(
@@ -214,51 +259,43 @@ export const FabricationTab: React.FC = () => {
             const fullAddr = `${houseNumber}${road}${road && suburb ? ', ' : ''}${suburb}, ${fetchedCity}, ${state} - ${fetchedPincode}`.trim();
             const finalAddress = fullAddr || `GPS Pin (${lat}, ${lng})`;
 
-            const isTrivandrumIsp =
-              accuracy > 1500 ||
+            if (
               finalAddress.toLowerCase().includes('thiruvananthapuram') ||
               finalAddress.toLowerCase().includes('kowdiar') ||
-              finalAddress.toLowerCase().includes('nalanda');
-
-            setIsDetectingPickupGps(false);
-
-            if (isTrivandrumIsp) {
-              if (userProfileAddress) {
-                setMaterialPickupAddress(userProfileAddress);
-                setPickupGpsStatusMessage(
-                  `⚠️ Browser Wi-Fi detected ISP gateway in Trivandrum (170km away). Auto-applied your registered profile address: "${userProfileAddress}".`
-                );
-              } else {
-                const fallback = QUICK_KERALA_PRESETS[0]; // Kottayam Central
-                setPickupCoords({ lat: fallback.lat, lng: fallback.lng });
-                setMaterialPickupAddress(fallback.address);
-                setPickupGpsStatusMessage(
-                  `⚠️ Browser Wi-Fi reported ISP gateway in Trivandrum (170km away). Auto-corrected to local hub (${fallback.name}). Click any Quick Town below or search on map to set your exact town.`
-                );
-              }
-            } else {
-              setMaterialPickupAddress(finalAddress);
-              setPickupGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
+              finalAddress.toLowerCase().includes('nalanda')
+            ) {
+              setIsDetectingPickupGps(false);
+              setMaterialPickupAddress(defaultFallback);
+              setPickupCoords({ lat: 9.5916, lng: 76.5222 });
+              setPickupGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
+              return;
             }
+
+            setPickupCoords({ lat, lng });
+            setMaterialPickupAddress(finalAddress);
+            setIsDetectingPickupGps(false);
+            setPickupGpsStatusMessage(`📍 Current Location: ${finalAddress}`);
             return;
           }
         } catch (err) {
           console.warn('Reverse geocoding error:', err);
         }
 
-        const fallback = QUICK_KERALA_PRESETS[0];
-        setMaterialPickupAddress(fallback.address);
+        setMaterialPickupAddress(defaultFallback);
+        setPickupCoords({ lat: 9.5916, lng: 76.5222 });
         setIsDetectingPickupGps(false);
-        setPickupGpsStatusMessage(`📍 Selected default local hub: ${fallback.name}`);
+        setPickupGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
       },
       (err) => {
         console.warn('GPS location error:', err);
+        setMaterialPickupAddress(defaultFallback);
+        setPickupCoords({ lat: 9.5916, lng: 76.5222 });
         setIsDetectingPickupGps(false);
-        setPickupGpsStatusMessage('📍 Could not detect GPS. Please pick your town or use the map.');
+        setPickupGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
       },
       {
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 8000,
         maximumAge: 0,
       }
     );
@@ -270,21 +307,56 @@ export const FabricationTab: React.FC = () => {
     setPickupGpsStatusMessage(`📍 Map Location Selected: ${loc.address}`);
   };
 
-  const handleDetectDeliveryLocation = () => {
-    if (!navigator.geolocation) {
-      setDeliveryGpsStatusMessage('Geolocation is not supported by your browser.');
-      return;
+  const handleDetectDeliveryLocation = async () => {
+    setIsDetectingDeliveryGps(true);
+    setDeliveryGpsStatusMessage('Detecting current location...');
+
+    let resolvedAddress = userProfileAddress;
+    if (!resolvedAddress) {
+      try {
+        const u = await getCurrentUser();
+        if (u?.customer?.address) {
+          const c = u.customer;
+          const full = [c.address, c.city, c.pincode ? `- ${c.pincode}` : ''].filter(Boolean).join(', ');
+          if (full.trim().length > 3) {
+            resolvedAddress = full;
+            setUserProfileAddress(full);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load profile address:', err);
+      }
     }
 
-    setIsDetectingDeliveryGps(true);
-    setDeliveryGpsStatusMessage('Acquiring location signal...');
+    const defaultFallback = resolvedAddress || 'Central Junction, Kottayam, Kerala - 686001';
+
+    if (!navigator.geolocation) {
+      setReturnDeliveryAddress(defaultFallback);
+      setDeliveryCoords({ lat: 9.5916, lng: 76.5222 });
+      setIsDetectingDeliveryGps(false);
+      setDeliveryGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
+      return;
+    }
 
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const lat = Number(pos.coords.latitude.toFixed(5));
         const lng = Number(pos.coords.longitude.toFixed(5));
         const accuracy = Math.round(pos.coords.accuracy || 0);
-        setDeliveryCoords({ lat, lng });
+
+        // Check if browser returns Trivandrum ISP gateway (laptop connected to Wi-Fi/Jio broadband)
+        const isTrivandrumIsp =
+          accuracy > 1500 ||
+          lat < 8.7 ||
+          (lat >= 8.3 && lat <= 8.7 && lng >= 76.8 && lng <= 77.1);
+
+        if (isTrivandrumIsp) {
+          setIsDetectingDeliveryGps(false);
+          setReturnDeliveryAddress(defaultFallback);
+          setDeliveryCoords({ lat: 9.5916, lng: 76.5222 });
+          setDeliveryGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
+          return;
+        }
 
         try {
           const res = await fetch(
@@ -303,51 +375,43 @@ export const FabricationTab: React.FC = () => {
             const fullAddr = `${houseNumber}${road}${road && suburb ? ', ' : ''}${suburb}, ${fetchedCity}, ${state} - ${fetchedPincode}`.trim();
             const finalAddress = fullAddr || `GPS Pin (${lat}, ${lng})`;
 
-            const isTrivandrumIsp =
-              accuracy > 1500 ||
+            if (
               finalAddress.toLowerCase().includes('thiruvananthapuram') ||
               finalAddress.toLowerCase().includes('kowdiar') ||
-              finalAddress.toLowerCase().includes('nalanda');
-
-            setIsDetectingDeliveryGps(false);
-
-            if (isTrivandrumIsp) {
-              if (userProfileAddress) {
-                setReturnDeliveryAddress(userProfileAddress);
-                setDeliveryGpsStatusMessage(
-                  `⚠️ Browser Wi-Fi detected ISP gateway in Trivandrum (170km away). Auto-applied your registered profile address: "${userProfileAddress}".`
-                );
-              } else {
-                const fallback = QUICK_KERALA_PRESETS[0]; // Kottayam Central
-                setDeliveryCoords({ lat: fallback.lat, lng: fallback.lng });
-                setReturnDeliveryAddress(fallback.address);
-                setDeliveryGpsStatusMessage(
-                  `⚠️ Browser Wi-Fi reported ISP gateway in Trivandrum (170km away). Auto-corrected to local hub (${fallback.name}). Click any Quick Town below or search on map to set your exact town.`
-                );
-              }
-            } else {
-              setReturnDeliveryAddress(finalAddress);
-              setDeliveryGpsStatusMessage(`📍 Live GPS Detected: ${finalAddress}`);
+              finalAddress.toLowerCase().includes('nalanda')
+            ) {
+              setIsDetectingDeliveryGps(false);
+              setReturnDeliveryAddress(defaultFallback);
+              setDeliveryCoords({ lat: 9.5916, lng: 76.5222 });
+              setDeliveryGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
+              return;
             }
+
+            setDeliveryCoords({ lat, lng });
+            setReturnDeliveryAddress(finalAddress);
+            setIsDetectingDeliveryGps(false);
+            setDeliveryGpsStatusMessage(`📍 Current Location: ${finalAddress}`);
             return;
           }
         } catch (err) {
           console.warn('Reverse geocoding error:', err);
         }
 
-        const fallback = QUICK_KERALA_PRESETS[0];
-        setReturnDeliveryAddress(fallback.address);
+        setReturnDeliveryAddress(defaultFallback);
+        setDeliveryCoords({ lat: 9.5916, lng: 76.5222 });
         setIsDetectingDeliveryGps(false);
-        setDeliveryGpsStatusMessage(`📍 Selected default local hub: ${fallback.name}`);
+        setDeliveryGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
       },
       (err) => {
         console.warn('GPS location error:', err);
+        setReturnDeliveryAddress(defaultFallback);
+        setDeliveryCoords({ lat: 9.5916, lng: 76.5222 });
         setIsDetectingDeliveryGps(false);
-        setDeliveryGpsStatusMessage('📍 Could not detect GPS. Please pick your town or use the map.');
+        setDeliveryGpsStatusMessage(`📍 Current Location: ${defaultFallback}`);
       },
       {
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 8000,
         maximumAge: 0,
       }
     );
@@ -556,6 +620,14 @@ export const FabricationTab: React.FC = () => {
 
   const handlePayFabrication = async (r: FabricationItem) => {
     try {
+      if (r.material_arrival_mode === 'DOORSTEP_PICKUP' || r.return_delivery_mode === 'DOORSTEP_DELIVERY') {
+        const addressStatus = await validateAddressApi();
+        if (!addressStatus || !addressStatus.is_valid) {
+          navigate(`/profile?address_required=true&return_to=${encodeURIComponent(window.location.pathname + window.location.hash)}&reason=fabrication_payment`);
+          return;
+        }
+      }
+
       const rawUser = localStorage.getItem('user');
       const userObj = rawUser ? JSON.parse(rawUser) : null;
       
@@ -1124,30 +1196,6 @@ export const FabricationTab: React.FC = () => {
                         className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] text-xs font-semibold"
                       />
 
-                      {/* Quick Kerala Towns Jump Presets */}
-                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Quick Towns:</span>
-                        {QUICK_KERALA_PRESETS.map((p) => {
-                          const isSelected =
-                            materialPickupAddress.toLowerCase().includes(p.name.toLowerCase().split(' ')[0]) ||
-                            (p.city && materialPickupAddress.toLowerCase().includes(p.city.toLowerCase()));
-                          return (
-                            <button
-                              key={p.name}
-                              type="button"
-                              onClick={() => handleSelectQuickPickupTown(p)}
-                              className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer shadow-2xs flex items-center gap-1 ${
-                                isSelected
-                                  ? 'bg-[#48A63E] text-white border border-[#48A63E]'
-                                  : 'bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] text-[#5C4E42]'
-                              }`}
-                            >
-                              {isSelected && <span className="font-black">✓</span>}
-                              <span>{p.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
 
                       {/* GPS Status Message Feedback */}
                       {pickupGpsStatusMessage && (
@@ -1259,30 +1307,6 @@ export const FabricationTab: React.FC = () => {
                         className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-[#FAF7F2] text-xs font-semibold"
                       />
 
-                      {/* Quick Kerala Towns Jump Presets */}
-                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                        <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider">Quick Towns:</span>
-                        {QUICK_KERALA_PRESETS.map((p) => {
-                          const isSelected =
-                            returnDeliveryAddress.toLowerCase().includes(p.name.toLowerCase().split(' ')[0]) ||
-                            (p.city && returnDeliveryAddress.toLowerCase().includes(p.city.toLowerCase()));
-                          return (
-                            <button
-                              key={p.name}
-                              type="button"
-                              onClick={() => handleSelectQuickDeliveryTown(p)}
-                              className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold transition-all cursor-pointer shadow-2xs flex items-center gap-1 ${
-                                isSelected
-                                  ? 'bg-[#48A63E] text-white border border-[#48A63E]'
-                                  : 'bg-white hover:bg-[#E8F5E9] hover:text-[#48A63E] border border-[#D6C9B9] text-[#5C4E42]'
-                              }`}
-                            >
-                              {isSelected && <span className="font-black">✓</span>}
-                              <span>{p.name}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
 
                       {/* GPS Status Message Feedback */}
                       {deliveryGpsStatusMessage && (
