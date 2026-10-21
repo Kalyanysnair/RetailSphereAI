@@ -23,9 +23,14 @@ export const CategorySection: React.FC = () => {
   const [isSortOpen, setIsSortOpen] = useState<boolean>(false);
   const sortDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [wishlistIds, setWishlistIds] = useState<string[]>(() =>
-    getWishlistItems().map((item) => item.id)
-  );
+  const [wishlistIds, setWishlistIds] = useState<string[]>(() => {
+    try {
+      const items = getWishlistItems();
+      return Array.isArray(items) ? items.map((item) => item.id) : [];
+    } catch {
+      return [];
+    }
+  });
   const [dbCatalogProducts, setDbCatalogProducts] = useState<CatalogItem[]>([]);
 
   const isLoggedIn = Boolean(

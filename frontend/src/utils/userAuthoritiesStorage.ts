@@ -48,7 +48,8 @@ export const getStoredUserAuthorities = (): UserAuthorityRecord[] => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_AUTHORITIES));
       return INITIAL_AUTHORITIES;
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : INITIAL_AUTHORITIES;
   } catch {
     return INITIAL_AUTHORITIES;
   }

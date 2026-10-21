@@ -23,7 +23,8 @@ export const getStaffQueries = (): StaffQuery[] => {
     if (!raw) {
       return [];
     }
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch (err) {
     console.warn('Error reading staff queries:', err);
     return [];

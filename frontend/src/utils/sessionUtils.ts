@@ -90,10 +90,13 @@ export const getStoredUserIdentity = (): {
     if (!raw) return { userId: null, customerId: null, email: null, roleName: null, userObj: null };
 
     const parsed = JSON.parse(raw);
-    const userId = parsed.user_id || parsed.id || null;
-    const customerId = parsed.customer?.customer_id || parsed.customer_id || null;
-    const email = parsed.email || parsed.customer_email || null;
-    const roleName = parsed.role_name || parsed.role?.role_name || parsed.role || null;
+    if (!parsed || typeof parsed !== 'object') {
+      return { userId: null, customerId: null, email: null, roleName: null, userObj: null };
+    }
+    const userId = parsed?.user_id || parsed?.id || null;
+    const customerId = parsed?.customer?.customer_id || parsed?.customer_id || null;
+    const email = parsed?.email || parsed?.customer_email || null;
+    const roleName = parsed?.role_name || parsed?.role?.role_name || parsed?.role || null;
 
     return { userId, customerId, email, roleName, userObj: parsed };
   } catch {
