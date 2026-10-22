@@ -7,6 +7,11 @@ import time
 
 from app.database import get_db
 from app import models, auth
+from app.utils.worker_assignment_validator import (
+    require_staff_user,
+    validate_worker_eligibility,
+    validate_service_assignment_prerequisites
+)
 
 router = APIRouter(prefix="/api/services", tags=["On-Site Skilled Services"])
 
@@ -222,14 +227,18 @@ def pay_service_request(service_id: int, db: Session = Depends(get_db)):
     return {"message": f"Payment completed for Service Request #{service_id}", "status": "PAID"}
 
 @router.post("/jobs/assign")
-def assign_worker_service_job(payload: ServiceJobAssignPayload, db: Session = Depends(get_db)):
+def assign_worker_service_job(
+    payload: ServiceJobAssignPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
     srv = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == payload.service_id).first()
     if not srv:
         raise HTTPException(status_code=404, detail="Service request not found")
 
-    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
-    if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+    validate_service_assignment_prerequisites(srv)
+    worker = validate_worker_eligibility(db, payload.worker_id, required_skill=srv.service_category)
 
     sched_dt = datetime.utcnow()
     if payload.scheduled_time:
@@ -238,16 +247,24 @@ def assign_worker_service_job(payload: ServiceJobAssignPayload, db: Session = De
         except:
             pass
 
-    new_job = models.ServiceJob(
-        service_id=payload.service_id,
-        worker_id=payload.worker_id,
-        scheduled_time=sched_dt,
-        status="ASSIGNED"
-    )
-    db.add(new_job)
+    # Check if job already exists to prevent duplicate jobs and allow legitimate reassignment
+    existing_job = db.query(models.ServiceJob).filter(models.ServiceJob.service_id == payload.service_id).first()
+    if existing_job:
+        existing_job.worker_id = payload.worker_id
+        existing_job.scheduled_time = sched_dt
+        existing_job.status = "ASSIGNED"
+        job = existing_job
+    else:
+        job = models.ServiceJob(
+            service_id=payload.service_id,
+            worker_id=payload.worker_id,
+            scheduled_time=sched_dt,
+            status="ASSIGNED"
+        )
+        db.add(job)
 
     srv.status = "WORKER_ASSIGNED"
     db.commit()
-    db.refresh(new_job)
+    db.refresh(job)
 
-    return {"message": f"Worker {worker.full_name} assigned to Service #{payload.service_id}", "job_id": new_job.job_id}
+    return {"message": f"Worker {worker.full_name} assigned to Service #{payload.service_id}", "job_id": job.job_id}

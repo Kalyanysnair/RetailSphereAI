@@ -35,13 +35,15 @@ async function safeFetchProd(endpoint: string, options?: RequestInit): Promise<R
 }
 
 export interface AssignedWorker {
-  assignment_id: number;
+  assignment_id: number | string;
   worker_id: number;
   worker_name: string;
   worker_email?: string;
   worker_phone?: string;
   specialization?: string;
   task_status: string;
+  stage_name?: string;
+  assignment_source?: string;
 }
 
 export interface CustomOrderData {

@@ -7,6 +7,8 @@ from datetime import datetime, date
 
 from app.database import get_db
 from app import models, auth
+from app.utils.stage_progression import parse_stage_meta, dump_stage_meta, complete_stage_and_unlock_next
+from app.utils.worker_assignment_validator import validate_fabrication_material_prerequisite
 
 router = APIRouter(prefix="/api/worker", tags=["Worker Operations"])
 
@@ -39,7 +41,7 @@ class OnsiteStatusPayload(BaseModel):
 
 def parse_stage_meta(remarks_str: Optional[str]):
     if not remarks_str:
-        return {"completed_sections": [], "current_section": None, "pause_reason": None, "user_notes": ""}
+        return {"completed_sections": [], "current_section": None, "pause_reason": None, "user_notes": "", "photos": None}
     try:
         data = json.loads(remarks_str)
         if isinstance(data, dict):
@@ -47,14 +49,22 @@ def parse_stage_meta(remarks_str: Optional[str]):
                 "completed_sections": data.get("completed_sections", []) or [],
                 "current_section": data.get("current_section"),
                 "pause_reason": data.get("pause_reason"),
-                "user_notes": data.get("user_notes", "") or data.get("notes", "") or ""
+                "user_notes": data.get("user_notes", "") or data.get("notes", "") or "",
+                "photos": data.get("photos") or data.get("work_images")
             }
     except Exception:
         pass
-    return {"completed_sections": [], "current_section": None, "pause_reason": None, "user_notes": remarks_str}
+    return {"completed_sections": [], "current_section": None, "pause_reason": None, "user_notes": remarks_str, "photos": None}
 
 
-def dump_stage_meta(existing_remarks: Optional[str], completed_sections: Optional[List[str]] = None, current_section: Optional[str] = None, pause_reason: Optional[str] = None, user_notes: Optional[str] = None) -> str:
+def dump_stage_meta(
+    existing_remarks: Optional[str],
+    completed_sections: Optional[List[str]] = None,
+    current_section: Optional[str] = None,
+    pause_reason: Optional[str] = None,
+    user_notes: Optional[str] = None,
+    photos: Optional[str] = None
+) -> str:
     meta = parse_stage_meta(existing_remarks)
     if completed_sections is not None:
         meta["completed_sections"] = completed_sections
@@ -64,6 +74,8 @@ def dump_stage_meta(existing_remarks: Optional[str], completed_sections: Optiona
         meta["pause_reason"] = pause_reason if pause_reason.strip() else None
     if user_notes is not None:
         meta["user_notes"] = user_notes
+    if photos is not None:
+        meta["photos"] = photos
     return json.dumps(meta)
 
 
@@ -369,6 +381,12 @@ def start_worker_task(
         if not asgn:
             raise HTTPException(status_code=404, detail="Task assignment not found or unauthorized.")
 
+        if asgn.task_status and "Completed" in asgn.task_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This assignment has already been completed."
+            )
+
         dept_prefix = asgn.task_status.split(":")[0] if ":" in asgn.task_status else (current_user.specialization or "Production")
         asgn.task_status = f"{dept_prefix}: In Progress"
 
@@ -410,24 +428,23 @@ def start_worker_task(
         if not stg:
             raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
 
-        # Enforce prerequisite: If customer material pickup is required, it must be completed before workshop cutting/fabrication starts
+        # State transition validation: Reject starting locked or already completed stages
+        if stg.status == "LOCKED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot start stage '{stg.stage_name}' because it is LOCKED. Preceding production stages must be completed first."
+            )
+        if stg.status == "COMPLETED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Stage '{stg.stage_name}' has already been marked as completed."
+            )
+
+        # Enforce prerequisite: Customer-owned material receipt for fabrication
         if stg.order_type == "Fabrication":
             fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stg.order_id).first()
             if fab_obj:
-                arr_mode = getattr(fab_obj, "material_arrival_mode", "") or "CUSTOMER_BRINGS"
-                mat_src = getattr(fab_obj, "material_source", "") or ""
-                needs_pk = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or ("Customer" in mat_src and arr_mode != "CUSTOMER_BRINGS")
-                if needs_pk:
-                    ful = db.query(models.OrderFulfillment).filter(
-                        models.OrderFulfillment.fabrication_id == fab_obj.fabrication_id,
-                        models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
-                    ).first()
-                    if not ful or ful.delivery_status not in ["Delivered", "COMPLETED", "Received", "RECEIVED_AT_WORKSHOP"]:
-                        c_title = ful.carrier if (ful and ful.carrier) else "an assigned Carrier Partner"
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"Cannot start fabrication stage yet. Customer-owned material pickup by {c_title} is still pending receipt at workshop hub."
-                        )
+                validate_fabrication_material_prerequisite(db, fab_obj)
 
         stg.status = "IN_PROGRESS"
         stg.started_at = now
@@ -581,6 +598,11 @@ def pause_worker_task(
         if not stg:
             raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
 
+        if stg.status == "COMPLETED":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot pause an already completed stage.")
+        if stg.status not in ["IN_PROGRESS"]:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Stage must be in progress to be paused.")
+
         stg.status = "PAUSED"
         stg.remarks = dump_stage_meta(stg.remarks, pause_reason=reason_clean, user_notes=payload.notes if payload.notes else parse_stage_meta(stg.remarks)["user_notes"])
 
@@ -665,6 +687,11 @@ def resume_worker_task(
         if not stg:
             raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
 
+        if stg.status == "COMPLETED":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot resume an already completed stage.")
+        if stg.status != "PAUSED":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Stage must be paused to be resumed.")
+
         stg.status = "IN_PROGRESS"
         stg.remarks = dump_stage_meta(stg.remarks, pause_reason="")
 
@@ -710,6 +737,15 @@ def complete_worker_task(
         if not asgn:
             raise HTTPException(status_code=404, detail="Task assignment not found or unauthorized.")
 
+        # State transition validation
+        if asgn.task_status and "Completed" in asgn.task_status:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignment is already marked as completed.")
+        if asgn.task_status and not ("In Progress" in asgn.task_status or "Paused" in asgn.task_status):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Task has not been started yet. You must click 'Start Stage' before completing it."
+            )
+
         dept_prefix = asgn.task_status.split(":")[0] if ":" in asgn.task_status else (current_user.specialization or "Production")
         asgn.task_status = f"{dept_prefix}: Completed"
 
@@ -747,7 +783,8 @@ def complete_worker_task(
                 models.CustomOrder.custom_order_id == asgn.custom_order_id
             ).first()
             if order and order.order_status in ["In Production", "Approved", "Paid"]:
-                order.order_status = "Completed"
+                # CRITICAL QC GATE: Transitions order to QC_PENDING (never directly Completed!)
+                order.order_status = "QC_PENDING"
 
     elif task_id.startswith("stg-"):
         stg_id = int(task_id.replace("stg-", ""))
@@ -758,35 +795,39 @@ def complete_worker_task(
         if not stg:
             raise HTTPException(status_code=404, detail="Production stage not found or unauthorized.")
 
-        stg.status = "COMPLETED"
-        stg.completed_at = now
-        stg.progress_percentage = pct
-        stg.remarks = dump_stage_meta(
-            stg.remarks,
-            completed_sections=["sec-1", "sec-2", "sec-3", "sec-4"],
-            current_section="Completed",
-            pause_reason="",
-            user_notes=notes_clean or parse_stage_meta(stg.remarks)["user_notes"]
-        )
+        # State transition validation: Reject completing an ASSIGNED stage that was not started
+        if stg.status == "ASSIGNED":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot complete stage because it has not been started yet. Click 'Start Stage' before completing."
+            )
 
-        hist = models.ProductionHistory(
-            order_type=stg.order_type,
-            order_id=stg.order_id,
-            stage_name=stg.stage_name,
-            worker_id=worker_id,
-            action_by_id=worker_id,
-            action="COMPLETE_STAGE",
-            previous_status="IN_PROGRESS",
-            new_status="COMPLETED",
-            notes=notes_clean or "Stage completed",
-            timestamp=now
-        )
-        db.add(hist)
+        # Complete stage, unlock next sequential stage, and transition parent order to QC_PENDING if final stage
+        try:
+            complete_stage_and_unlock_next(
+                db=db,
+                stage=stg,
+                worker_id=worker_id,
+                action_by_id=worker_id,
+                notes=notes_clean,
+                progress_percentage=pct,
+                photos=payload.work_images
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
 
     else:
         raise HTTPException(status_code=400, detail="Invalid task ID format.")
 
-    db.commit()
+    if not task_id.startswith("stg-"):
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
     return {"message": f"Task '{task_id}' completed successfully.", "task_status": "COMPLETED", "completed_at": now.isoformat()}
 
 

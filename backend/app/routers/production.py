@@ -11,6 +11,15 @@ import re
 from app.database import get_db
 from app import models, auth
 from app.email_utils import send_staff_credentials_email, mask_email
+from app.utils.stage_progression import complete_stage_and_unlock_next
+from app.utils.worker_assignment_validator import (
+    require_staff_user,
+    validate_worker_eligibility,
+    validate_custom_order_assignment_prerequisites,
+    validate_fabrication_assignment_prerequisites,
+    validate_service_assignment_prerequisites,
+    validate_fabrication_material_prerequisite
+)
 
 def generate_strong_password(length: int = 14) -> str:
     specials = "@#$%&*!"
@@ -139,12 +148,14 @@ def get_custom_orders(
         cust = ord_obj.customer
         cust_user = cust.user if cust else None
         
-        # Get assigned workers
+        # Get assigned workers from WorkerAssignment (legacy)
         assignments = db.query(models.WorkerAssignment).filter(models.WorkerAssignment.custom_order_id == ord_obj.custom_order_id).all()
         assigned_workers = []
+        seen_worker_ids = set()
         for asgn in assignments:
             w_user = db.query(models.User).filter(models.User.user_id == asgn.worker_id).first()
             if w_user:
+                seen_worker_ids.add(w_user.user_id)
                 assigned_workers.append({
                     "assignment_id": asgn.assignment_id,
                     "worker_id": w_user.user_id,
@@ -152,8 +163,31 @@ def get_custom_orders(
                     "worker_email": w_user.email,
                     "worker_phone": getattr(w_user, "phone", "") or "",
                     "specialization": getattr(w_user, "specialization", "Woodwork & Carpentry") or "Woodwork & Carpentry",
-                    "task_status": asgn.task_status
+                    "task_status": asgn.task_status,
+                    "assignment_source": "order_level"
                 })
+
+        # Also aggregate stage-assigned workers from tbl_production_stage
+        stages = db.query(models.ProductionStage).filter(
+            models.ProductionStage.order_id == ord_obj.custom_order_id,
+            models.ProductionStage.order_type.in_(["Custom", "CUSTOM"])
+        ).all()
+        for stg in stages:
+            if stg.assigned_worker_id and stg.assigned_worker_id not in seen_worker_ids:
+                w_user = db.query(models.User).filter(models.User.user_id == stg.assigned_worker_id).first()
+                if w_user:
+                    seen_worker_ids.add(w_user.user_id)
+                    assigned_workers.append({
+                        "assignment_id": f"stg-{stg.stage_id}",
+                        "worker_id": w_user.user_id,
+                        "worker_name": w_user.full_name,
+                        "worker_email": w_user.email,
+                        "worker_phone": getattr(w_user, "phone", "") or "",
+                        "specialization": getattr(w_user, "specialization", stg.stage_name) or "Woodwork & Carpentry",
+                        "task_status": f"{stg.stage_name}: {stg.status}",
+                        "stage_name": stg.stage_name,
+                        "assignment_source": "stage_level"
+                    })
 
         # Get latest progress
         latest_progress = db.query(models.ProductionProgress).filter(
@@ -274,42 +308,56 @@ def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends
 
 # 2. Approve or Reject Custom Order
 @router.put("/custom-orders/{order_id}/status")
-def update_custom_order_status(order_id: int, payload: OrderStatusUpdatePayload, db: Session = Depends(get_db)):
+def update_custom_order_status(
+    order_id: int,
+    payload: OrderStatusUpdatePayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
+
     order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
+
+    # Enforce QC Gate: Direct transition to Completed requires passed Quality Inspection
+    if payload.order_status.upper() == "COMPLETED":
+        has_passed_qc = db.query(models.QualityInspection).filter(
+            models.QualityInspection.order_type.in_(["Custom", "CUSTOM", "Customization", "CUSTOMIZATION"]),
+            models.QualityInspection.order_id == order_id,
+            models.QualityInspection.result == "PASS"
+        ).first()
+        if not has_passed_qc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Custom order cannot be marked Completed without passing quality inspection (QC_PENDING required)."
+            )
 
     order.order_status = payload.order_status
     if payload.estimated_price is not None:
         order.estimated_price = payload.estimated_price
 
-    staff_user = db.query(models.User).filter(models.User.user_id == order.production_staff_id).first() if order.production_staff_id else None
-    if not staff_user:
-        staff_user = db.query(models.User).first()
-    
-    staff_id = staff_user.user_id if staff_user else None
+    staff_id = current_user.user_id
 
     # Add initial progress entry on approval
     if payload.order_status == "Approved":
-        if staff_id:
-            init_progress = models.ProductionProgress(
-                custom_order_id=order.custom_order_id,
-                updated_by=staff_id,
-                stage="Material Sourcing",
-                progress_percentage=10,
-                remarks=payload.remarks or "Order approved by production team. Commencing material allocation."
-            )
-            db.add(init_progress)
+        init_progress = models.ProductionProgress(
+            custom_order_id=order.custom_order_id,
+            updated_by=staff_id,
+            stage="Material Sourcing",
+            progress_percentage=10,
+            remarks=payload.remarks or "Order approved by production team. Commencing material allocation."
+        )
+        db.add(init_progress)
     elif payload.order_status == "Rejected":
-        if staff_id:
-            rej_progress = models.ProductionProgress(
-                custom_order_id=order.custom_order_id,
-                updated_by=staff_id,
-                stage="Rejected",
-                progress_percentage=0,
-                remarks=payload.remarks or "Customization specs cannot be fulfilled at this time."
-            )
-            db.add(rej_progress)
+        rej_progress = models.ProductionProgress(
+            custom_order_id=order.custom_order_id,
+            updated_by=staff_id,
+            stage="Rejected",
+            progress_percentage=0,
+            remarks=payload.remarks or "Customization specs cannot be fulfilled at this time."
+        )
+        db.add(rej_progress)
 
     db.commit()
     db.refresh(order)
@@ -714,16 +762,22 @@ def toggle_worker_status(worker_id: int, payload: WorkerStatusPayload, db: Sessi
 
 # 5. Assign Task to Worker
 @router.post("/assign-worker")
-def assign_worker_task(payload: TaskAssignPayload, db: Session = Depends(get_db)):
+def assign_worker_task(
+    payload: TaskAssignPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
     order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == payload.custom_order_id).first()
     if not order:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Custom order not found")
 
-    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
-    if not worker:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worker not found")
+    validate_custom_order_assignment_prerequisites(order)
 
-    dept_label = payload.department.strip() if payload.department and payload.department.strip() else getattr(worker, "specialization", "Woodwork & Carpentry")
+    dept_label = payload.department.strip() if payload.department and payload.department.strip() else None
+    worker = validate_worker_eligibility(db, payload.worker_id, required_skill=dept_label)
+    if not dept_label:
+        dept_label = getattr(worker, "specialization", "Woodwork & Carpentry") or "Woodwork & Carpentry"
     
     # Check if assignment already exists for this order & worker or department
     existing = db.query(models.WorkerAssignment).filter(
@@ -744,7 +798,7 @@ def assign_worker_task(payload: TaskAssignPayload, db: Session = Depends(get_db)
         db.add(assignment)
     
     # Auto-update order status to In Production if currently Approved
-    if order.order_status == "Approved":
+    if order.order_status in ["Approved", "Paid", "READY_FOR_PRODUCTION"]:
         order.order_status = "In Production"
 
     db.commit()
@@ -759,7 +813,13 @@ class TaskUnassignPayload(BaseModel):
 
 
 @router.post("/unassign-worker")
-def unassign_worker_task(payload: TaskUnassignPayload, db: Session = Depends(get_db)):
+def unassign_worker_task(
+    payload: TaskUnassignPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
+
     asgn = db.query(models.WorkerAssignment).filter(
         models.WorkerAssignment.custom_order_id == payload.custom_order_id,
         models.WorkerAssignment.worker_id == payload.worker_id
@@ -783,7 +843,7 @@ def unassign_worker_task(payload: TaskUnassignPayload, db: Session = Depends(get
             order_type="Custom",
             order_id=payload.custom_order_id,
             action="Worker Unassigned",
-            action_by_id=1,
+            action_by_id=current_user.user_id,
             notes=f"Worker ID #{w_id} unassigned from order."
         )
         db.commit()
@@ -830,8 +890,9 @@ def update_production_progress(payload: ProgressUpdatePayload, db: Session = Dep
             else:
                 asgn.task_status = f"{dept_name}: In Progress"
 
+    # Phase 2 QC Gate: Workshop completion moves order to QC_PENDING, not Completed
     if payload.progress_percentage >= 100 or payload.stage == "Ready for Dispatch" or "Assembly Complete" in payload.stage:
-        order.order_status = "Completed"
+        order.order_status = "QC_PENDING"
     elif order.order_status in ["Pending", "Approved"]:
         order.order_status = "In Production"
 
@@ -852,17 +913,40 @@ def get_order_tracking(order_id: int, db: Session = Depends(get_db)):
     ).order_by(models.ProductionProgress.progress_id.asc()).all()
 
     workers_info = []
+    seen_worker_ids = set()
     assignments = db.query(models.WorkerAssignment).filter(models.WorkerAssignment.custom_order_id == order_id).all()
     for asgn in assignments:
         w_user = db.query(models.User).filter(models.User.user_id == asgn.worker_id).first()
         if w_user:
+            seen_worker_ids.add(w_user.user_id)
             workers_info.append({
                 "assignment_id": asgn.assignment_id,
                 "worker_id": w_user.user_id,
                 "worker_name": w_user.full_name,
                 "specialization": getattr(w_user, "specialization", "Woodwork & Carpentry") or "Woodwork & Carpentry",
-                "task_status": asgn.task_status
+                "task_status": asgn.task_status,
+                "assignment_source": "order_level"
             })
+
+    # Also aggregate stage-assigned workers
+    stages = db.query(models.ProductionStage).filter(
+        models.ProductionStage.order_id == order_id,
+        models.ProductionStage.order_type.in_(["Custom", "CUSTOM"])
+    ).all()
+    for stg in stages:
+        if stg.assigned_worker_id and stg.assigned_worker_id not in seen_worker_ids:
+            w_user = db.query(models.User).filter(models.User.user_id == stg.assigned_worker_id).first()
+            if w_user:
+                seen_worker_ids.add(w_user.user_id)
+                workers_info.append({
+                    "assignment_id": f"stg-{stg.stage_id}",
+                    "worker_id": w_user.user_id,
+                    "worker_name": w_user.full_name,
+                    "specialization": getattr(w_user, "specialization", stg.stage_name) or "Woodwork & Carpentry",
+                    "task_status": f"{stg.stage_name}: {stg.status}",
+                    "stage_name": stg.stage_name,
+                    "assignment_source": "stage_level"
+                })
 
     timeline = []
     for p in progress_history:
@@ -1930,14 +2014,31 @@ class StageWorkerAssignPayload(BaseModel):
 
 
 @router.post("/assign-stage-worker")
-def assign_worker_to_stage(payload: StageWorkerAssignPayload, db: Session = Depends(get_db)):
+def assign_worker_to_stage(
+    payload: StageWorkerAssignPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
     stage = db.query(models.ProductionStage).filter(models.ProductionStage.stage_id == payload.stage_id).first()
     if not stage:
         raise HTTPException(status_code=404, detail="Production stage not found")
 
-    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
-    if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+    if stage.status == "COMPLETED":
+        raise HTTPException(status_code=400, detail="Cannot assign worker to an already completed stage")
+
+    # Enforce parent order prerequisites
+    if stage.order_type in ["Custom", "CUSTOM"]:
+        c_ord = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == stage.order_id).first()
+        if c_ord:
+            validate_custom_order_assignment_prerequisites(c_ord)
+    elif stage.order_type in ["Fabrication", "FABRICATION"]:
+        f_ord = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stage.order_id).first()
+        if f_ord:
+            validate_fabrication_assignment_prerequisites(db, f_ord)
+
+    req_skill = stage.required_skill or stage.stage_name
+    worker = validate_worker_eligibility(db, payload.worker_id, required_skill=req_skill)
 
     stage.assigned_worker_id = payload.worker_id
     stage.status = "ASSIGNED"
@@ -2052,6 +2153,17 @@ def update_worker_stage_action(stage_id: int, payload: WorkerStageActionPayload,
 
     act = payload.action.upper().strip()
     if act == "START":
+        if stage.status == "LOCKED":
+            raise HTTPException(status_code=400, detail=f"Cannot start locked stage '{stage.stage_name}'. Previous stage must be completed first.")
+        if stage.status == "COMPLETED":
+            raise HTTPException(status_code=400, detail=f"Stage '{stage.stage_name}' has already been completed.")
+
+        # Prerequisite check: Customer material receipt for fabrication
+        if stage.order_type == "Fabrication":
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stage.order_id).first()
+            if fab_obj:
+                validate_fabrication_material_prerequisite(db, fab_obj)
+
         stage.status = "IN_PROGRESS"
         stage.started_at = datetime.utcnow()
         if payload.remarks:
@@ -2066,45 +2178,25 @@ def update_worker_stage_action(stage_id: int, payload: WorkerStageActionPayload,
             action=f"Stage Started ({stage.stage_name})",
             new_status="IN_PROGRESS"
         )
+        db.commit()
     elif act == "COMPLETE":
-        stage.status = "COMPLETED"
-        stage.progress_percentage = 100
-        stage.completed_at = datetime.utcnow()
-        if payload.remarks:
-            stage.remarks = payload.remarks
+        # Use shared helper to complete stage and unlock next stage in sequence
+        try:
+            res = complete_stage_and_unlock_next(
+                db=db,
+                stage=stage,
+                worker_id=stage.assigned_worker_id,
+                action_by_id=stage.assigned_worker_id or 1,
+                notes=payload.remarks,
+                progress_percentage=payload.progress_percentage or 100,
+                photos=payload.photos
+            )
+            db.commit()
+            return {"message": res["message"], "status": res["status"], "next_stage_id": res.get("next_stage_id")}
+        except Exception:
+            db.rollback()
+            raise
 
-        log_production_history(
-            db,
-            order_type=stage.order_type,
-            order_id=stage.order_id,
-            stage_name=stage.stage_name,
-            worker_id=stage.assigned_worker_id,
-            action=f"Stage Completed ({stage.stage_name})",
-            new_status="COMPLETED",
-            notes=payload.remarks
-        )
-
-        # UNLOCK NEXT REQUIRED STAGE IN SEQUENCE!
-        next_stage = db.query(models.ProductionStage).filter(
-            models.ProductionStage.order_type == stage.order_type,
-            models.ProductionStage.order_id == stage.order_id,
-            models.ProductionStage.sequence_order == stage.sequence_order + 1
-        ).first()
-
-        if next_stage:
-            next_stage.status = "READY_FOR_ASSIGNMENT"
-        else:
-            # All stages completed -> Transition order to QC_PENDING
-            if stage.order_type == "Custom":
-                c_ord = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == stage.order_id).first()
-                if c_ord:
-                    c_ord.order_status = "QC_PENDING"
-            elif stage.order_type == "Fabrication":
-                f_ord = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stage.order_id).first()
-                if f_ord:
-                    f_ord.status = "QC_PENDING"
-
-    db.commit()
     return {"message": f"Stage '{stage.stage_name}' action {act} recorded successfully", "status": stage.status}
 
 
@@ -2501,14 +2593,18 @@ class AssignOnsiteWorkerPayload(BaseModel):
 
 
 @router.post("/onsite/assign-worker")
-def assign_worker_to_onsite_job(payload: AssignOnsiteWorkerPayload, db: Session = Depends(get_db)):
+def assign_worker_to_onsite_job(
+    payload: AssignOnsiteWorkerPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
     srv = db.query(models.ServiceRequest).filter(models.ServiceRequest.service_id == payload.service_id).first()
     if not srv:
         raise HTTPException(status_code=404, detail="Service request not found")
 
-    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
-    if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+    validate_service_assignment_prerequisites(srv)
+    worker = validate_worker_eligibility(db, payload.worker_id, required_skill=srv.service_category)
 
     # Check if job already exists or create new
     existing_job = db.query(models.ServiceJob).filter(models.ServiceJob.service_id == payload.service_id).first()
@@ -2545,14 +2641,18 @@ class AssignFabricationWorkerPayload(BaseModel):
 
 
 @router.post("/fabrication/assign-worker")
-def assign_worker_to_fabrication(payload: AssignFabricationWorkerPayload, db: Session = Depends(get_db)):
+def assign_worker_to_fabrication(
+    payload: AssignFabricationWorkerPayload,
+    current_user: models.User = Depends(auth.get_current_user),
+    db: Session = Depends(get_db)
+):
+    require_staff_user(current_user)
     fab = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.fabrication_id).first()
     if not fab:
         raise HTTPException(status_code=404, detail="Fabrication request not found")
 
-    worker = db.query(models.User).filter(models.User.user_id == payload.worker_id).first()
-    if not worker:
-        raise HTTPException(status_code=404, detail="Worker not found")
+    validate_fabrication_assignment_prerequisites(db, fab)
+    worker = validate_worker_eligibility(db, payload.worker_id, required_skill=fab.service_type)
 
     if payload.stage_id:
         stage = db.query(models.ProductionStage).filter(
