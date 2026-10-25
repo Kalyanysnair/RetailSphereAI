@@ -50,7 +50,7 @@ import {
 } from '../../services/api_delivery_personnel';
 
 import { getCurrentUser, updateUserProfile, changePasswordUser } from '../../services/api';
-import { validatePhoneNumber } from '../auth/SignupForm';
+import { validatePhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 import { applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { getStaffQueries, addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
 import { getMessagesForUser, markAdminMessageRead, AdminMessage } from '../../utils/adminMessagesStorage';
@@ -469,20 +469,23 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
       }
     }
 
+    let formattedPhone = '';
     if (profilePhone.trim()) {
-      const phoneErr = validatePhoneNumber(profilePhone);
+      const phoneDigits = extract10DigitPhone(profilePhone);
+      const phoneErr = validatePhoneNumber(phoneDigits, true);
       if (phoneErr) {
         setProfileMessage({ type: 'error', text: phoneErr });
         return;
       }
+      formattedPhone = `+91${phoneDigits}`;
     }
 
     setIsUpdatingProfile(true);
     try {
-      if (profilePhone.trim()) {
+      if (formattedPhone) {
         await updateUserProfile({
           full_name: currentUser?.full_name || summary?.name || 'Delivery Personnel',
-          phone: profilePhone.trim()
+          phone: formattedPhone
         });
       }
       if (hasPasswordUpdate) {
@@ -2248,15 +2251,24 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
               {/* Contact Phone */}
               <div>
                 <label className="block text-[11px] font-black uppercase tracking-wider text-[#7A6C5E] mb-1.5">
-                  Operational Contact Phone
+                  Operational Contact Phone (10-digit)
                 </label>
-                <input
-                  type="tel"
-                  value={profilePhone}
-                  onChange={(e) => setProfilePhone(e.target.value)}
-                  placeholder="+91 94000 00000"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132] focus:bg-white transition-all shadow-2xs"
-                />
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#FAF7F2] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    value={extract10DigitPhone(profilePhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setProfilePhone(val);
+                    }}
+                    placeholder="9400000000"
+                    maxLength={10}
+                    className="w-full px-3.5 py-2.5 rounded-r-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132] focus:bg-white transition-all shadow-2xs"
+                  />
+                </div>
               </div>
 
               {/* Password Change Section */}

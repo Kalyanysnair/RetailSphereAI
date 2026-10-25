@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { updateUserProfile, fetchAllUsers } from '../../services/api';
+import { validateName, validatePhoneNumber, formatPhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
 import {
@@ -9,6 +10,7 @@ import {
   LogOut,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   X,
   XCircle,
@@ -983,11 +985,13 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
   // Staff Profile Modal State
   const [isStaffProfileModalOpen, setIsStaffProfileModalOpen] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState({
     full_name: '',
     email: '',
-    phone: '+91 98765 43210',
+    phone: '',
     department: 'Retail Furniture Catalog & Sales',
     currentPassword: '',
     newPassword: '',
@@ -995,20 +999,48 @@ export const RetailStaffDashboardPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentUser.name || currentUser.email) {
-      setProfileForm((prev) => ({
-        ...prev,
-        full_name: currentUser.name || '',
-        email: currentUser.email || '',
-        phone: '+91 98765 43210',
-        department: 'Retail Furniture Catalog & Sales'
-      }));
-    }
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setProfileForm((prev) => ({
+          ...prev,
+          full_name: parsed.full_name || currentUser.name || '',
+          email: parsed.email || currentUser.email || '',
+          phone: extract10DigitPhone(parsed.phone || ''),
+          department: 'Retail Furniture Catalog & Sales'
+        }));
+      } else if (currentUser.name || currentUser.email) {
+        setProfileForm((prev) => ({
+          ...prev,
+          full_name: currentUser.name || '',
+          email: currentUser.email || '',
+          phone: '',
+          department: 'Retail Furniture Catalog & Sales'
+        }));
+      }
+    } catch (e) {}
   }, [currentUser]);
 
   const handleSaveStaffProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    setNameError(null);
+    setPhoneError(null);
     setPasswordError(null);
+
+    const nameTrim = profileForm.full_name.trim();
+    const nameErr = validateName(nameTrim);
+    if (nameErr) {
+      setNameError(nameErr);
+      return;
+    }
+
+    const phoneDigits = extract10DigitPhone(profileForm.phone);
+    const phoneErr = validatePhoneNumber(phoneDigits, true);
+    if (phoneErr) {
+      setPhoneError(phoneErr);
+      return;
+    }
 
     // Validate Password Update Provision if any password field is filled
     if (profileForm.currentPassword || profileForm.newPassword || profileForm.confirmPassword) {
@@ -1027,15 +1059,17 @@ export const RetailStaffDashboardPage: React.FC = () => {
     }
 
     try {
+      const formattedPhone = `+91${phoneDigits}`;
       await updateUserProfile({
-        full_name: profileForm.full_name,
+        full_name: nameTrim,
+        phone: formattedPhone,
         current_password: profileForm.currentPassword || undefined,
         new_password: profileForm.newPassword || undefined,
       });
 
       const stored = localStorage.getItem('user');
       let parsed = stored ? JSON.parse(stored) : {};
-      parsed = { ...parsed, full_name: profileForm.full_name, email: profileForm.email };
+      parsed = { ...parsed, full_name: nameTrim, email: profileForm.email, phone: formattedPhone };
       localStorage.setItem('user', JSON.stringify(parsed));
 
       let initials = 'RS';
@@ -5328,14 +5362,28 @@ export const RetailStaffDashboardPage: React.FC = () => {
             {/* Profile Details Form */}
             <form onSubmit={handleSaveStaffProfile} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Full Name</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Full Name *
+                </label>
                 <input
                   type="text"
                   value={profileForm.full_name}
-                  onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
+                  onChange={(e) => {
+                    setProfileForm({ ...profileForm, full_name: e.target.value });
+                    if (nameError) setNameError(null);
+                  }}
+                  placeholder="e.g. Ramesh Verma"
+                  className={`w-full px-3.5 py-2.5 bg-[#F3EDE5] border ${
+                    nameError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[#E2D7CB] focus:border-[#48A63E]'
+                  } rounded-xl focus:outline-none text-[#2C241D] font-bold`}
                   required
                 />
+                {nameError && (
+                  <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{nameError}</span>
+                  </p>
+                )}
               </div>
 
               <div>
@@ -5369,14 +5417,35 @@ export const RetailStaffDashboardPage: React.FC = () => {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-extrabold text-[#2C241D] mb-1">Phone Contact</label>
-                  <input
-                    type="tel"
-                    placeholder="+91 98765 43210"
-                    value={profileForm.phone}
-                    onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
-                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#48A63E] text-[#2C241D] font-bold"
-                  />
+                  <label className="block font-extrabold text-[#2C241D] mb-1">
+                    Phone Contact *
+                  </label>
+                  <div className={`flex rounded-xl overflow-hidden border ${
+                    phoneError ? 'border-rose-500 ring-1 ring-rose-500' : 'border-[#E2D7CB] focus-within:border-[#48A63E] focus-within:ring-1 focus-within:ring-[#48A63E]'
+                  } bg-[#F3EDE5]`}>
+                    <span className="inline-flex items-center px-2.5 py-2 bg-[#EAE0D4] text-[#2C241D] font-extrabold text-xs border-r border-[#E2D7CB] select-none">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      maxLength={10}
+                      placeholder="9778237180"
+                      value={profileForm.phone}
+                      onChange={(e) => {
+                        const val = extract10DigitPhone(e.target.value);
+                        setProfileForm({ ...profileForm, phone: val });
+                        if (phoneError) setPhoneError(null);
+                      }}
+                      className="w-full px-2.5 py-2 bg-transparent text-[#2C241D] font-bold text-xs focus:outline-none"
+                      required
+                    />
+                  </div>
+                  {phoneError && (
+                    <p className="text-[11px] font-bold text-rose-600 mt-1 flex items-center gap-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{phoneError}</span>
+                    </p>
+                  )}
                 </div>
 
                 <div>

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload, defer
 from sqlalchemy import func, text
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, Union, List
 from datetime import datetime, date, timedelta
 import string
@@ -124,6 +124,16 @@ class StaffCreateRequest(BaseModel):
     password: Optional[str] = None
     skill_name: Optional[str] = "Woodwork & Carpentry"
     proficiency_level: Optional[str] = "Expert"
+
+    @field_validator('full_name')
+    @classmethod
+    def check_staff_name(cls, v: str) -> str:
+        return schemas.validate_name_str(v)
+
+    @field_validator('phone')
+    @classmethod
+    def check_staff_phone(cls, v: Optional[str]) -> Optional[str]:
+        return schemas.validate_phone_str(v, required=False)
 
 @router.post("/create-staff", status_code=status.HTTP_201_CREATED)
 def create_staff(payload: StaffCreateRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):

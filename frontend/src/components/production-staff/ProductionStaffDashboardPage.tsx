@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
-import { validatePhoneNumber } from '../auth/SignupForm';
+import { validatePhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 import { fetchAllLeaveRequests, reviewLeaveRequest, applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { fetchVehiclesDB, fetchFleetSummaryDB, fetchEligibleDriversDB, updateVehicleStatusDB, VehicleItem, FleetSummary, EligibleDriver } from '../../services/api_fleet';
 import { MachineryTab } from './MachineryTab';
@@ -1106,11 +1106,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setAddSupplierError('Please provide a contact phone number.');
       return;
     }
-    const phoneErr = validatePhoneNumber(newSupplierPhone.trim());
+    const supplierPhoneDigits = extract10DigitPhone(newSupplierPhone);
+    const phoneErr = validatePhoneNumber(supplierPhoneDigits, true);
     if (phoneErr) {
       setAddSupplierError(phoneErr);
       return;
     }
+    const formattedSupplierPhone = `+91${supplierPhoneDigits}`;
+
     if (newSupplierEmail.trim()) {
       const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
       if (!emailRegex.test(newSupplierEmail.trim())) {
@@ -1130,7 +1133,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       category: newSupplierCategory,
       materials: newSupplierMaterial.trim(),
       contact_person: newSupplierContact.trim() || 'Procurement Rep',
-      phone: newSupplierPhone.trim(),
+      phone: formattedSupplierPhone,
       email: newSupplierEmail.trim() || 'orders@vendor.com',
       address: newSupplierAddress.trim() || 'Central Industrial Area',
       lead_time_days: Number(newSupplierLeadTime) || 3,
@@ -2093,17 +2096,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setAddWorkerError('Please enter a valid email address.');
       return;
     }
+    let formattedWorkerPhone = '';
     if (phone) {
-      const phoneErr = validatePhoneNumber(phone);
+      const workerDigits = extract10DigitPhone(phone);
+      const phoneErr = validatePhoneNumber(workerDigits, true);
       if (phoneErr) {
         setAddWorkerError(phoneErr);
         return;
       }
+      formattedWorkerPhone = `+91${workerDigits}`;
     }
     setAddWorkerError(null);
     setIsAddWorkerSubmitting(true);
     try {
-      const resWorker = await addWorker(name, email, phone, newWorkerSpec);
+      const resWorker = await addWorker(name, email, formattedWorkerPhone, newWorkerSpec);
       
       if (resWorker && resWorker.email_sent === false) {
         setSuccessNotice('Worker account was created, but the login credentials could not be emailed. Please use Resend Credentials.');
@@ -2159,17 +2165,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setEditWorkerError('Please enter a valid email address.');
       return;
     }
+    let formattedEditPhone = '';
     if (phone) {
-      const phoneErr = validatePhoneNumber(phone);
+      const editDigits = extract10DigitPhone(phone);
+      const phoneErr = validatePhoneNumber(editDigits, true);
       if (phoneErr) {
         setEditWorkerError(phoneErr);
         return;
       }
+      formattedEditPhone = `+91${editDigits}`;
     }
     setEditWorkerError(null);
     setIsEditWorkerSubmitting(true);
     try {
-      await updateWorker(editingWorker.worker_id, name, email, phone, editWorkerSpec);
+      await updateWorker(editingWorker.worker_id, name, email, formattedEditPhone, editWorkerSpec);
       setSuccessNotice(`Worker details updated for ${name}.`);
       setEditingWorker(null);
       setTimeout(() => setSuccessNotice(null), 5000);
@@ -7165,15 +7174,24 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-[#7A6C5E] font-bold mb-1">Phone Number *</label>
-                  <input
-                    type="text"
-                    placeholder="+91 98450 12345"
-                    value={newSupplierPhone}
-                    onChange={(e) => setNewSupplierPhone(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                  />
+                  <label className="block text-[#7A6C5E] font-bold mb-1">Phone Number (10-digit) *</label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-2.5 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#FAF7F2] text-[#2C241D] font-black text-xs select-none">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      placeholder="9845012345"
+                      value={extract10DigitPhone(newSupplierPhone)}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setNewSupplierPhone(val);
+                      }}
+                      maxLength={10}
+                      required
+                      className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-r-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -7275,14 +7293,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  placeholder="+1 (555) 019-948"
-                  value={newWorkerPhone}
-                  onChange={(e) => setNewWorkerPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                />
+                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number (10-digit)</label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EAE2D7] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    value={extract10DigitPhone(newWorkerPhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setNewWorkerPhone(val);
+                    }}
+                    maxLength={10}
+                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-r-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                  />
+                </div>
               </div>
 
               <div>
@@ -7375,13 +7402,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  value={editWorkerPhone}
-                  onChange={(e) => setEditWorkerPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
-                />
+                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number (10-digit)</label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EAE2D7] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    value={extract10DigitPhone(editWorkerPhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setEditWorkerPhone(val);
+                    }}
+                    maxLength={10}
+                    className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-r-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#48A63E]"
+                  />
+                </div>
               </div>
 
               <div>

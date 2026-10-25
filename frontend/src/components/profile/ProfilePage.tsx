@@ -32,7 +32,7 @@ import { getCartItems } from '../../utils/cartStorage';
 import { getWishlistItems } from '../../utils/wishlistStorage';
 import { getCustomerNotificationsApi, CustomerNotification } from '../../services/api_coupons';
 import { ChangePasswordModal } from '../common/ChangePasswordModal';
-import { validatePhoneNumber } from '../auth/SignupForm';
+import { validateName, validatePhoneNumber, validatePincode, formatPhoneNumber } from '../../utils/formValidators';
 
 export const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
@@ -285,15 +285,13 @@ export const ProfilePage: React.FC = () => {
     const state = addressForm.state.trim();
     const pincode = addressForm.pincode.trim();
 
-    if (!name) {
-      setAddressErrorMsg('Full Name is required.');
+    const nameErr = validateName(name);
+    if (nameErr) {
+      setAddressErrorMsg(nameErr);
       return;
     }
-    if (!phone) {
-      setAddressErrorMsg('Phone Number is required.');
-      return;
-    }
-    const phoneErr = validatePhoneNumber(phone);
+
+    const phoneErr = validatePhoneNumber(phone, true);
     if (phoneErr) {
       setAddressErrorMsg(phoneErr);
       return;
@@ -311,12 +309,9 @@ export const ProfilePage: React.FC = () => {
       setAddressErrorMsg('State is required.');
       return;
     }
-    if (!pincode) {
-      setAddressErrorMsg('PIN Code is required.');
-      return;
-    }
-    if (!/^\d{6}$/.test(pincode)) {
-      setAddressErrorMsg('PIN Code must be a valid 6-digit postal code (e.g. 686001).');
+    const pinErr = validatePincode(pincode);
+    if (pinErr) {
+      setAddressErrorMsg(pinErr);
       return;
     }
 
@@ -367,27 +362,22 @@ export const ProfilePage: React.FC = () => {
     setErrorMsg(null);
 
     const nameTrim = editForm.full_name.trim();
-    if (!nameTrim) {
-      setErrorMsg('Full Name is required.');
-      return;
-    }
-    if (nameTrim.length < 2 || !/^[a-zA-Z\s.'-]+$/.test(nameTrim)) {
-      setErrorMsg('Full Name must be at least 2 characters long and contain letters only (e.g. Alex Smith).');
+    const nameErr = validateName(nameTrim);
+    if (nameErr) {
+      setErrorMsg(nameErr);
       return;
     }
 
-    if (editForm.phone && editForm.phone.trim()) {
-      const phoneErr = validatePhoneNumber(editForm.phone);
-      if (phoneErr) {
-        setErrorMsg(phoneErr);
-        return;
-      }
+    const phoneErr = validatePhoneNumber(editForm.phone, true);
+    if (phoneErr) {
+      setErrorMsg(phoneErr);
+      return;
     }
 
     if (editForm.pincode && editForm.pincode.trim()) {
-      const pinClean = editForm.pincode.trim();
-      if (!/^\d{6}$/.test(pinClean)) {
-        setErrorMsg('Pincode must be a valid 6-digit postal code (e.g. 686001).');
+      const pinErr = validatePincode(editForm.pincode);
+      if (pinErr) {
+        setErrorMsg(pinErr);
         return;
       }
     }
@@ -559,9 +549,24 @@ export const ProfilePage: React.FC = () => {
                       <span className="text-[11px] font-bold text-[#7A6C5E] uppercase block flex items-center gap-1.5">
                         <Phone className="w-3.5 h-3.5 text-[#48A63E]" /> Phone Number
                       </span>
-                      <span className="text-xs sm:text-sm font-extrabold text-[#2C241D] block">
-                        {userProfile?.phone || 'Not Provided'}
-                      </span>
+                      {userProfile?.phone ? (
+                        <span className="text-xs sm:text-sm font-extrabold text-[#2C241D] block">
+                          {formatPhoneNumber(userProfile.phone)}
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
+                            ⚠️ Not Provided
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleOpenEdit}
+                            className="text-[11px] font-extrabold text-[#48A63E] underline hover:text-[#3D9134]"
+                          >
+                            Add Phone Number →
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -918,24 +923,30 @@ export const ProfilePage: React.FC = () => {
 
             <form onSubmit={handleSaveProfile} className="space-y-4 text-xs font-semibold">
               <div>
-                <label className="block text-[#5C4E42] mb-1">Full Name</label>
+                <label className="block text-[#5C4E42] mb-1 font-bold">
+                  Full Name <span className="text-rose-600 font-extrabold">* (Letters only, no numbers)</span>
+                </label>
                 <input
                   type="text"
                   value={editForm.full_name}
                   onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                  placeholder="e.g. Alex Smith"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] focus:outline-none focus:border-[#48A63E] font-medium"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-[#5C4E42] mb-1">Phone Number</label>
+                <label className="block text-[#5C4E42] mb-1 font-bold">
+                  Phone Number <span className="text-rose-600 font-extrabold">* (10-digit mobile number)</span>
+                </label>
                 <input
-                  type="text"
+                  type="tel"
                   value={editForm.phone}
                   onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                  placeholder="e.g. +91 98765 43210"
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] focus:outline-none focus:border-[#48A63E]"
+                  placeholder="e.g. 9778237180 or +91 97782 37180"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-[#F9F6F0] border border-[#E2D7CB] text-[#2C241D] focus:outline-none focus:border-[#48A63E] font-medium"
+                  required
                 />
               </div>
 

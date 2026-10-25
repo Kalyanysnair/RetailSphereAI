@@ -246,8 +246,12 @@ def google_login(payload: schemas.GoogleLoginRequest, db: Session = Depends(get_
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A valid Google email address is required for authentication."
         )
-    email_clean = raw_email.strip().lower()
-    full_name = (name_extracted or payload.full_name or email_clean.split('@')[0].capitalize()).strip()
+    raw_name = (name_extracted or payload.full_name or email_clean.split('@')[0]).strip()
+    clean_name = re.sub(r'\d+', '', raw_name).strip()
+    clean_name = re.sub(r'[\s._-]+', ' ', clean_name).strip().title()
+    if len(clean_name) < 2:
+        clean_name = "Valued Customer"
+    full_name = clean_name
 
     user = db.query(models.User).filter(models.User.email == email_clean).first()
 
@@ -423,9 +427,29 @@ def update_profile(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
-    current_user.full_name = payload.full_name.strip()
-    if payload.phone:
-        current_user.phone = payload.phone.strip()
+    clean_name = payload.full_name.strip()
+    if re.search(r'\d', clean_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Numbers are not permitted in names. Please use letters only."
+        )
+    current_user.full_name = clean_name
+
+    if payload.phone and payload.phone.strip():
+        new_phone = payload.phone.strip()
+        norm_new = normalize_phone(new_phone)
+        if norm_new:
+            conflict = db.query(models.User).filter(
+                models.User.user_id != current_user.user_id,
+                models.User.phone.isnot(None)
+            ).all()
+            for other in conflict:
+                if other.phone and normalize_phone(other.phone) == norm_new:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="An account with this phone number already exists."
+                    )
+        current_user.phone = new_phone
     
     # Handle Password Update Provision
     if payload.new_password and payload.new_password.strip():
@@ -466,6 +490,7 @@ def update_profile(
 
     db.commit()
     db.refresh(current_user)
+    auth._user_auth_cache[current_user.user_id] = (current_user, time.time())
     return build_user_response(current_user)
 
 

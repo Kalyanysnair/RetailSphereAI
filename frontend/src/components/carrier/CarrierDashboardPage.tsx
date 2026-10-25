@@ -68,7 +68,7 @@ import {
 } from '../../services/api_carrier_portal';
 
 import { getCurrentUser, updateUserProfile, changePasswordUser } from '../../services/api';
-import { validatePhoneNumber } from '../auth/SignupForm';
+import { validatePhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 import DeliveryRouteMap from '../common/DeliveryRouteMap';
 
 export const CarrierDashboardPage: React.FC = () => {
@@ -482,11 +482,13 @@ export const CarrierDashboardPage: React.FC = () => {
       return;
     }
 
-    const phoneErr = validatePhoneNumber(personnelFormData.phone);
+    const phoneDigits = extract10DigitPhone(personnelFormData.phone);
+    const phoneErr = validatePhoneNumber(phoneDigits, true);
     if (phoneErr) {
       setPersonnelModalError(phoneErr);
       return;
     }
+    const formattedPhone = `+91${phoneDigits}`;
 
     const trimmedEmail = (personnelFormData.email || '').trim();
     if (trimmedEmail && !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmedEmail)) {
@@ -506,7 +508,7 @@ export const CarrierDashboardPage: React.FC = () => {
         await updateDeliveryPersonnel(editingPersonnel.personnel_id, {
           ...personnelFormData,
           name: trimmedName,
-          phone: personnelFormData.phone.trim(),
+          phone: formattedPhone,
           email: trimmedEmail,
           vehicle_reg: trimmedReg
         });
@@ -515,7 +517,7 @@ export const CarrierDashboardPage: React.FC = () => {
         await createDeliveryPersonnel({
           ...personnelFormData,
           name: trimmedName,
-          phone: personnelFormData.phone.trim(),
+          phone: formattedPhone,
           email: trimmedEmail,
           vehicle_reg: trimmedReg
         });
@@ -569,12 +571,15 @@ export const CarrierDashboardPage: React.FC = () => {
       }
     }
 
+    let formattedProfilePhone = '';
     if (profilePhone.trim()) {
-      const phoneErr = validatePhoneNumber(profilePhone);
+      const phoneDigits = extract10DigitPhone(profilePhone);
+      const phoneErr = validatePhoneNumber(phoneDigits, true);
       if (phoneErr) {
         setProfileMessage({ type: 'error', text: phoneErr });
         return;
       }
+      formattedProfilePhone = `+91${phoneDigits}`;
     }
 
     setIsUpdatingProfile(true);
@@ -582,10 +587,10 @@ export const CarrierDashboardPage: React.FC = () => {
       if (hasPasswordUpdate) {
         await changePasswordUser(newPassword.trim());
       }
-      if (profilePhone.trim() && profilePhone.trim() !== currentUser?.phone) {
+      if (formattedProfilePhone && formattedProfilePhone !== currentUser?.phone) {
         await updateUserProfile({
           full_name: currentUser?.full_name || carrierSummary?.carrier_name || 'Carrier Partner',
-          phone: profilePhone.trim()
+          phone: formattedProfilePhone
         });
       }
       setProfileMessage({
@@ -2459,14 +2464,23 @@ export const CarrierDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-[#7A6C5E] uppercase mb-1">Contact Phone</label>
-                <input
-                  type="tel"
-                  value={profilePhone}
-                  onChange={(e) => setProfilePhone(e.target.value)}
-                  placeholder="Enter operational phone number"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
-                />
+                <label className="block text-[11px] font-bold text-[#7A6C5E] uppercase mb-1">Contact Phone (10-digit)</label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#FAF7F2] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    value={extract10DigitPhone(profilePhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setProfilePhone(val);
+                    }}
+                    placeholder="9876543210"
+                    maxLength={10}
+                    className="w-full px-3.5 py-2.5 rounded-r-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                  />
+                </div>
               </div>
 
               <div className="pt-3 border-t border-[#E2D7CB]/60 space-y-3">
@@ -2821,18 +2835,25 @@ export const CarrierDashboardPage: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-[#7A6C5E] uppercase mb-1">Phone Number *</label>
-                  <input
-                    type="tel"
-                    required
-                    value={personnelFormData.phone}
-                    onChange={(e) => {
-                      setPersonnelFormData({ ...personnelFormData, phone: e.target.value });
-                      if (personnelModalError) setPersonnelModalError(null);
-                    }}
-                    placeholder="e.g. +91 9876543210"
-                    className="w-full px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
-                  />
+                  <label className="block text-[11px] font-bold text-[#7A6C5E] uppercase mb-1">Phone Number (10-digit) *</label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#FAF7F2] text-[#2C241D] font-black text-xs select-none">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      required
+                      value={extract10DigitPhone(personnelFormData.phone)}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setPersonnelFormData({ ...personnelFormData, phone: val });
+                        if (personnelModalError) setPersonnelModalError(null);
+                      }}
+                      placeholder="9876543210"
+                      maxLength={10}
+                      className="w-full px-3 py-2 rounded-r-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                    />
+                  </div>
                 </div>
               </div>
 

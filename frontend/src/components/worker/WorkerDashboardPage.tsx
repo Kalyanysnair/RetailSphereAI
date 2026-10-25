@@ -82,6 +82,7 @@ import {
   WorkerDeliveryItem
 } from '../../services/api_worker';
 import { getCurrentUser, updateUserProfile, changeFirstPassword, changePasswordUser } from '../../services/api';
+import { validatePhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 import { applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
 import { getStageSections, StageSection } from '../../utils/manufacturingSections';
@@ -663,6 +664,17 @@ export const WorkerDashboardPage: React.FC = () => {
       }
     }
 
+    let formattedPhone = '';
+    if (profilePhone.trim()) {
+      const phoneDigits = extract10DigitPhone(profilePhone);
+      const phoneErr = validatePhoneNumber(phoneDigits, true);
+      if (phoneErr) {
+        setPasswordNotice({ type: 'error', text: phoneErr });
+        return;
+      }
+      formattedPhone = `+91${phoneDigits}`;
+    }
+
     setIsUpdatingProfile(true);
     try {
       let updatedUser = userProfile;
@@ -674,17 +686,17 @@ export const WorkerDashboardPage: React.FC = () => {
       }
 
       // 2. If phone is updated
-      if (profilePhone.trim() !== (userProfile?.phone || '')) {
+      if (formattedPhone && formattedPhone !== (userProfile?.phone || '')) {
         updatedUser = await updateUserProfile({
           full_name: userProfile?.full_name || 'Worker',
-          phone: profilePhone.trim()
+          phone: formattedPhone
         });
       }
 
       setUserProfile((prev: any) => ({
         ...prev,
         ...updatedUser,
-        phone: profilePhone.trim()
+        phone: formattedPhone || prev?.phone
       }));
 
       setPasswordNotice({
@@ -3605,14 +3617,25 @@ export const WorkerDashboardPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-[#6B5C4D] mb-1">Contact Phone</label>
-                  <input
-                    type="tel"
-                    placeholder="+91 98765 43210"
-                    value={profilePhone}
-                    onChange={(e) => setProfilePhone(e.target.value)}
-                    className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
-                  />
+                  <label className="block font-bold text-[#6B5C4D] mb-1">
+                    Contact Phone <span className="text-rose-600 font-extrabold">* (10-digit mobile number)</span>
+                  </label>
+                  <div className="flex">
+                    <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#F5EFE6] text-[#2C241D] font-black text-xs select-none">
+                      +91
+                    </span>
+                    <input
+                      type="tel"
+                      placeholder="9778237180"
+                      value={extract10DigitPhone(profilePhone)}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                        setProfilePhone(val);
+                      }}
+                      maxLength={10}
+                      className="w-full p-2.5 bg-white border border-[#E2D7CB] rounded-r-xl font-bold focus:outline-none focus:border-[#48A63E] text-[#2C241D]"
+                    />
+                  </div>
                 </div>
               </div>
 

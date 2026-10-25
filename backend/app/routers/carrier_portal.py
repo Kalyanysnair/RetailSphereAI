@@ -1,11 +1,11 @@
 from datetime import datetime, date
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app import models, auth
+from app import models, auth, schemas
 
 router = APIRouter(prefix="/api/carrier", tags=["Carrier Portal"])
 
@@ -51,6 +51,16 @@ class PersonnelCreatePayload(BaseModel):
     vehicle_reg: Optional[str] = None
     notes: Optional[str] = None
 
+    @field_validator('name')
+    @classmethod
+    def check_personnel_name(cls, v: str) -> str:
+        return schemas.validate_name_str(v)
+
+    @field_validator('phone')
+    @classmethod
+    def check_personnel_phone(cls, v: str) -> str:
+        return schemas.validate_phone_str(v, required=True) or ""
+
 
 class PersonnelUpdatePayload(BaseModel):
     name: Optional[str] = None
@@ -60,6 +70,18 @@ class PersonnelUpdatePayload(BaseModel):
     vehicle_reg: Optional[str] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator('name')
+    @classmethod
+    def check_personnel_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return schemas.validate_name_str(v)
+
+    @field_validator('phone')
+    @classmethod
+    def check_personnel_phone(cls, v: Optional[str]) -> Optional[str]:
+        return schemas.validate_phone_str(v, required=False)
 
 
 # --- 1. CARRIER SUMMARY KPI ENDPOINT ---

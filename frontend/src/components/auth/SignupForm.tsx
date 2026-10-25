@@ -5,33 +5,8 @@ import { GoogleSignInButton } from './GoogleSignInButton';
 import { SignupCredentials, SignupValidationErrors, SignupFormProps } from '../../types/auth';
 import { Logo } from '../common/Logo';
 
-export const validatePhoneNumber = (phone: string): string | null => {
-  const clean = phone.trim().replace(/[\s-()]/g, '');
-  if (!clean) {
-    return 'Phone number is required';
-  }
-  const digits = clean.replace(/\+/g, '');
-  if (!/^\+?[0-9]{10,15}$/.test(clean)) {
-    return 'Please enter a valid 10 to 15 digit phone number';
-  }
-
-  // Rejects all identical repeating digits like 0000000000, 1111111111, 9999999999
-  if (/^(\d)\1+$/.test(digits)) {
-    return 'Please enter a valid active phone number (repeating digits like 1111111111 are invalid)';
-  }
-
-  // Rejects sequential dummy patterns
-  if (digits === '1234567890' || digits === '0123456789' || digits === '9876543210' || digits === '01234567890') {
-    return 'Please enter a valid active phone number';
-  }
-
-  // Standard 10-digit Indian mobile numbers must start with 6, 7, 8, or 9
-  if (digits.length === 10 && !/^[6-9]\d{9}$/.test(digits)) {
-    return '10-digit mobile numbers must start with 6, 7, 8, or 9 (e.g. 9778237180)';
-  }
-
-  return null;
-};
+import { validateName, validatePhoneNumber } from '../../utils/formValidators';
+export { validateName, validatePhoneNumber };
 
 export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) => {
   const navigate = useNavigate();
@@ -52,13 +27,9 @@ export const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = fa
   const validateForm = (): boolean => {
     const newErrors: SignupValidationErrors = {};
 
-    const usernameTrim = credentials.username.trim();
-    if (!usernameTrim) {
-      newErrors.username = 'User Name / Full Name is required';
-    } else if (usernameTrim.length < 2) {
-      newErrors.username = 'Name must be at least 2 characters long';
-    } else if (!/^[a-zA-Z\s.'-]+$/.test(usernameTrim)) {
-      newErrors.username = 'Name must contain letters only (e.g. Alex Smith)';
+    const nameErr = validateName(credentials.username);
+    if (nameErr) {
+      newErrors.username = nameErr;
     }
 
     const emailTrim = credentials.email.trim();

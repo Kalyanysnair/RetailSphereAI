@@ -76,7 +76,8 @@ import {
   Cpu,
   FileSpreadsheet,
   Scale,
-  Activity
+  Activity,
+  AlertCircle
 } from 'lucide-react';
 
 import { AdminReviewsSection } from './sections/AdminReviewsSection';
@@ -127,6 +128,7 @@ import {
   toggleUserStatus,
   deleteUserById
 } from '../../services/api';
+import { validateName, validatePhoneNumber, formatPhoneNumber, extract10DigitPhone } from '../../utils/formValidators';
 
 import {
   VehicleItem,
@@ -897,6 +899,8 @@ export const AdminDashboardPage: React.FC = () => {
   const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
   const [isSubmittingStaff, setIsSubmittingStaff] = useState(false);
   const [staffFormError, setStaffFormError] = useState<string | null>(null);
+  const [addStaffNameError, setAddStaffNameError] = useState<string | null>(null);
+  const [addStaffPhoneError, setAddStaffPhoneError] = useState<string | null>(null);
 
   // Form values for Add Staff & Worker
   const [newStaffName, setNewStaffName] = useState('');
@@ -934,13 +938,23 @@ export const AdminDashboardPage: React.FC = () => {
   const handleUpdateStaffSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStaffForEdit || !selectedStaffForEdit.user_id) return;
+    let formattedStaffPhone: string | undefined = undefined;
+    if (editStaffPhone.trim()) {
+      const staffPhoneDigits = extract10DigitPhone(editStaffPhone);
+      const phoneErr = validatePhoneNumber(staffPhoneDigits, true);
+      if (phoneErr) {
+        setEditStaffModalError(phoneErr);
+        return;
+      }
+      formattedStaffPhone = `+91${staffPhoneDigits}`;
+    }
     setIsSubmittingEditStaff(true);
     setEditStaffModalError(null);
     try {
       await updateUserDB(selectedStaffForEdit.user_id, {
         full_name: editStaffName.trim(),
         email: editStaffEmail.trim() || undefined,
-        phone: editStaffPhone.trim() || undefined,
+        phone: formattedStaffPhone,
         role_name: editStaffRole,
         is_driver: editStaffIsDriver
       });
@@ -1364,12 +1378,22 @@ export const AdminDashboardPage: React.FC = () => {
   const handleUpdateUserSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingUser) return;
+    let formattedEditUserPhone: string | undefined = undefined;
+    if (editUserPhone.trim()) {
+      const editDigits = extract10DigitPhone(editUserPhone);
+      const phoneErr = validatePhoneNumber(editDigits, true);
+      if (phoneErr) {
+        setSuccessBanner(`Phone error: ${phoneErr}`);
+        return;
+      }
+      formattedEditUserPhone = `+91${editDigits}`;
+    }
     setIsUpdatingUser(true);
     try {
       await updateAdminUser(editingUser.user_id, {
         full_name: editUserName.trim(),
         email: editUserEmail.trim() || undefined,
-        phone: editUserPhone.trim() || undefined,
+        phone: formattedEditUserPhone,
         role_name: editUserRole,
         status: editUserStatus,
       });
@@ -2110,11 +2134,13 @@ export const AdminDashboardPage: React.FC = () => {
 
   // Admin Profile Modal & Password Update State
   const [isAdminProfileModalOpen, setIsAdminProfileModalOpen] = useState(false);
+  const [adminNameError, setAdminNameError] = useState<string | null>(null);
+  const [adminPhoneError, setAdminPhoneError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [profileForm, setProfileForm] = useState({
     full_name: '',
     email: '',
-    phone: '+91 98765 11223',
+    phone: '',
     department: 'Executive Administration & Management',
     currentPassword: '',
     newPassword: '',
@@ -2122,15 +2148,27 @@ export const AdminDashboardPage: React.FC = () => {
   });
 
   useEffect(() => {
-    if (currentUser.name || currentUser.email) {
-      setProfileForm((prev) => ({
-        ...prev,
-        full_name: currentUser.name || 'Administrator',
-        email: currentUser.email || 'kalyanys2004@gmail.com',
-        phone: '+91 98765 11223',
-        department: 'Executive Administration & Management'
-      }));
-    }
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setProfileForm((prev) => ({
+          ...prev,
+          full_name: parsed.full_name || currentUser.name || 'Administrator',
+          email: parsed.email || currentUser.email || 'admin@retailsphere.com',
+          phone: extract10DigitPhone(parsed.phone || ''),
+          department: 'Executive Administration & Management'
+        }));
+      } else if (currentUser.name || currentUser.email) {
+        setProfileForm((prev) => ({
+          ...prev,
+          full_name: currentUser.name || 'Administrator',
+          email: currentUser.email || 'admin@retailsphere.com',
+          phone: '',
+          department: 'Executive Administration & Management'
+        }));
+      }
+    } catch (e) {}
   }, [currentUser]);
 
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
@@ -2337,17 +2375,33 @@ export const AdminDashboardPage: React.FC = () => {
   const handleAddStaffSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setStaffFormError(null);
-    if (!newStaffName.trim() || !newStaffEmail.trim()) {
-      setStaffFormError('Staff name and email address are required.');
+    setAddStaffNameError(null);
+    setAddStaffPhoneError(null);
+
+    const staffNameTrim = newStaffName.trim();
+    const nameErr = validateName(staffNameTrim);
+    if (nameErr) {
+      setAddStaffNameError(nameErr);
+      return;
+    }
+    if (!newStaffEmail.trim()) {
+      setStaffFormError('Staff email address is required.');
+      return;
+    }
+    const phoneDigits = extract10DigitPhone(newStaffPhone);
+    const phoneErr = validatePhoneNumber(phoneDigits, true);
+    if (phoneErr) {
+      setAddStaffPhoneError(phoneErr);
       return;
     }
 
     setIsSubmittingStaff(true);
     try {
+      const fullPhone = `+91${phoneDigits}`;
       const created = await createStaffUser({
         full_name: newStaffName.trim(),
         email: newStaffEmail.trim(),
-        phone: newStaffPhone.trim() || undefined,
+        phone: fullPhone,
         role_name: newStaffRole,
         password: newStaffPassword.trim() || undefined,
         skill_name: newStaffRole === 'Artisan Worker' ? newStaffWorkerSkill : undefined,
@@ -2358,7 +2412,7 @@ export const AdminDashboardPage: React.FC = () => {
         user_id: created.user_id,
         name: created.full_name || newStaffName.trim(),
         email: created.email || newStaffEmail.trim(),
-        phone: newStaffPhone.trim() || '+91 98765 43210',
+        phone: fullPhone,
         role: newStaffRole,
         skill: newStaffRole === 'Artisan Worker' ? newStaffWorkerSkill : undefined,
         status: 'Active',
@@ -2390,6 +2444,14 @@ export const AdminDashboardPage: React.FC = () => {
     e.preventDefault();
     if (!newSupName.trim() || !newSupContact.trim() || !newSupPhone.trim()) return;
 
+    const supDigits = extract10DigitPhone(newSupPhone);
+    const supPhoneErr = validatePhoneNumber(supDigits, true);
+    if (supPhoneErr) {
+      setSuccessBanner(`Phone error: ${supPhoneErr}`);
+      return;
+    }
+    const formattedSupPhone = `+91${supDigits}`;
+
     if (editingSupplier) {
       setSupplierList((prev) =>
         prev.map((sup) =>
@@ -2398,7 +2460,7 @@ export const AdminDashboardPage: React.FC = () => {
                 ...sup,
                 supplier_name: newSupName.trim(),
                 contact_person: newSupContact.trim(),
-                phone: newSupPhone.trim(),
+                phone: formattedSupPhone,
                 address: newSupAddress.trim() || sup.address,
                 status: newSupStatus,
               }
@@ -2411,7 +2473,7 @@ export const AdminDashboardPage: React.FC = () => {
         const created = await createSupplierInDB({
           supplier_name: newSupName.trim(),
           contact_person: newSupContact.trim(),
-          phone: newSupPhone.trim(),
+          phone: formattedSupPhone,
           email: newSupEmail.trim() || undefined,
           address: newSupAddress.trim() || 'Industrial Estate, India',
           gst_number: newSupGst.trim() || undefined,
@@ -2425,7 +2487,7 @@ export const AdminDashboardPage: React.FC = () => {
           id: `sup-${Date.now()}`,
           supplier_name: newSupName.trim(),
           contact_person: newSupContact.trim(),
-          phone: newSupPhone.trim(),
+          phone: formattedSupPhone,
           address: newSupAddress.trim() || 'Furniture Supply Zone, India',
           assigned_products_count: 0,
           status: newSupStatus,
@@ -2605,6 +2667,22 @@ export const AdminDashboardPage: React.FC = () => {
   const handleSaveAdminProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setPasswordError(null);
+    setAdminNameError(null);
+    setAdminPhoneError(null);
+
+    const nameTrim = profileForm.full_name.trim();
+    const nameErr = validateName(nameTrim);
+    if (nameErr) {
+      setAdminNameError(nameErr);
+      return;
+    }
+
+    const phoneDigits = extract10DigitPhone(profileForm.phone);
+    const phoneErr = validatePhoneNumber(phoneDigits, true);
+    if (phoneErr) {
+      setAdminPhoneError(phoneErr);
+      return;
+    }
 
     if (profileForm.currentPassword || profileForm.newPassword || profileForm.confirmPassword) {
       if (!profileForm.currentPassword) {
@@ -2622,8 +2700,10 @@ export const AdminDashboardPage: React.FC = () => {
     }
 
     try {
+      const fullPhone = `+91${phoneDigits}`;
       await updateUserProfile({
-        full_name: profileForm.full_name,
+        full_name: nameTrim,
+        phone: fullPhone,
         current_password: profileForm.currentPassword || undefined,
         new_password: profileForm.newPassword || undefined,
       });
@@ -2631,8 +2711,9 @@ export const AdminDashboardPage: React.FC = () => {
       const stored = localStorage.getItem('user');
       if (stored) {
         const parsed = JSON.parse(stored);
-        parsed.full_name = profileForm.full_name;
+        parsed.full_name = nameTrim;
         parsed.email = profileForm.email;
+        parsed.phone = fullPhone;
         localStorage.setItem('user', JSON.stringify(parsed));
       }
 
@@ -4578,10 +4659,16 @@ export const AdminDashboardPage: React.FC = () => {
                             setCarrierFormError('Contact Phone is required.');
                             return;
                           }
+                          const carrierDigits = extract10DigitPhone(carrierPhoneInput);
+                          const carrierPhoneErr = validatePhoneNumber(carrierDigits, true);
+                          if (carrierPhoneErr) {
+                            setCarrierFormError(carrierPhoneErr);
+                            return;
+                          }
                           setIsSubmittingCarrier(true);
                           const newCP = await createCarrierPartnerApi({
                             carrier_name: carrierNameInput.trim(),
-                            contact_phone: carrierPhoneInput.trim(),
+                            contact_phone: `+91${carrierDigits}`,
                             contact_email: carrierEmailInput.trim() || undefined,
                             status: carrierStatusInput,
                           });
@@ -4631,14 +4718,23 @@ export const AdminDashboardPage: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Phone *</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. +91 98765 43210"
-                          value={carrierPhoneInput}
-                          onChange={(e) => setCarrierPhoneInput(e.target.value)}
-                          className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                        />
+                        <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Phone (10-digit) *</label>
+                        <div className="flex">
+                          <span className="inline-flex items-center px-2.5 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EDE6DC] text-[#2C241D] font-black text-xs select-none">
+                            +91
+                          </span>
+                          <input
+                            type="tel"
+                            placeholder="9876543210"
+                            value={extract10DigitPhone(carrierPhoneInput)}
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                              setCarrierPhoneInput(val);
+                            }}
+                            maxLength={10}
+                            className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-r-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
                       </div>
                       <div>
                         <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Email (Optional)</label>
@@ -5087,13 +5183,23 @@ export const AdminDashboardPage: React.FC = () => {
                           </div>
 
                           <div>
-                            <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Phone *</label>
-                            <input
-                              type="text"
-                              value={editCarrierPhone}
-                              onChange={(e) => setEditCarrierPhone(e.target.value)}
-                              className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                            />
+                            <label className="block text-xs font-extrabold text-[#2C241D] mb-1">Contact Phone (10-digit) *</label>
+                            <div className="flex">
+                              <span className="inline-flex items-center px-2.5 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EDE6DC] text-[#2C241D] font-black text-xs select-none">
+                                +91
+                              </span>
+                              <input
+                                type="tel"
+                                placeholder="9876543210"
+                                value={extract10DigitPhone(editCarrierPhone)}
+                                onChange={(e) => {
+                                  const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                  setEditCarrierPhone(val);
+                                }}
+                                maxLength={10}
+                                className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-r-xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                              />
+                            </div>
                           </div>
 
                           <div>
@@ -5122,10 +5228,16 @@ export const AdminDashboardPage: React.FC = () => {
                                 alert('Carrier Name and Contact Phone are required.');
                                 return;
                               }
+                              const editPhoneDigits = extract10DigitPhone(editCarrierPhone);
+                              const phoneErr = validatePhoneNumber(editPhoneDigits, true);
+                              if (phoneErr) {
+                                alert(phoneErr);
+                                return;
+                              }
                               setIsSavingEditCarrier(true);
                               const updated = await updateCarrierPartnerApi(editingCarrier.carrier_id, {
                                 carrier_name: editCarrierName.trim(),
-                                contact_phone: editCarrierPhone.trim(),
+                                contact_phone: `+91${editPhoneDigits}`,
                                 contact_email: editCarrierEmail.trim() || undefined,
                               });
                               setIsSavingEditCarrier(false);
@@ -8726,15 +8838,25 @@ export const AdminDashboardPage: React.FC = () => {
 
             <form onSubmit={handleAddStaffSubmit} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Staff Full Name *</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Staff Full Name <span className="text-rose-600 font-extrabold">* (Letters only, no numbers)</span>
+                </label>
                 <input
                   type="text"
                   placeholder="e.g. Ramesh Verma"
                   value={newStaffName}
-                  onChange={(e) => setNewStaffName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]"
+                  onChange={(e) => {
+                    setNewStaffName(e.target.value);
+                    if (addStaffNameError) setAddStaffNameError(null);
+                  }}
+                  className={`w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 ${addStaffNameError ? 'border-rose-500' : 'border-[#E2D7CB]'} rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]`}
                   required
                 />
+                {addStaffNameError && (
+                  <p className="mt-1 text-xs text-rose-600 font-bold flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 inline" /> {addStaffNameError}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -8750,14 +8872,32 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number</label>
-                <input
-                  type="tel"
-                  placeholder="+91 9876543210"
-                  value={newStaffPhone}
-                  onChange={(e) => setNewStaffPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]"
-                />
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Phone Number <span className="text-rose-600 font-extrabold">* (10-digit mobile number)</span>
+                </label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border-2 border-r-0 border-[#E2D7CB] bg-[#EFE7DE] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9778237180"
+                    value={extract10DigitPhone(newStaffPhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setNewStaffPhone(val);
+                      if (addStaffPhoneError) setAddStaffPhoneError(null);
+                    }}
+                    maxLength={10}
+                    className={`w-full px-3.5 py-2.5 bg-[#F9F6F0] border-2 ${addStaffPhoneError ? 'border-rose-500' : 'border-[#E2D7CB]'} rounded-r-xl focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D] font-extrabold placeholder:text-[#9E9082]`}
+                    required
+                  />
+                </div>
+                {addStaffPhoneError && (
+                  <p className="mt-1 text-xs text-rose-600 font-bold flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 inline" /> {addStaffPhoneError}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -9306,15 +9446,24 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-[#2C241D] mb-1">Phone Number</label>
-                <input
-                  type="tel"
-                  placeholder="9778237180"
-                  value={newSupPhone}
-                  onChange={(e) => setNewSupPhone(e.target.value)}
-                  className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-bold"
-                  required
-                />
+                <label className="block font-bold text-[#2C241D] mb-1">Phone Number (10-digit)</label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EDE6DC] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9778237180"
+                    value={extract10DigitPhone(newSupPhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setNewSupPhone(val);
+                    }}
+                    maxLength={10}
+                    className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-r-xl font-bold"
+                    required
+                  />
+                </div>
               </div>
 
               <div>
@@ -9438,14 +9587,25 @@ export const AdminDashboardPage: React.FC = () => {
 
             <form onSubmit={handleSaveAdminProfile} className="space-y-3.5 text-xs">
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Full Name</label>
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Full Name <span className="text-rose-600 font-extrabold">* (Letters only, no numbers)</span>
+                </label>
                 <input
                   type="text"
                   value={profileForm.full_name}
-                  onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                  className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs"
+                  onChange={(e) => {
+                    setProfileForm({ ...profileForm, full_name: e.target.value });
+                    if (adminNameError) setAdminNameError(null);
+                  }}
+                  placeholder="e.g. Administrator"
+                  className={`w-full px-3.5 py-2.5 bg-[#F3EDE5] border ${adminNameError ? 'border-rose-500' : 'border-[#E2D7CB]'} rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs`}
                   required
                 />
+                {adminNameError && (
+                  <p className="mt-1 text-xs text-rose-600 font-bold flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 inline" /> {adminNameError}
+                  </p>
+                )}
               </div>
 
               <div>
@@ -9457,6 +9617,35 @@ export const AdminDashboardPage: React.FC = () => {
                   className="w-full px-3.5 py-2.5 bg-[#F3EDE5] border border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs"
                   required
                 />
+              </div>
+
+              <div>
+                <label className="block font-extrabold text-[#2C241D] mb-1">
+                  Contact Phone Number <span className="text-rose-600 font-extrabold">* (10-digit mobile number)</span>
+                </label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EAE0D4] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    value={extract10DigitPhone(profileForm.phone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setProfileForm({ ...profileForm, phone: val });
+                      if (adminPhoneError) setAdminPhoneError(null);
+                    }}
+                    placeholder="9778237180"
+                    maxLength={10}
+                    className={`w-full px-3.5 py-2.5 bg-[#F3EDE5] border ${adminPhoneError ? 'border-rose-500' : 'border-[#E2D7CB]'} rounded-r-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold text-xs`}
+                    required
+                  />
+                </div>
+                {adminPhoneError && (
+                  <p className="mt-1 text-xs text-rose-600 font-bold flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5 inline" /> {adminPhoneError}
+                  </p>
+                )}
               </div>
 
               <div className="pt-2 border-t border-[#E2D7CB] space-y-2">
@@ -9539,13 +9728,23 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1 text-xs">Phone Number</label>
-                <input
-                  type="text"
-                  value={editUserPhone}
-                  onChange={(e) => setEditUserPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-semibold focus:outline-none focus:border-[#48A63E] focus:bg-white text-[#2C241D] text-xs transition-all shadow-inner-xs"
-                />
+                <label className="block font-extrabold text-[#2C241D] mb-1 text-xs">Phone Number (10-digit)</label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EDE6DC] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    value={extract10DigitPhone(editUserPhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setEditUserPhone(val);
+                    }}
+                    maxLength={10}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-r-xl font-semibold focus:outline-none focus:border-[#48A63E] focus:bg-white text-[#2C241D] text-xs transition-all shadow-inner-xs"
+                  />
+                </div>
               </div>
 
               <div>
@@ -10999,14 +11198,23 @@ export const AdminDashboardPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  value={editStaffPhone}
-                  onChange={(e) => setEditStaffPhone(e.target.value)}
-                  placeholder="+91 98765 43210"
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
-                />
+                <label className="block font-extrabold text-[#2C241D] mb-1">Phone Number (10-digit)</label>
+                <div className="flex">
+                  <span className="inline-flex items-center px-3 rounded-l-xl border border-r-0 border-[#E2D7CB] bg-[#EDE6DC] text-[#2C241D] font-black text-xs select-none">
+                    +91
+                  </span>
+                  <input
+                    type="tel"
+                    value={extract10DigitPhone(editStaffPhone)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 10);
+                      setEditStaffPhone(val);
+                    }}
+                    placeholder="9876543210"
+                    maxLength={10}
+                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-r-xl font-medium focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
+                  />
+                </div>
               </div>
 
               <div>
