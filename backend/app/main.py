@@ -145,9 +145,11 @@ def _run_startup_db_worker():
 
 @app.on_event("startup")
 def startup_db():
-    import threading
-    threading.Thread(target=_run_startup_db_worker, daemon=True).start()
-    threading.Thread(target=admin.warm_dashboard_cache, daemon=True).start()
+    is_serverless = bool(os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"))
+    if not is_serverless:
+        import threading
+        threading.Thread(target=_run_startup_db_worker, daemon=True).start()
+        threading.Thread(target=admin.warm_dashboard_cache, daemon=True).start()
 
 import os
 from fastapi.staticfiles import StaticFiles

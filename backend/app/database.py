@@ -25,39 +25,26 @@ def init_engine():
                 if url_obj.database:
                     url_obj = url_obj.set(database=urllib.parse.unquote(url_obj.database))
 
-                engine_kwargs = {
-                    "connect_args": {
-                        "connect_timeout": 20,
-                        "options": "-c timezone=Asia/Kolkata"
-                    }
-                }
-                if is_production:
-                    # In serverless environments, NullPool prevents connection leaks across frozen lambda invocations
-                    engine_kwargs["poolclass"] = NullPool
-                else:
-                    engine_kwargs["pool_size"] = 10
-                    engine_kwargs["max_overflow"] = 10
-                    engine_kwargs["pool_recycle"] = 300
-                    engine_kwargs["pool_timeout"] = 30
-                    engine_kwargs["pool_pre_ping"] = True
+                pg_engine = create_engine(
+                    url_obj,
+                    pool_pre_ping=True,
+                    connect_args={"connect_timeout": 30}
+                )
 
-                pg_engine = create_engine(url_obj, **engine_kwargs)
-
-                import time
-                last_err = None
-                for attempt in range(3):
+                # Set session timezone cleanly without sending unsupported startup options to PgBouncer
+                @event.listens_for(pg_engine, "connect")
+                def set_timezone(dbapi_connection, connection_record):
                     try:
-                        with pg_engine.connect():
-                            pass
-                        print(f"[DATABASE] Connected to PostgreSQL database '{url_obj.database}' successfully (Timezone: Asia/Kolkata).")
-                        return pg_engine
-                    except Exception as conn_err:
-                        last_err = conn_err
-                        if attempt < 2:
-                            print(f"[DATABASE NOTICE] Connection attempt {attempt + 1} failed: {conn_err}. Retrying in 1.5s...")
-                            time.sleep(1.5)
-                if last_err:
-                    raise last_err
+                        cursor = dbapi_connection.cursor()
+                        cursor.execute("SET timezone = 'Asia/Kolkata';")
+                        cursor.close()
+                    except Exception:
+                        pass
+
+                with pg_engine.connect():
+                    pass
+                print(f"[DATABASE] Connected to PostgreSQL database '{url_obj.database}' successfully (Timezone: Asia/Kolkata).")
+                return pg_engine
             except Exception as e:
                 err_msg = f"PostgreSQL database connection failed ({type(e).__name__}: {e})"
                 if is_production or not os.environ.get("ALLOW_SQLITE_FALLBACK"):

@@ -1,5 +1,7 @@
 import os
 import sys
+import json
+import traceback
 import urllib.parse
 
 # Ensure backend directory is in python sys.path for Vercel Serverless Function runtime
@@ -10,7 +12,14 @@ backend_dir = os.path.join(root_dir, "backend")
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from app.main import app as base_app
+base_app = None
+init_error = None
+
+try:
+    from app.main import app as base_app
+except Exception as e:
+    init_error = traceback.format_exc()
+    print(f"[CRITICAL VERCEL STARTUP FAILURE] {init_error}", file=sys.stderr)
 
 # ASGI Middleware to restore the original request path from Vercel's rewrite query parameter or reverse-proxy headers.
 # This fixes Vercel's internal rewrite behavior where scope['path'] is rewritten to /api/index.py.
@@ -20,6 +29,26 @@ class VercelPathFixMiddleware:
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            if self.asgi_app is None:
+                # Deliver diagnostic traceback gracefully instead of crashing serverless container
+                error_payload = json.dumps({
+                    "error": "Serverless Function Initialization Failure",
+                    "detail": init_error or "Unknown backend startup error"
+                }).encode("utf-8")
+                await send({
+                    "type": "http.response.start",
+                    "status": 500,
+                    "headers": [
+                        [b"content-type", b"application/json"],
+                        [b"content-length", str(len(error_payload)).encode("utf-8")]
+                    ]
+                })
+                await send({
+                    "type": "http.response.body",
+                    "body": error_payload
+                })
+                return
+
             headers = dict(scope.get("headers", []))
             path = scope.get("path", "")
             raw_qs = scope.get("query_string", b"").decode("utf-8", errors="ignore")
@@ -63,7 +92,13 @@ class VercelPathFixMiddleware:
 
             # 5. If path starts with an API section but lacks /api prefix (e.g. /admin/inventory or /auth/me)
             # automatically restore the /api prefix
-            api_sections = ["/admin", "/auth", "/production", "/coupons", "/materials", "/fabrication", "/services", "/machines", "/quality", "/ai_services", "/fulfillment", "/retail_staff", "/fleet", "/worker_ops", "/reviews", "/carrier_portal", "/delivery_personnel_portal"]
+            api_sections = [
+                "/admin", "/auth", "/production", "/coupons", "/materials",
+                "/fabrication", "/services", "/machines", "/quality",
+                "/ai_services", "/fulfillment", "/retail_staff", "/fleet",
+                "/worker_ops", "/worker", "/reviews", "/carrier_portal",
+                "/carrier", "/delivery_personnel_portal", "/delivery-personnel", "/iot"
+            ]
             for section in api_sections:
                 if path.startswith(section):
                     path = f"/api{path}"

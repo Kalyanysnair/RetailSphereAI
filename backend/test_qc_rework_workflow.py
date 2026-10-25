@@ -139,7 +139,7 @@ def run_tests():
         insp_record = db.query(models.QualityInspection).filter(models.QualityInspection.inspection_id == insp_id).first()
         assert insp_record is not None
         assert insp_record.inspector_id == retail_staff_user.user_id, "Inspector ID must match authenticated staff session!"
-        assert insp_record.inspector.full_name == "Nimal K", "Inspector name must match authenticated staff member!"
+        assert insp_record.inspector.full_name == retail_staff_user.full_name, "Inspector name must match authenticated staff member!"
         assert insp_record.inspected_at is not None, "Timestamp must be automatically recorded!"
         print(f"PASSED: Inspection #QC-{insp_id} correctly stamped inspector '{insp_record.inspector.full_name}' and timestamp {insp_record.inspected_at}!", flush=True)
         db.commit()
