@@ -109,6 +109,9 @@ export const FabricationTab: React.FC = () => {
   // Form State
   const [serviceType, setServiceType] = useState('Wood Cutting');
   const [materialSource, setMaterialSource] = useState('Company Stock Material');
+  const [customerMaterials, setCustomerMaterials] = useState<any[]>([]);
+  const [selectedCustomerMaterialId, setSelectedCustomerMaterialId] = useState<string>('');
+  const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
   const [dimensions, setDimensions] = useState('2440mm x 1220mm x 18mm Sheet');
   const [quantity, setQuantity] = useState('1');
   const [drawingImage, setDrawingImage] = useState('');
@@ -170,6 +173,34 @@ export const FabricationTab: React.FC = () => {
     };
     initProfile();
   }, []);
+
+  useEffect(() => {
+    if (materialSource === 'Customer-Owned Material') {
+      const loadCustMaterials = async () => {
+        try {
+          setIsLoadingMaterials(true);
+          const rawUser = localStorage.getItem('user');
+          const user = rawUser ? JSON.parse(rawUser) : null;
+          const uEmail = user?.email || '';
+          const res = await fetch(`/api/materials/customer?customer_email=${encodeURIComponent(uEmail)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+              setCustomerMaterials(data);
+              if (data.length > 0 && !selectedCustomerMaterialId) {
+                setSelectedCustomerMaterialId(String(data[0].material_id));
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('Failed to load customer materials:', e);
+        } finally {
+          setIsLoadingMaterials(false);
+        }
+      };
+      loadCustMaterials();
+    }
+  }, [materialSource]);
 
   const handleUseProfileAddressForPickup = () => {
     if (!userProfileAddress) {
@@ -513,32 +544,79 @@ export const FabricationTab: React.FC = () => {
     }
   };
 
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
+
+    if (materialSource === 'Customer-Owned Material' && !selectedCustomerMaterialId) {
+      setModalError('Please select a registered customer-owned material lot from the dropdown, or declare material in Customer Activity / My Materials first.');
+      return;
+    }
+
+    const dimTrim = dimensions.trim();
+    if (!dimTrim || dimTrim.length < 3) {
+      setModalError('Please specify workpiece dimensions (min. 3 characters, e.g. 2440mm x 1220mm x 18mm).');
+      return;
+    }
+
+    const qtyNum = parseInt(quantity, 10);
+    if (isNaN(qtyNum) || qtyNum < 1) {
+      setModalError('Fabrication quantity must be a valid integer strictly greater than 0.');
+      return;
+    }
+
+    if (materialArrivalMode === 'DOORSTEP_PICKUP') {
+      const pAddr = materialPickupAddress.trim();
+      if (!pAddr || pAddr.length < 5) {
+        setModalError('Please provide a valid, complete doorstep pickup address (min. 5 characters).');
+        return;
+      }
+    }
+
+    if (returnDeliveryMode === 'DOORSTEP_DELIVERY') {
+      const dAddr = returnDeliveryAddress.trim();
+      if (!dAddr || dAddr.length < 5) {
+        setModalError('Please provide a valid, complete destination delivery address (min. 5 characters).');
+        return;
+      }
+    }
+
+    setIsSubmittingRequest(true);
     try {
       const rawUser = localStorage.getItem('user');
       const user = rawUser ? JSON.parse(rawUser) : null;
+      const token = localStorage.getItem('token');
 
-      const payload = {
+      const payload: any = {
         customer_id: user?.customer_id || user?.user_id || 1,
         customer_email: user?.email || '',
         service_type: serviceType,
         material_source: materialSource,
-        dimensions,
-        quantity: parseInt(quantity) || 1,
+        dimensions: dimTrim,
+        quantity: qtyNum,
         drawing_image: drawingImage,
-        requirements,
+        requirements: requirements.trim(),
         cutting_layout: attachedCuttingLayoutJson || undefined,
         deadline: deadline || undefined,
         material_arrival_mode: materialArrivalMode,
-        material_pickup_address: materialArrivalMode === 'DOORSTEP_PICKUP' ? materialPickupAddress : undefined,
+        material_pickup_address: materialArrivalMode === 'DOORSTEP_PICKUP' ? materialPickupAddress.trim() : undefined,
         return_delivery_mode: returnDeliveryMode,
-        return_delivery_address: returnDeliveryMode === 'DOORSTEP_DELIVERY' ? returnDeliveryAddress : undefined,
+        return_delivery_address: returnDeliveryMode === 'DOORSTEP_DELIVERY' ? returnDeliveryAddress.trim() : undefined,
       };
+
+      if (materialSource === 'Customer-Owned Material' && selectedCustomerMaterialId) {
+        payload.customer_material_id = Number(selectedCustomerMaterialId);
+      }
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const res = await fetch('/api/fabrication/requests', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -547,10 +625,18 @@ export const FabricationTab: React.FC = () => {
         setRequirements('');
         setDrawingImage('');
         setAttachedCuttingLayoutJson('');
+        setSelectedCustomerMaterialId('');
+        setModalError(null);
         fetchFabrications();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setModalError(errJson.detail || 'Failed to submit fabrication request. Please check inputs.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create fabrication request:', err);
+      setModalError(err?.message || 'Network error while submitting fabrication request.');
+    } finally {
+      setIsSubmittingRequest(false);
     }
   };
 
@@ -1076,6 +1162,13 @@ export const FabricationTab: React.FC = () => {
               <button onClick={() => setIsRequestModalOpen(false)} className="text-[#7A6C5E] hover:text-[#2C241D] font-bold text-lg cursor-pointer">✕</button>
             </div>
 
+            {modalError && (
+              <div className="p-3 text-xs text-rose-800 bg-rose-50 border border-rose-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleCreateRequest} className="space-y-4 text-xs font-semibold text-[#2C241D]">
               <div>
                 <label className="block text-[11px] font-extrabold text-[#7A6C5E] uppercase mb-1">Required Operation</label>
@@ -1096,6 +1189,53 @@ export const FabricationTab: React.FC = () => {
                   <option value="Customer-Owned Material">Customer-Owned Material (Registered Timber)</option>
                 </select>
               </div>
+
+              {materialSource === 'Customer-Owned Material' && (
+                <div className="bg-[#FAF7F2] p-4 rounded-2xl border-2 border-[#E2D7CB] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[11px] font-extrabold text-[#7A6C5E] uppercase">
+                      Select Your Registered Material Lot *
+                    </label>
+                    <span className="text-[10px] text-[#48A63E] font-bold">
+                      {customerMaterials.length} available
+                    </span>
+                  </div>
+                  {isLoadingMaterials ? (
+                    <p className="text-xs text-[#7A6C5E]">Loading your registered materials...</p>
+                  ) : customerMaterials.length > 0 ? (
+                    <>
+                      <select
+                        value={selectedCustomerMaterialId}
+                        onChange={(e) => setSelectedCustomerMaterialId(e.target.value)}
+                        className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white font-bold text-xs"
+                        required
+                      >
+                        <option value="">-- Select Registered Material Lot --</option>
+                        {customerMaterials.map((m) => (
+                          <option key={m.material_id} value={m.material_id}>
+                            Lot #{m.material_id} • {m.wood_type || m.material_type} ({m.dimensions || 'Standard'}, {m.remaining_quantity ?? m.quantity} {m.unit} available) - Status: {m.status}
+                          </option>
+                        ))}
+                      </select>
+                      {selectedCustomerMaterialId && (() => {
+                        const selMat = customerMaterials.find(m => String(m.material_id) === String(selectedCustomerMaterialId));
+                        if (!selMat) return null;
+                        return (
+                          <div className="text-[11px] text-[#7A6C5E] bg-white p-2.5 rounded-xl border border-[#E2D7CB] flex justify-between">
+                            <span><strong>Condition:</strong> {selMat.condition || 'Inspected'}</span>
+                            <span><strong>Usable Balance:</strong> <span className="text-[#48A63E] font-bold">{selMat.remaining_quantity ?? selMat.quantity} {selMat.unit}</span></span>
+                          </div>
+                        );
+                      })()}
+                    </>
+                  ) : (
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800 space-y-1">
+                      <p className="font-bold">No registered materials found in your account.</p>
+                      <p className="text-[11px]">Please declare or register your timber lot in the Customer Activity / My Materials section before submitting, or select Company Stock Material.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

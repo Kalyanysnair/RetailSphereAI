@@ -2,7 +2,8 @@ import random
 import re
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
+import time
+from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app import models, schemas, auth
 from app.email_utils import send_contact_inquiry_email, send_password_reset_email
@@ -127,11 +128,24 @@ def signup(payload: schemas.UserSignup, db: Session = Depends(get_db)):
 @router.post("/login", response_model=schemas.Token)
 def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
     login_identifier = payload.email.strip()
-    user = db.query(models.User).filter(
-        (models.User.email.ilike(login_identifier)) |
-        (models.User.full_name.ilike(login_identifier)) |
-        (models.User.phone == login_identifier)
-    ).first()
+    login_lower = login_identifier.lower()
+
+    # Fast single-query lookup with eager-loaded role and customer profile
+    user = (
+        db.query(models.User)
+        .options(
+            joinedload(models.User.role),
+            joinedload(models.User.customer_profile)
+        )
+        .filter(
+            (models.User.email == login_lower) |
+            (models.User.email == login_identifier) |
+            (models.User.email.ilike(login_identifier)) |
+            (models.User.phone == login_identifier) |
+            (models.User.full_name.ilike(login_identifier))
+        )
+        .first()
+    )
 
     if not user:
         raise HTTPException(
@@ -150,6 +164,9 @@ def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account is deactivated. Please contact support."
         )
+
+    # Pre-warm in-memory auth cache so initial dashboard requests hit memory immediately (<0.1ms)
+    auth._user_auth_cache[user.user_id] = (user, time.time())
 
     access_token = auth.create_access_token(data={"sub": str(user.user_id)})
     user_resp = build_user_response(user)

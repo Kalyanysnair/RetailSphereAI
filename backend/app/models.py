@@ -1,5 +1,5 @@
 from datetime import datetime, date
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, Enum
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Date, Numeric, ForeignKey, Enum, Float
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -213,6 +213,7 @@ class OrderFulfillment(Base):
     fulfillment_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     order_id = Column(Integer, ForeignKey("tbl_readymade_order.order_id"), unique=True, nullable=True)
     fabrication_id = Column(Integer, ForeignKey("tbl_fabrication_request.fabrication_id"), nullable=True)
+    custom_order_id = Column(Integer, ForeignKey("tbl_custom_order.custom_order_id"), nullable=True)
     fulfillment_status = Column(String(50), default="Pending")
     packed_at = Column(DateTime, nullable=True)
     packed_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
@@ -236,12 +237,13 @@ class OrderFulfillment(Base):
     destination_address = Column(Text, nullable=True)
     distance_km = Column(Numeric(8, 2), nullable=True)
     transportation_charge = Column(Numeric(10, 2), nullable=True)
-    job_type = Column(String(50), default="FURNITURE_DELIVERY")  # FURNITURE_DELIVERY, FABRICATION_PICKUP, FABRICATION_RETURN
+    job_type = Column(String(50), default="FURNITURE_DELIVERY")  # FURNITURE_DELIVERY, FABRICATION_PICKUP, FABRICATION_RETURN, CUSTOM_DELIVERY
     dispatch_date = Column(DateTime, nullable=True)
     dispatch_note = Column(Text, nullable=True)
 
     order = relationship("ReadymadeOrder", back_populates="fulfillment")
     fabrication_request = relationship("FabricationRequest", foreign_keys=[fabrication_id])
+    custom_order = relationship("CustomOrder", foreign_keys=[custom_order_id])
     packed_by_user = relationship("User", foreign_keys=[packed_by_id])
     dispatched_by_user = relationship("User", foreign_keys=[dispatched_by_id])
     vehicle = relationship("Vehicle", back_populates="fulfillments")
@@ -345,8 +347,10 @@ class CustomOrder(Base):
     reviewed_at = Column(DateTime, nullable=True)
     review_notes = Column(Text, nullable=True)
     priority = Column(String(20), default="NORMAL", nullable=True)  # LOW, NORMAL, HIGH, URGENT
+    customer_material_id = Column(Integer, ForeignKey("tbl_customer_material.material_id"), nullable=True)
 
     customer = relationship("Customer", back_populates="custom_orders")
+    customer_material = relationship("CustomerMaterial")
     assignments = relationship("WorkerAssignment", back_populates="custom_order")
     progress_updates = relationship("ProductionProgress", back_populates="custom_order")
 
@@ -679,14 +683,20 @@ class MaterialTransaction(Base):
     __tablename__ = "tbl_material_transaction"
 
     transaction_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    raw_material_id = Column(Integer, ForeignKey("tbl_raw_material.material_id"), nullable=False)
-    order_type = Column(String(50), nullable=False)  # Custom / Fabrication
-    order_id = Column(Integer, nullable=False)
+    raw_material_id = Column(Integer, ForeignKey("tbl_raw_material.material_id"), nullable=True)
+    customer_material_id = Column(Integer, ForeignKey("tbl_customer_material.material_id"), nullable=True)
+    order_type = Column(String(50), nullable=True)  # Custom / Fabrication / Manual / StockAdjustment
+    order_id = Column(Integer, nullable=True)
     quantity = Column(Numeric(10, 2), nullable=False)
-    transaction_type = Column(String(50), nullable=False)  # RESERVED, CONSUMED, RETURNED, WASTED
+    unit = Column(String(20), default="sq_ft", nullable=True)
+    transaction_type = Column(String(50), nullable=False)  # RECEIVED, RESERVED, CONSUMED, RETURNED, WASTED, ADJUSTMENT
+    notes = Column(Text, nullable=True)
+    performed_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     raw_material = relationship("RawMaterial")
+    customer_material = relationship("CustomerMaterial")
+    performed_by = relationship("User")
 
 
 class Machine(Base):
@@ -729,26 +739,67 @@ class QualityInspection(Base):
     finishing_check = Column(Boolean, default=True)
     structure_check = Column(Boolean, default=True)
     specifications_check = Column(Boolean, default=True)
+    material_check = Column(Boolean, default=True)
+    functionality_check = Column(Boolean, default=True)
+    fabrication_check = Column(Boolean, default=True)
+    customer_specs_check = Column(Boolean, default=True)
+    checklist_details = Column(Text, nullable=True)
     inspection_notes = Column(Text, nullable=True)
     photos = Column(Text, nullable=True)
+    rework_ticket_id = Column(Integer, nullable=True)
     inspected_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
-    inspector = relationship("User")
+    inspector = relationship("User", foreign_keys=[inspector_id])
 
 
 class ReworkJob(Base):
     __tablename__ = "tbl_rework_job"
 
     rework_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    inspection_id = Column(Integer, ForeignKey("tbl_quality_inspection.inspection_id"), nullable=False)
-    assigned_worker_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=False)
+    ticket_code = Column(String(50), unique=True, index=True, nullable=True)
+    inspection_id = Column(Integer, ForeignKey("tbl_quality_inspection.inspection_id"), nullable=True)
+    order_type = Column(String(50), default="Custom", nullable=True)  # Custom / Fabrication
+    order_id = Column(Integer, nullable=True)
+    customer_id = Column(Integer, ForeignKey("tbl_customer.customer_id"), nullable=True)
+    source = Column(String(50), default="QC_FAILURE", nullable=True)  # QC_FAILURE / CUSTOMER_REQUEST
+    approved_specifications = Column(Text, nullable=True)
+    issue_description = Column(Text, nullable=True)
+    evidence_photos = Column(Text, nullable=True)
+    responsibility_type = Column(String(50), default="UNDER_ASSESSMENT", nullable=True)  # RETAILSPHERE_ERROR, CUSTOMER_CHANGE, UNCLEAR_DISPUTED, UNDER_ASSESSMENT
+    responsibility_notes = Column(Text, nullable=True)
+    assessed_by_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    assessed_at = Column(DateTime, nullable=True)
     rework_reason = Column(Text, nullable=False)
-    status = Column(String(50), default="ASSIGNED", nullable=False)  # ASSIGNED, IN_PROGRESS, RESOLVED
+    required_changes = Column(Text, nullable=True)
+    transportation_mode = Column(String(50), default="INTERNAL_FLEET", nullable=True)  # INTERNAL_FLEET, CARRIER_PARTNER, STORE_DROP_OFF, CUSTOMER_COLLECTS
+    transportation_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    additional_cost = Column(Numeric(10, 2), default=0.0, nullable=True)
+    quotation_status = Column(String(50), default="NOT_APPLICABLE", nullable=True)  # NOT_APPLICABLE, PENDING_APPROVAL, APPROVED, REJECTED
+    quotation_notes = Column(Text, nullable=True)
+    payment_status = Column(String(50), default="NOT_REQUIRED", nullable=True)  # NOT_REQUIRED, PENDING, PAID
+    payment_reference = Column(String(100), nullable=True)
+    assigned_worker_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    assigned_supervisor_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    vehicle_id = Column(Integer, ForeignKey("tbl_vehicle.vehicle_id"), nullable=True)
+    driver_id = Column(Integer, ForeignKey("tbl_users.user_id"), nullable=True)
+    carrier_id = Column(Integer, ForeignKey("tbl_carrier_partner.carrier_id"), nullable=True)
+    repeat_inspection_id = Column(Integer, ForeignKey("tbl_quality_inspection.inspection_id"), nullable=True)
+    checklist_results = Column(Text, nullable=True)
+    status = Column(String(50), default="OPEN", nullable=False)  # OPEN, UNDER_ASSESSMENT, AWAITING_CUSTOMER_DECISION, AWAITING_PICKUP, RECEIVED_AT_STORE, REWORK_IN_PROGRESS, REWORK_COMPLETED, QC_PENDING, QC_PASSED, READY_FOR_DISPATCH, CLOSED, CANCELLED
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     resolved_at = Column(DateTime, nullable=True)
 
-    inspection = relationship("QualityInspection")
-    assigned_worker = relationship("User")
+    inspection = relationship("QualityInspection", foreign_keys=[inspection_id])
+    repeat_inspection = relationship("QualityInspection", foreign_keys=[repeat_inspection_id])
+    assigned_worker = relationship("User", foreign_keys=[assigned_worker_id])
+    assigned_supervisor = relationship("User", foreign_keys=[assigned_supervisor_id])
+    assessed_by = relationship("User", foreign_keys=[assessed_by_id])
+    driver = relationship("User", foreign_keys=[driver_id])
+    customer = relationship("Customer", foreign_keys=[customer_id])
+    vehicle = relationship("Vehicle", foreign_keys=[vehicle_id])
+    carrier_partner = relationship("CarrierPartner", foreign_keys=[carrier_id])
+
 
 
 class QuotationBreakdown(Base):
@@ -763,6 +814,7 @@ class QuotationBreakdown(Base):
     finishing_cost = Column(Numeric(10, 2), default=0.0, nullable=False)
     assembly_cost = Column(Numeric(10, 2), default=0.0, nullable=False)
     service_cost = Column(Numeric(10, 2), default=0.0, nullable=False)
+    transportation_cost = Column(Numeric(10, 2), default=0.0, nullable=False)
     discount = Column(Numeric(10, 2), default=0.0, nullable=False)
     tax = Column(Numeric(10, 2), default=0.0, nullable=False)
     total_amount = Column(Numeric(10, 2), nullable=False)
@@ -987,3 +1039,39 @@ class PersonnelEmailChangeRequest(Base):
     personnel = relationship("DeliveryPersonnel")
     carrier = relationship("CarrierPartner")
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_id])
+
+
+def get_ist_now_naive():
+    import pytz
+    return datetime.now(pytz.timezone('Asia/Kolkata')).replace(tzinfo=None)
+
+
+class IoTInventoryState(Base):
+    __tablename__ = "tbl_iot_inventory_state"
+
+    state_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    device_id = Column(String(100), unique=True, index=True, nullable=False, default="ESP32-WAREHOUSE-GATE-01")
+    current_stock = Column(Integer, default=0, nullable=False)
+    total_entries = Column(Integer, default=0, nullable=False)
+    total_exits = Column(Integer, default=0, nullable=False)
+    last_movement_direction = Column(String(10), nullable=True)  # "IN" or "OUT"
+    last_movement_at = Column(DateTime, nullable=True)
+    last_heartbeat_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=get_ist_now_naive, onupdate=get_ist_now_naive, nullable=False)
+
+
+class IoTInventoryMovement(Base):
+    __tablename__ = "tbl_iot_inventory_movement"
+
+    movement_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    device_id = Column(String(100), index=True, nullable=False)
+    direction = Column(String(10), nullable=False)  # "IN" or "OUT"
+    stock_delta = Column(Integer, nullable=False)  # +1, -1, or 0
+    stock_after = Column(Integer, nullable=False)
+    raw_sequence = Column(String(50), nullable=True)  # e.g. "A->B" or "B->A"
+    event_id = Column(String(100), unique=True, index=True, nullable=True)  # deduplication ID
+    notes = Column(String(255), nullable=True)
+    device_timestamp = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=get_ist_now_naive, nullable=False, index=True)
+
+

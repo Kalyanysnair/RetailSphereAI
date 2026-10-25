@@ -61,6 +61,7 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
   const [agrSettlementTerms, setAgrSettlementTerms] = useState('Settlements processed bi-weekly upon verified delivery confirmation proof.');
   const [agrCoverageArea, setAgrCoverageArea] = useState('All Regional Districts');
   const [isSubmittingAgreement, setIsSubmittingAgreement] = useState(false);
+  const [agreementError, setAgreementError] = useState<string | null>(null);
 
   // Rate Card Edit Form State
   const [editRateBase, setEditRateBase] = useState(100);
@@ -68,6 +69,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
   const [editRateMin, setEditRateMin] = useState(100);
   const [editRateActive, setEditRateActive] = useState(true);
   const [isSavingRateCard, setIsSavingRateCard] = useState(false);
+  const [rateCardError, setRateCardError] = useState<string | null>(null);
+
+  // Driver Email Review State
+  const [reviewEmailError, setReviewEmailError] = useState<string | null>(null);
 
   // Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -104,33 +109,69 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
 
   const handleCreateAgreement = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!agrCarrierId) {
-      alert('Please select a Carrier Partner');
+    setAgreementError(null);
+
+    if (!agrCarrierId || Number(agrCarrierId) <= 0) {
+      setAgreementError('Please select a valid Carrier Partner from the dropdown.');
       return;
     }
+
+    const trimmedNumber = agrNumber.trim();
+    if (!trimmedNumber || trimmedNumber.length < 3) {
+      setAgreementError('Agreement number must be at least 3 characters.');
+      return;
+    }
+
+    const trimmedTitle = agrTitle.trim();
+    if (!trimmedTitle || trimmedTitle.length < 3) {
+      setAgreementError('Agreement title must be at least 3 characters.');
+      return;
+    }
+
+    if (!agrEffectiveDate || !agrExpiryDate) {
+      setAgreementError('Both effective and expiry dates are required.');
+      return;
+    }
+
+    if (new Date(agrExpiryDate) <= new Date(agrEffectiveDate)) {
+      setAgreementError('Expiry date must be later than the effective date.');
+      return;
+    }
+
+    if (Number(agrBasePayout) < 0 || Number(agrPerKmRate) < 0) {
+      setAgreementError('Base payout rate and Per-KM rate must be 0 or greater.');
+      return;
+    }
+
+    const trimmedArea = agrCoverageArea.trim();
+    if (!trimmedArea || trimmedArea.length < 3) {
+      setAgreementError('Coverage area must be specified (min. 3 characters).');
+      return;
+    }
+
     setIsSubmittingAgreement(true);
     try {
       await createAdminCarrierAgreementDB({
         carrier_id: Number(agrCarrierId),
-        agreement_number: agrNumber.trim(),
-        title: agrTitle.trim(),
+        agreement_number: trimmedNumber,
+        title: trimmedTitle,
         effective_date: agrEffectiveDate,
         expiry_date: agrExpiryDate,
         services_covered: agrServicesCovered.trim(),
         transportation_terms: agrTransportationTerms.trim(),
         settlement_terms: agrSettlementTerms.trim(),
-        coverage_area: agrCoverageArea.trim(),
+        coverage_area: trimmedArea,
         base_payout_rate: Number(agrBasePayout),
         per_km_payout_rate: Number(agrPerKmRate),
         status: 'ACTIVE'
       });
-      setActionMsg({ type: 'success', text: `Agreement '${agrNumber}' registered successfully!` });
+      setActionMsg({ type: 'success', text: `Agreement '${trimmedNumber}' registered successfully!` });
       setIsAddAgreementModalOpen(false);
+      setAgreementError(null);
       await loadAllData();
       setTimeout(() => setActionMsg(null), 4000);
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Failed to create carrier agreement.' });
-      setTimeout(() => setActionMsg(null), 5000);
+      setAgreementError(err.message || 'Failed to create carrier agreement.');
     } finally {
       setIsSubmittingAgreement(false);
     }
@@ -138,7 +179,19 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
 
   const handleSaveRateCard = async (e: React.FormEvent) => {
     e.preventDefault();
+    setRateCardError(null);
     if (!editingRateCard) return;
+
+    if (Number(editRateBase) < 0 || Number(editRatePerKm) < 0 || Number(editRateMin) < 0) {
+      setRateCardError('Tariff rates and charges cannot be negative numbers.');
+      return;
+    }
+
+    if (Number(editRateMin) < Number(editRateBase)) {
+      setRateCardError('Minimum haul charge cannot be lower than the base charge.');
+      return;
+    }
+
     setIsSavingRateCard(true);
     try {
       await updateAdminRateCardDB(editingRateCard.rate_id, {
@@ -149,11 +202,11 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
       });
       setActionMsg({ type: 'success', text: `Rate Card #${editingRateCard.rate_id} updated successfully!` });
       setEditingRateCard(null);
+      setRateCardError(null);
       await loadAllData();
       setTimeout(() => setActionMsg(null), 4000);
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Failed to update rate card.' });
-      setTimeout(() => setActionMsg(null), 5000);
+      setRateCardError(err.message || 'Failed to update rate card.');
     } finally {
       setIsSavingRateCard(false);
     }
@@ -173,16 +226,26 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
 
   const handleReviewEmailRequest = async (action: 'APPROVE' | 'REJECT') => {
     if (!reviewingEmailReq) return;
+    setReviewEmailError(null);
+
+    if (action === 'REJECT') {
+      const reasonTrim = (rejectionReasonInput || '').trim();
+      if (!reasonTrim || reasonTrim.length < 5) {
+        setReviewEmailError('Please provide a specific rejection reason (min. 5 characters) for the driver.');
+        return;
+      }
+    }
+
     try {
-      await reviewAdminPersonnelEmailChangeRequestDB(reviewingEmailReq.request_id, action, rejectionReasonInput || undefined);
+      await reviewAdminPersonnelEmailChangeRequestDB(reviewingEmailReq.request_id, action, rejectionReasonInput?.trim() || undefined);
       setActionMsg({ type: 'success', text: `Driver email update ${action === 'APPROVE' ? 'Approved' : 'Rejected'}.` });
       setReviewingEmailReq(null);
       setRejectionReasonInput('');
+      setReviewEmailError(null);
       await loadAllData();
       setTimeout(() => setActionMsg(null), 4000);
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Failed to review email request.' });
-      setTimeout(() => setActionMsg(null), 5000);
+      setReviewEmailError(err.message || 'Failed to review email request.');
     }
   };
 
@@ -288,7 +351,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
 
           {activeSubTab === 'agreements' && (
             <button
-              onClick={() => setIsAddAgreementModalOpen(true)}
+              onClick={() => {
+                setIsAddAgreementModalOpen(true);
+                setAgreementError(null);
+              }}
               className="px-4 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" />
@@ -411,6 +477,7 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                       setEditRatePerKm(rc.rate_per_km);
                       setEditRateMin(rc.min_charge);
                       setEditRateActive(rc.is_active);
+                      setRateCardError(null);
                     }}
                     className="w-full py-2 bg-white hover:bg-[#EFE7DE] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                   >
@@ -537,7 +604,11 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                         <td className="py-3 px-4 text-right">
                           {(req.status || '').toUpperCase() === 'PENDING' && (
                             <button
-                              onClick={() => setReviewingEmailReq(req)}
+                              onClick={() => {
+                                setReviewingEmailReq(req);
+                                setReviewEmailError(null);
+                                setRejectionReasonInput('');
+                              }}
                               className="px-3 py-1 bg-[#38A132] hover:bg-[#2E8529] text-white text-[11px] font-bold rounded-lg cursor-pointer"
                             >
                               Review
@@ -563,20 +634,37 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <FileText className="w-4 h-4 text-[#38A132]" />
                 <span>Create Carrier Partner Agreement</span>
               </h4>
-              <button onClick={() => setIsAddAgreementModalOpen(false)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
+              <button
+                onClick={() => {
+                  setIsAddAgreementModalOpen(false);
+                  setAgreementError(null);
+                }}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D]"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {agreementError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{agreementError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateAgreement} className="space-y-3.5 text-xs">
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Select Carrier Partner *</label>
                 <select
                   value={agrCarrierId}
-                  onChange={(e) => setAgrCarrierId(Number(e.target.value))}
+                  onChange={(e) => {
+                    setAgrCarrierId(Number(e.target.value));
+                    if (agreementError) setAgreementError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 >
+                  <option value={0}>-- Select Carrier --</option>
                   {carrierPartners.map(c => (
                     <option key={c.carrier_id} value={c.carrier_id}>
                       {c.carrier_name} ({c.contact_phone})
@@ -591,7 +679,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                   <input
                     type="text"
                     value={agrNumber}
-                    onChange={(e) => setAgrNumber(e.target.value)}
+                    onChange={(e) => {
+                      setAgrNumber(e.target.value);
+                      if (agreementError) setAgreementError(null);
+                    }}
                     className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                     required
                   />
@@ -601,7 +692,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                   <input
                     type="text"
                     value={agrTitle}
-                    onChange={(e) => setAgrTitle(e.target.value)}
+                    onChange={(e) => {
+                      setAgrTitle(e.target.value);
+                      if (agreementError) setAgreementError(null);
+                    }}
                     className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                     required
                   />
@@ -614,7 +708,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                   <input
                     type="date"
                     value={agrEffectiveDate}
-                    onChange={(e) => setAgrEffectiveDate(e.target.value)}
+                    onChange={(e) => {
+                      setAgrEffectiveDate(e.target.value);
+                      if (agreementError) setAgreementError(null);
+                    }}
                     className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                     required
                   />
@@ -624,7 +721,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                   <input
                     type="date"
                     value={agrExpiryDate}
-                    onChange={(e) => setAgrExpiryDate(e.target.value)}
+                    onChange={(e) => {
+                      setAgrExpiryDate(e.target.value);
+                      if (agreementError) setAgreementError(null);
+                    }}
                     className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                     required
                   />
@@ -636,8 +736,12 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                   <label className="block font-extrabold text-[#2C241D] mb-1">Base Payout Rate (₹) *</label>
                   <input
                     type="number"
+                    min="0"
                     value={agrBasePayout}
-                    onChange={(e) => setAgrBasePayout(Number(e.target.value))}
+                    onChange={(e) => {
+                      setAgrBasePayout(Number(e.target.value));
+                      if (agreementError) setAgreementError(null);
+                    }}
                     className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                     required
                   />
@@ -646,8 +750,12 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                   <label className="block font-extrabold text-[#2C241D] mb-1">Per KM Payout Rate (₹/km) *</label>
                   <input
                     type="number"
+                    min="0"
                     value={agrPerKmRate}
-                    onChange={(e) => setAgrPerKmRate(Number(e.target.value))}
+                    onChange={(e) => {
+                      setAgrPerKmRate(Number(e.target.value));
+                      if (agreementError) setAgreementError(null);
+                    }}
                     className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                     required
                   />
@@ -659,7 +767,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <input
                   type="text"
                   value={agrCoverageArea}
-                  onChange={(e) => setAgrCoverageArea(e.target.value)}
+                  onChange={(e) => {
+                    setAgrCoverageArea(e.target.value);
+                    if (agreementError) setAgreementError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 />
@@ -670,7 +781,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <textarea
                   rows={2}
                   value={agrServicesCovered}
-                  onChange={(e) => setAgrServicesCovered(e.target.value)}
+                  onChange={(e) => {
+                    setAgrServicesCovered(e.target.value);
+                    if (agreementError) setAgreementError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium text-[#2C241D]"
                 />
               </div>
@@ -678,15 +792,18 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddAgreementModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42]"
+                  onClick={() => {
+                    setIsAddAgreementModalOpen(false);
+                    setAgreementError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42] hover:bg-[#EFE7DE] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingAgreement}
-                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-md"
                 >
                   {isSubmittingAgreement ? 'Registering...' : 'Register Agreement'}
                 </button>
@@ -705,18 +822,35 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <Edit3 className="w-4 h-4 text-[#38A132]" />
                 <span>Edit Tariff Rate: {editingRateCard.service_type}</span>
               </h4>
-              <button onClick={() => setEditingRateCard(null)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
+              <button
+                onClick={() => {
+                  setEditingRateCard(null);
+                  setRateCardError(null);
+                }}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D]"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {rateCardError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{rateCardError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveRateCard} className="space-y-3.5 text-xs">
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Base Charge (₹) *</label>
                 <input
                   type="number"
+                  min="0"
                   value={editRateBase}
-                  onChange={(e) => setEditRateBase(Number(e.target.value))}
+                  onChange={(e) => {
+                    setEditRateBase(Number(e.target.value));
+                    if (rateCardError) setRateCardError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 />
@@ -726,8 +860,12 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Rate Per KM (₹/km) *</label>
                 <input
                   type="number"
+                  min="0"
                   value={editRatePerKm}
-                  onChange={(e) => setEditRatePerKm(Number(e.target.value))}
+                  onChange={(e) => {
+                    setEditRatePerKm(Number(e.target.value));
+                    if (rateCardError) setRateCardError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 />
@@ -737,8 +875,12 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <label className="block font-extrabold text-[#2C241D] mb-1">Minimum Haul Charge (₹) *</label>
                 <input
                   type="number"
+                  min="0"
                   value={editRateMin}
-                  onChange={(e) => setEditRateMin(Number(e.target.value))}
+                  onChange={(e) => {
+                    setEditRateMin(Number(e.target.value));
+                    if (rateCardError) setRateCardError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 />
@@ -760,15 +902,18 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setEditingRateCard(null)}
-                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42]"
+                  onClick={() => {
+                    setEditingRateCard(null);
+                    setRateCardError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42] hover:bg-[#EFE7DE] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingRateCard}
-                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-md"
                 >
                   {isSavingRateCard ? 'Saving...' : 'Save Parameters'}
                 </button>
@@ -787,10 +932,23 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 <Mail className="w-4 h-4 text-[#38A132]" />
                 <span>Review Driver Email Change</span>
               </h4>
-              <button onClick={() => setReviewingEmailReq(null)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
+              <button
+                onClick={() => {
+                  setReviewingEmailReq(null);
+                  setReviewEmailError(null);
+                }}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D]"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {reviewEmailError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{reviewEmailError}</span>
+              </div>
+            )}
 
             <div className="space-y-2 text-xs">
               <div><strong>Driver:</strong> {reviewingEmailReq.personnel_name}</div>
@@ -806,7 +964,10 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
                 type="text"
                 placeholder="e.g. Email address verification failed"
                 value={rejectionReasonInput}
-                onChange={(e) => setRejectionReasonInput(e.target.value)}
+                onChange={(e) => {
+                  setRejectionReasonInput(e.target.value);
+                  if (reviewEmailError) setReviewEmailError(null);
+                }}
                 className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs font-semibold"
               />
             </div>
@@ -815,14 +976,14 @@ export const AdminCarrierGovernanceSection: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleReviewEmailRequest('REJECT')}
-                className="px-4 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 hover:bg-rose-100"
+                className="px-4 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-700 hover:bg-rose-100 transition-colors"
               >
                 Reject Request
               </button>
               <button
                 type="button"
                 onClick={() => handleReviewEmailRequest('APPROVE')}
-                className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold"
+                className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold shadow-md cursor-pointer transition-all"
               >
                 Approve & Update Email
               </button>

@@ -327,6 +327,12 @@ export const MyActivityTab: React.FC = () => {
 
   const handleRegisterMaterialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const qVal = parseFloat(matQuantity);
+    if (!qVal || qVal <= 0) {
+      alert('Material quantity must be strictly greater than 0.');
+      return;
+    }
+
     setSubmittingMat(true);
     try {
       const payload = {
@@ -334,23 +340,32 @@ export const MyActivityTab: React.FC = () => {
         customer_email: userEmail,
         material_type: matType,
         wood_type: matWoodType,
-        quantity: parseFloat(matQuantity) || 0,
+        quantity: qVal,
         unit: matUnit,
         dimensions: matDimensions,
         condition: matCondition,
         notes: matNotes
       };
-      const res = await fetch('/api/materials/register', {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch('/api/materials/customer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload)
       });
       if (res.ok) {
         setIsRegisterMaterialOpen(false);
+        setMatNotes('');
         loadAllActivities();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        alert(errJson.detail || 'Failed to register customer material');
       }
     } catch (e) {
       console.error('Error registering material:', e);
+      alert('Failed to register material. Please check your network connection.');
     } finally {
       setSubmittingMat(false);
     }
@@ -1183,44 +1198,56 @@ export const MyActivityTab: React.FC = () => {
               )}
 
               {/* ========================================================================= */}
-              {/* SECTION 5: MY MATERIALS (ONLY IF materials.length > 0) */}
+              {/* SECTION 5: MY MATERIALS */}
               {/* ========================================================================= */}
-              {materials.length > 0 && (activeFilter === 'all' || activeFilter === 'materials') && (
-                <div className="space-y-3 pt-2">
-                  <div className="flex items-center justify-between pb-1 border-b border-[#EFE7DE]">
-                    <div className="flex items-center gap-2 text-xs font-black text-[#2C241D]">
-                      <div className="w-5 h-5 rounded-lg bg-[#7A6C5E]/15 border border-[#7A6C5E]/30 flex items-center justify-center text-[#7A6C5E]">
-                        <Layers className="w-3 h-3" />
+              {(activeFilter === 'all' || activeFilter === 'materials') && (
+                materials.length > 0 ? (
+                  <div className="space-y-3 pt-2">
+                    <div className="flex items-center justify-between pb-1 border-b border-[#EFE7DE]">
+                      <div className="flex items-center gap-2 text-xs font-black text-[#2C241D]">
+                        <div className="w-5 h-5 rounded-lg bg-[#7A6C5E]/15 border border-[#7A6C5E]/30 flex items-center justify-center text-[#7A6C5E]">
+                          <Layers className="w-3 h-3" />
+                        </div>
+                        <span>My Registered Materials ({filteredMaterials.length})</span>
                       </div>
-                      <span>My Registered Materials ({filteredMaterials.length})</span>
+                      <button
+                        onClick={() => setIsRegisterMaterialOpen(true)}
+                        className="text-[11px] font-black text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>Register Material</span>
+                      </button>
                     </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                      {filteredMaterials.map((m) => (
+                        <div
+                          key={m.material_id}
+                          className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-2xl p-3 shadow-2xs space-y-1 text-xs"
+                        >
+                          <div className="flex justify-between font-black text-[#2C241D] text-[11px]">
+                            <span>#{m.material_id} • {m.material_type}</span>
+                            <span className="text-[#48A63E] font-bold">{m.status}</span>
+                          </div>
+                          <div className="text-[10px] text-[#7A6C5E] flex justify-between">
+                            <span>{m.wood_type || 'Timber'} ({m.dimensions || 'Standard'})</span>
+                            <span className="font-bold text-[#2C241D]">{m.remaining_quantity ?? m.quantity} {m.unit}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : activeFilter === 'materials' ? (
+                  <div className="p-8 text-center bg-white/60 rounded-3xl border border-dashed border-[#E2D7CB] space-y-3">
+                    <p className="text-xs text-[#7A6C5E] font-semibold">You have not registered any customer-owned materials yet.</p>
                     <button
                       onClick={() => setIsRegisterMaterialOpen(true)}
-                      className="text-[11px] font-black text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
+                      className="px-4 py-2 rounded-xl bg-[#48A63E] text-white text-xs font-bold shadow-md hover:bg-[#3D9134]"
                     >
-                      <Plus className="w-3 h-3" />
-                      <span>Register Material</span>
+                      Register Your First Material
                     </button>
                   </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                    {filteredMaterials.map((m) => (
-                      <div
-                        key={m.material_id}
-                        className="bg-gradient-to-b from-white/95 to-[#FAF8F5]/80 border-2 border-[#E2D7CB] rounded-2xl p-3 shadow-2xs space-y-1 text-xs"
-                      >
-                        <div className="flex justify-between font-black text-[#2C241D] text-[11px]">
-                          <span>#{m.material_id} • {m.material_type}</span>
-                          <span className="text-[#48A63E] font-bold">{m.status}</span>
-                        </div>
-                        <div className="text-[10px] text-[#7A6C5E] flex justify-between">
-                          <span>{m.wood_type || 'Timber'}</span>
-                          <span className="font-bold text-[#2C241D]">{m.remaining_quantity ?? m.quantity} {m.unit}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                ) : null
               )}
             </>
           )}

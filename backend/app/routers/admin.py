@@ -1,15 +1,30 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, defer
+from sqlalchemy import func, text
 from pydantic import BaseModel, EmailStr
 from typing import Optional, Union, List
 from datetime import datetime, date, timedelta
 import string
 import secrets
 import random
-
+import time
 from app.database import get_db
-from app import models, auth, schemas
-from app.email_utils import send_staff_credentials_email, send_carrier_credentials_email
+from app import models, schemas, auth
+
+# High-performance in-memory caches for BI summary and revenue analytics (120s TTL)
+_dashboard_summary_cache = {
+    "data": None,
+    "timestamp": 0
+}
+_revenue_analytics_cache = {}
+_bottlenecks_cache = {
+    "data": None,
+    "timestamp": 0
+}
+_admin_users_cache = {
+    "data": None,
+    "timestamp": 0
+}
 
 router = APIRouter(prefix="/api/admin", tags=["Admin Management"])
 
@@ -228,7 +243,10 @@ def list_staff(db: Session = Depends(get_db)):
     users = db.query(models.User).filter(
         models.User.role_id.in_(staff_role_ids),
         models.User.email != "admin@retailsphere.com",
-        models.User.full_name != "admin"
+        models.User.full_name != "admin",
+        ~models.User.email.ilike("%@example.com"),
+        ~models.User.email.ilike("test_%"),
+        ~models.User.full_name.ilike("%test%")
     ).order_by(models.User.user_id.asc()).all()
     
     result = []
@@ -311,12 +329,26 @@ class UserUpdateRequest(BaseModel):
 
 @router.get("/users")
 def list_all_users(db: Session = Depends(get_db)):
+    now_ts = time.time()
+    if _admin_users_cache["data"] and (now_ts - _admin_users_cache["timestamp"] < 30.0):
+        return _admin_users_cache["data"]
+
     admin_role = db.query(models.Role).filter(models.Role.role_name == "Admin").first()
     admin_role_id = admin_role.role_id if admin_role else None
     
-    query = db.query(models.User).filter(
-        models.User.email != "admin@retailsphere.com",
-        models.User.full_name != "admin"
+    query = (
+        db.query(models.User)
+        .options(
+            joinedload(models.User.role),
+            joinedload(models.User.customer_profile)
+        )
+        .filter(
+            models.User.email != "admin@retailsphere.com",
+            models.User.full_name != "admin",
+            ~models.User.email.ilike("%@example.com"),
+            ~models.User.email.ilike("test_%"),
+            ~models.User.full_name.ilike("%test%")
+        )
     )
     if admin_role_id:
         query = query.filter(models.User.role_id != admin_role_id)
@@ -357,6 +389,9 @@ def list_all_users(db: Session = Depends(get_db)):
             "created_at": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent",
             "dateAdded": u.created_at.strftime("%Y-%m-%d") if u.created_at else "Recent"
         })
+
+    _admin_users_cache["data"] = result
+    _admin_users_cache["timestamp"] = now_ts
     return result
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
@@ -398,6 +433,7 @@ def create_user_admin(payload: UserCreateRequest, db: Session = Depends(get_db))
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    _admin_users_cache["timestamp"] = 0.0
 
     if role_clean == "Customer":
         cust_profile = models.Customer(
@@ -466,6 +502,7 @@ def update_user_admin(user_id: int, payload: UserUpdateRequest, db: Session = De
 
     db.commit()
     db.refresh(user)
+    _admin_users_cache["timestamp"] = 0.0
 
     return {
         "message": f"Updated user #{user_id} ({user.full_name}) successfully.",
@@ -490,6 +527,7 @@ def toggle_user_status(user_id: int, db: Session = Depends(get_db)):
     user.status = not user.status
     db.commit()
     db.refresh(user)
+    _admin_users_cache["timestamp"] = 0.0
 
     return {
         "message": f"User status set to {'Active' if user.status else 'Inactive'}.",
@@ -514,6 +552,7 @@ def delete_user_by_id(user_id: int, db: Session = Depends(get_db)):
     user_email = user.email
     db.delete(user)
     db.commit()
+    _admin_users_cache["timestamp"] = 0.0
     return {"message": f"Successfully deleted user account '{user_email}' (ID: {user_id}) from database."}
 
 @router.delete("/users/by-email/{email}")
@@ -558,9 +597,36 @@ class StockUpdatePayload(BaseModel):
     available_colors: Optional[str] = None
     subcategory: Optional[str] = None
 
+# Cache for admin inventory / product catalog (TTL: 30 seconds)
+_admin_inventory_cache = {"data": None, "timestamp": 0.0}
+
 @router.get("/inventory")
 def list_inventory(db: Session = Depends(get_db)):
-    products = db.query(models.Product).all()
+    now_ts = time.time()
+    if _admin_inventory_cache["data"] and (now_ts - _admin_inventory_cache["timestamp"] < 30.0):
+        return _admin_inventory_cache["data"]
+    products = (
+        db.query(models.Product)
+        .options(
+            joinedload(models.Product.category),
+            joinedload(models.Product.subcategory),
+            joinedload(models.Product.images)
+        )
+        .all()
+    )
+
+    # Pre-aggregate review ratings and review counts in 1 single database query
+    review_rows = (
+        db.query(
+            models.Review.product_id,
+            func.count(models.Review.review_id),
+            func.avg(models.Review.rating)
+        )
+        .group_by(models.Review.product_id)
+        .all()
+    )
+    review_stats = {r[0]: (r[1], r[2]) for r in review_rows}
+
     res = []
     for p in products:
         qty = p.stock_quantity or 0
@@ -582,6 +648,8 @@ def list_inventory(db: Session = Depends(get_db)):
         elif p.color and p.color.strip():
             colors_list = [p.color.strip()]
 
+        stat = review_stats.get(p.product_id, (0, 0))
+
         res.append({
             "id": f"inv-{p.product_id}",
             "product_id": p.product_id,
@@ -594,13 +662,18 @@ def list_inventory(db: Session = Depends(get_db)):
             "price": float(p.price or 0),
             "stockCount": qty,
             "status": st,
+            "rating": round(float(stat[1] or 0), 1),
+            "review_count": int(stat[0] or 0),
             "image_url": first_img or "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=800&q=80"
         })
 
+    _admin_inventory_cache["data"] = res
+    _admin_inventory_cache["timestamp"] = now_ts
     return res
 
 @router.post("/inventory", status_code=status.HTTP_201_CREATED)
 def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(get_db)):
+    _admin_inventory_cache["timestamp"] = 0.0
     cat_name = payload.category.strip()
     category = db.query(models.Category).filter(models.Category.category_name == cat_name).first()
     if not category:
@@ -685,6 +758,7 @@ def add_inventory_product(payload: ProductCreatePayload, db: Session = Depends(g
 
 @router.patch("/inventory/{product_id}")
 def update_product_stock(product_id: int, payload: StockUpdatePayload, db: Session = Depends(get_db)):
+    _admin_inventory_cache["timestamp"] = 0.0
     prod = db.query(models.Product).filter(models.Product.product_id == product_id).first()
     if not prod:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -793,12 +867,17 @@ def get_user_notifications(db: Session = Depends(get_db)):
     return res
 
 @router.put("/notifications/{notification_id}/read")
-def mark_notification_read(notification_id: int, db: Session = Depends(get_db)):
-    notif = db.query(models.Notification).filter(models.Notification.notification_id == notification_id).first()
+def mark_notification_read(notification_id: str, db: Session = Depends(get_db)):
+    clean_id_str = str(notification_id).replace("notif-", "").strip()
+    try:
+        clean_id = int(clean_id_str)
+    except (ValueError, TypeError):
+        return {"status": "error", "message": f"Invalid notification ID: {notification_id}"}
+    notif = db.query(models.Notification).filter(models.Notification.notification_id == clean_id).first()
     if notif:
         notif.is_read = True
         db.commit()
-        return {"status": "success", "message": f"Notification {notification_id} marked as read"}
+        return {"status": "success", "message": f"Notification {clean_id} marked as read"}
     return {"status": "not_found", "message": "Notification not found"}
 
 @router.put("/notifications/mark-all-read")
@@ -953,27 +1032,49 @@ class CreateReadymadeOrderPayload(BaseModel):
 
 @router.get("/orders")
 def get_readymade_orders(db: Session = Depends(get_db)):
-    db_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_id.desc()).all()
+    db_orders = (
+        db.query(models.ReadymadeOrder)
+        .options(
+            joinedload(models.ReadymadeOrder.customer).joinedload(models.Customer.user),
+            joinedload(models.ReadymadeOrder.items),
+            joinedload(models.ReadymadeOrder.fulfillment).joinedload(models.OrderFulfillment.driver_user),
+            joinedload(models.ReadymadeOrder.fulfillment).joinedload(models.OrderFulfillment.assigned_personnel),
+        )
+        .order_by(models.ReadymadeOrder.order_id.desc())
+        .all()
+    )
+
+    # Collect all product_ids across all items to fetch in 1 single query
+    prod_ids = set()
+    for r in db_orders:
+        for item in r.items:
+            if item.product_id:
+                prod_ids.add(item.product_id)
+
+    prod_map = {
+        p.product_id: p for p in db.query(models.Product).filter(models.Product.product_id.in_(list(prod_ids))).all()
+    } if prod_ids else {}
+
     res = []
     for r in db_orders:
         cust_name = r.customer_name
         cust_email = r.customer_email
-        if (not cust_name or not cust_email) and r.customer_id:
-            c = db.query(models.Customer).filter(models.Customer.customer_id == r.customer_id).first()
-            if c and c.user:
-                cust_name = cust_name or c.user.full_name
-                cust_email = cust_email or c.user.email
+        if r.customer and r.customer.user:
+            cust_name = cust_name or r.customer.user.full_name
+            cust_email = cust_email or r.customer.user.email
+
+        if (cust_email and ("@example.com" in cust_email.lower() or cust_email.lower().startswith("test_"))) or (cust_name and "test" in cust_name.lower()):
+            continue
 
         items_list = []
         for i in r.items:
             img = i.image_url
             sku_code = "SKU-RS-STORE"
-            if i.product_id:
-                p = db.query(models.Product).filter(models.Product.product_id == i.product_id).first()
-                if p:
-                    sku_code = f"SKU-RS-{p.product_id:03d}"
-                    if not img and p.image:
-                        img = p.image
+            if i.product_id and i.product_id in prod_map:
+                p = prod_map[i.product_id]
+                sku_code = f"SKU-RS-{p.product_id:03d}"
+                if not img and p.image:
+                    img = p.image
             if not img:
                 img = "https://images.unsplash.com/photo-1555041469-a586c61ea9bc?auto=format&fit=crop&w=600&q=80"
             
@@ -987,14 +1088,7 @@ def get_readymade_orders(db: Session = Depends(get_db)):
                 "imageUrl": img
             })
         
-        user_id = None
-        if r.customer_id:
-            c = db.query(models.Customer).filter(models.Customer.customer_id == r.customer_id).first()
-            if c:
-                user_id = c.user_id
-                if c.user:
-                    cust_name = cust_name or c.user.full_name
-                    cust_email = cust_email or c.user.email
+        user_id = r.customer.user_id if r.customer else None
 
         fulfillment_info = None
         carrier_name = None
@@ -1023,6 +1117,17 @@ def get_readymade_orders(db: Session = Depends(get_db)):
                 "driver_name": driver_name,
             }
 
+        effective_order_status = r.order_status or "Order Placed"
+        if r.fulfillment:
+            if r.fulfillment.delivery_status in ["Delivered", "Completed"] or r.fulfillment.fulfillment_status in ["Delivered", "Completed"]:
+                effective_order_status = "Delivered"
+            elif r.fulfillment.delivery_status in ["Out for Delivery", "OUT_FOR_DELIVERY"] or r.fulfillment.fulfillment_status in ["Out for Delivery", "OUT_FOR_DELIVERY"]:
+                effective_order_status = "Out for Delivery"
+            elif r.fulfillment.fulfillment_status in ["Dispatched", "DISPATCHED", "In Transit"]:
+                effective_order_status = "Dispatched"
+            elif r.fulfillment.fulfillment_status in ["Packed", "PACKED"] and effective_order_status not in ["Dispatched", "Delivered", "Out for Delivery"]:
+                effective_order_status = "Packed"
+
         res.append({
             "orderId": f"RET-{r.order_id:06d}",
             "customerId": r.customer_id,
@@ -1030,11 +1135,16 @@ def get_readymade_orders(db: Session = Depends(get_db)):
             "userId": user_id,
             "user_id": user_id,
             "customerName": cust_name or "Valued Customer",
-            "email": cust_email or "customer@retailsphere.com",
+            "customer_name": cust_name or "Valued Customer",
+            "email": cust_email or (r.customer.user.email if r.customer and r.customer.user else "customer@retailsphere.ai"),
+            "customerEmail": cust_email or (r.customer.user.email if r.customer and r.customer.user else "customer@retailsphere.ai"),
+            "customer_email": cust_email or (r.customer.user.email if r.customer and r.customer.user else "customer@retailsphere.ai"),
+            "customerPhone": (r.customer.user.phone if r.customer and r.customer.user else "") or "",
+            "customer_phone": (r.customer.user.phone if r.customer and r.customer.user else "") or "",
             "itemsCount": sum(i.quantity for i in r.items) if r.items else 1,
             "totalAmount": float(r.total_amount or 0),
-            "orderStatus": r.order_status or "Order Placed",
-            "completionStatus": getattr(r, "completion_status", None) or r.order_status or "Order Placed",
+            "orderStatus": effective_order_status,
+            "completionStatus": getattr(r, "completion_status", None) or effective_order_status,
             "paymentStatus": r.payment_status or "Paid",
             "paymentId": r.payment_id,
             "orderDate": r.order_date.strftime("%b %d, %Y") if r.order_date else "Recent",
@@ -1331,6 +1441,236 @@ def log_audit_event(
         print(f"[AUDIT LOG] Warning: {e}")
 
 
+def calculate_admin_dashboard_summary(db: Session):
+    now = datetime.utcnow()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = today_start.replace(day=1)
+    five_days_ago = now - timedelta(days=5)
+
+    sql_all_in_one = text('''
+    SELECT
+        (SELECT count(*) FROM tbl_readymade_order) AS rm_total,
+        (SELECT count(*) FROM tbl_custom_order) AS co_total,
+        (SELECT count(*) FROM tbl_fabrication_request) AS fab_total,
+        (SELECT count(*) FROM tbl_service_request) AS srv_total,
+        (SELECT count(*) FROM tbl_readymade_order WHERE order_date >= :today_start) AS rm_today,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_date >= :today_start) AS co_today,
+        (SELECT count(*) FROM tbl_readymade_order WHERE order_status NOT IN ('Delivered', 'Cancelled')) AS rm_pending,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status NOT IN ('Completed', 'Delivered', 'Cancelled')) AS co_pending,
+        (SELECT count(*) FROM tbl_readymade_order WHERE order_status = 'Delivered') AS rm_delivered,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status IN ('Completed', 'Delivered')) AS co_delivered,
+        (SELECT count(*) FROM tbl_readymade_order WHERE order_status = 'Cancelled') AS rm_cancelled,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Cancelled') AS co_cancelled,
+        (SELECT coalesce(sum(total_amount), 0) FROM tbl_readymade_order WHERE order_status = 'Cancelled') AS rm_cancelled_val,
+        (SELECT coalesce(sum(estimated_price), 0) FROM tbl_custom_order WHERE order_status = 'Cancelled') AS co_cancelled_val,
+        (SELECT count(*) FROM tbl_order_return) AS ret_total,
+        (SELECT count(*) FROM tbl_customer) AS cust_total,
+        (SELECT count(*) FROM tbl_users WHERE status = true) AS active_users,
+        (SELECT count(*) FROM tbl_product) AS prod_total,
+        (SELECT count(*) FROM tbl_product WHERE stock_quantity < 5) AS prod_low_stock,
+        (SELECT coalesce(sum(amount), 0) FROM tbl_payment WHERE payment_status = 'Paid') AS rev_total,
+        (SELECT coalesce(sum(amount), 0) FROM tbl_payment WHERE payment_status = 'Paid' AND payment_date >= :today_start) AS rev_today,
+        (SELECT coalesce(sum(amount), 0) FROM tbl_payment WHERE payment_status = 'Paid' AND payment_date >= :month_start) AS rev_month,
+        (SELECT count(*) FROM tbl_payment WHERE payment_status = 'Paid') AS rev_paid_count,
+        (SELECT coalesce(sum(refund_amount), 0) FROM tbl_order_return WHERE refund_status = 'Refunded') AS ret_refunds_total,
+        (SELECT count(*) FROM tbl_rework_job WHERE status != 'RESOLVED') AS rework_total,
+        (SELECT count(*) FROM tbl_readymade_order WHERE payment_status IN ('Pending', 'UNPAID')) AS rm_unpaid,
+        (SELECT count(*) FROM tbl_custom_order WHERE payment_status IN ('Pending', 'UNPAID')) AS co_unpaid,
+        (SELECT count(*) FROM tbl_fabrication_request WHERE payment_status IN ('Pending', 'UNPAID')) AS fab_unpaid,
+        (SELECT count(*) FROM tbl_service_request WHERE payment_status IN ('Pending', 'UNPAID')) AS srv_unpaid,
+        (SELECT count(*) FROM tbl_custom_order WHERE coalesce(review_status, 'NEW') IN ('NEW', 'UNDER_REVIEW')) AS cp_request,
+        (SELECT count(*) FROM tbl_custom_order WHERE review_status = 'APPROVED') AS cp_retail_review,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Technical Assessment') AS cp_technical_assessment,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Quotation Sent') AS cp_quotation,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Quotation Approved') AS cp_customer_approval,
+        (SELECT count(*) FROM tbl_custom_order WHERE payment_status = 'Pending' AND order_status IN ('Quotation Approved', 'Awaiting Payment')) AS cp_payment,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'In Production') AS cp_production,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'QC Pending') AS cp_qc,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status IN ('Completed', 'Delivered')) AS cp_completed,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status IN ('NEW', 'APPROVED', 'Pending Assessment')) +
+        (SELECT count(*) FROM tbl_fabrication_request WHERE status IN ('REQUESTED', 'ASSESSED')) AS ps_assessments_pending,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Quotation Pending') +
+        (SELECT count(*) FROM tbl_fabrication_request WHERE status = 'ASSESSED') AS ps_quotations_pending,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Quotation Sent') +
+        (SELECT count(*) FROM tbl_fabrication_request WHERE status = 'QUOTED') AS ps_customer_approvals_pending,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Material Pending') +
+        (SELECT count(*) FROM tbl_fabrication_request WHERE status = 'APPROVED' AND material_source = 'Customer-Owned') AS ps_materials_pending,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'In Production') +
+        (SELECT count(*) FROM tbl_fabrication_request WHERE status = 'IN_PRODUCTION') AS ps_in_production,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'QC Pending') +
+        (SELECT count(*) FROM tbl_fabrication_request WHERE status = 'QC_PENDING') AS ps_qc_pending,
+        (SELECT count(*) FROM tbl_custom_order WHERE order_status = 'Completed' AND order_date >= :today_start) AS ps_completed_today,
+        (SELECT json_object_agg(coalesce(order_status, 'Unknown'), cnt) FROM (SELECT order_status, count(*) as cnt FROM tbl_readymade_order GROUP BY order_status) t) AS rm_statuses,
+        (SELECT json_object_agg(st, cnt) FROM (SELECT coalesce(a.status, 'AVAILABLE') as st, count(u.user_id) as cnt FROM tbl_users u JOIN tbl_role r ON u.role_id = r.role_id AND r.role_name = 'Worker' LEFT JOIN tbl_worker_availability a ON u.user_id = a.worker_id GROUP BY coalesce(a.status, 'AVAILABLE')) t) AS worker_statuses,
+        (SELECT json_object_agg(coalesce(skill_name, 'Other'), cnt) FROM (SELECT skill_name, count(*) as cnt FROM tbl_worker_skill GROUP BY skill_name) t) AS worker_skills,
+        (SELECT json_agg(json_build_object('id', custom_order_id, 'furniture_type', furniture_type, 'order_status', order_status, 'order_date', order_date)) FROM (SELECT custom_order_id, furniture_type, order_status, order_date FROM tbl_custom_order WHERE order_status = 'In Production' AND order_date < :five_days_ago LIMIT 5) t) AS delays,
+        (SELECT json_agg(json_build_object('id', inspection_id, 'order_type', order_type, 'order_id', order_id, 'notes', inspection_notes)) FROM (SELECT inspection_id, order_type, order_id, inspection_notes FROM tbl_quality_inspection WHERE result = 'FAIL' ORDER BY inspection_id DESC LIMIT 5) t) AS qc_fails,
+        (SELECT json_agg(json_build_object('product_id', product_id, 'product_name', product_name, 'stock_quantity', stock_quantity)) FROM (SELECT product_id, product_name, stock_quantity FROM tbl_product WHERE stock_quantity < 5 LIMIT 5) t) AS low_stock_items,
+        (SELECT json_agg(json_build_object('audit_id', audit_id, 'actor_name', actor_name, 'actor_role', actor_role, 'action', action, 'entity_type', entity_type, 'entity_id', entity_id, 'details', details, 'timestamp', timestamp)) FROM (SELECT audit_id, actor_name, actor_role, action, entity_type, entity_id, details, timestamp FROM tbl_audit_log ORDER BY audit_id DESC LIMIT 15) t) AS recent_logs
+    ''')
+
+    metrics = dict(db.execute(sql_all_in_one, {'today_start': today_start, 'month_start': month_start, 'five_days_ago': five_days_ago}).fetchone()._mapping)
+
+    rm_s = metrics.get('rm_statuses') or {}
+    order_status_counts = {
+        'Placed': int(rm_s.get('Placed', 0)) + int(rm_s.get('Order Placed', 0)),
+        'Confirmed': int(rm_s.get('Confirmed', 0)),
+        'Processing': int(rm_s.get('Processing', 0)) + int(rm_s.get('In Production', 0)),
+        'Packing': int(rm_s.get('Packing', 0)),
+        'Packed': int(rm_s.get('Packed', 0)),
+        'Dispatched': int(rm_s.get('Dispatched', 0)),
+        'Out for Delivery': int(rm_s.get('Out for Delivery', 0)),
+        'Delivered': int(rm_s.get('Delivered', 0)),
+        'Cancelled': int(rm_s.get('Cancelled', 0)),
+        'Returned': int(rm_s.get('Returned', 0))
+    }
+
+    w_s = metrics.get('worker_statuses') or {}
+    worker_status_counts = {
+        'available': int(w_s.get('AVAILABLE', 0)),
+        'busy': int(w_s.get('BUSY', 0)),
+        'on_site': int(w_s.get('ON_SITE', 0)),
+        'offline': int(w_s.get('OFF_DUTY', 0)) + int(w_s.get('OFFLINE', 0)) + int(w_s.get('INACTIVE', 0))
+    }
+    total_workers = sum(int(v) for v in w_s.values())
+
+    w_skills = metrics.get('worker_skills') or {}
+    skill_counts = {
+        'Woodwork & Carpentry': sum(int(v) for k, v in w_skills.items() if 'Wood' in k or 'Carpen' in k),
+        'Upholstery': sum(int(v) for k, v in w_skills.items() if 'Upholster' in k),
+        'Assembly': sum(int(v) for k, v in w_skills.items() if 'Assembl' in k),
+        'Surface Finishing': sum(int(v) for k, v in w_skills.items() if 'Finish' in k or 'Polish' in k)
+    }
+
+    pending_payments_count = (
+        int(metrics.get('rm_unpaid', 0)) +
+        int(metrics.get('co_unpaid', 0)) +
+        int(metrics.get('fab_unpaid', 0)) +
+        int(metrics.get('srv_unpaid', 0))
+    )
+
+    alerts = []
+    for d in (metrics.get('delays') or []):
+        f_type = d.get('furniture_type') or 'Custom Order'
+        oid = d.get('id')
+        alerts.append({
+            'id': f'alert-delay-{oid}',
+            'severity': 'URGENT',
+            'title': f'Production Delay on Custom Order #{oid}',
+            'description': f'Order for {f_type} has been in production for over 5 days.',
+            'type': 'delay'
+        })
+
+    for qc in (metrics.get('qc_fails') or []):
+        qid = qc.get('id')
+        notes = qc.get('notes') or 'Quality checklist inspection failed.'
+        alerts.append({
+            'id': f'alert-qc-{qid}',
+            'severity': 'URGENT',
+            'title': f"QC Failure on {qc.get('order_type', 'Custom')} Order #{qc.get('order_id', qid)}",
+            'description': f'Notes: {notes}',
+            'type': 'qc_failure'
+        })
+
+    for p in (metrics.get('low_stock_items') or []):
+        pid = p.get('product_id')
+        pname = p.get('product_name') or 'Product'
+        qty = p.get('stock_quantity')
+        alerts.append({
+            'id': f'alert-stock-{pid}',
+            'severity': 'LOW_STOCK',
+            'title': f'Low Stock Warning: {pname}',
+            'description': f'Current inventory: {qty} units (Threshold: 5 units).',
+            'type': 'low_stock'
+        })
+
+    activities = []
+    for log in (metrics.get('recent_logs') or []):
+        activities.append({
+            'id': log.get('audit_id'),
+            'actorName': log.get('actor_name') or 'System Admin',
+            'actorRole': log.get('actor_role') or 'Admin',
+            'action': log.get('action') or '',
+            'entityType': log.get('entity_type') or '',
+            'entityId': str(log.get('entity_id') or ''),
+            'details': log.get('details') or '',
+            'timestamp': str(log.get('timestamp') or '')[:19].replace('T', ' ')
+        })
+
+    summary_data = {
+        'business_metrics': {
+            'total_orders': int(metrics.get('rm_total', 0)) + int(metrics.get('co_total', 0)),
+            'todays_orders': int(metrics.get('rm_today', 0)) + int(metrics.get('co_today', 0)),
+            'pending_orders': int(metrics.get('rm_pending', 0)) + int(metrics.get('co_pending', 0)),
+            'completed_orders': int(metrics.get('rm_delivered', 0)) + int(metrics.get('co_delivered', 0)),
+            'cancelled_orders': int(metrics.get('rm_cancelled', 0)) + int(metrics.get('co_cancelled', 0)),
+            'return_requests': int(metrics.get('ret_total', 0)),
+            'total_customers': int(metrics.get('cust_total', 0)),
+            'active_customers': int(metrics.get('active_users', 0)),
+            'total_products': int(metrics.get('prod_total', 0)),
+            'low_stock_items': int(metrics.get('prod_low_stock', 0))
+        },
+        'revenue_metrics': {
+            'total_revenue': float(metrics.get('rev_total', 0)),
+            'todays_revenue': float(metrics.get('rev_today', 0)),
+            'this_month_revenue': float(metrics.get('rev_month', 0)),
+            'paid_orders_count': int(metrics.get('rev_paid_count', 0)),
+            'pending_payments_count': pending_payments_count,
+            'refunds_total_amount': float(metrics.get('ret_refunds_total', 0)),
+            'cancelled_order_value': float(metrics.get('rm_cancelled_val', 0)) + float(metrics.get('co_cancelled_val', 0))
+        },
+        'order_overview': {
+            'readymade': int(metrics.get('rm_total', 0)),
+            'customization': int(metrics.get('co_total', 0)),
+            'fabrication': int(metrics.get('fab_total', 0)),
+            'onsite_services': int(metrics.get('srv_total', 0))
+        },
+        'order_status_counts': order_status_counts,
+        'custom_pipeline_counts': {
+            'request': int(metrics.get('cp_request', 0)),
+            'retail_review': int(metrics.get('cp_retail_review', 0)),
+            'technical_assessment': int(metrics.get('cp_technical_assessment', 0)),
+            'quotation': int(metrics.get('cp_quotation', 0)),
+            'customer_approval': int(metrics.get('cp_customer_approval', 0)),
+            'payment': int(metrics.get('cp_payment', 0)),
+            'production': int(metrics.get('cp_production', 0)),
+            'qc': int(metrics.get('cp_qc', 0)),
+            'completed': int(metrics.get('cp_completed', 0))
+        },
+        'production_status_summary': {
+            'technical_assessment': int(metrics.get('ps_assessments_pending', 0)),
+            'quotation_pending': int(metrics.get('ps_quotations_pending', 0)),
+            'customer_approval': int(metrics.get('ps_customer_approvals_pending', 0)),
+            'payment_pending': pending_payments_count,
+            'material_pending': int(metrics.get('ps_materials_pending', 0)),
+            'in_production': int(metrics.get('ps_in_production', 0)),
+            'qc_pending': int(metrics.get('ps_qc_pending', 0)),
+            'rework': int(metrics.get('rework_total', 0)),
+            'completed_today': int(metrics.get('ps_completed_today', 0))
+        },
+        'worker_overview': {
+            'total_workers': total_workers,
+            'status_counts': worker_status_counts,
+            'skill_counts': skill_counts
+        },
+        'alerts': alerts,
+        'recent_activities': activities
+    }
+    return summary_data
+
+
+def warm_dashboard_cache():
+    try:
+        from app.database import SessionLocal
+        with SessionLocal() as db:
+            data = calculate_admin_dashboard_summary(db)
+            _dashboard_summary_cache["data"] = data
+            _dashboard_summary_cache["timestamp"] = time.time()
+            print("[CACHE] Admin dashboard summary cache pre-warmed successfully.")
+    except Exception as e:
+        print(f"[CACHE] Notice: {e}")
+
+
 @router.get("/dashboard-summary")
 def get_admin_dashboard_summary(
     db: Session = Depends(get_db),
@@ -1341,226 +1681,15 @@ def get_admin_dashboard_summary(
         if current_user.email != "admin@retailsphere.com":
             raise HTTPException(status_code=403, detail="Admin authorization required.")
 
-    readymade_orders = db.query(models.ReadymadeOrder).all()
-    custom_orders = db.query(models.CustomOrder).all()
-    fabrication_requests = db.query(models.FabricationRequest).all()
-    service_requests = db.query(models.ServiceRequest).all()
+    now_ts = time.time()
+    # Cache hit: Fresh (< 120 seconds)
+    if _dashboard_summary_cache["data"] and (now_ts - _dashboard_summary_cache["timestamp"] < 120):
+        return _dashboard_summary_cache["data"]
 
-    total_orders_count = len(readymade_orders) + len(custom_orders)
-    
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    today_orders_count = sum(1 for o in readymade_orders if o.order_date and o.order_date >= today_start) + \
-                         sum(1 for c in custom_orders if c.order_date and c.order_date >= today_start)
-
-    pending_orders_count = sum(1 for o in readymade_orders if o.order_status not in ["Delivered", "Cancelled"]) + \
-                           sum(1 for c in custom_orders if c.order_status not in ["Completed", "Delivered", "Cancelled"])
-
-    completed_orders_count = sum(1 for o in readymade_orders if o.order_status == "Delivered") + \
-                             sum(1 for c in custom_orders if c.order_status in ["Completed", "Delivered"])
-
-    cancelled_orders_count = sum(1 for o in readymade_orders if o.order_status == "Cancelled") + \
-                             sum(1 for c in custom_orders if c.order_status == "Cancelled")
-
-    return_requests_count = db.query(models.OrderReturn).count()
-
-    total_customers_count = db.query(models.Customer).count()
-    active_customers_count = db.query(models.User).filter(models.User.status == True).count()
-    total_products_count = db.query(models.Product).count()
-    low_stock_products_count = db.query(models.Product).filter(models.Product.stock_quantity < 5).count()
-
-    # Revenue Metrics (from paid tbl_payment records)
-    payments = db.query(models.Payment).filter(models.Payment.payment_status == "Paid").all()
-    total_revenue = sum(float(p.amount or 0) for p in payments)
-
-    today_revenue = sum(float(p.amount or 0) for p in payments if p.payment_date and p.payment_date >= today_start)
-    
-    month_start = today_start.replace(day=1)
-    month_revenue = sum(float(p.amount or 0) for p in payments if p.payment_date and p.payment_date >= month_start)
-
-    paid_orders_count = len(payments)
-    pending_payments_count = sum(1 for o in readymade_orders if o.payment_status in ["Pending", "UNPAID"]) + \
-                             sum(1 for c in custom_orders if c.payment_status in ["Pending", "UNPAID"]) + \
-                             sum(1 for f in fabrication_requests if f.payment_status in ["Pending", "UNPAID"]) + \
-                             sum(1 for s in service_requests if s.payment_status in ["Pending", "UNPAID"])
-
-    returns_paid = db.query(models.OrderReturn).filter(models.OrderReturn.refund_status == "Refunded").all()
-    refunds_total_amount = sum(float(r.refund_amount or 0) for r in returns_paid)
-
-    cancelled_readymade = db.query(models.ReadymadeOrder).filter(models.ReadymadeOrder.order_status == "Cancelled").all()
-    cancelled_custom = db.query(models.CustomOrder).filter(models.CustomOrder.order_status == "Cancelled").all()
-    cancelled_order_value = sum(float(r.total_amount or 0) for r in cancelled_readymade) + \
-                            sum(float(c.estimated_price or 0) for c in cancelled_custom)
-
-    order_overview = {
-        "readymade": len(readymade_orders),
-        "customization": len(custom_orders),
-        "fabrication": len(fabrication_requests),
-        "onsite_services": len(service_requests)
-    }
-
-    order_status_counts = {
-        "Placed": sum(1 for o in readymade_orders if o.order_status in ["Placed", "Order Placed"]),
-        "Confirmed": sum(1 for o in readymade_orders if o.order_status == "Confirmed"),
-        "Processing": sum(1 for o in readymade_orders if o.order_status in ["Processing", "In Production"]),
-        "Packing": sum(1 for o in readymade_orders if o.order_status == "Packing"),
-        "Packed": sum(1 for o in readymade_orders if o.order_status == "Packed"),
-        "Dispatched": sum(1 for o in readymade_orders if o.order_status == "Dispatched"),
-        "Out for Delivery": sum(1 for o in readymade_orders if o.order_status == "Out for Delivery"),
-        "Delivered": sum(1 for o in readymade_orders if o.order_status == "Delivered"),
-        "Cancelled": sum(1 for o in readymade_orders if o.order_status == "Cancelled"),
-        "Returned": sum(1 for o in readymade_orders if o.order_status == "Returned")
-    }
-
-    custom_pipeline_counts = {
-        "request": sum(1 for c in custom_orders if (c.review_status or 'NEW') in ["NEW", "UNDER_REVIEW"]),
-        "retail_review": sum(1 for c in custom_orders if c.review_status == "APPROVED"),
-        "technical_assessment": sum(1 for c in custom_orders if c.order_status == "Technical Assessment"),
-        "quotation": sum(1 for c in custom_orders if c.order_status == "Quotation Sent"),
-        "customer_approval": sum(1 for c in custom_orders if c.order_status == "Quotation Approved"),
-        "payment": sum(1 for c in custom_orders if c.payment_status == "Pending" and c.order_status in ["Quotation Approved", "Awaiting Payment"]),
-        "production": sum(1 for c in custom_orders if c.order_status == "In Production"),
-        "qc": sum(1 for c in custom_orders if c.order_status == "QC Pending"),
-        "completed": sum(1 for c in custom_orders if c.order_status in ["Completed", "Delivered"])
-    }
-
-    assessments_pending = sum(1 for c in custom_orders if c.order_status in ["NEW", "APPROVED", "Pending Assessment"]) + \
-                          sum(1 for f in fabrication_requests if f.status in ["REQUESTED", "ASSESSED"])
-    
-    quotations_pending = sum(1 for c in custom_orders if c.order_status == "Quotation Pending") + \
-                         sum(1 for f in fabrication_requests if f.status == "ASSESSED")
-
-    customer_approvals_pending = sum(1 for c in custom_orders if c.order_status == "Quotation Sent") + \
-                                sum(1 for f in fabrication_requests if f.status == "QUOTED")
-
-    materials_pending = sum(1 for c in custom_orders if c.order_status == "Material Pending") + \
-                        sum(1 for f in fabrication_requests if f.status == "APPROVED" and f.material_source == "Customer-Owned")
-
-    in_production_count = sum(1 for c in custom_orders if c.order_status == "In Production") + \
-                          sum(1 for f in fabrication_requests if f.status == "IN_PRODUCTION")
-
-    qc_pending_count = sum(1 for c in custom_orders if c.order_status == "QC Pending") + \
-                       sum(1 for f in fabrication_requests if f.status == "QC_PENDING")
-
-    rework_count = db.query(models.ReworkJob).filter(models.ReworkJob.status != "RESOLVED").count()
-    completed_today_count = sum(1 for c in custom_orders if c.order_status == "Completed" and c.order_date >= today_start)
-
-    production_status_summary = {
-        "technical_assessment": assessments_pending,
-        "quotation_pending": quotations_pending,
-        "customer_approval": customer_approvals_pending,
-        "payment_pending": pending_payments_count,
-        "material_pending": materials_pending,
-        "in_production": in_production_count,
-        "qc_pending": qc_pending_count,
-        "rework": rework_count,
-        "completed_today": completed_today_count
-    }
-
-    worker_role = db.query(models.Role).filter(models.Role.role_name == "Worker").first()
-    worker_role_id = worker_role.role_id if worker_role else None
-    
-    if worker_role_id:
-        workers = db.query(models.User).filter(models.User.role_id == worker_role_id).all()
-    else:
-        workers = []
-
-    availabilities = db.query(models.WorkerAvailability).all()
-    avail_map = {a.worker_id: a.status for a in availabilities}
-
-    worker_status_counts = {
-        "available": sum(1 for w in workers if avail_map.get(w.user_id, "AVAILABLE") == "AVAILABLE"),
-        "busy": sum(1 for w in workers if avail_map.get(w.user_id) == "BUSY"),
-        "on_site": sum(1 for w in workers if avail_map.get(w.user_id) == "ON_SITE"),
-        "offline": sum(1 for w in workers if avail_map.get(w.user_id) in ["OFF_DUTY", "OFFLINE", "INACTIVE"])
-    }
-
-    worker_skills = db.query(models.WorkerSkill).all()
-    skill_counts = {
-        "Woodwork & Carpentry": sum(1 for s in worker_skills if "Wood" in s.skill_name or "Carpen" in s.skill_name),
-        "Upholstery": sum(1 for s in worker_skills if "Upholster" in s.skill_name),
-        "Assembly": sum(1 for s in worker_skills if "Assembl" in s.skill_name),
-        "Surface Finishing": sum(1 for s in worker_skills if "Finish" in s.skill_name or "Polish" in s.skill_name)
-    }
-
-    alerts = []
-    for c in custom_orders:
-        if c.order_status == "In Production" and c.order_date and (datetime.utcnow() - c.order_date).days > 5:
-            alerts.append({
-                "id": f"alert-delay-{c.custom_order_id}",
-                "severity": "URGENT",
-                "title": f"Production Delay on Custom Order #{c.custom_order_id}",
-                "description": f"Order for {c.furniture_type} has been in production for over 5 days.",
-                "type": "delay"
-            })
-
-    failed_inspections = db.query(models.QualityInspection).filter(models.QualityInspection.result == "FAIL").order_by(models.QualityInspection.inspection_id.desc()).limit(3).all()
-    for qc in failed_inspections:
-        alerts.append({
-            "id": f"alert-qc-{qc.inspection_id}",
-            "severity": "URGENT",
-            "title": f"QC Failure on {qc.order_type} Order #{qc.order_id}",
-            "description": f"Notes: {qc.inspection_notes or 'Quality checklist inspection failed.'}",
-            "type": "qc_failure"
-        })
-
-    low_stock_prods = db.query(models.Product).filter(models.Product.stock_quantity < 5).all()
-    for p in low_stock_prods[:3]:
-        alerts.append({
-            "id": f"alert-stock-{p.product_id}",
-            "severity": "LOW_STOCK",
-            "title": f"Low Stock Warning: {p.product_name}",
-            "description": f"Current inventory: {p.stock_quantity} units (Threshold: 5 units).",
-            "type": "low_stock"
-        })
-
-    audit_logs = db.query(models.AuditLog).order_by(models.AuditLog.audit_id.desc()).limit(15).all()
-    activities = []
-    for log in audit_logs:
-        activities.append({
-            "id": log.audit_id,
-            "actorName": log.actor_name or "System Admin",
-            "actorRole": log.actor_role or "Admin",
-            "action": log.action,
-            "entityType": log.entity_type,
-            "entityId": log.entity_id or "",
-            "details": log.details or "",
-            "timestamp": log.timestamp.strftime("%Y-%m-%d %H:%M:%S") if log.timestamp else ""
-        })
-
-    return {
-        "business_metrics": {
-            "total_orders": total_orders_count,
-            "todays_orders": today_orders_count,
-            "pending_orders": pending_orders_count,
-            "completed_orders": completed_orders_count,
-            "cancelled_orders": cancelled_orders_count,
-            "return_requests": return_requests_count,
-            "total_customers": total_customers_count,
-            "active_customers": active_customers_count,
-            "total_products": total_products_count,
-            "low_stock_items": low_stock_products_count
-        },
-        "revenue_metrics": {
-            "total_revenue": total_revenue,
-            "todays_revenue": today_revenue,
-            "this_month_revenue": month_revenue,
-            "paid_orders_count": paid_orders_count,
-            "pending_payments_count": pending_payments_count,
-            "refunds_total_amount": refunds_total_amount,
-            "cancelled_order_value": cancelled_order_value
-        },
-        "order_overview": order_overview,
-        "order_status_counts": order_status_counts,
-        "custom_pipeline_counts": custom_pipeline_counts,
-        "production_status_summary": production_status_summary,
-        "worker_overview": {
-            "total_workers": len(workers),
-            "status_counts": worker_status_counts,
-            "skill_counts": skill_counts
-        },
-        "alerts": alerts,
-        "recent_activities": activities
-    }
+    summary_data = calculate_admin_dashboard_summary(db)
+    _dashboard_summary_cache["data"] = summary_data
+    _dashboard_summary_cache["timestamp"] = now_ts
+    return summary_data
 
 
 @router.get("/analytics/revenue")
@@ -1569,6 +1698,13 @@ def get_revenue_analytics(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    now_ts = time.time()
+    cache_key = period
+    if cache_key in _revenue_analytics_cache:
+        c_data, c_ts = _revenue_analytics_cache[cache_key]
+        if now_ts - c_ts < 120:
+            return c_data
+
     now = datetime.utcnow()
     
     if period == "today":
@@ -1590,37 +1726,44 @@ def get_revenue_analytics(
         period_start = now - timedelta(days=30)
         period_label = "Last 30 Days"
 
-    all_paid_payments = db.query(models.Payment).filter(models.Payment.payment_status == "Paid").all()
-    
-    # Filter payments for this specific period
-    period_payments = [
-        p for p in all_paid_payments 
-        if p.payment_date and p.payment_date >= period_start
-    ]
-    
-    period_total_revenue = sum(float(p.amount or 0) for p in period_payments)
-    period_paid_count = len(period_payments)
+    sql_rev = text('''
+        SELECT
+          coalesce(sum(amount), 0) AS total_revenue,
+          count(*) AS order_count,
+          coalesce(
+            (SELECT coalesce(sum(refund_amount), 0)
+             FROM tbl_order_return
+             WHERE refund_status = 'Refunded'
+               AND (returned_at >= :period_start OR (returned_at IS NULL AND requested_at >= :period_start))),
+            0
+          ) AS refund_amount
+        FROM tbl_payment
+        WHERE payment_status = 'Paid' AND payment_date >= :period_start
+    ''')
+    metrics = dict(db.execute(sql_rev, {'period_start': period_start}).fetchone()._mapping)
+    period_total_revenue = float(metrics["total_revenue"])
+    period_paid_count = int(metrics["order_count"])
+    period_refund_amount = float(metrics["refund_amount"])
     avg_order_val = period_total_revenue / period_paid_count if period_paid_count > 0 else 0.0
-
-    all_returns_paid = db.query(models.OrderReturn).filter(models.OrderReturn.refund_status == "Refunded").all()
-    period_returns = [
-        r for r in all_returns_paid
-        if r.return_date and r.return_date >= period_start
-    ]
-    period_refund_amount = sum(float(r.refund_amount or 0) for r in period_returns)
     net_revenue = period_total_revenue - period_refund_amount
 
-    # Time series breakdown
+    sql_chart = text('''
+        SELECT payment_date, amount, order_type
+        FROM tbl_payment
+        WHERE payment_status = 'Paid' AND payment_date >= :period_start
+        ORDER BY payment_date ASC
+    ''')
+    chart_rows = db.execute(sql_chart, {'period_start': period_start}).fetchall()
     revenue_chart = []
-    sorted_period_payments = sorted(period_payments, key=lambda x: x.payment_date or datetime.min)
-    for p in sorted_period_payments:
+    for r in chart_rows:
+        p_date = r[0]
         revenue_chart.append({
-            "date": p.payment_date.strftime("%d %b") if p.payment_date else "Recent",
-            "amount": float(p.amount or 0),
-            "orderType": p.order_type
+            "date": p_date.strftime("%d %b") if p_date else "Recent",
+            "amount": float(r[1] or 0),
+            "orderType": r[2]
         })
 
-    return {
+    rev_result = {
         "period": period,
         "period_label": period_label,
         "total_revenue": period_total_revenue,
@@ -1631,6 +1774,8 @@ def get_revenue_analytics(
         "net_revenue": net_revenue,
         "chart_data": revenue_chart
     }
+    _revenue_analytics_cache[cache_key] = (rev_result, now_ts)
+    return rev_result
 
 
 @router.get("/pipeline/bottlenecks")
@@ -1638,6 +1783,10 @@ def get_production_bottlenecks(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user)
 ):
+    now_ts = time.time()
+    if _bottlenecks_cache["data"] and (now_ts - _bottlenecks_cache["timestamp"] < 90):
+        return _bottlenecks_cache["data"]
+
     stages = db.query(models.ProductionStage).all()
     stage_groups: dict = {}
     for st in stages:
@@ -1662,6 +1811,8 @@ def get_production_bottlenecks(
             "risk": "HIGH" if data["pending"] >= 3 else ("MEDIUM" if data["pending"] > 0 else "LOW")
         })
 
+    _bottlenecks_cache["data"] = bottlenecks
+    _bottlenecks_cache["timestamp"] = now_ts
     return bottlenecks
 
 
@@ -1839,19 +1990,26 @@ def admin_review_leave_request(leave_id: int, payload: AdminLeaveReviewPayload, 
 def export_database_excel_endpoint():
     """
     READ-ONLY Database Export Endpoint for Inspection and Documentation.
-    Exports all current PostgreSQL/SQLite database tables and records into an Excel (.xlsx) file.
+    Exports all current database tables and records into an Excel (.xlsx) file.
     Completely read-only operation: No data is inserted, updated, or deleted.
     """
     from fastapi.responses import Response
     from export_database_excel import generate_database_excel_bytes
 
-    excel_bytes = generate_database_excel_bytes()
-    filename = "RetailSphere_Database_Export.xlsx"
-    return Response(
-        content=excel_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
-    )
+    try:
+        excel_bytes = generate_database_excel_bytes()
+        filename = f"RetailSphere_Database_Export_{datetime.utcnow().strftime('%Y%m%d')}.xlsx"
+        return Response(
+            content=excel_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+        )
+    except Exception as e:
+        print(f"[EXPORT ERROR] Failed to generate Excel export: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database export generation failed: {str(e)}"
+        )
 
 
 # --- Carrier Partner Management Endpoints ---
@@ -2240,7 +2398,12 @@ class AgreementCreatePayload(BaseModel):
 
 @router.get("/carrier-agreements")
 def list_carrier_agreements(db: Session = Depends(get_db)):
-    agreements = db.query(models.CarrierAgreement).order_by(models.CarrierAgreement.agreement_id.desc()).all()
+    agreements = (
+        db.query(models.CarrierAgreement)
+        .options(joinedload(models.CarrierAgreement.carrier_partner))
+        .order_by(models.CarrierAgreement.agreement_id.desc())
+        .all()
+    )
     result = []
     for a in agreements:
         c = a.carrier_partner
@@ -2372,7 +2535,12 @@ def calculate_transportation_endpoint(payload: DistanceCalcPayload, db: Session 
 
 @router.get("/carrier-settlements")
 def list_admin_carrier_settlements(db: Session = Depends(get_db)):
-    settlements = db.query(models.CarrierSettlement).order_by(models.CarrierSettlement.settlement_id.desc()).all()
+    settlements = (
+        db.query(models.CarrierSettlement)
+        .options(joinedload(models.CarrierSettlement.carrier_partner))
+        .order_by(models.CarrierSettlement.settlement_id.desc())
+        .all()
+    )
     result = []
     for s in settlements:
         c = s.carrier_partner

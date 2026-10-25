@@ -10,7 +10,12 @@ export interface RetailOrder {
   orderId: string;
   customerId?: number;
   customerName: string;
+  customer_name?: string;
   email: string;
+  customerEmail?: string;
+  customer_email?: string;
+  customerPhone?: string;
+  customer_phone?: string;
   itemsCount: number;
   totalAmount: number;
   originalSubtotal?: number;
@@ -110,15 +115,33 @@ export async function fetchRetailOrdersFromDB(): Promise<RetailOrder[]> {
       const dbOrders: RetailOrder[] = await res.json();
       if (Array.isArray(dbOrders)) {
         const orderMap = new Map<string, RetailOrder>();
-        dbOrders.forEach((o) => {
-          if (o && o.orderId && !isExcludedOrderId(o.orderId)) orderMap.set(String(o.orderId), o);
+        dbOrders.forEach((o: any) => {
+          if (o && o.orderId && !isExcludedOrderId(o.orderId)) {
+            const emailVal = o.customerEmail || o.email || o.customer_email || 'customer@retailsphere.ai';
+            const norm: RetailOrder = {
+              ...o,
+              customerEmail: emailVal,
+              customer_email: emailVal,
+              email: emailVal,
+              customerName: o.customerName || o.customer_name || 'Valued Customer',
+            };
+            orderMap.set(String(o.orderId), norm);
+          }
         });
 
         // Combine any non-duplicate local orders
         const local = getStoredRetailOrders();
-        local.forEach((loc) => {
+        local.forEach((loc: any) => {
           if (loc && loc.orderId && !orderMap.has(String(loc.orderId)) && !isExcludedOrderId(loc.orderId)) {
-            orderMap.set(String(loc.orderId), loc);
+            const emailVal = loc.customerEmail || loc.email || loc.customer_email || 'customer@retailsphere.ai';
+            const norm: RetailOrder = {
+              ...loc,
+              customerEmail: emailVal,
+              customer_email: emailVal,
+              email: emailVal,
+              customerName: loc.customerName || loc.customer_name || 'Valued Customer',
+            };
+            orderMap.set(String(loc.orderId), norm);
           }
         });
 
@@ -169,7 +192,7 @@ export async function saveStoredRetailOrder(orderData: Omit<RetailOrder, 'orderI
     ...orderData,
     orderId: dbOrderId || `RET-${Date.now().toString().slice(-6)}`,
     createdAt: Date.now(),
-    orderDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+    orderDate: new Date().toLocaleDateString('en-US', { timeZone: 'Asia/Kolkata', month: 'short', day: 'numeric', year: 'numeric' }),
   };
   const updated = [newOrder, ...existing];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));

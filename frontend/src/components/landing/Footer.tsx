@@ -1,9 +1,32 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Logo } from '../common/Logo';
 
 export const Footer: React.FC = () => {
+  const [newsletterEmail, setNewsletterEmail] = useState('');
+  const [newsletterError, setNewsletterError] = useState<string | null>(null);
+  const [newsletterSuccess, setNewsletterSuccess] = useState(false);
+
+  const handleNewsletterSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setNewsletterError(null);
+    const trimmed = newsletterEmail.trim();
+    if (!trimmed) {
+      setNewsletterError('Please enter your email address.');
+      return;
+    }
+    if (!/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmed)) {
+      setNewsletterError('Please enter a valid email address (e.g. name@domain.com).');
+      return;
+    }
+    setNewsletterSuccess(true);
+    setNewsletterEmail('');
+    setTimeout(() => {
+      setNewsletterSuccess(false);
+    }, 4500);
+  };
+
   return (
     <footer className="bg-[#F9F7F4] text-[#2C241D] pt-14 sm:pt-20 pb-12 relative z-20">
       <div className="max-w-[1360px] mx-auto px-6 sm:px-8 lg:px-10 font-sans">
@@ -53,19 +76,39 @@ export const Footer: React.FC = () => {
             <p className="text-xs text-[#524538] font-bold mb-3">
               Receive quarterly design lookbooks and exclusive custom drops.
             </p>
-            <form onSubmit={(e) => e.preventDefault()} className="relative">
-              <input
-                type="email"
-                placeholder="Enter email address"
-                className="w-full bg-white border border-[#E2D7CB] rounded-full py-2.5 pl-4 pr-10 text-xs text-[#2C241D] font-bold placeholder-[#9E9082] focus:outline-none focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20 shadow-xs"
-              />
-              <button
-                type="submit"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-[#38A132] text-white hover:bg-[#32922D] flex items-center justify-center transition-colors shadow-sm"
-                title="Subscribe"
-              >
-                <ArrowUpRight className="w-4 h-4" />
-              </button>
+            <form onSubmit={handleNewsletterSubmit} className="space-y-1.5" noValidate>
+              <div className="relative">
+                <input
+                  type="email"
+                  value={newsletterEmail}
+                  onChange={(e) => {
+                    setNewsletterEmail(e.target.value);
+                    if (newsletterError) setNewsletterError(null);
+                  }}
+                  placeholder="Enter email address"
+                  className={`w-full bg-white border rounded-full py-2.5 pl-4 pr-10 text-xs text-[#2C241D] font-bold placeholder-[#9E9082] focus:outline-none transition-all shadow-xs ${
+                    newsletterError
+                      ? 'border-rose-400 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20'
+                      : 'border-[#E2D7CB] focus:border-[#38A132] focus:ring-2 focus:ring-[#38A132]/20'
+                  }`}
+                />
+                <button
+                  type="submit"
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-[#38A132] text-white hover:bg-[#32922D] flex items-center justify-center transition-colors shadow-sm cursor-pointer"
+                  title="Subscribe"
+                >
+                  <ArrowUpRight className="w-4 h-4" />
+                </button>
+              </div>
+              {newsletterError && (
+                <p className="text-[10px] font-bold text-rose-700 pl-2 animate-fadeIn">{newsletterError}</p>
+              )}
+              {newsletterSuccess && (
+                <p className="text-[10px] font-bold text-emerald-700 pl-2 animate-fadeIn flex items-center gap-1">
+                  <span>✓</span>
+                  <span>Thank you for subscribing to our lookbook!</span>
+                </p>
+              )}
             </form>
           </div>
         </div>

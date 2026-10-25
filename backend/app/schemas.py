@@ -8,10 +8,10 @@ class UserSignup(BaseModel):
     email: EmailStr
     phone: str
     password: str
-    address: Optional[str] = "Default Address"
-    city: Optional[str] = "Default City"
-    state: Optional[str] = "Default State"
-    pincode: Optional[str] = "000000"
+    address: Optional[str] = ""
+    city: Optional[str] = ""
+    state: Optional[str] = ""
+    pincode: Optional[str] = ""
 
 # Login Request Schema
 class UserLogin(BaseModel):
@@ -51,10 +51,10 @@ class UpdateProfileRequest(BaseModel):
 # Customer Details Schema
 class CustomerBase(BaseModel):
     customer_id: int
-    address: str
-    city: str
-    state: str
-    pincode: str
+    address: Optional[str] = ""
+    city: Optional[str] = ""
+    state: Optional[str] = ""
+    pincode: Optional[str] = ""
 
     class Config:
         from_attributes = True

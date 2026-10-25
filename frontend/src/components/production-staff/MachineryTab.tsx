@@ -18,6 +18,8 @@ export const MachineryTab: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [machineName, setMachineName] = useState('');
   const [category, setCategory] = useState('CNC Cutting');
+  const [addError, setAddError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fetchMachines = async () => {
     try {
@@ -40,22 +42,36 @@ export const MachineryTab: React.FC = () => {
 
   const handleAddMachine = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!machineName.trim()) return;
+    setAddError(null);
 
+    const trimmedName = machineName.trim();
+    if (!trimmedName || trimmedName.length < 3) {
+      setAddError('Machine name must be at least 3 characters long (e.g. CNC Router R500).');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const res = await fetch('/api/machines', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ machine_name: machineName.trim(), category }),
+        body: JSON.stringify({ machine_name: trimmedName, category }),
       });
 
       if (res.ok) {
         setIsAddModalOpen(false);
         setMachineName('');
+        setAddError(null);
         fetchMachines();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setAddError(errJson.detail || 'Failed to register new machine. Please try again.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to add machine:', e);
+      setAddError(e?.message || 'Network error while adding machine.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -86,7 +102,11 @@ export const MachineryTab: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsAddModalOpen(true)}
+          onClick={() => {
+            setIsAddModalOpen(true);
+            setAddError(null);
+            setMachineName('');
+          }}
           className="px-4 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
         >
           <Plus className="w-4 h-4" /> Add Machine
@@ -150,14 +170,36 @@ export const MachineryTab: React.FC = () => {
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <h3 className="text-base font-extrabold text-[#2C241D]">Add Workshop Machine</h3>
+
+            {addError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{addError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleAddMachine} className="space-y-3 text-xs font-semibold">
               <div>
-                <label className="block text-[#7A6C5E] mb-1">Machine Name</label>
-                <input type="text" value={machineName} onChange={(e) => setMachineName(e.target.value)} placeholder="e.g. CNC Router R500" required className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white font-bold" />
+                <label className="block text-[#7A6C5E] mb-1">Machine Name *</label>
+                <input
+                  type="text"
+                  value={machineName}
+                  onChange={(e) => {
+                    setMachineName(e.target.value);
+                    if (addError) setAddError(null);
+                  }}
+                  placeholder="e.g. CNC Router R500"
+                  required
+                  className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white font-bold"
+                />
               </div>
               <div>
                 <label className="block text-[#7A6C5E] mb-1">Category</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white font-bold">
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white font-bold"
+                >
                   <option value="CNC Cutting">CNC Cutting Center</option>
                   <option value="Wood Shaper">Wood Shaper / Router</option>
                   <option value="Edge Finisher">Edge Banding Finisher</option>
@@ -166,8 +208,23 @@ export const MachineryTab: React.FC = () => {
                 </select>
               </div>
               <div className="pt-3 flex justify-end gap-3">
-                <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-4 py-2 rounded-xl border border-[#E2D7CB]">Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-[#48A63E] text-white font-extrabold">Save Machine</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddModalOpen(false);
+                    setAddError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl border border-[#E2D7CB] font-bold text-[#7A6C5E] hover:bg-[#EAE4DC] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold disabled:opacity-50 cursor-pointer shadow-md transition-all"
+                >
+                  {isSubmitting ? 'Saving...' : 'Save Machine'}
+                </button>
               </div>
             </form>
           </div>

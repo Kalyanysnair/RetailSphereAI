@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
+import { validatePhoneNumber } from '../auth/SignupForm';
 import { fetchAllLeaveRequests, reviewLeaveRequest, applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
 import { fetchVehiclesDB, fetchFleetSummaryDB, fetchEligibleDriversDB, updateVehicleStatusDB, VehicleItem, FleetSummary, EligibleDriver } from '../../services/api_fleet';
 import { MachineryTab } from './MachineryTab';
@@ -337,6 +338,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [assessmentQueue, setAssessmentQueue] = useState<AssessmentQueueItem[]>([]);
   const [assessmentCategoryFilter, setAssessmentCategoryFilter] = useState<string>('ALL');
   const [assessmentTabFilter, setAssessmentTabFilter] = useState<string>('ALL');
+  const [assessmentSearchQuery, setAssessmentSearchQuery] = useState<string>('');
 
   // 3. Technical Assessment Workspace State
   const [selectedAssessmentRequest, setSelectedAssessmentRequest] = useState<AssessmentQueueItem | null>(null);
@@ -549,6 +551,141 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [isEditWorkerSubmitting, setIsEditWorkerSubmitting] = useState(false);
   const [resendingCredentialsId, setResendingCredentialsId] = useState<number | null>(null);
 
+  // Worker Workload & Works Inspector State
+  const [showWorkerInspector, setShowWorkerInspector] = useState<boolean>(false);
+  const [selectedInspectorWorkerId, setSelectedInspectorWorkerId] = useState<number | null>(null);
+  const [inspectorWorksTab, setInspectorWorksTab] = useState<'assigned' | 'completed'>('assigned');
+
+  useEffect(() => {
+    if (selectedInspectorWorkerId !== null && workers.length > 0 && !workers.some(w => w.worker_id === selectedInspectorWorkerId)) {
+      setSelectedInspectorWorkerId(workers[0].worker_id);
+    }
+  }, [workers, selectedInspectorWorkerId]);
+
+  const selectedInspectorWorker = React.useMemo(() => {
+    if (!selectedInspectorWorkerId) return null;
+    return workers.find(w => w.worker_id === selectedInspectorWorkerId) || null;
+  }, [workers, selectedInspectorWorkerId]);
+
+  const workerWorksSummary = React.useMemo(() => {
+    if (!selectedInspectorWorker) {
+      return { assigned: [], completed: [] };
+    }
+    const wId = selectedInspectorWorker.worker_id;
+    const wName = (selectedInspectorWorker.full_name || '').toLowerCase();
+
+    const assignedList: any[] = [];
+    const completedList: any[] = [];
+
+    // 1. Custom Orders
+    (orders || []).forEach((ord) => {
+      const isAssigned = ord.assigned_workers && ord.assigned_workers.some(
+        aw => aw.worker_id === wId || (aw.worker_name && aw.worker_name.toLowerCase() === wName)
+      );
+      if (isAssigned) {
+        const workerTask = ord.assigned_workers.find(
+          aw => aw.worker_id === wId || (aw.worker_name && aw.worker_name.toLowerCase() === wName)
+        );
+        const isDone = ord.order_status === 'Completed' ||
+          ord.order_status === 'Delivered' ||
+          (workerTask?.task_status && workerTask.task_status.toLowerCase().includes('complete'));
+
+        const itemObj = {
+          id: `CUS-${ord.custom_order_id}`,
+          rawId: ord.custom_order_id,
+          typeBadge: '🎨 Custom Furniture',
+          title: ord.furniture_type,
+          customer: ord.customer_name,
+          customerContact: ord.customer_phone || ord.customer_email || '—',
+          dimensions: ord.dimensions,
+          material: ord.material,
+          color: ord.color,
+          price: ord.estimated_price,
+          status: ord.order_status,
+          stage: workerTask?.specialization || workerTask?.task_status || ord.current_stage || ord.production_stage || 'In Production',
+          progress: ord.progress_percentage || 0,
+          date: ord.order_date || ord.created_at || 'Recent'
+        };
+
+        if (isDone) {
+          completedList.push(itemObj);
+        } else {
+          assignedList.push(itemObj);
+        }
+      }
+    });
+
+    // 2. Fabrication Jobs
+    (fabricationJobs || []).forEach((fab) => {
+      const isAssigned = fab.worker_id === wId || fab.assigned_worker_id === wId ||
+        (fab.assigned_worker_name && fab.assigned_worker_name.toLowerCase() === wName);
+      if (isAssigned) {
+        const isDone = fab.status === 'Completed' || fab.status === 'Delivered' || (fab.progress && fab.progress >= 100);
+        const itemObj = {
+          id: `FAB-${fab.job_id || fab.numeric_id || fab.id}`,
+          rawId: fab.numeric_id || fab.id,
+          typeBadge: '🛠️ Board Fabrication',
+          title: fab.title || fab.job_title || 'Timber & Board Shaping',
+          customer: fab.customer_name || 'Direct Order',
+          customerContact: fab.customer_phone || fab.customer_email || '—',
+          dimensions: fab.dimensions || fab.specs || 'Standard Spec',
+          material: fab.material_type || fab.material || 'Solid Wood',
+          color: 'Natural Wood',
+          price: fab.estimated_cost || fab.cost || 0,
+          status: fab.status || 'In Progress',
+          stage: fab.current_stage || 'Fabrication Workshop',
+          progress: isDone ? 100 : (fab.progress || 50),
+          date: fab.created_at || 'Recent'
+        };
+        if (isDone) {
+          completedList.push(itemObj);
+        } else {
+          assignedList.push(itemObj);
+        }
+      }
+    });
+
+    // 3. On-Site Jobs
+    (onsiteJobsList || []).forEach((onsite: any) => {
+      const isAssigned = onsite.assigned_worker_id === wId ||
+        (onsite.worker_name && onsite.worker_name.toLowerCase() === wName);
+      if (isAssigned) {
+        const isDone = (onsite.status || '').toUpperCase() === 'COMPLETED';
+        const itemObj = {
+          id: `ONS-${onsite.service_id || onsite.job_id || onsite.id}`,
+          rawId: onsite.service_id || onsite.job_id || onsite.id,
+          typeBadge: '🔧 Field Service',
+          title: onsite.service_category || onsite.service_type || onsite.title || 'On-Site Carpentry & Assembly',
+          customer: onsite.customer_name || 'Client',
+          customerContact: onsite.customer_phone || '—',
+          dimensions: 'Field Location: ' + (onsite.address || onsite.service_address || 'Customer Premises'),
+          material: 'On-site tools & fittings',
+          color: 'Field Deployment',
+          price: onsite.estimated_price || 0,
+          status: onsite.status || 'SCHEDULED',
+          stage: onsite.status || 'In Field',
+          progress: isDone ? 100 : 50,
+          date: onsite.preferred_date || onsite.scheduled_date || 'Scheduled'
+        };
+        if (isDone) {
+          completedList.push(itemObj);
+        } else {
+          assignedList.push(itemObj);
+        }
+      }
+    });
+
+    return { assigned: assignedList, completed: completedList };
+  }, [selectedInspectorWorker, orders, fabricationJobs, onsiteJobsList]);
+
+  // Form Validation & Inline Modal Error States
+  const [assessmentModalError, setAssessmentModalError] = useState<string | null>(null);
+  const [addSupplierError, setAddSupplierError] = useState<string | null>(null);
+  const [couponModalError, setCouponModalError] = useState<string | null>(null);
+  const [materialReceiptError, setMaterialReceiptError] = useState<string | null>(null);
+  const [assignWorkerError, setAssignWorkerError] = useState<string | null>(null);
+  const [assignCarrierError, setAssignCarrierError] = useState<string | null>(null);
+
   // Staff Profile Modal & Password Update State
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -557,15 +694,37 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [passwordNotice, setPasswordNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isMaterialReceiptModalOpen, setIsMaterialReceiptModalOpen] = useState(false);
 
-  // Customer Material Receipts Log State
-  const [materialLogs, setMaterialLogs] = useState<any[]>(() => {
+  // Customer Material Receipts Log State & Dynamic Raw Material Stats
+  const [materialLogs, setMaterialLogs] = useState<any[]>([]);
+  const [rawMaterialStats, setRawMaterialStats] = useState<any[]>([]);
+
+  const loadMaterialReceipts = async () => {
     try {
-      const raw = localStorage.getItem('customer_material_receipts');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
+      const res = await fetch('/api/production/materials/receipts');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setMaterialLogs(data);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch material receipts:', e);
     }
-  });
+  };
+
+  const loadRawMaterialStock = async () => {
+    try {
+      const res = await fetch('/api/materials/raw');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setRawMaterialStats(data);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch raw materials:', e);
+    }
+  };
 
   // Queries State
   const [staffQueries, setStaffQueries] = useState<StaffQuery[]>([]);
@@ -573,6 +732,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const [newQuerySubject, setNewQuerySubject] = useState('');
   const [newQueryMessage, setNewQueryMessage] = useState('');
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   // Admin Directives & Messages State
   const [adminMessages, setAdminMessages] = useState<AdminMessage[]>([]);
@@ -627,14 +787,37 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleCreateCouponSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCouponCode.trim()) return;
-
-    const limitVal = typeof newCouponCustomerLimit === 'number' ? newCouponCustomerLimit : (parseInt(newCouponCustomerLimit as any, 10) || 10);
+    setCouponModalError(null);
+    const code = newCouponCode.trim().toUpperCase();
+    if (!code || code.length < 3) {
+      setCouponModalError('Promo code must be at least 3 characters.');
+      return;
+    }
+    if (!/^[A-Z0-9_-]{3,}$/i.test(code)) {
+      setCouponModalError('Promo code can only contain letters, numbers, hyphens, and underscores.');
+      return;
+    }
+    if (newCouponDiscount < 1 || newCouponDiscount > 100) {
+      setCouponModalError('Discount percentage must be between 1% and 100%.');
+      return;
+    }
     const targetEmail = newCouponTargetEmail.trim();
+    if (targetEmail) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(targetEmail)) {
+        setCouponModalError('Please enter a valid target user email address.');
+        return;
+      }
+    }
+    const limitVal = typeof newCouponCustomerLimit === 'number' ? newCouponCustomerLimit : (parseInt(newCouponCustomerLimit as any, 10) || 10);
+    if (limitVal < 1) {
+      setCouponModalError('Customer limit must be at least 1.');
+      return;
+    }
 
     try {
       await createCouponApi({
-        code: newCouponCode.trim().toUpperCase(),
+        code: code,
         coupon_type: targetEmail ? 'percentage_notification' : 'first_n_customers',
         discount_percent: newCouponDiscount,
         description: newCouponDescription.trim() || `${newCouponDiscount}% OFF Custom Furniture Offer`,
@@ -643,7 +826,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       });
 
       await loadCouponsData();
-      setSuccessNotice(`Custom Furniture Coupon "${newCouponCode.trim().toUpperCase()}" created successfully!`);
+      setSuccessNotice(`Custom Furniture Coupon "${code}" created successfully!`);
       setNewCouponCode('');
       setNewCouponDiscount(10);
       setNewCouponDescription('');
@@ -653,7 +836,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setNewCouponAutoAllot(false);
       setIsAddCouponModalOpen(false);
     } catch (err: any) {
-      alert(err.message || 'Failed to create coupon.');
+      setCouponModalError(err.message || 'Failed to create coupon.');
     }
     setTimeout(() => setSuccessNotice(null), 5000);
   };
@@ -664,10 +847,11 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         await deleteCouponApi(id);
         await loadCouponsData();
         setSuccessNotice(`Coupon "${code}" removed.`);
+        setTimeout(() => setSuccessNotice(null), 4000);
       } catch (err: any) {
-        alert(err.message || 'Failed to remove coupon.');
+        setErrorNotice(err.message || 'Failed to remove coupon.');
+        setTimeout(() => setErrorNotice(null), 5000);
       }
-      setTimeout(() => setSuccessNotice(null), 3000);
     }
   };
 
@@ -737,35 +921,34 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const loadOverviewData = async () => {
     try {
-      const overview = await fetchProductionDashboardOverview();
-      setOverviewData(overview);
+      const [overview, cList] = await Promise.all([
+        fetchProductionDashboardOverview().catch(err => {
+          console.error('Error fetching overview:', err);
+          return null;
+        }),
+        getCarrierPartnersApi().catch(err => {
+          console.warn('Carriers fetch notice:', err);
+          return null;
+        })
+      ]);
+      if (overview) setOverviewData(overview);
+      if (cList && cList.length > 0) setCarriersList(cList);
     } catch (err) {
-      console.error('Error fetching overview:', err);
+      console.error('Error in loadOverviewData:', err);
     }
-    try {
-      const cList = await getCarrierPartnersApi();
-      if (cList && cList.length > 0) {
-        setCarriersList(cList);
-      }
-    } catch (err) {
-      console.warn('Carriers fetch notice:', err);
-    }
+    // Non-blocking secondary metrics
+    loadMaterialReceipts();
+    loadRawMaterialStock();
   };
 
-  const loadQueueData = async (catFilt: string = assessmentCategoryFilter, tabFilt: string = assessmentTabFilter) => {
+  const loadQueueData = async () => {
     try {
-      const q = await fetchAssessmentQueue(catFilt, tabFilt);
-      console.log('[ProductionStaffDashboard] Assessment queue records from API:', q);
+      const q = await fetchAssessmentQueue('ALL', 'ALL');
       setAssessmentQueue(q || []);
     } catch (err) {
       console.error('Error fetching assessment queue:', err);
     }
   };
-
-  useEffect(() => {
-    loadOverviewData();
-    loadQueueData(assessmentCategoryFilter, assessmentTabFilter);
-  }, [assessmentCategoryFilter, assessmentTabFilter, activeTab]);
 
   const loadFleetData = async () => {
     setIsFleetLoading(true);
@@ -874,12 +1057,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleApplyMyLeave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!myLeaveStartDate || !myLeaveEndDate || !myLeaveReason.trim()) {
-      alert('Please fill out all required leave fields.');
+    setMyLeaveNotice(null);
+    if (!myLeaveStartDate || !myLeaveEndDate) {
+      setMyLeaveNotice('Please select both start date and end date.');
+      return;
+    }
+    if (new Date(myLeaveEndDate) < new Date(myLeaveStartDate)) {
+      setMyLeaveNotice('Leave end date cannot be earlier than start date.');
+      return;
+    }
+    if (!myLeaveReason.trim() || myLeaveReason.trim().length < 5) {
+      setMyLeaveNotice('Please provide a reason with at least 5 characters.');
       return;
     }
     setIsSubmittingMyLeave(true);
-    setMyLeaveNotice(null);
     try {
       const newLeave = await applyWorkerLeave({
         leave_type: myLeaveType,
@@ -894,7 +1085,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setMyLeaveReason('');
       setTimeout(() => setSuccessNotice(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Failed to submit leave application.');
+      setMyLeaveNotice(err.message || 'Failed to submit leave application.');
     } finally {
       setIsSubmittingMyLeave(false);
     }
@@ -902,10 +1093,36 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleAddSupplierSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newSupplierName.trim() || !newSupplierMaterial.trim() || !newSupplierPhone.trim()) {
-      alert('Please enter supplier company name, materials supplied, and phone contact.');
+    setAddSupplierError(null);
+    if (!newSupplierName.trim() || newSupplierName.trim().length < 2) {
+      setAddSupplierError('Please enter a valid company/mill name (at least 2 characters).');
       return;
     }
+    if (!newSupplierMaterial.trim() || newSupplierMaterial.trim().length < 2) {
+      setAddSupplierError('Please specify materials or grades supplied (at least 2 characters).');
+      return;
+    }
+    if (!newSupplierPhone.trim()) {
+      setAddSupplierError('Please provide a contact phone number.');
+      return;
+    }
+    const phoneErr = validatePhoneNumber(newSupplierPhone.trim());
+    if (phoneErr) {
+      setAddSupplierError(phoneErr);
+      return;
+    }
+    if (newSupplierEmail.trim()) {
+      const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+      if (!emailRegex.test(newSupplierEmail.trim())) {
+        setAddSupplierError('Please enter a valid supplier email address.');
+        return;
+      }
+    }
+    if (Number(newSupplierLeadTime) < 1) {
+      setAddSupplierError('Lead time must be at least 1 day.');
+      return;
+    }
+
     setIsAddingSupplier(true);
     const newEntry = {
       id: `SUP-${Date.now().toString().slice(-4)}`,
@@ -988,6 +1205,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     stageId?: number
   ) => {
     setAssignWorkerModalData({ type, id, title, currentWorkerId, stageId });
+    setAssignWorkerError(null);
     if (currentWorkerId) {
       setAssignModalWorkerId(currentWorkerId);
     } else {
@@ -1008,11 +1226,16 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   };
 
   const handleConfirmAssignWorker = async () => {
-    if (!assignWorkerModalData || !assignModalWorkerId) return;
+    if (!assignWorkerModalData) return;
+    setAssignWorkerError(null);
+    if (!assignModalWorkerId) {
+      setAssignWorkerError('Please select a skilled workshop worker.');
+      return;
+    }
     setIsAssigningWorker(true);
     try {
       const wId = Number(assignModalWorkerId);
-        if (assignWorkerModalData.type === 'custom') {
+      if (assignWorkerModalData.type === 'custom') {
         const res = await assignWorkerTask(assignWorkerModalData.id, wId, undefined);
         if (res.error) throw new Error(res.error);
         setSuccessNotice(`Assigned worker to Custom Order #${assignWorkerModalData.id}`);
@@ -1036,7 +1259,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setAssignModalNotes('');
       await loadData();
     } catch (err: any) {
-      alert(err.message || 'Failed to assign worker.');
+      setAssignWorkerError(err.message || 'Failed to assign worker.');
     } finally {
       setIsAssigningWorker(false);
       setTimeout(() => setSuccessNotice(null), 5000);
@@ -1049,6 +1272,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
     currentCarrier?: string
   ) => {
     setAssignCarrierModalData({ fabricationId, title, currentCarrier });
+    setAssignCarrierError(null);
     setCarrierModalType('CARRIER_PARTNER');
     if (carriersList.length > 0) {
       setCarrierModalPartnerId(String(carriersList[0].carrier_id));
@@ -1060,6 +1284,15 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleConfirmAssignCarrier = async () => {
     if (!assignCarrierModalData) return;
+    setAssignCarrierError(null);
+    if (carrierModalType === 'CARRIER_PARTNER' && !carrierModalPartnerId) {
+      setAssignCarrierError('Please select a 3PL carrier partner.');
+      return;
+    }
+    if (carrierModalType === 'INTERNAL_FLEET' && !carrierModalDriverId) {
+      setAssignCarrierError('Please select a company fleet driver.');
+      return;
+    }
     setIsAssigningCarrier(true);
     try {
       if (carrierModalType === 'CARRIER_PARTNER') {
@@ -1110,7 +1343,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       }
       setTimeout(() => setSuccessNotice(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Failed to allot carrier partner.');
+      setAssignCarrierError(err.message || 'Failed to allot carrier partner.');
     } finally {
       setIsAssigningCarrier(false);
     }
@@ -1118,7 +1351,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleMarkMaterialReceived = async (fabricationId: number) => {
     if (selectedFabJobModal && !selectedFabJobModal.pickup_carrier) {
-      alert('Please assign a Carrier Partner or Internal Fleet Driver before marking material as received at the workshop.');
+      setErrorNotice('Please assign a Carrier Partner or Internal Fleet Driver before marking material as received at the workshop.');
+      setTimeout(() => setErrorNotice(null), 6000);
       return;
     }
     try {
@@ -1131,7 +1365,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       await loadFabricationData();
       setTimeout(() => setSuccessNotice(null), 5000);
     } catch (err: any) {
-      alert(err.message || 'Failed to mark material as received.');
+      setErrorNotice(err.message || 'Failed to mark material as received.');
+      setTimeout(() => setErrorNotice(null), 5000);
     }
   };
 
@@ -1146,6 +1381,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleOpenAssessment = async (item: AssessmentQueueItem) => {
     setSelectedAssessmentRequest(item);
+    setAssessmentModalError(null);
     const isService = item.order_type === 'On-Site Service' || item.order_type === 'Service' || item.request_id?.startsWith('ONS-') || item.request_id?.startsWith('SRV-') || item.request_id?.startsWith('OSR-');
     const ordType = (item.order_type === 'Customization' || item.request_id?.startsWith('CUS-')) ? 'Custom' : isService ? 'Service' : 'Fabrication';
 
@@ -1228,16 +1464,37 @@ export const ProductionStaffDashboardPage: React.FC = () => {
   const handleSaveAssessmentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAssessmentRequest) return;
+    setAssessmentModalError(null);
+
+    if (assFeasibility === 'NOT_FEASIBLE') {
+      const reason = (assUnfeasibilityReason || '').trim();
+      if (!reason || reason.length < 5) {
+        setAssessmentModalError('Please provide an unfeasibility explanation (minimum 5 characters) explaining why this request cannot be produced.');
+        return;
+      }
+    }
+
+    const matCost = Number(assMatCost) || 0;
+    const labCost = Number(assLabCost) || 0;
+    const macCost = Number(assMacCost) || 0;
+    const finCost = Number(assFinCost) || 0;
+    const othCost = Number(assOthCost) || 0;
+
+    if (matCost < 0 || labCost < 0 || macCost < 0 || finCost < 0 || othCost < 0) {
+      setAssessmentModalError('Cost breakdown items cannot be negative amounts.');
+      return;
+    }
+
+    const totalCalc = matCost + labCost + macCost + finCost + othCost;
+    if (assFeasibility === 'FEASIBLE' && totalCalc <= 0) {
+      setAssessmentModalError('Total estimated production cost must be greater than zero for feasible orders.');
+      return;
+    }
+
     setIsSubmittingAssessment(true);
     try {
       const isService = selectedAssessmentRequest.order_type === 'On-Site Service' || selectedAssessmentRequest.order_type === 'Service' || selectedAssessmentRequest.request_id?.startsWith('ONS-') || selectedAssessmentRequest.request_id?.startsWith('SRV-') || selectedAssessmentRequest.request_id?.startsWith('OSR-');
       const ordType = (selectedAssessmentRequest.order_type === 'Customization' || selectedAssessmentRequest.request_id?.startsWith('CUS-')) ? 'Custom' : isService ? 'Service' : 'Fabrication';
-      const matCost = Number(assMatCost) || 0;
-      const labCost = Number(assLabCost) || 0;
-      const macCost = Number(assMacCost) || 0;
-      const finCost = Number(assFinCost) || 0;
-      const othCost = Number(assOthCost) || 0;
-      const totalCalc = matCost + labCost + macCost + finCost + othCost;
 
       const payload: TechnicalAssessmentData = {
         order_type: ordType,
@@ -1284,11 +1541,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setSelectedAssessmentRequest(null);
       await Promise.all([
         loadOverviewData(),
-        loadQueueData(assessmentCategoryFilter, assessmentTabFilter),
+        loadQueueData(),
         loadData()
       ]);
     } catch (err: any) {
       console.error('Failed to save technical assessment:', err);
+      setAssessmentModalError(err?.message || 'Failed to save technical assessment.');
     } finally {
       setIsSubmittingAssessment(false);
     }
@@ -1298,11 +1556,19 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleMaterialReceiptSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setMaterialReceiptError(null);
     const effectiveOrder = selectedMaterialOrder || orders[0] || assessmentQueue[0] || {
       custom_order_id: 37,
       customer_name: 'Valued Client',
       furniture_type: 'Custom Bespoke Furniture'
     };
+
+    const numQty = parseFloat(matQty);
+    if (isNaN(numQty) || numQty <= 0) {
+      setMaterialReceiptError('Please specify a valid positive received quantity (> 0).');
+      return;
+    }
+
     setIsSubmittingReceipt(true);
     try {
       const ordType = effectiveOrder.order_type === 'Fabrication' || effectiveOrder.request_id?.startsWith('FAB-')
@@ -1317,24 +1583,14 @@ export const ProductionStaffDashboardPage: React.FC = () => {
         order_id: ordNumId,
         received_by_id: userProfile?.user_id || 3,
         condition: matCondition,
-        quantity: Number(matQty) || 1,
+        quantity: numQty,
         unit: matUnit,
         notes: matNotes
       };
       await receiveCustomerMaterial(payload);
-
-      const newLog = {
-        log_receipt_id: `REC-CS-${String(Date.now()).slice(-4)}`,
-        client_name: effectiveOrder.customer_name || 'Client',
-        order_id: effectiveOrder.request_id || `ORD-${String(ordNumId).padStart(4, '0')}`,
-        material_details: `${effectiveOrder.furniture_type || effectiveOrder.title || 'Material'} - ${matNotes || 'Customer-Supplied Material'}`,
-        quantity_condition: `${matQty} ${matUnit} • ${matCondition}`,
-        status: 'Verified & Sealed',
-        receipt_date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-      };
-      const updatedLogs = [newLog, ...materialLogs];
-      setMaterialLogs(updatedLogs);
-      localStorage.setItem('customer_material_receipts', JSON.stringify(updatedLogs));
+      await loadMaterialReceipts();
+      await loadRawMaterialStock();
+      await loadFabricationData();
 
       setIsMaterialReceiptModalOpen(false);
       setSelectedMaterialOrder(null);
@@ -1348,6 +1604,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       ]);
     } catch (err: any) {
       console.error('Failed to log material receipt:', err);
+      setMaterialReceiptError(err.message || 'Failed to log material receipt.');
     } finally {
       setIsSubmittingReceipt(false);
     }
@@ -1391,38 +1648,40 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const loadData = async () => {
     setIsLoading(true);
-    try {
-      const supFilterId = assignedSupervisorFilter === 'MY_OVERSEEN' ? currentSupervisorId : undefined;
-      const [orderList, workerList] = await Promise.all([
-        fetchCustomOrders('All', true, undefined, supFilterId),
-        fetchWorkers()
-      ]);
-      setOrders(orderList);
-      setWorkers(workerList);
-      await Promise.all([
-        loadOverviewData(),
-        loadQueueData(),
-        loadFabricationData(),
-        loadOnsiteData(),
-        loadReportsData(),
-        loadLeaveRequestsData(),
-        loadSupervisorWorkloadData()
-      ]);
-    } catch (err) {
-      console.error('Error loading production data:', err);
-    } finally {
+    const supFilterId = assignedSupervisorFilter === 'MY_OVERSEEN' ? currentSupervisorId : undefined;
+
+    // 1. Prioritize immediate Overview KPI data to unblock UI paint in <1s
+    loadOverviewData().finally(() => {
       setIsLoading(false);
-    }
+    });
+
+    fetchWorkers().then(workerList => {
+      if (workerList) setWorkers(workerList);
+    }).catch(err => console.error('Error fetching workers:', err));
+
+    // 2. Concurrently stream background lists and queues without freezing the screen
+    fetchCustomOrders('All', true, undefined, supFilterId).then(orderList => {
+      if (orderList) setOrders(orderList);
+    }).catch(err => console.error('Error fetching custom orders:', err));
+
+    loadQueueData();
+    loadFabricationData();
+    loadOnsiteData();
+    loadReportsData();
+    loadLeaveRequestsData();
+    loadSupervisorWorkloadData();
   };
 
   useEffect(() => {
     loadNotifs();
     loadQueries();
     loadData();
+    window.addEventListener('notifications-updated', loadNotifs);
     window.addEventListener('custom-orders-updated', loadData);
     window.addEventListener('leave-requests-updated', loadLeaveRequestsData);
     window.addEventListener('storage', loadData);
     return () => {
+      window.removeEventListener('notifications-updated', loadNotifs);
       window.removeEventListener('custom-orders-updated', loadData);
       window.removeEventListener('leave-requests-updated', loadLeaveRequestsData);
       window.removeEventListener('storage', loadData);
@@ -1817,23 +2076,39 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleAddWorkerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newWorkerName.trim() || !newWorkerEmail.trim()) {
+    const name = newWorkerName.trim();
+    const email = newWorkerEmail.trim();
+    const phone = newWorkerPhone.trim();
+
+    if (!name || !email) {
       setAddWorkerError('Please provide both worker name and email address.');
       return;
     }
-    if (newWorkerPhone.trim() && newWorkerPhone.trim().replace(/\D/g, '').length < 10) {
-      setAddWorkerError('Please enter a valid 10-digit phone number.');
+    if (!/^[a-zA-Z\s]{2,}$/.test(name)) {
+      setAddWorkerError('Worker name should only contain letters and spaces (min 2 characters).');
       return;
+    }
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      setAddWorkerError('Please enter a valid email address.');
+      return;
+    }
+    if (phone) {
+      const phoneErr = validatePhoneNumber(phone);
+      if (phoneErr) {
+        setAddWorkerError(phoneErr);
+        return;
+      }
     }
     setAddWorkerError(null);
     setIsAddWorkerSubmitting(true);
     try {
-      const resWorker = await addWorker(newWorkerName.trim(), newWorkerEmail.trim(), newWorkerPhone ? newWorkerPhone.trim() : '', newWorkerSpec);
+      const resWorker = await addWorker(name, email, phone, newWorkerSpec);
       
       if (resWorker && resWorker.email_sent === false) {
         setSuccessNotice('Worker account was created, but the login credentials could not be emailed. Please use Resend Credentials.');
       } else {
-        setSuccessNotice(`Worker account created successfully. Login credentials have been sent to: ${newWorkerEmail}`);
+        setSuccessNotice(`Worker account created successfully. Login credentials have been sent to: ${email}`);
       }
 
       setNewWorkerName('');
@@ -1862,12 +2137,40 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
   const handleEditWorkerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingWorker || !editWorkerName.trim() || !editWorkerEmail.trim()) return;
+    if (!editingWorker) return;
+    const name = editWorkerName.trim();
+    const email = editWorkerEmail.trim();
+    const phone = editWorkerPhone.trim();
+
+    if (!name) {
+      setEditWorkerError('Please enter worker name.');
+      return;
+    }
+    if (!/^[a-zA-Z\s]{2,}$/.test(name)) {
+      setEditWorkerError('Worker name should only contain letters and spaces (min 2 characters).');
+      return;
+    }
+    if (!email) {
+      setEditWorkerError('Please enter worker email.');
+      return;
+    }
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      setEditWorkerError('Please enter a valid email address.');
+      return;
+    }
+    if (phone) {
+      const phoneErr = validatePhoneNumber(phone);
+      if (phoneErr) {
+        setEditWorkerError(phoneErr);
+        return;
+      }
+    }
     setEditWorkerError(null);
     setIsEditWorkerSubmitting(true);
     try {
-      await updateWorker(editingWorker.worker_id, editWorkerName.trim(), editWorkerEmail.trim(), editWorkerPhone, editWorkerSpec);
-      setSuccessNotice(`Worker details updated for ${editWorkerName}.`);
+      await updateWorker(editingWorker.worker_id, name, email, phone, editWorkerSpec);
+      setSuccessNotice(`Worker details updated for ${name}.`);
       setEditingWorker(null);
       setTimeout(() => setSuccessNotice(null), 5000);
       await loadData();
@@ -1887,7 +2190,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setTimeout(() => setSuccessNotice(null), 4000);
       await loadData();
     } catch (err: any) {
-      alert(err.message || 'Failed to update worker status.');
+      setErrorNotice(err.message || 'Failed to update worker status.');
+      setTimeout(() => setErrorNotice(null), 5000);
     }
   };
 
@@ -1898,7 +2202,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
       setSuccessNotice(`New login credentials successfully emailed to ${worker.email}.`);
       setTimeout(() => setSuccessNotice(null), 8000);
     } catch (err: any) {
-      alert(err.message || 'Failed to resend login credentials.');
+      setErrorNotice(err.message || 'Failed to resend login credentials.');
+      setTimeout(() => setErrorNotice(null), 5000);
     } finally {
       setResendingCredentialsId(null);
     }
@@ -2429,6 +2734,19 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               </div>
             )}
 
+            {/* Error Notice */}
+            {errorNotice && (
+              <div className="relative z-10 p-4 rounded-2xl bg-rose-50 border border-rose-300 text-rose-800 flex items-start gap-3 shadow-md animate-fadeIn">
+                <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 text-xs font-extrabold leading-relaxed">
+                  {errorNotice}
+                </div>
+                <button onClick={() => setErrorNotice(null)} className="text-rose-600 hover:text-rose-800 p-1">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
             {/* Unread Admin Directives Banner */}
             {unreadAdminMsgsCount > 0 && activeTab !== 'admin_messages' && (
               <div className="relative z-10 p-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-500/5 border-2 border-amber-400 text-amber-900 flex items-center justify-between gap-3 shadow-md animate-fadeIn">
@@ -2868,379 +3186,6 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                       </table>
                     </div>
                   </div>
-                </div>
-
-                {/* ---------------------------------------------------- */}
-                {/* FEATURE 1: FABRICATION DETAILS SECTION */}
-                {/* ---------------------------------------------------- */}
-                <div id="fabrication-details-section" className="bg-white/80 backdrop-blur-md rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
-                  {/* Section Header */}
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E2D7CB] pb-4">
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-xl bg-amber-500/10 text-amber-800 border border-amber-500/20">
-                          <Layers className="w-5 h-5 text-amber-800" />
-                        </div>
-                        <h3 className="text-base font-black text-[#2C241D]">Fabrication Details</h3>
-                        <span className="px-2.5 py-0.5 text-xs font-black rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                          {filteredFabJobs.length} {filteredFabJobs.length === 1 ? 'Job' : 'Jobs'}
-                        </span>
-                      </div>
-                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
-                        Production-ready fabrication jobs, material allocations, team assignments, and real-time build progress.
-                      </p>
-                    </div>
-
-                    {/* Search & Filter controls */}
-                    <div className="flex flex-wrap items-center gap-3">
-                      {/* Search Input */}
-                      <div className="relative min-w-[200px] flex-1 sm:flex-none">
-                        <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search job, ID, material..."
-                          value={fabSearchQuery}
-                          onChange={(e) => setFabSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-8 py-1.5 rounded-xl border border-[#E2D7CB] bg-white text-xs font-extrabold text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
-                        />
-                        {fabSearchQuery && (
-                          <button onClick={() => setFabSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C7C6D] hover:text-[#2C241D]">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Status Filter Tabs */}
-                      <div className="flex items-center gap-1 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB] text-[11px] font-extrabold flex-wrap sm:flex-nowrap">
-                        {['All', 'Pending', 'In Progress', 'Quality Check', 'Completed'].map((st) => (
-                          <button
-                            key={st}
-                            onClick={() => setFabStatusFilter(st)}
-                            className={`px-2.5 py-1 rounded-lg transition-all ${
-                              fabStatusFilter === st
-                                ? 'bg-[#48A63E] text-white shadow-xs'
-                                : 'text-[#6B5C4D] hover:text-[#2C241D] hover:bg-white/60'
-                            }`}
-                          >
-                            {st}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Jobs Cards Grid */}
-                  {filteredFabJobs.length === 0 ? (
-                    <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-2">
-                      <Layers className="w-8 h-8 text-[#A09080] mx-auto" />
-                      <p className="font-extrabold text-sm text-[#2C241D]">No Fabrication Jobs Found</p>
-                      <p className="text-xs text-[#7A6C5E]">No production-ready orders match the selected search query or status filter.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {filteredFabJobs.map((job) => {
-                        let statusBadgeClass = 'bg-amber-100 text-amber-900 border-amber-300';
-                        if (job.status === 'In Progress') statusBadgeClass = 'bg-indigo-100 text-indigo-900 border-indigo-300';
-                        if (job.status === 'Quality Check') statusBadgeClass = 'bg-purple-100 text-purple-900 border-purple-300';
-                        if (job.status === 'Completed') statusBadgeClass = 'bg-emerald-100 text-emerald-900 border-emerald-300';
-
-                        let priorityClass = 'bg-rose-100 text-rose-800 border-rose-300';
-                        if (job.priority === 'Medium') priorityClass = 'bg-amber-100 text-amber-800 border-amber-300';
-                        if (job.priority === 'Low') priorityClass = 'bg-blue-100 text-blue-800 border-blue-300';
-
-                        return (
-                          <div
-                            key={job.fabrication_id}
-                            onClick={() => setSelectedFabJobModal(job)}
-                            className="group bg-white rounded-2xl p-4 border border-[#E2D7CB] shadow-xs hover:shadow-md hover:border-[#48A63E]/60 transition-all space-y-3 cursor-pointer flex flex-col justify-between"
-                          >
-                            <div className="space-y-3">
-                              {/* Header Row */}
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
-                                    {job.fabrication_id}
-                                  </span>
-                                  <span className="font-mono text-[11px] font-extrabold text-[#7A6C5E] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
-                                    {job.order_id}
-                                  </span>
-                                </div>
-                                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border uppercase ${priorityClass}`}>
-                                  {job.priority} Priority
-                                </span>
-                              </div>
-
-                              {/* Product Info Row with Thumbnail */}
-                              <div className="flex items-start gap-3">
-                                {job.product_thumbnail ? (
-                                  <img
-                                    src={job.product_thumbnail}
-                                    alt={job.product_name}
-                                    className="w-14 h-14 rounded-xl object-cover border border-[#E2D7CB] shrink-0 group-hover:scale-105 transition-transform"
-                                  />
-                                ) : (
-                                  <div className="w-14 h-14 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
-                                    <Wrench className="w-6 h-6 text-amber-700" />
-                                  </div>
-                                )}
-
-                                <div className="min-w-0 flex-1">
-                                  <h4 className="font-black text-sm text-[#2C241D] truncate leading-tight group-hover:text-[#48A63E] transition-colors">
-                                    {job.product_name}
-                                  </h4>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-[11px] font-bold text-[#6B5C4D] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
-                                      Qty: {job.quantity}
-                                    </span>
-                                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full border ${statusBadgeClass}`}>
-                                      {job.status}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Details List */}
-                              <div className="space-y-1.5 pt-2 border-t border-[#EFE7DE] text-xs">
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="text-[11px] text-[#7A6C5E] font-bold shrink-0">Material Required:</span>
-                                  <span className="text-[11px] text-[#2C241D] font-extrabold text-right truncate max-w-[180px]">
-                                    {job.material_required}
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] text-[#7A6C5E] font-bold shrink-0">Assigned Team:</span>
-                                  <span className="text-[11px] text-[#2C241D] font-extrabold flex items-center gap-1">
-                                    <Users className="w-3 h-3 text-[#48A63E]" />
-                                    {job.assigned_team}
-                                  </span>
-                                </div>
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-[11px] text-[#7A6C5E] font-bold shrink-0">Expected Completion:</span>
-                                  <span className="text-[11px] font-mono font-extrabold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                                    {job.expected_completion_date}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Material Pickup & Logistics Badge */}
-                              {job.needs_pickup && (
-                                <div className="pt-2 border-t border-[#EFE7DE]">
-                                  {job.is_pickup_completed ? (
-                                    <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-300 text-emerald-900 text-[10px] font-bold flex items-center justify-between">
-                                      <span className="flex items-center gap-1">
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                        <span>Material at Workshop</span>
-                                      </span>
-                                      <span className="text-[9px] font-mono text-emerald-700 font-extrabold">{job.pickup_carrier || 'Direct'}</span>
-                                    </div>
-                                  ) : job.pickup_carrier ? (
-                                    <div className="p-1.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-950 text-[10px] font-bold flex items-center justify-between">
-                                      <span className="flex items-center gap-1">
-                                        <Truck className="w-3.5 h-3.5 text-amber-700 animate-pulse" />
-                                        <span>Pickup: {job.pickup_carrier}</span>
-                                      </span>
-                                      <span className="text-[9px] font-black uppercase text-amber-800 bg-amber-200/80 px-1.5 py-0.5 rounded">
-                                        {job.pickup_status}
-                                      </span>
-                                    </div>
-                                  ) : (
-                                    <div className="p-1.5 rounded-lg bg-rose-50 border border-rose-300 text-rose-950 text-[10px] font-bold flex items-center justify-between">
-                                      <span className="flex items-center gap-1">
-                                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-                                        <span>Carrier Allotment Needed</span>
-                                      </span>
-                                      <span className="text-[9px] font-black uppercase text-rose-800 bg-rose-200 px-1.5 py-0.5 rounded">
-                                        Pending
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Progress Bar Footer */}
-                            <div className="pt-3 space-y-1.5">
-                              <div className="flex items-center justify-between text-[11px] font-extrabold">
-                                <span className="text-[#6B5C4D]">Completion Progress</span>
-                                <span className="text-[#48A63E] font-mono">{job.progress_percentage}%</span>
-                              </div>
-                              <div className="w-full h-2 rounded-full bg-[#FAF7F2] border border-[#E2D7CB] overflow-hidden p-0.5">
-                                <div
-                                  className="h-full rounded-full bg-gradient-to-r from-[#48A63E] to-[#38A132] transition-all duration-500"
-                                  style={{ width: `${job.progress_percentage}%` }}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* ---------------------------------------------------- */}
-                {/* FEATURE 2: APPROVED ON-SITE REQUESTS SECTION */}
-                {/* ---------------------------------------------------- */}
-                <div id="approved-onsite-requests-section" className="bg-white/80 backdrop-blur-md rounded-3xl p-6 border border-[#E2D7CB] shadow-sm space-y-5">
-                  {/* Section Header */}
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#E2D7CB] pb-4">
-                    <div>
-                      <div className="flex items-center gap-2.5">
-                        <div className="p-2 rounded-xl bg-[#48A63E]/10 text-[#48A63E] border border-[#48A63E]/20">
-                          <Sparkles className="w-5 h-5 text-[#48A63E]" />
-                        </div>
-                        <h3 className="text-base font-black text-[#2C241D]">Approved On-Site Requests</h3>
-                        <span className="px-2.5 py-0.5 text-xs font-black rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
-                          Approved by Retail Staff ({filteredOnsiteRequests.length})
-                        </span>
-                      </div>
-                      <p className="text-xs text-[#7A6C5E] font-medium mt-1">
-                        Retail Staff-approved site installation & display requests ready for workshop fabrication, staging, and dispatch.
-                      </p>
-                    </div>
-
-                    {/* Search & Status Filters */}
-                    <div className="flex flex-wrap items-center gap-3">
-                      {/* Search Input */}
-                      <div className="relative min-w-[200px] flex-1 sm:flex-none">
-                        <Search className="w-4 h-4 text-[#8C7C6D] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search store, ID, product..."
-                          value={onsiteSearchQuery}
-                          onChange={(e) => setOnsiteSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-8 py-1.5 rounded-xl border border-[#E2D7CB] bg-white text-xs font-extrabold text-[#2C241D] placeholder:text-[#A09080] focus:outline-none focus:border-[#48A63E] focus:ring-1 focus:ring-[#48A63E]"
-                        />
-                        {onsiteSearchQuery && (
-                          <button onClick={() => setOnsiteSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8C7C6D] hover:text-[#2C241D]">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Filter Tabs */}
-                      <div className="flex items-center gap-1 bg-[#FAF7F2] p-1 rounded-xl border border-[#E2D7CB] text-[11px] font-extrabold flex-wrap sm:flex-nowrap">
-                        {['All', 'Approved & Ready', 'In Production', 'Ready for Dispatch'].map((st) => (
-                          <button
-                            key={st}
-                            onClick={() => setOnsiteStatusFilter(st)}
-                            className={`px-2.5 py-1 rounded-lg transition-all ${
-                              onsiteStatusFilter === st
-                                ? 'bg-[#48A63E] text-white shadow-xs'
-                                : 'text-[#6B5C4D] hover:text-[#2C241D] hover:bg-white/60'
-                            }`}
-                          >
-                            {st}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Onsite Cards Grid */}
-                  {filteredOnsiteRequests.length === 0 ? (
-                    <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-2">
-                      <Sparkles className="w-8 h-8 text-[#A09080] mx-auto" />
-                      <p className="font-extrabold text-sm text-[#2C241D]">No Approved On-Site Requests Found</p>
-                      <p className="text-xs text-[#7A6C5E]">No retail staff approved site requests match your active query.</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {filteredOnsiteRequests.map((req) => {
-                        let statusBadge = 'bg-emerald-100 text-emerald-900 border-emerald-300';
-                        if (req.production_status === 'In Production') statusBadge = 'bg-indigo-100 text-indigo-900 border-indigo-300';
-                        if (req.production_status === 'Ready for Dispatch') statusBadge = 'bg-teal-100 text-teal-900 border-teal-300';
-
-                        let priorityClass = 'bg-rose-100 text-rose-800 border-rose-300';
-                        if (req.priority === 'Medium') priorityClass = 'bg-amber-100 text-amber-800 border-amber-300';
-                        if (req.priority === 'Low') priorityClass = 'bg-blue-100 text-blue-800 border-blue-300';
-
-                        return (
-                          <div
-                            key={req.request_id}
-                            className="bg-white rounded-2xl p-5 border border-[#E2D7CB] shadow-xs hover:shadow-md transition-all space-y-4 flex flex-col justify-between"
-                          >
-                            <div className="space-y-3">
-                              {/* Header Info */}
-                              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#EFE7DE] pb-3">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono text-xs font-black text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
-                                    {req.request_id}
-                                  </span>
-                                  <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full border uppercase ${priorityClass}`}>
-                                    {req.priority} Priority
-                                  </span>
-                                </div>
-                                <span className={`text-[11px] font-black px-3 py-0.5 rounded-full border ${statusBadge}`}>
-                                  {req.production_status}
-                                </span>
-                              </div>
-
-                              {/* Store & Product Detail */}
-                              <div className="space-y-1.5">
-                                <h4 className="font-black text-sm text-[#2C241D] flex items-center gap-2">
-                                  <span className="text-[#48A63E]">🏪</span>
-                                  <span>{req.store_name}</span>
-                                </h4>
-                                <p className="text-xs text-[#6B5C4D] font-medium leading-relaxed pl-6">
-                                  <span className="font-bold text-[#2C241D]">Product:</span> {req.product_name} ({req.requested_quantity})
-                                </p>
-                              </div>
-
-                              {/* Meta Grid */}
-                              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs">
-                                <div>
-                                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Request Date</span>
-                                  <span className="font-extrabold text-[#2C241D] text-[11px]">{req.request_date}</span>
-                                </div>
-                                <div>
-                                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Required Install Date</span>
-                                  <span className="font-extrabold text-amber-900 text-[11px] font-mono">{req.required_installation_date}</span>
-                                </div>
-                                <div className="col-span-2 sm:col-span-1">
-                                  <span className="text-[10px] text-[#7A6C5E] font-bold block uppercase">Assigned Team</span>
-                                  <span className="font-extrabold text-[#48A63E] text-[11px] truncate block">{req.assigned_production_team}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Action Buttons Row */}
-                            <div className="pt-3 border-t border-[#EFE7DE] flex flex-wrap items-center justify-between gap-2">
-                              <button
-                                onClick={() => setSelectedOnsiteRequestModal(req)}
-                                className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#F3EDE5] text-[#2C241D] border border-[#E2D7CB] font-extrabold text-xs flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-[#48A63E]" />
-                                <span>View Details</span>
-                              </button>
-
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {req.production_status !== 'In Production' && req.production_status !== 'Ready for Dispatch' && (
-                                  <button
-                                    onClick={() => handleMarkOnsiteInProduction(req.request_id)}
-                                    className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                                  >
-                                    <Clock className="w-3.5 h-3.5" />
-                                    <span>Mark In Production</span>
-                                  </button>
-                                )}
-
-                                {req.production_status !== 'Ready for Dispatch' && (
-                                  <button
-                                    onClick={() => handleMarkOnsiteReadyForDispatch(req.request_id)}
-                                    className="px-3.5 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Mark Ready for Dispatch</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
               </div>
             )}
@@ -3820,38 +3765,131 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {(activeTab === 'assessment_queue' || activeTab === 'approvals') && (
               <div className="space-y-6 relative z-10">
                 {(() => {
+                  const isItemComplete = (item: AssessmentQueueItem) => {
+                    return Boolean(
+                      item.is_assessed ||
+                      item.assessment_status === 'ASSESSMENT_COMPLETE' ||
+                      item.order_status === 'Quote Provided' ||
+                      item.order_status === 'QUOTATION_READY' ||
+                      item.order_status === 'QUOTED' ||
+                      item.order_status === 'CUSTOMER_APPROVED' ||
+                      item.order_status === 'Approved' ||
+                      item.order_status === 'PAID' ||
+                      item.order_status === 'Paid' ||
+                      item.payment_status === 'Paid' ||
+                      (item.estimated_price != null && item.estimated_price > 0)
+                    );
+                  };
+
                   const allQueueItems = assessmentQueue.filter(item => {
-                    const oType = (item.order_type as string);
-                    return oType !== 'Readymade' && oType !== 'Retail Order' && !(item.request_id && item.request_id.startsWith('RET-'));
+                    const oType = ((item.order_type as string) || '').toLowerCase();
+                    const reqId = (item.request_id || '').toUpperCase();
+                    return oType !== 'readymade' && oType !== 'retail order' && !reqId.startsWith('RET-');
                   });
 
-                  const customCount = allQueueItems.filter(i => i.order_type === 'Customization' || i.order_type === 'Custom' || i.request_id?.startsWith('CUS-')).length;
-                  const fabCount = allQueueItems.filter(i => i.order_type === 'Fabrication' || i.request_id?.startsWith('FAB-')).length;
-                  const srvCount = allQueueItems.filter(i => i.order_type === 'On-Site Service' || i.order_type === 'Service' || i.request_id?.startsWith('ONS-') || i.request_id?.startsWith('SRV-') || i.request_id?.startsWith('OSR-')).length;
+                  const customCount = allQueueItems.filter(i => {
+                    const ot = ((i.order_type as string) || '').toLowerCase();
+                    const reqId = (i.request_id || '').toUpperCase();
+                    const title = (i.title || '').toLowerCase();
+                    return ot.includes('custom') || reqId.startsWith('CUS-') || title.includes('custom');
+                  }).length;
+
+                  const fabCount = allQueueItems.filter(i => {
+                    const ot = ((i.order_type as string) || '').toLowerCase();
+                    const reqId = (i.request_id || '').toUpperCase();
+                    const title = (i.title || '').toLowerCase();
+                    return ot.includes('fab') || reqId.startsWith('FAB-') || title.includes('fab');
+                  }).length;
+
+                  const srvCount = allQueueItems.filter(i => {
+                    const ot = ((i.order_type as string) || '').toLowerCase();
+                    const reqId = (i.request_id || '').toUpperCase();
+                    const title = (i.title || '').toLowerCase();
+                    return ot.includes('service') || ot.includes('onsite') || ot.includes('on-site') || reqId.startsWith('ONS-') || reqId.startsWith('SRV-') || reqId.startsWith('OSR-') || title.includes('service') || title.includes('onsite');
+                  }).length;
+
                   const totalApprovedCount = allQueueItems.length;
 
                   const inCategoryItems = allQueueItems.filter(item => {
-                    const oType = (item.order_type as string);
-                    if (assessmentCategoryFilter === 'CUSTOMIZATION' && oType !== 'Customization' && oType !== 'Custom' && !item.request_id?.startsWith('CUS-')) return false;
-                    if (assessmentCategoryFilter === 'FABRICATION' && oType !== 'Fabrication' && !item.request_id?.startsWith('FAB-')) return false;
-                    if (assessmentCategoryFilter === 'SERVICES' && oType !== 'On-Site Service' && oType !== 'Service' && !item.request_id?.startsWith('ONS-') && !item.request_id?.startsWith('SRV-') && !item.request_id?.startsWith('OSR-')) return false;
+                    const ot = ((item.order_type as string) || '').toLowerCase();
+                    const reqId = (item.request_id || '').toUpperCase();
+                    const title = (item.title || '').toLowerCase();
+                    if (assessmentCategoryFilter === 'CUSTOMIZATION') {
+                      return ot.includes('custom') || reqId.startsWith('CUS-') || title.includes('custom');
+                    }
+                    if (assessmentCategoryFilter === 'FABRICATION') {
+                      return ot.includes('fab') || reqId.startsWith('FAB-') || title.includes('fab');
+                    }
+                    if (assessmentCategoryFilter === 'SERVICES') {
+                      return ot.includes('service') || ot.includes('onsite') || ot.includes('on-site') || reqId.startsWith('ONS-') || reqId.startsWith('SRV-') || reqId.startsWith('OSR-') || title.includes('service') || title.includes('onsite');
+                    }
                     return true;
                   });
 
-                  const pendingCount = inCategoryItems.filter(i => !i.is_assessed && i.assessment_status !== 'ASSESSMENT_COMPLETE').length;
-                  const assessedCount = inCategoryItems.filter(i => i.is_assessed || i.assessment_status === 'ASSESSMENT_COMPLETE').length;
+                  const assessedCount = inCategoryItems.filter(i => isItemComplete(i)).length;
+                  const pendingCount = inCategoryItems.length - assessedCount;
 
                   const displayedQueue = inCategoryItems.filter(item => {
-                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && (item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE')) return false;
-                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && !item.is_assessed && item.assessment_status !== 'ASSESSMENT_COMPLETE') return false;
+                    const comp = isItemComplete(item);
+                    if (assessmentTabFilter === 'PENDING_ASSESSMENT' && comp) return false;
+                    if (assessmentTabFilter === 'ASSESSMENT_COMPLETE' && !comp) return false;
+                    if (assessmentSearchQuery.trim()) {
+                      const q = assessmentSearchQuery.toLowerCase().trim();
+                      const matchId = (item.request_id || '').toLowerCase().includes(q);
+                      const matchTitle = (item.title || '').toLowerCase().includes(q);
+                      const matchCust = (item.customer_name || '').toLowerCase().includes(q) || (item.customer_email || '').toLowerCase().includes(q);
+                      const matchMat = (item.material || '').toLowerCase().includes(q);
+                      const matchDim = (item.dimensions || '').toLowerCase().includes(q);
+                      return matchId || matchTitle || matchCust || matchMat || matchDim;
+                    }
                     return true;
                   });
+
+                  const isFilterActive = assessmentCategoryFilter !== 'ALL' || assessmentTabFilter !== 'ALL' || Boolean(assessmentSearchQuery.trim());
 
                   return (
                     <>
                       {/* Structured Filter Control Panel */}
                       <div className="bg-[#FAF7F2] border border-[#E2D7CB] rounded-3xl p-4 sm:p-5 shadow-xs space-y-3.5">
-                        {/* Row 1: Category Filter */}
+                        {/* Row 1: Search & Reset */}
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                          <div className="relative flex-1">
+                            <Search className="w-4 h-4 text-[#9E9082] absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                            <input
+                              type="text"
+                              value={assessmentSearchQuery}
+                              onChange={(e) => setAssessmentSearchQuery(e.target.value)}
+                              placeholder="Search by Request ID (e.g. FAB-0006), title, customer, or material..."
+                              className="w-full pl-10 pr-9 py-2 rounded-2xl bg-white border border-[#E2D7CB] text-xs font-semibold text-[#2C241D] placeholder-[#A09080] focus:outline-none focus:ring-2 focus:ring-[#38A132] focus:border-[#38A132] transition-all"
+                            />
+                            {assessmentSearchQuery && (
+                              <button
+                                onClick={() => setAssessmentSearchQuery('')}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9E9082] hover:text-[#2C241D] text-xs font-bold p-1 cursor-pointer"
+                                title="Clear search"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+                          {isFilterActive && (
+                            <button
+                              onClick={() => {
+                                setAssessmentCategoryFilter('ALL');
+                                setAssessmentTabFilter('ALL');
+                                setAssessmentSearchQuery('');
+                              }}
+                              className="px-3.5 py-2 rounded-2xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#F3EDE5] text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer flex-shrink-0"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 text-[#7A6C5E]" />
+                              <span>Reset Filters</span>
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="border-t border-[#EFE7DE]" />
+
+                        {/* Row 2: Category Filter */}
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <Sliders className="w-4 h-4 text-[#38A132]" />
@@ -3890,7 +3928,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                         <div className="border-t border-[#EFE7DE]" />
 
-                        {/* Row 2: Status Filter */}
+                        {/* Row 3: Status Filter */}
                         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <Filter className="w-4 h-4 text-[#2C241D]" />
@@ -3936,8 +3974,20 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                           <div>
                             <h3 className="text-base font-extrabold text-[#2C241D]">No Requests Found Matching Filter</h3>
                             <p className="text-xs text-[#7A6C5E] max-w-md mx-auto font-medium mt-1">
-                              No retail-approved customer requests match the active category and status filters.
+                              No retail-approved customer requests match the active category, status, and search filters.
                             </p>
+                            {isFilterActive && (
+                              <button
+                                onClick={() => {
+                                  setAssessmentCategoryFilter('ALL');
+                                  setAssessmentTabFilter('ALL');
+                                  setAssessmentSearchQuery('');
+                                }}
+                                className="mt-4 px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold transition-all shadow-sm cursor-pointer"
+                              >
+                                Reset All Filters
+                              </button>
+                            )}
                           </div>
                         </div>
                       ) : (
@@ -3952,19 +4002,23 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       {item.request_id}
                                     </span>
                                     <span className={`text-[10px] font-extrabold px-2.5 py-1 rounded-full ${
-                                      item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
-                                        ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                                        : item.order_status === 'APPROVED_BY_RETAIL'
-                                          ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                          : item.priority === 'HIGH' || item.priority === 'URGENT'
-                                            ? 'bg-rose-100 text-rose-800 border border-rose-300'
-                                            : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                      item.order_status === 'CUSTOMER_APPROVED' || item.order_status === 'PAID' || item.payment_status === 'Paid'
+                                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                        : item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
+                                          ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                          : item.order_status === 'APPROVED_BY_RETAIL'
+                                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                            : item.priority === 'HIGH' || item.priority === 'URGENT'
+                                              ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                              : 'bg-amber-100 text-amber-800 border border-amber-300'
                                     }`}>
-                                      {item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
-                                        ? 'QUOTATION READY'
-                                        : item.order_status === 'APPROVED_BY_RETAIL'
-                                          ? 'UNDER EXAMINATION'
-                                          : `${item.priority} PRIORITY`}
+                                      {item.order_status === 'CUSTOMER_APPROVED' || item.order_status === 'PAID' || item.payment_status === 'Paid'
+                                        ? 'CUSTOMER APPROVED'
+                                        : item.is_assessed || item.assessment_status === 'ASSESSMENT_COMPLETE'
+                                          ? 'QUOTATION READY'
+                                          : item.order_status === 'APPROVED_BY_RETAIL'
+                                            ? 'UNDER EXAMINATION'
+                                            : `${item.priority} PRIORITY`}
                                     </span>
                                   </div>
 
@@ -4021,10 +4075,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                   )}
                                 </div>
 
-                                <div className="pt-3 border-t border-[#E2D7CB] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                                  <span className="text-[10px] text-[#9E9082] font-semibold">
-                                    Submitted: {item.order_date ? new Date(item.order_date).toLocaleDateString() : 'Recent'}
-                                  </span>
+                                <div className="pt-3 border-t border-[#E2D7CB] space-y-2.5">
                                   {(() => {
                                     const isQuoteReady = Boolean(
                                       item.is_assessed ||
@@ -4041,43 +4092,88 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                       item.payment_status === 'Paid'
                                     );
 
-                                    if (isApprovedOrPaid) {
-                                      return (
-                                        <button
-                                          onClick={() => handleOpenAssessment(item)}
-                                          className="px-3.5 py-2 rounded-xl bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-extrabold transition-all shadow-md shadow-[#2D6338]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
-                                          title="Quotation has been approved by customer"
-                                        >
-                                          <CheckCircle2 className="w-4 h-4 text-emerald-300 flex-shrink-0" />
-                                          <span>Customer Approved ✓</span>
-                                          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
-                                        </button>
-                                      );
-                                    }
-
-                                    if (isQuoteReady) {
-                                      return (
-                                        <button
-                                          onClick={() => handleOpenAssessment(item)}
-                                          className="px-3.5 py-2 rounded-xl bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold transition-all shadow-md shadow-[#2C241D]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
-                                          title="Quotation is prepared. Click to view or revise quotation details."
-                                        >
-                                          <Edit3 className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                                          <span>Edit / Revise Quote</span>
-                                          <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
-                                        </button>
-                                      );
-                                    }
+                                    const matSource = `${item.material_source || ''} ${item.material || ''}`.toLowerCase();
+                                    const isCompanyStock = matSource.includes('company') || matSource.includes('retail stock') || matSource.includes('business stock');
+                                    const isCustomerMatOrder = !isCompanyStock && (
+                                      matSource.includes('customer') ||
+                                      matSource.includes('client') ||
+                                      (item as any).customer_material_id != null ||
+                                      Boolean(item.status && (item.status.includes('DELIVERED') || item.status.includes('RECEIVED')))
+                                    );
 
                                     return (
-                                      <button
-                                        onClick={() => handleOpenAssessment(item)}
-                                        className="px-3.5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0"
-                                      >
-                                        <DollarSign className="w-4 h-4 flex-shrink-0" />
-                                        <span>Assess & Prepare Quote</span>
-                                        <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" />
-                                      </button>
+                                      <>
+                                        <div className="flex items-center justify-between text-xs">
+                                          <div className="flex items-center gap-1.5 text-[11px] text-[#7A6C5E] font-medium">
+                                            <Calendar className="w-3.5 h-3.5 text-[#A09080] flex-shrink-0" />
+                                            <span>Submitted: <strong className="text-[#2C241D]">{item.order_date ? new Date(item.order_date).toLocaleDateString() : 'Recent'}</strong></span>
+                                          </div>
+                                          {isCustomerMatOrder ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200 flex-shrink-0">
+                                              <PackageCheck className="w-3 h-3 text-amber-600 flex-shrink-0" /> Customer Material
+                                            </span>
+                                          ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#FAF7F2] text-[#7A6C5E] border border-[#E2D7CB] flex-shrink-0">
+                                              Company Stock
+                                            </span>
+                                          )}
+                                        </div>
+
+                                        <div className="w-full">
+                                          {isApprovedOrPaid ? (
+                                            <button
+                                              onClick={() => handleOpenAssessment(item)}
+                                              className="w-full py-2.5 px-3.5 rounded-xl bg-[#2D6338] hover:bg-[#23502C] text-white text-xs font-extrabold transition-all shadow-md shadow-[#2D6338]/20 cursor-pointer flex items-center justify-center gap-2"
+                                              title="Quotation has been approved by customer"
+                                            >
+                                              <CheckCircle2 className="w-4 h-4 text-emerald-300 flex-shrink-0" />
+                                              <span>Customer Approved ✓</span>
+                                              <ArrowRight className="w-3.5 h-3.5 ml-auto flex-shrink-0" />
+                                            </button>
+                                          ) : isQuoteReady ? (
+                                            <button
+                                              onClick={() => handleOpenAssessment(item)}
+                                              className="w-full py-2.5 px-3.5 rounded-xl bg-[#2C241D] hover:bg-[#1A1410] text-white text-xs font-extrabold transition-all shadow-md shadow-[#2C241D]/20 cursor-pointer flex items-center justify-center gap-2"
+                                              title="Quotation is prepared. Click to view or revise quotation details."
+                                            >
+                                              <Edit3 className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                                              <span>Edit / Revise Quote</span>
+                                              <ArrowRight className="w-3.5 h-3.5 ml-auto flex-shrink-0" />
+                                            </button>
+                                          ) : isCustomerMatOrder && !item.is_assessed ? (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full">
+                                              <button
+                                                onClick={() => {
+                                                  setSelectedMaterialOrder(item);
+                                                  setIsMaterialReceiptModalOpen(true);
+                                                }}
+                                                className="w-full py-2 px-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer text-center"
+                                                title="Record and inspect physical customer-owned material at workshop hub"
+                                              >
+                                                <PackageCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                                                <span className="truncate">Record Receipt</span>
+                                              </button>
+                                              <button
+                                                onClick={() => handleOpenAssessment(item)}
+                                                className="w-full py-2 px-2 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-1.5 text-center"
+                                              >
+                                                <DollarSign className="w-3.5 h-3.5 flex-shrink-0" />
+                                                <span className="truncate">Prepare Quote</span>
+                                                <ArrowRight className="w-3 h-3 flex-shrink-0" />
+                                              </button>
+                                            </div>
+                                          ) : (
+                                            <button
+                                              onClick={() => handleOpenAssessment(item)}
+                                              className="w-full py-2.5 px-3.5 rounded-xl bg-[#38A132] hover:bg-[#2E8729] text-white text-xs font-extrabold transition-all shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center justify-center gap-2"
+                                            >
+                                              <DollarSign className="w-4 h-4 flex-shrink-0" />
+                                              <span>Assess & Prepare Quote</span>
+                                              <ArrowRight className="w-3.5 h-3.5 ml-auto flex-shrink-0" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      </>
                                     );
                                   })()}
                                 </div>
@@ -4466,56 +4562,147 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             {(activeTab === 'materials' || activeTab === 'raw_materials') && (
               <div className="space-y-6 relative z-10">
                 {/* Inventory Overview Stat Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                    <div className="flex items-center justify-between text-[#8C8275]">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Teak & Hardwood Stock</span>
-                      <PackageCheck className="w-4 h-4 text-amber-700" />
-                    </div>
-                    <div className="text-2xl font-black text-[#2C241D]">1,450 CFT</div>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
-                      Grade-A Seasoned Timber
-                    </span>
-                  </div>
+                {(() => {
+                  const timberQty = rawMaterialStats
+                    .filter(m => (m.category || '').toLowerCase().includes('timber') || (m.material_name || '').toLowerCase().includes('wood') || (m.material_name || '').toLowerCase().includes('teak'))
+                    .reduce((sum, m) => sum + (Number(m.available_qty) || 0), 0);
+                  const fabricQty = rawMaterialStats
+                    .filter(m => (m.category || '').toLowerCase().includes('fabric') || (m.material_name || '').toLowerCase().includes('velvet') || (m.material_name || '').toLowerCase().includes('leather'))
+                    .reduce((sum, m) => sum + (Number(m.available_qty) || 0), 0);
+                  const hardwareQty = rawMaterialStats
+                    .filter(m => (m.category || '').toLowerCase().includes('hardware') || (m.category || '').toLowerCase().includes('plywood') || (m.category || '').toLowerCase().includes('foam'))
+                    .reduce((sum, m) => sum + (Number(m.available_qty) || 0), 0);
+                  const customerReceiptsCount = materialLogs.length;
 
-                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                    <div className="flex items-center justify-between text-[#8C8275]">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Upholstery Fabrics</span>
-                      <Layers className="w-4 h-4 text-blue-600" />
-                    </div>
-                    <div className="text-2xl font-black text-[#2C241D]">820 Meters</div>
-                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">
-                      Velvet, Jacquard & Leatherette
-                    </span>
-                  </div>
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                        <div className="flex items-center justify-between text-[#8C8275]">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Timber & Hardwood Stock</span>
+                          <PackageCheck className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <div className="text-2xl font-black text-[#2C241D]">
+                          {timberQty > 0 ? `${timberQty.toLocaleString()} CFT` : '1,450 CFT'}
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 inline-block">
+                          Business Inventory
+                        </span>
+                      </div>
 
-                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                    <div className="flex items-center justify-between text-[#8C8275]">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Finishes & Adhesives</span>
-                      <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
-                    </div>
-                    <div className="text-2xl font-black text-[#2C241D]">
-                      340 Liters
-                    </div>
-                    <span className="text-[10px] font-bold text-[#15803D] bg-[#E6F4EA] px-2 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
-                      Polish, Primer & Lacquer
-                    </span>
-                  </div>
+                      <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                        <div className="flex items-center justify-between text-[#8C8275]">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Upholstery Fabrics</span>
+                          <Layers className="w-4 h-4 text-blue-600" />
+                        </div>
+                        <div className="text-2xl font-black text-[#2C241D]">
+                          {fabricQty > 0 ? `${fabricQty.toLocaleString()} Meters` : '820 Meters'}
+                        </div>
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200 inline-block">
+                          Business Inventory
+                        </span>
+                      </div>
 
-                  <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
-                    <div className="flex items-center justify-between text-[#8C8275]">
-                      <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Hardware & Fittings</span>
-                      <Wrench className="w-4 h-4 text-purple-600" />
+                      <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                        <div className="flex items-center justify-between text-[#8C8275]">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Hardware & Fittings</span>
+                          <Wrench className="w-4 h-4 text-purple-600" />
+                        </div>
+                        <div className="text-2xl font-black text-[#2C241D]">
+                          {hardwareQty > 0 ? `${hardwareQty.toLocaleString()} Units` : '420 Units'}
+                        </div>
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">
+                          Business Inventory
+                        </span>
+                      </div>
+
+                      <div className="bg-white/90 p-5 rounded-2xl border border-[#E2D7CB] space-y-1.5 shadow-xs">
+                        <div className="flex items-center justify-between text-[#8C8275]">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Customer-Supplied Lots</span>
+                          <CheckCircle2 className="w-4 h-4 text-[#48A63E]" />
+                        </div>
+                        <div className="text-2xl font-black text-[#2C241D]">{customerReceiptsCount} Lots</div>
+                        <span className="text-[10px] font-bold text-[#15803D] bg-[#E6F4EA] px-2 py-0.5 rounded-full border border-[#C6F6D5] inline-block">
+                          Verified & In Workshop
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-2xl font-black text-[#2C241D]">420 Units</div>
-                    <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200 inline-block">
-                      Hinges, Slides & Handles
-                    </span>
+                  );
+                })()}
+
+                {/* Quick Action: Record Material Receipt Button Banner */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-3xl border-2 border-[#E2D7CB] shadow-xs">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-[#2C241D]">Physical Customer Material Intake</h3>
+                    <p className="text-xs text-[#7A6C5E]">Confirm workshop receipt, inspect moisture/grain quality, and record actual received quantities for customer wood.</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      setSelectedMaterialOrder(null);
+                      setIsMaterialReceiptModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white text-xs font-extrabold shadow-md flex items-center justify-center gap-2 cursor-pointer flex-shrink-0"
+                  >
+                    <PackageCheck className="w-4 h-4" />
+                    Record Material Receipt
+                  </button>
                 </div>
 
                 {/* Raw Manufacturing Materials Stock Grid */}
                 <RawMaterialsTab />
+
+                {/* Customer-Supplied Material Receipts Ledger Table */}
+                <div className="bg-white rounded-3xl border-2 border-[#E2D7CB] p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                    <div>
+                      <span className="text-[10px] font-mono uppercase tracking-widest text-amber-700 bg-amber-100 px-2.5 py-0.5 rounded-full font-bold">
+                        Customer-Supplied Log
+                      </span>
+                      <h3 className="text-base font-extrabold text-[#2C241D] mt-1">Verified Customer Material Receipts</h3>
+                      <p className="text-xs text-[#7A6C5E]">Persistent audit log of customer-owned timber lots physically received and verified at the workshop hub.</p>
+                    </div>
+                  </div>
+
+                  {materialLogs.length === 0 ? (
+                    <div className="py-8 text-center text-xs text-[#7A6C5E] font-medium border border-dashed border-[#E2D7CB] rounded-2xl">
+                      No customer materials recorded yet. Click "Record Material Receipt" above to log physical timber receipt.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-[#FAF7F2] text-[#7A6C5E] font-extrabold uppercase text-[10px] border-b border-[#E2D7CB]">
+                          <tr>
+                            <th className="p-3">Receipt ID</th>
+                            <th className="p-3">Client</th>
+                            <th className="p-3">Linked Order</th>
+                            <th className="p-3">Material Description</th>
+                            <th className="p-3">Quantity & Condition</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3">Received By</th>
+                            <th className="p-3">Date</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#E2D7CB] font-semibold text-[#2C241D]">
+                          {materialLogs.map((log: any, idx: number) => (
+                            <tr key={log.transaction_id || log.log_receipt_id || idx} className="hover:bg-[#FAF7F2]/60">
+                              <td className="p-3 font-mono font-bold text-[#48A63E]">{log.log_receipt_id}</td>
+                              <td className="p-3">{log.client_name}</td>
+                              <td className="p-3 font-mono text-[11px]">{log.order_id}</td>
+                              <td className="p-3 font-bold">{log.material_details}</td>
+                              <td className="p-3">{log.quantity_condition}</td>
+                              <td className="p-3">
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  {log.status}
+                                </span>
+                              </td>
+                              <td className="p-3 text-[11px] text-[#7A6C5E]">{log.received_by}</td>
+                              <td className="p-3 text-[11px] text-[#7A6C5E]">{log.receipt_date}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -5160,84 +5347,251 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
             {/* TAB 4: WORKERS DIRECTORY */}
             {activeTab === 'workers' && (
-              <div className="space-y-5">
-                {/* Worker Workforce & Smart Workload AI Recommendation Panel */}
-                <div className="bg-gradient-to-r from-[#2C241D] to-[#4A3B30] p-5 rounded-3xl text-white shadow-xl space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Sparkles className="w-5 h-5 text-amber-400 animate-pulse" />
-                        <h3 className="text-base font-extrabold tracking-wide">Workshop Workforce & Workload Roster</h3>
+              <div className="space-y-6">
+                {/* PROVISION: CHOOSE A WORKER & DISPLAY ASSIGNED & COMPLETED WORKS (DISPLAYED ONLY ON BUTTON CLICK) */}
+                {showWorkerInspector && (
+                  <div id="worker-inspector-section" className="ultra-glass-card rounded-3xl p-5 sm:p-6 border-2 border-[#48A63E]/40 shadow-2xl bg-white/95 space-y-5 animate-in fade-in duration-300">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="p-2 rounded-xl bg-[#48A63E]/10 text-[#48A63E]">
+                            <Briefcase className="w-5 h-5" />
+                          </span>
+                          <h3 className="text-lg sm:text-xl font-extrabold text-[#2C241D] tracking-tight">
+                            Worker Workload & Works Inspector
+                          </h3>
+                        </div>
+                        <p className="text-xs text-[#7A6C5E] font-medium mt-1">
+                          Choose any artisan from the workshop roster to inspect all works currently assigned and completed by them.
+                        </p>
                       </div>
-                      <p className="text-xs text-amber-200/80 mt-0.5">Real-time shop floor task distribution & AI decision support recommendations</p>
+
+                      {/* Choose a Worker Dropdown Provision & Close button */}
+                      <div className="flex items-center gap-2.5 w-full lg:w-auto">
+                        <label className="text-xs font-black text-[#5C4E42] whitespace-nowrap">Choose Worker:</label>
+                        <div className="relative flex-1 lg:w-72">
+                          <User className="w-4 h-4 text-[#48A63E] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <select
+                            value={selectedInspectorWorkerId || ''}
+                            onChange={(e) => setSelectedInspectorWorkerId(Number(e.target.value))}
+                            className="w-full pl-9 pr-8 py-2.5 rounded-xl bg-[#FAF7F2] border-2 border-[#D5C6B4] font-extrabold text-xs text-[#2C241D] focus:outline-none focus:border-[#48A63E] cursor-pointer appearance-none shadow-xs"
+                          >
+                            {workers.map((w) => (
+                              <option key={w.worker_id} value={w.worker_id}>
+                                {w.full_name} — {w.specialization || 'Woodwork'} ({w.status ? 'Active' : 'Inactive'})
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="w-4 h-4 text-[#7A6C5E] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowWorkerInspector(false)}
+                          className="p-2.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F0E6D8] border border-[#DECDB7] text-[#7A6C5E] hover:text-[#2C241D] transition-colors shrink-0 cursor-pointer"
+                          title="Close Inspector"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-2xl border border-white/20 text-xs font-bold">
-                      <Users className="w-4 h-4 text-emerald-400" />
-                      <span>{workers.filter(w => w.status).length} Active Technicians Available</span>
-                    </div>
-                  </div>
+                  {selectedInspectorWorker ? (
+                    <div className="space-y-4">
+                      {/* Selected Worker Info Banner */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#48A63E] to-[#3D9134] text-white font-black text-base flex items-center justify-center shadow-md shrink-0">
+                            {(selectedInspectorWorker.full_name || 'Worker').split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-base font-black text-[#2C241D]">{selectedInspectorWorker.full_name}</h4>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                selectedInspectorWorker.status ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-slate-700 border border-slate-300'
+                              }`}>
+                                {selectedInspectorWorker.status ? 'Active Roster' : 'Inactive'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#48A63E] font-bold mt-0.5">
+                              {selectedInspectorWorker.specialization || 'Woodwork & Carpentry'}
+                            </p>
+                            <div className="flex items-center gap-3 text-[11px] text-[#7A6C5E] font-medium mt-1 flex-wrap">
+                              <span>📧 {selectedInspectorWorker.email}</span>
+                              {selectedInspectorWorker.phone && <span>📞 {selectedInspectorWorker.phone}</span>}
+                            </div>
+                          </div>
+                        </div>
 
-                  {/* Worker Workload Summary Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {(() => {
-                      const workerWorkloads = workers.map((w) => {
-                        const load = getWorkerLiveWorkload(w.worker_id);
-                        return {
-                          ...w,
-                          assignedCustom: load.customCount,
-                          assignedFab: load.fabCount,
-                          assignedOnsite: load.onsiteCount,
-                          totalActive: load.total,
-                        };
-                      });
-
-                      const activeOnly = workerWorkloads.filter(w => w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1');
-                      const minActive = activeOnly.length > 0 ? Math.min(...activeOnly.map(w => w.totalActive)) : 0;
-
-                      return workerWorkloads.map((w) => {
-                        const isActive = w.status === true || w.status === 'Active' || w.status === 'active' || String(w.status) === 'true' || String(w.status) === '1';
-                        const isRecommended = isActive && w.totalActive === minActive;
-                        return (
-                          <div
-                            key={w.worker_id}
-                            className={`p-3.5 rounded-2xl border transition-all ${
-                              isRecommended
-                                ? 'bg-amber-500/20 border-amber-400/60 shadow-lg'
-                                : 'bg-white/5 border-white/10 hover:bg-white/10'
+                        {/* Quick KPI Count Badges */}
+                        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setInspectorWorksTab('assigned')}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                              inspectorWorksTab === 'assigned'
+                                ? 'bg-[#2C241D] text-white shadow-md'
+                                : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
                             }`}
                           >
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-extrabold text-xs text-white flex items-center gap-1.5">
-                                <UserCheck className="w-3.5 h-3.5 text-amber-400" />
-                                {w.full_name}
-                              </span>
-                              {isRecommended && (
-                                <span className="text-[9px] font-black uppercase px-2 py-0.5 bg-amber-400 text-stone-950 rounded-full shadow-xs">
-                                  AI Recommended
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-[11px] text-amber-300 font-semibold truncate">
-                              {w.specialization || 'Woodwork & Carpentry'}
-                            </div>
-                            <div className="text-[11px] text-stone-300 flex items-center justify-between mt-2 flex-wrap gap-1">
-                              <span>Active Workload:</span>
-                              <span className="font-mono font-extrabold text-amber-300 text-xs">
-                                {w.totalActive} active ({w.assignedCustom} Cust • {w.assignedFab} Fab • {w.assignedOnsite} Srv)
-                              </span>
-                            </div>
-                            {isRecommended && (
-                              <div className="text-[9px] text-amber-200 mt-1 italic leading-tight flex items-center gap-1">
-                                ⚡ Lowest active workload ({w.totalActive} active items) • Ready for dispatch
-                              </div>
-                            )}
+                            <Clock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Currently Assigned Works</span>
+                            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-black">
+                              {workerWorksSummary.assigned.length}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setInspectorWorksTab('completed')}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                              inspectorWorksTab === 'completed'
+                                ? 'bg-[#48A63E] text-white shadow-md'
+                                : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                            <span>Completed Works</span>
+                            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white/30 text-white text-[10px] font-black">
+                              {workerWorksSummary.completed.length}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* SUB-VIEW 1: CURRENTLY ASSIGNED WORKS */}
+                      {inspectorWorksTab === 'assigned' && (
+                        <div className="space-y-3 animate-fadeIn">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
+                              <span>Currently Allotted Works & Active Tasks</span>
+                              <span className="text-[#48A63E]">({workerWorksSummary.assigned.length})</span>
+                            </h4>
                           </div>
-                        );
-                      });
-                    })()}
-                  </div>
+
+                          {workerWorksSummary.assigned.length === 0 ? (
+                            <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-1">
+                              <p className="text-xs font-black text-[#2C241D]">No active works currently assigned to {selectedInspectorWorker.full_name}</p>
+                              <p className="text-[11px] text-[#7A6C5E]">This craftsman is currently available in the workshop to receive custom orders, fabrication tasks, or on-site service jobs.</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {workerWorksSummary.assigned.map((work: any) => (
+                                <div key={work.id} className="p-4 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-2 hover:border-[#48A63E] transition-all">
+                                  <div className="flex items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-mono font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
+                                        {work.id}
+                                      </span>
+                                      <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[#5C4E42]">
+                                        {work.typeBadge}
+                                      </span>
+                                    </div>
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                                      {work.status}
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <h5 className="font-black text-sm text-[#2C241D]">{work.title}</h5>
+                                    <div className="text-[11px] text-[#7A6C5E] mt-0.5 flex items-center gap-3">
+                                      <span>👤 {work.customer}</span>
+                                      <span>📞 {work.customerContact}</span>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-[#FAF7F2] text-[11px] text-[#5C4E42] border border-[#E2D7CB]/60">
+                                    <div>
+                                      <span className="text-[9px] font-bold text-[#8C7C6D] uppercase block">Material & Specs:</span>
+                                      <span className="font-bold text-[#2C241D] truncate block">{work.material}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[9px] font-bold text-[#8C7C6D] uppercase block">Assigned Stage:</span>
+                                      <span className="font-extrabold text-[#48A63E] truncate block">{work.stage}</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Progress bar */}
+                                  <div className="space-y-1 pt-1">
+                                    <div className="flex items-center justify-between text-[10px] font-bold">
+                                      <span className="text-[#7A6C5E]">Production Progress</span>
+                                      <span className="text-[#48A63E]">{work.progress}%</span>
+                                    </div>
+                                    <div className="w-full h-1.5 rounded-full bg-[#EFE7DE] overflow-hidden">
+                                      <div
+                                        className="h-full bg-gradient-to-r from-[#48A63E] to-emerald-400 rounded-full transition-all duration-300"
+                                        style={{ width: `${Math.max(5, work.progress)}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SUB-VIEW 2: COMPLETED WORKS */}
+                      {inspectorWorksTab === 'completed' && (
+                        <div className="space-y-3 animate-fadeIn">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
+                              <span>Completed Works & Finished Furniture Builds</span>
+                              <span className="text-[#48A63E]">({workerWorksSummary.completed.length})</span>
+                            </h4>
+                          </div>
+
+                          {workerWorksSummary.completed.length === 0 ? (
+                            <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-1">
+                              <p className="text-xs font-black text-[#2C241D]">No completed works logged yet for {selectedInspectorWorker.full_name}</p>
+                              <p className="text-[11px] text-[#7A6C5E]">When this worker finishes assigned production stages and orders pass quality inspection, completed builds will appear here.</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {workerWorksSummary.completed.map((work: any) => (
+                                <div key={work.id} className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-xs space-y-2 hover:border-[#48A63E] transition-all">
+                                  <div className="flex items-center justify-between gap-2 border-b border-emerald-100 pb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-mono font-extrabold text-[#48A63E] bg-[#48A63E]/10 px-2.5 py-0.5 rounded-lg border border-[#48A63E]/20">
+                                        {work.id}
+                                      </span>
+                                      <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[#5C4E42]">
+                                        {work.typeBadge}
+                                      </span>
+                                    </div>
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      <span>Completed ✓</span>
+                                    </span>
+                                  </div>
+
+                                  <div>
+                                    <h5 className="font-black text-sm text-[#2C241D]">{work.title}</h5>
+                                    <div className="text-[11px] text-[#7A6C5E] mt-0.5 flex items-center gap-3">
+                                      <span>👤 {work.customer}</span>
+                                      {work.price && work.price > 0 && <span className="font-extrabold text-[#48A63E]">₹{work.price.toLocaleString('en-IN')}</span>}
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-emerald-50/50 text-[11px] text-[#5C4E42] border border-emerald-100">
+                                    <div>
+                                      <span className="text-[9px] font-bold text-[#8C7C6D] uppercase block">Material:</span>
+                                      <span className="font-bold text-[#2C241D] truncate block">{work.material}</span>
+                                    </div>
+                                    <div>
+                                      <span className="text-[9px] font-bold text-[#8C7C6D] uppercase block">Quality Inspection:</span>
+                                      <span className="font-extrabold text-emerald-700 truncate block">Passed QC & Finished</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
                 </div>
+              )}
 
                 {/* Search Bar & Department Filter Pills */}
                 <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2">
@@ -5408,6 +5762,34 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                 {worker.status ? 'Active' : 'Inactive'}
                               </span>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (showWorkerInspector && selectedInspectorWorkerId === worker.worker_id) {
+                                  setShowWorkerInspector(false);
+                                } else {
+                                  setSelectedInspectorWorkerId(worker.worker_id);
+                                  setShowWorkerInspector(true);
+                                  setTimeout(() => {
+                                    document.getElementById('worker-inspector-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }, 60);
+                                }
+                              }}
+                              className={`w-full mt-2 py-2 px-3 border font-black text-[11px] rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                                showWorkerInspector && selectedInspectorWorkerId === worker.worker_id
+                                  ? 'bg-[#48A63E] text-white border-[#48A63E] shadow-sm'
+                                  : 'bg-[#48A63E]/10 hover:bg-[#48A63E]/20 border-[#48A63E]/40 text-[#48A63E]'
+                              }`}
+                              title="Inspect works currently assigned to and completed by this worker"
+                            >
+                              <Briefcase className={`w-3.5 h-3.5 ${showWorkerInspector && selectedInspectorWorkerId === worker.worker_id ? 'text-white' : 'text-[#48A63E]'}`} />
+                              <span>
+                                {showWorkerInspector && selectedInspectorWorkerId === worker.worker_id
+                                  ? 'Inspecting Works (Click to Hide)'
+                                  : 'View Works (Assigned & Completed)'}
+                              </span>
+                            </button>
 
                             <button
                               type="button"
@@ -5736,7 +6118,8 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                                           setSuccessNotice(`Coupon "${coupon.code}" reactivated successfully!`);
                                           setTimeout(() => setSuccessNotice(null), 5000);
                                         } catch (err: any) {
-                                          alert(err.message || 'Failed to reactivate coupon.');
+                                          setErrorNotice(err.message || 'Failed to reactivate coupon.');
+                                          setTimeout(() => setErrorNotice(null), 5000);
                                         }
                                       }}
                                       className="inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-1.5 rounded-xl bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white transition-all border border-emerald-200 shadow-xs cursor-pointer"
@@ -6239,6 +6622,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                     </div>
 
                     <form onSubmit={handleApplyMyLeave} className="space-y-3.5 text-xs font-semibold">
+                      {myLeaveNotice && (
+                        <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs text-rose-800 flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          <span>{myLeaveNotice}</span>
+                        </div>
+                      )}
                       <div>
                         <label className="block text-[#7A6C5E] font-bold mb-1">Leave Category *</label>
                         <select
@@ -6695,7 +7084,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => setIsAddSupplierModalOpen(false)}
+                onClick={() => {
+                  setIsAddSupplierModalOpen(false);
+                  setAddSupplierError(null);
+                }}
                 className="p-1.5 rounded-xl bg-white border border-[#E2D7CB] text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#EAE0D4] cursor-pointer"
               >
                 <X className="w-4 h-4" />
@@ -6703,6 +7095,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleAddSupplierSubmit} className="space-y-3.5 text-xs font-semibold">
+              {addSupplierError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{addSupplierError}</span>
+                </div>
+              )}
               <div>
                 <label className="block text-[#7A6C5E] font-bold mb-1">Company / Mill Name *</label>
                 <input
@@ -7783,7 +8181,10 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 <p className="text-xs font-medium text-[#7A6C5E]">Configure First N customer payment limits or VIP targeted customer special offers.</p>
               </div>
               <button
-                onClick={() => setIsAddCouponModalOpen(false)}
+                onClick={() => {
+                  setIsAddCouponModalOpen(false);
+                  setCouponModalError(null);
+                }}
                 className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -7791,6 +8192,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreateCouponSubmit} className="space-y-4 text-xs font-semibold">
+              {couponModalError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{couponModalError}</span>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-bold text-[#7A6C5E] text-xs mb-1">Coupon Promo Code *</label>
@@ -7970,6 +8377,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveAssessmentSubmit} className="space-y-4 text-xs font-semibold">
+              {assessmentModalError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{assessmentModalError}</span>
+                </div>
+              )}
               {/* Feasibility Selection */}
               <div className="space-y-2 bg-white p-4 rounded-2xl border border-[#E2D7CB]">
                 <label className="block font-extrabold text-[#2C241D] text-xs">Technical Feasibility Check</label>
@@ -8243,6 +8656,7 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                 onClick={() => {
                   setIsMaterialReceiptModalOpen(false);
                   setSelectedMaterialOrder(null);
+                  setMaterialReceiptError(null);
                 }}
                 className="p-2 text-[#4A3E32] hover:text-[#1A140E] rounded-xl hover:bg-[#EFE7DE] transition-colors cursor-pointer"
               >
@@ -8269,36 +8683,89 @@ export const ProductionStaffDashboardPage: React.FC = () => {
                   const numId = Number(idStr);
                   const foundQueue = assessmentQueue.find(q => (q.order_type === type || (type === 'Custom' && q.order_type === 'Customization')) && q.numeric_id === numId);
                   const foundOrder = orders.find(o => o.custom_order_id === numId);
-                  setSelectedMaterialOrder(foundQueue || foundOrder || null);
+                  const foundFab = fabricationJobs.find(f => f.numeric_id === numId);
+                  const chosen = foundQueue || foundOrder || (foundFab ? {
+                    ...foundFab,
+                    order_type: 'Fabrication',
+                    numeric_id: foundFab.numeric_id,
+                    custom_order_id: foundFab.numeric_id,
+                    request_id: foundFab.fabrication_id,
+                    title: foundFab.product_name,
+                    furniture_type: foundFab.product_name,
+                    material: foundFab.customer_material?.material_type || foundFab.material_required,
+                    customer_name: foundFab.customer_name,
+                    dimensions: foundFab.dimensions,
+                    customer_material: foundFab.customer_material
+                  } : null);
+                  setSelectedMaterialOrder(chosen);
+                  if (chosen?.customer_material) {
+                    setMatQty(String(chosen.customer_material.quantity || ''));
+                    setMatUnit(chosen.customer_material.unit || 'pieces');
+                    setMatCondition(chosen.customer_material.condition || 'Good');
+                  }
                 }}
                 className="w-full px-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-bold focus:outline-none focus:border-[#48A63E] cursor-pointer"
               >
                 <option value="">-- Choose Order / Fabrication Request --</option>
-                {assessmentQueue.map(q => (
-                  <option key={`${q.order_type}-${q.numeric_id}`} value={`${q.order_type === 'Customization' ? 'Custom' : q.order_type}-${q.numeric_id}`}>
-                    {q.request_id} • {q.title || q.furniture_type} ({q.customer_name})
-                  </option>
-                ))}
-                {orders.filter(o => !assessmentQueue.some(q => q.numeric_id === o.custom_order_id)).map(ord => (
-                  <option key={`Custom-${ord.custom_order_id}`} value={`Custom-${ord.custom_order_id}`}>
-                    CUS-{ord.custom_order_id.toString().padStart(4, '0')} • {ord.furniture_type} ({ord.customer_name})
-                  </option>
-                ))}
+                {fabricationJobs && fabricationJobs.length > 0 && (
+                  <optgroup label="Fabrication Requests (Customer Material)">
+                    {fabricationJobs.map(f => (
+                      <option key={`Fabrication-${f.numeric_id}`} value={`Fabrication-${f.numeric_id}`}>
+                        {f.fabrication_id} • {f.product_name} ({f.customer_name})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {assessmentQueue && assessmentQueue.length > 0 && (
+                  <optgroup label="Assessment Queue">
+                    {assessmentQueue.map(q => (
+                      <option key={`${q.order_type}-${q.numeric_id}`} value={`${q.order_type === 'Customization' ? 'Custom' : q.order_type}-${q.numeric_id}`}>
+                        {q.request_id} • {q.title || q.furniture_type} ({q.customer_name})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {orders && orders.length > 0 && (
+                  <optgroup label="Custom Orders">
+                    {orders.filter(o => !assessmentQueue.some(q => q.numeric_id === o.custom_order_id)).map(ord => (
+                      <option key={`Custom-${ord.custom_order_id}`} value={`Custom-${ord.custom_order_id}`}>
+                        CUS-{ord.custom_order_id.toString().padStart(4, '0')} • {ord.furniture_type} ({ord.customer_name})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
 
             {/* Item Details Banner */}
             {selectedMaterialOrder && (
-              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-1 text-xs animate-fadeIn">
+              <div className="bg-white p-3.5 rounded-2xl border border-[#E2D7CB] space-y-2 text-xs animate-fadeIn">
                 <div className="flex justify-between font-bold text-[#2C241D]">
-                  <span>Material: {selectedMaterialOrder.material || 'Solid Wood / Fabric'}</span>
-                  <span>Dimensions: {selectedMaterialOrder.dimensions || 'Standard'}</span>
+                  <span>Material: {selectedMaterialOrder.customer_material?.wood_type ? `${selectedMaterialOrder.customer_material.wood_type} (${selectedMaterialOrder.customer_material.material_type})` : (selectedMaterialOrder.material || 'Solid Wood / Fabric')}</span>
+                  <span>Dimensions: {selectedMaterialOrder.customer_material?.dimensions || selectedMaterialOrder.dimensions || 'Standard'}</span>
                 </div>
+                {selectedMaterialOrder.customer_material && (
+                  <div className="bg-amber-50/90 p-2.5 rounded-xl border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                    <div className="flex justify-between font-extrabold">
+                      <span>Declared Qty: {selectedMaterialOrder.customer_material.quantity} {selectedMaterialOrder.customer_material.unit}</span>
+                      <span>Declared Condition: {selectedMaterialOrder.customer_material.condition || 'Good'}</span>
+                    </div>
+                    {selectedMaterialOrder.customer_material.notes && (
+                      <p className="italic text-[#7A6C5E]">Customer Notes: {selectedMaterialOrder.customer_material.notes}</p>
+                    )}
+                  </div>
+                )}
                 <p className="text-[11px] text-[#7A6C5E] font-medium">Customer: {selectedMaterialOrder.customer_name || 'Valued Customer'}</p>
               </div>
             )}
 
             <form onSubmit={handleMaterialReceiptSubmit} className="space-y-3 text-xs font-semibold">
+              {materialReceiptError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{materialReceiptError}</span>
+                </div>
+              )}
               <div>
                 <label className="block font-extrabold text-[#7A6C5E] mb-1">Received Material Quality & Condition</label>
                 <select
@@ -8493,17 +8960,33 @@ export const ProductionStaffDashboardPage: React.FC = () => {
 
                       <button
                         type="button"
-                        disabled={!selectedFabJobModal.pickup_carrier}
-                        onClick={() => handleMarkMaterialReceived(selectedFabJobModal.numeric_id)}
-                        className={`px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] shadow-xs flex items-center gap-1 transition-all ${
-                          !selectedFabJobModal.pickup_carrier
-                            ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed opacity-75'
-                            : 'bg-[#38A132] hover:bg-[#2F8829] text-white cursor-pointer'
-                        }`}
-                        title={!selectedFabJobModal.pickup_carrier ? 'Assign a carrier partner or internal fleet driver first' : 'Confirm material received at workshop'}
+                        onClick={() => {
+                          const chosen = {
+                            ...selectedFabJobModal,
+                            order_type: 'Fabrication',
+                            numeric_id: selectedFabJobModal.numeric_id,
+                            custom_order_id: selectedFabJobModal.numeric_id,
+                            request_id: selectedFabJobModal.fabrication_id,
+                            title: selectedFabJobModal.product_name,
+                            furniture_type: selectedFabJobModal.product_name,
+                            material: selectedFabJobModal.customer_material?.material_type || selectedFabJobModal.material_required,
+                            dimensions: selectedFabJobModal.dimensions,
+                            customer_name: selectedFabJobModal.customer_name,
+                            customer_material: selectedFabJobModal.customer_material
+                          };
+                          setSelectedMaterialOrder(chosen);
+                          if (selectedFabJobModal.customer_material) {
+                            setMatQty(String(selectedFabJobModal.customer_material.quantity || ''));
+                            setMatUnit(selectedFabJobModal.customer_material.unit || 'pieces');
+                            setMatCondition(selectedFabJobModal.customer_material.condition || 'Good');
+                          }
+                          setIsMaterialReceiptModalOpen(true);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl font-extrabold text-[11px] shadow-xs flex items-center gap-1 transition-all bg-[#38A132] hover:bg-[#2F8829] text-white cursor-pointer"
+                        title="Record physical receipt and inspect material at workshop hub"
                       >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Mark Material Received at Workshop</span>
+                        <PackageCheck className="w-3.5 h-3.5" />
+                        <span>Record Material Receipt & Inspection</span>
                       </button>
                     </div>
                   </div>
@@ -8871,6 +9354,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               }}
               className="space-y-4 text-xs"
             >
+              {assignWorkerError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{assignWorkerError}</span>
+                </div>
+              )}
               <div>
                 <span className="text-[10px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block mb-1.5">
                   Select Skilled Workshop Worker
@@ -9049,6 +9538,12 @@ export const ProductionStaffDashboardPage: React.FC = () => {
               }}
               className="space-y-4 text-xs"
             >
+              {assignCarrierError && (
+                <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs font-bold rounded-xl animate-fadeIn flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-red-500" />
+                  <span>{assignCarrierError}</span>
+                </div>
+              )}
               {/* Provider Mode Switch: 2 Channels Only */}
               <div>
                 <label className="block text-[11px] font-extrabold text-[#7A6C5E] uppercase tracking-wider mb-2">

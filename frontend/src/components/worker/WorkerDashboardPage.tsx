@@ -112,8 +112,9 @@ export const WorkerDashboardPage: React.FC = () => {
 
   // Tabs & Navigation State
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'my_tasks' | 'onsite' | 'rework' | 'deliveries' | 'completed' | 'admin_messages' | 'queries' | 'leave'
+    'dashboard' | 'my_tasks' | 'onsite' | 'rework' | 'deliveries' | 'completed' | 'admin_messages' | 'leave'
   >('dashboard');
+  const [directivesView, setDirectivesView] = useState<'directives' | 'inquiries'>('directives');
   const [taskStatusFilter, setTaskStatusFilter] = useState<string>('All');
   const [taskTypeFilter, setTaskTypeFilter] = useState<string>('All');
   const [searchQuery, setSearchQuery] = useState('');
@@ -246,39 +247,35 @@ export const WorkerDashboardPage: React.FC = () => {
       );
       setStaffQueries(userQueries);
 
-      const [summary, tasks, history, onsite, leaves, reworks, deliveries] = await Promise.all([
-        fetchWorkerSummaryDB(),
-        fetchWorkerTasksDB(taskStatusFilter),
-        fetchWorkerCompletedHistoryDB(),
-        fetchWorkerOnsiteJobsDB(),
-        fetchMyLeaveApplications(),
-        fetchWorkerReworkJobsDB(),
-        fetchWorkerDeliveriesDB()
-      ]);
+      // 1. Fetch Priority 1 Summary and Tasks for fast artisan UI paint
+      fetchWorkerSummaryDB().then(summary => {
+        if (summary) setSummaryData(prev => ({ ...prev, ...summary }));
+      }).catch(err => console.error('Error fetching worker summary:', err));
 
-      const isDriver = Boolean(
-        (currentUser as any).is_driver || 
-        summary?.is_driver || 
-        (deliveries && deliveries.length > 0)
-      );
-
-      setUserProfile({
-        ...currentUser,
-        is_driver: isDriver,
-        specialization: summary?.specialization || (currentUser as any).specialization || 'Joinery & Assembly'
+      fetchWorkerTasksDB(taskStatusFilter).then(tasks => {
+        if (tasks) setTasksList(tasks);
+        setLoading(false);
+      }).catch(err => {
+        console.error('Error fetching worker tasks:', err);
+        setLoading(false);
       });
 
-      if (summary) setSummaryData({ ...summary, is_driver: isDriver });
-      setTasksList(tasks || []);
-      setCompletedHistory(history || []);
-      setOnsiteJobsList(onsite || []);
-      setLeaveApplications(leaves || []);
-      setReworkList(reworks || []);
-      setDeliveriesList(deliveries || []);
+      // 2. Fetch secondary tabs concurrently without blocking Home view
+      fetchWorkerCompletedHistoryDB().then(history => { if (history) setCompletedHistory(history); });
+      fetchWorkerOnsiteJobsDB().then(onsite => { if (onsite) setOnsiteJobsList(onsite); });
+      fetchMyLeaveApplications().then(leaves => { if (leaves) setLeaveApplications(leaves); });
+      fetchWorkerReworkJobsDB().then(reworks => { if (reworks) setReworkList(reworks); });
+      fetchWorkerDeliveriesDB().then(deliveries => {
+        if (deliveries) {
+          setDeliveriesList(deliveries);
+          if (deliveries.length > 0) {
+            setUserProfile((prev: any) => prev ? { ...prev, is_driver: true } : prev);
+          }
+        }
+      });
     } catch (err) {
       console.error('Failed to load worker workspace data:', err);
       setErrorNotice('Could not load latest workshop data. Please check connection.');
-    } finally {
       setLoading(false);
     }
   };
@@ -873,6 +870,11 @@ export const WorkerDashboardPage: React.FC = () => {
                       {item.label}
                     </span>
                   </div>
+                  {!isSidebarCollapsed && item.id === 'rework' && reworkList.filter(r => r.status !== 'REWORK_COMPLETED' && r.status !== 'RESOLVED' && r.status !== 'QC_PASSED').length > 0 && (
+                    <span className="ml-auto text-[10px] font-black px-1.5 py-0.5 rounded-full bg-rose-600 text-white shadow-xs">
+                      {reworkList.filter(r => r.status !== 'REWORK_COMPLETED' && r.status !== 'RESOLVED' && r.status !== 'QC_PASSED').length}
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -942,7 +944,6 @@ export const WorkerDashboardPage: React.FC = () => {
             </div>
             {[
               { id: 'admin_messages', label: 'Admin Directives', icon: Mail },
-              { id: 'queries', label: 'Supervisor Inquiries', icon: MessageSquare },
               { id: 'leave', label: 'Leave Applications', icon: Clock }
             ].map((item) => {
               const Icon = item.icon;
@@ -999,8 +1000,7 @@ export const WorkerDashboardPage: React.FC = () => {
             <option value="rework">⚠️ QC Rework</option>
             {userProfile?.is_driver && <option value="deliveries">🚚 Driver Deliveries</option>}
             <option value="completed">✅ Completed History</option>
-            <option value="admin_messages">📢 Directives</option>
-            <option value="queries">💬 Supervisor Inquiries</option>
+            <option value="admin_messages">📢 Directives & Inquiries</option>
             <option value="leave">📅 Leave Applications</option>
           </select>
         </div>
@@ -1073,8 +1073,7 @@ export const WorkerDashboardPage: React.FC = () => {
                     {activeTab === 'rework' && 'Quality Control & Rework Tickets'}
                     {activeTab === 'deliveries' && 'Driver Logistics & Order Delivery'}
                     {activeTab === 'completed' && 'Completed Workshop History'}
-                    {activeTab === 'admin_messages' && 'Supervisor Directives & Broadcasts'}
-                    {activeTab === 'queries' && 'Technical Queries & Material Requests'}
+                    {activeTab === 'admin_messages' && 'Supervisor Directives & Inquiries'}
                     {activeTab === 'leave' && 'Leave Management & Absence Tracking'}
                   </h1>
                 </div>
@@ -1290,6 +1289,36 @@ export const WorkerDashboardPage: React.FC = () => {
             {/* ===================================================================== */}
             {activeTab === 'dashboard' && (
               <div className="space-y-6 relative z-10 animate-fadeIn">
+                {/* Active QC Rework / Issue Ticket Alert Banner */}
+                {reworkList.some(r => r.status !== 'REWORK_COMPLETED' && r.status !== 'RESOLVED' && r.status !== 'QC_PASSED') && (
+                  <div className="bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 rounded-3xl border border-rose-300 p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3.5">
+                      <div className="w-11 h-11 rounded-2xl bg-rose-100 border border-rose-300 flex items-center justify-center text-rose-700 shrink-0">
+                        <AlertTriangle className="w-5 h-5 text-rose-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-black text-rose-950">QC Issue Tickets Require Attention</span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-mono font-black text-[11px]">
+                            {reworkList.filter(r => r.status !== 'REWORK_COMPLETED' && r.status !== 'RESOLVED' && r.status !== 'QC_PASSED').length} Open Ticket{reworkList.filter(r => r.status !== 'REWORK_COMPLETED' && r.status !== 'RESOLVED' && r.status !== 'QC_PASSED').length > 1 ? 's' : ''}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#5C4E42] mt-1 font-medium leading-relaxed max-w-2xl">
+                          Quality Control identified defects or rework claims on items in your workshop. Review failure findings and complete required rectifications prior to dispatch.
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setActiveTab('rework')}
+                      className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-xs flex items-center gap-1.5 cursor-pointer shrink-0 transition-all hover:scale-[1.02]"
+                    >
+                      <AlertCircle className="w-4 h-4" />
+                      <span>View Issue Tickets</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
                 {/* A. CURRENT ACTIVE WORKSHOP TASK HERO */}
                 <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs relative overflow-hidden">
                   <div className="flex items-center justify-between pb-4 border-b border-[#EFE7DE] mb-5">
@@ -1650,8 +1679,8 @@ export const WorkerDashboardPage: React.FC = () => {
                   <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs space-y-3">
                     <div className="flex items-center justify-between pb-2 border-b border-[#EFE7DE]">
                       <h3 className="text-xs font-black uppercase tracking-wider text-[#2C241D] flex items-center gap-2">
-                        <AlertTriangle className="w-3.5 h-3.5 text-purple-600" />
-                        <span>Assigned QC Rework Defects</span>
+                        <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Assigned QC Issue Tickets</span>
                       </h3>
                       <button
                         onClick={() => setActiveTab('rework')}
@@ -1668,16 +1697,24 @@ export const WorkerDashboardPage: React.FC = () => {
                     ) : (
                       <div className="space-y-2">
                         {reworkList.slice(0, 3).map((rw) => (
-                          <div key={rw.rework_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] flex items-center justify-between text-xs">
-                            <div>
-                              <div className="font-extrabold text-[#2C241D]">{rw.order_id} • {rw.order_title}</div>
-                              <div className="text-[11px] text-red-600 font-bold truncate max-w-xs">{rw.rework_reason}</div>
+                          <div key={rw.rework_id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] flex items-center justify-between text-xs gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-black bg-purple-100 text-purple-900 border border-purple-300">
+                                  {rw.ticket_code || `RWK-${String(rw.rework_id).padStart(4, '0')}`}
+                                </span>
+                                <span className="font-extrabold text-[#2C241D]">{rw.order_id}</span>
+                                <span className="text-[10px] text-[#7A6C5E] truncate">• {rw.order_title}</span>
+                              </div>
+                              <div className="text-[11px] text-rose-700 font-bold truncate mt-1">
+                                {rw.rework_reason}
+                              </div>
                             </div>
                             <button
                               onClick={() => handleOpenReworkModal(rw)}
-                              className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] cursor-pointer"
+                              className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-[10px] cursor-pointer shrink-0 shadow-2xs"
                             >
-                              Inspect
+                              Inspect Ticket
                             </button>
                           </div>
                         ))}
@@ -2118,59 +2155,128 @@ export const WorkerDashboardPage: React.FC = () => {
             {/* ===================================================================== */}
             {activeTab === 'rework' && (
               <div className="space-y-4 relative z-10 animate-fadeIn">
+                <div className="bg-white/95 p-4 rounded-2xl border border-[#E2D7CB] shadow-2xs flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle className="w-5 h-5 text-rose-600" />
+                    <div>
+                      <h3 className="text-sm font-extrabold text-[#2C241D]">Assigned QC Defect & Rework Tickets ({reworkList.length})</h3>
+                      <p className="text-[11px] text-[#7A6C5E]">Rectify non-compliant items and resubmit for Repeat Quality Control inspection prior to packing.</p>
+                    </div>
+                  </div>
+                  <span className="text-xs font-bold px-2.5 py-1 rounded-xl bg-purple-50 text-purple-800 border border-purple-200">
+                    {reworkList.filter(r => r.status !== 'REWORK_COMPLETED' && r.status !== 'RESOLVED' && r.status !== 'QC_PASSED').length} Open
+                  </span>
+                </div>
+
                 {reworkList.length === 0 ? (
                   <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-12 text-center space-y-3">
                     <div className="w-12 h-12 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center mx-auto text-[#7A6C5E]">
                       <CheckCircle2 className="w-6 h-6 text-[#38A132]" />
                     </div>
                     <h4 className="text-sm font-extrabold text-[#2C241D]">Zero QC Defects Assigned</h4>
-                    <p className="text-xs text-[#7A6C5E]">All inspected jobs have passed quality benchmarks cleanly.</p>
+                    <p className="text-xs text-[#7A6C5E]">All inspected workshop jobs have passed quality benchmarks cleanly.</p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {reworkList.map((rw) => (
                       <div
                         key={rw.rework_id}
-                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all space-y-4"
+                        className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 shadow-xs hover:shadow-md transition-all space-y-4 flex flex-col justify-between"
                       >
-                        <div className="flex items-start justify-between">
-                          <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
-                            {rw.order_id}
-                          </span>
-                          <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase ${
-                            rw.status === 'RESOLVED' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {rw.status}
-                          </span>
-                        </div>
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-mono uppercase tracking-wider text-purple-900 font-black bg-purple-100 px-2.5 py-0.5 rounded-lg border border-purple-300">
+                                {rw.ticket_code || `RWK-${String(rw.rework_id).padStart(4, '0')}`}
+                              </span>
+                              <span className="text-[10px] font-mono uppercase tracking-widest text-[#B89768] font-black bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                                {rw.order_id}
+                              </span>
+                              <span className="text-[10px] font-black uppercase text-[#7A6C5E] bg-[#FAF7F2] px-2 py-0.5 rounded-md border border-[#E2D7CB]">
+                                {rw.order_type}
+                              </span>
+                            </div>
+                            <span className={`px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase shrink-0 border ${
+                              rw.status === 'RESOLVED' || rw.status === 'REWORK_COMPLETED' || rw.status === 'QC_PASSED'
+                                ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-300'
+                                : 'bg-rose-100 text-rose-900 border-rose-300'
+                            }`}>
+                              {rw.status.replace(/_/g, ' ')}
+                            </span>
+                          </div>
 
-                        <div>
-                          <h4 className="text-sm font-black text-[#2C241D]">{rw.order_title}</h4>
-                          <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 mt-2 text-xs text-rose-900 flex items-start gap-2.5">
-                            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                            <div className="min-w-0 flex-1">
-                              <strong className="block font-bold text-[10px] uppercase text-rose-800 tracking-wider mb-0.5">QC Inspection Finding:</strong>
-                              <p className="text-xs text-rose-900 font-medium leading-relaxed">{rw.rework_reason}</p>
+                          <div>
+                            <h4 className="text-sm font-black text-[#2C241D] leading-snug">{rw.order_title}</h4>
+                            {rw.customer_name && (
+                              <span className="text-[11px] text-[#7A6C5E] block mt-0.5">
+                                Customer: <strong className="text-[#2C241D]">{rw.customer_name}</strong>
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
+                                rw.responsibility_type === 'RETAILSPHERE_ERROR'
+                                  ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                  : 'bg-amber-50 text-amber-800 border border-amber-200'
+                              }`}>
+                                {rw.responsibility_type === 'RETAILSPHERE_ERROR' ? '✓ RetailSphere Warranty Rework' : 'Customer-Requested Modification'}
+                              </span>
                             </div>
                           </div>
-                        </div>
 
-                        {rw.checklist && (
-                          <div className="grid grid-cols-2 gap-2 text-[10px] font-bold">
-                            <div className={`p-1.5 rounded-lg ${rw.checklist.dimensions ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'}`}>
-                              Dimensions: {rw.checklist.dimensions ? 'Passed' : 'Defect'}
+                          <div className="p-3 bg-rose-50/90 rounded-2xl border border-rose-200 text-xs text-rose-900 space-y-1">
+                            <div className="flex items-center gap-1.5 font-extrabold text-[10px] uppercase text-rose-800 tracking-wider">
+                              <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                              <span>QC Defect Finding:</span>
                             </div>
-                            <div className={`p-1.5 rounded-lg ${rw.checklist.finishing ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-red-100 text-red-800'}`}>
-                              Finishing: {rw.checklist.finishing ? 'Passed' : 'Defect'}
-                            </div>
+                            <p className="text-xs text-rose-950 font-medium leading-relaxed">{rw.rework_reason}</p>
                           </div>
-                        )}
+
+                          {rw.required_changes && (
+                            <div className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-xs text-[#2C241D] space-y-1">
+                              <strong className="text-[10px] font-bold text-[#7A6C5E] uppercase tracking-wider block">
+                                Required Workshop Rectification:
+                              </strong>
+                              <p className="text-xs text-[#3D3228] font-medium leading-relaxed">{rw.required_changes}</p>
+                            </div>
+                          )}
+
+                          {rw.checklist && (
+                            <div className="grid grid-cols-2 gap-1.5 text-[10px] font-bold">
+                              <div className={`p-1.5 rounded-lg border ${rw.checklist.dimensions ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+                                Dimensions: {rw.checklist.dimensions ? '✓ Passed' : '✕ Defect'}
+                              </div>
+                              <div className={`p-1.5 rounded-lg border ${rw.checklist.finishing ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+                                Finishing: {rw.checklist.finishing ? '✓ Passed' : '✕ Defect'}
+                              </div>
+                              <div className={`p-1.5 rounded-lg border ${rw.checklist.structure ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+                                Structure: {rw.checklist.structure ? '✓ Passed' : '✕ Defect'}
+                              </div>
+                              <div className={`p-1.5 rounded-lg border ${rw.checklist.specifications ? 'bg-[#E8F5E9] text-[#2D6338] border-emerald-200' : 'bg-red-50 text-red-800 border-red-200'}`}>
+                                Specs: {rw.checklist.specifications ? '✓ Passed' : '✕ Defect'}
+                              </div>
+                            </div>
+                          )}
+
+                          {rw.photos && (
+                            <div className="pt-1">
+                              <button
+                                type="button"
+                                onClick={() => openImageInNewTab(rw.photos!)}
+                                className="text-[11px] font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                              >
+                                <Camera className="w-3.5 h-3.5" />
+                                <span>View QC Defect Photo</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
 
                         <button
                           onClick={() => handleOpenReworkModal(rw)}
-                          className="w-full py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-xs cursor-pointer"
+                          className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs shadow-xs cursor-pointer transition-all hover:scale-[1.01] mt-2 flex items-center justify-center gap-1.5"
                         >
-                          Resolve & Submit for Re-Inspection
+                          <Wrench className="w-3.5 h-3.5" />
+                          <span>Resolve Issue Ticket & Submit for Repeat QC</span>
                         </button>
                       </div>
                     ))}
@@ -2383,16 +2489,43 @@ export const WorkerDashboardPage: React.FC = () => {
             )}
 
             {/* ===================================================================== */}
-            {/* 9. TAB 7: ADMIN DIRECTIVES & BROADCASTS                               */}
+            {/* 9. TAB 7: SUPERVISOR & ADMIN DIRECTIVES (INCLUDES INQUIRIES)          */}
             {/* ===================================================================== */}
             {activeTab === 'admin_messages' && (
-              <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs space-y-4 relative z-10 animate-fadeIn">
-                <div className="flex items-center justify-between pb-3 border-b border-[#EFE7DE]">
-                  <h3 className="text-sm sm:text-base font-black text-[#2C241D] flex items-center gap-2">
-                    <Mail className="w-4 h-4 text-[#B89768]" />
-                    <span>Supervisor & Admin Directives</span>
-                  </h3>
-                  {unreadAdminMsgsCount > 0 && (
+              <div className="space-y-4 relative z-10 animate-fadeIn">
+                {/* Switcher header between Directives and Supervisor Inquiries */}
+                <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-4 sm:p-5 shadow-xs flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setDirectivesView('directives')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                        directivesView === 'directives'
+                          ? 'bg-[#38A132] text-white shadow-xs'
+                          : 'bg-[#FAF7F2] text-[#7A6C5E] hover:bg-[#F2ECE1] hover:text-[#2C241D] border border-[#E2D7CB]'
+                      }`}
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Directives & Broadcasts</span>
+                      {unreadAdminMsgsCount > 0 && (
+                        <span className="px-1.5 py-0.5 bg-rose-500 text-white text-[9px] font-black rounded-full leading-none">
+                          {unreadAdminMsgsCount}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      onClick={() => setDirectivesView('inquiries')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                        directivesView === 'inquiries'
+                          ? 'bg-[#38A132] text-white shadow-xs'
+                          : 'bg-[#FAF7F2] text-[#7A6C5E] hover:bg-[#F2ECE1] hover:text-[#2C241D] border border-[#E2D7CB]'
+                      }`}
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>Supervisor Inquiries ({staffQueries.length})</span>
+                    </button>
+                  </div>
+
+                  {directivesView === 'directives' && unreadAdminMsgsCount > 0 && (
                     <button
                       onClick={() => {
                         if (userProfile?.email) {
@@ -2407,118 +2540,141 @@ export const WorkerDashboardPage: React.FC = () => {
                   )}
                 </div>
 
-                {adminDirectives.length === 0 ? (
-                  <div className="py-12 text-center text-xs text-[#7A6C5E]">
-                    No broadcast directives from workshop supervisors.
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {adminDirectives.map((msg) => {
-                      const isRead = isMessageReadByUser(msg, userProfile?.email || '');
-                      return (
-                        <div
-                          key={msg.id}
-                          className={`p-4 rounded-2xl border transition-all ${
-                            isRead ? 'bg-[#FAF7F2] border-[#E2D7CB]' : 'bg-amber-50/80 border-amber-300 shadow-xs'
-                          }`}
+                {/* Sub-view 1: Broadcast Directives */}
+                {directivesView === 'directives' && (
+                  <div className="bg-white/95 rounded-3xl border border-[#E2D7CB] p-5 sm:p-6 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between pb-3 border-b border-[#EFE7DE]">
+                      <h3 className="text-sm sm:text-base font-black text-[#2C241D] flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-[#B89768]" />
+                        <span>Supervisor & Admin Directives</span>
+                      </h3>
+                      <button
+                        onClick={() => setDirectivesView('inquiries')}
+                        className="text-xs font-extrabold text-[#38A132] hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Need Help? Submit Inquiry ➔</span>
+                      </button>
+                    </div>
+
+                    {adminDirectives.length === 0 ? (
+                      <div className="py-12 text-center text-xs text-[#7A6C5E] space-y-2">
+                        <p>No broadcast directives from workshop supervisors.</p>
+                        <button
+                          onClick={() => setDirectivesView('inquiries')}
+                          className="px-3 py-1.5 rounded-xl bg-[#38A132]/10 text-[#38A132] font-bold text-xs hover:bg-[#38A132]/20 cursor-pointer"
                         >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <span className="font-extrabold text-sm text-[#2C241D]">{msg.subject}</span>
-                            <span className="text-[10px] text-[#7A6C5E] font-bold">{msg.createdDate}</span>
-                          </div>
-                          <p className="text-xs text-[#5C4E42] leading-relaxed">{msg.message}</p>
-                        </div>
-                      );
-                    })}
+                          Send a Technical Inquiry to Supervisor
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {adminDirectives.map((msg) => {
+                          const isRead = isMessageReadByUser(msg, userProfile?.email || '');
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`p-4 rounded-2xl border transition-all ${
+                                isRead ? 'bg-[#FAF7F2] border-[#E2D7CB]' : 'bg-amber-50/80 border-amber-300 shadow-xs'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between mb-1.5">
+                                <span className="font-extrabold text-sm text-[#2C241D]">{msg.subject}</span>
+                                <span className="text-[10px] text-[#7A6C5E] font-bold">{msg.createdDate}</span>
+                              </div>
+                              <p className="text-xs text-[#5C4E42] leading-relaxed">{msg.message}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {/* ===================================================================== */}
-            {/* 10. TAB 8: SUPERVISOR INQUIRIES                                       */}
-            {/* ===================================================================== */}
-            {activeTab === 'queries' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 relative z-10 animate-fadeIn">
-                <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-4">
-                  <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4 text-[#B89768]" />
-                    <span>Submit Technical Inquiry to Supervisor</span>
-                  </h3>
+                {/* Sub-view 2: Supervisor Inquiries Form & Responses */}
+                {directivesView === 'inquiries' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-4">
+                      <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-[#B89768]" />
+                        <span>Submit Technical Inquiry to Supervisor</span>
+                      </h3>
 
-                  <form onSubmit={handleSubmitQuery} className="space-y-3 text-xs">
-                    <div>
-                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Category</label>
-                      <select
-                        value={queryCategory}
-                        onChange={(e: any) => setQueryCategory(e.target.value)}
-                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
-                      >
-                        <option value="General Query">General Operational / Technical Query</option>
-                        <option value="Role & Access Permission">Role & Access Permission</option>
-                        <option value="Email Change Request">Email / Profile Update Request</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Subject</label>
-                      <input
-                        type="text"
-                        value={querySubject}
-                        onChange={(e) => setQuerySubject(e.target.value)}
-                        placeholder="Brief subject summary..."
-                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Details</label>
-                      <textarea
-                        rows={4}
-                        value={queryMessage}
-                        onChange={(e) => setQueryMessage(e.target.value)}
-                        placeholder="Describe drawing clarification, technical inquiry, or tool requirement..."
-                        className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium text-[#2C241D] focus:outline-none focus:border-[#38A132]"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSubmittingQuery}
-                      className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer"
-                    >
-                      {isSubmittingQuery ? 'Submitting...' : 'Send Inquiry to Supervisor'}
-                    </button>
-                  </form>
-                </div>
-
-                <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-3">
-                  <h3 className="text-sm font-extrabold text-[#2C241D]">Past Inquiries & Responses</h3>
-                  {staffQueries.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-[#7A6C5E]">No inquiries submitted yet.</div>
-                  ) : (
-                    <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                      {staffQueries.map((q) => (
-                        <div key={q.id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-xs space-y-1">
-                          <div className="flex justify-between items-start">
-                            <span className="font-extrabold text-[#2C241D]">{q.subject}</span>
-                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                              q.status === 'Resolved' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-amber-100 text-amber-900'
-                            }`}>
-                              {q.status}
-                            </span>
-                          </div>
-                          <p className="text-[#5C4E42]">{q.message}</p>
-                          {q.adminResponse && (
-                            <div className="mt-1.5 p-2 bg-white rounded-xl border border-[#E2D7CB] text-xs text-[#2D6338]">
-                              <strong>Supervisor Response:</strong> {q.adminResponse}
-                            </div>
-                          )}
+                      <form onSubmit={handleSubmitQuery} className="space-y-3 text-xs">
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Category</label>
+                          <select
+                            value={queryCategory}
+                            onChange={(e: any) => setQueryCategory(e.target.value)}
+                            className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                          >
+                            <option value="General Query">General Operational / Technical Query</option>
+                            <option value="Role & Access Permission">Role & Access Permission</option>
+                            <option value="Email Change Request">Email / Profile Update Request</option>
+                          </select>
                         </div>
-                      ))}
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Subject</label>
+                          <input
+                            type="text"
+                            value={querySubject}
+                            onChange={(e) => setQuerySubject(e.target.value)}
+                            placeholder="Brief subject summary..."
+                            className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-bold text-[#7A6C5E] mb-1">Details</label>
+                          <textarea
+                            rows={4}
+                            value={queryMessage}
+                            onChange={(e) => setQueryMessage(e.target.value)}
+                            placeholder="Describe drawing clarification, technical inquiry, or tool requirement..."
+                            className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingQuery}
+                          className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/20 cursor-pointer"
+                        >
+                          {isSubmittingQuery ? 'Submitting...' : 'Send Inquiry to Supervisor'}
+                        </button>
+                      </form>
                     </div>
-                  )}
-                </div>
+
+                    <div className="bg-white/95 p-5 sm:p-6 rounded-3xl border border-[#E2D7CB] shadow-xs space-y-3">
+                      <h3 className="text-sm font-extrabold text-[#2C241D]">Past Inquiries & Responses</h3>
+                      {staffQueries.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-[#7A6C5E]">No inquiries submitted yet.</div>
+                      ) : (
+                        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                          {staffQueries.map((q) => (
+                            <div key={q.id} className="p-3 bg-[#FAF7F2] rounded-2xl border border-[#E2D7CB] text-xs space-y-1">
+                              <div className="flex justify-between items-start">
+                                <span className="font-extrabold text-[#2C241D]">{q.subject}</span>
+                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                                  q.status === 'Resolved' ? 'bg-[#E8F5E9] text-[#2D6338]' : 'bg-amber-100 text-amber-900'
+                                }`}>
+                                  {q.status}
+                                </span>
+                              </div>
+                              <p className="text-[#5C4E42]">{q.message}</p>
+                              {q.adminResponse && (
+                                <div className="mt-1.5 p-2 bg-white rounded-xl border border-[#E2D7CB] text-xs text-[#2D6338]">
+                                  <strong>Supervisor Response:</strong> {q.adminResponse}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -3151,30 +3307,80 @@ export const WorkerDashboardPage: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
           <div className="relative w-full max-w-lg bg-white border border-[#E2D7CB] rounded-3xl p-6 shadow-2xl space-y-4 text-[#2C241D]">
             <div className="flex items-center justify-between border-b border-[#EFE7DE] pb-3">
-              <h3 className="text-base font-extrabold text-[#2C241D]">
-                Resolve Rework #{selectedReworkForDetail.rework_id}
-              </h3>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-mono font-black uppercase text-purple-900 bg-purple-100 px-2.5 py-0.5 rounded-lg border border-purple-300">
+                    {selectedReworkForDetail.ticket_code || `RWK-${String(selectedReworkForDetail.rework_id).padStart(4, '0')}`}
+                  </span>
+                  <span className="text-[10px] font-mono font-black uppercase text-[#B89768] bg-[#EFE8DC] px-2 py-0.5 rounded-md border border-[#D6C9B9]">
+                    {selectedReworkForDetail.order_id}
+                  </span>
+                </div>
+                <h3 className="text-base font-extrabold text-[#2C241D] mt-1">
+                  Resolve QC Issue Ticket
+                </h3>
+              </div>
               <button onClick={() => setIsReworkModalOpen(false)} className="p-1 rounded-xl hover:bg-[#FAF7F2] cursor-pointer">
                 <X className="w-5 h-5 text-[#7A6C5E]" />
               </button>
             </div>
 
-            <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-xs text-rose-900 flex items-start gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <strong className="block font-bold text-[10px] uppercase text-rose-800 tracking-wider mb-0.5">QC Inspection Defect Finding:</strong>
-                <p className="text-xs text-rose-900 font-medium leading-relaxed">{selectedReworkForDetail.rework_reason}</p>
+            <div className="space-y-2 text-xs">
+              <div className="bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB] flex justify-between items-start">
+                <div>
+                  <strong className="block text-[#2C241D] font-extrabold text-xs">{selectedReworkForDetail.order_title}</strong>
+                  {selectedReworkForDetail.customer_name && (
+                    <span className="text-[11px] text-[#7A6C5E]">Customer: {selectedReworkForDetail.customer_name}</span>
+                  )}
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                  selectedReworkForDetail.responsibility_type === 'RETAILSPHERE_ERROR'
+                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200'
+                }`}>
+                  {selectedReworkForDetail.responsibility_type === 'RETAILSPHERE_ERROR' ? '✓ RS Warranty Defect' : 'Customer Claim'}
+                </span>
               </div>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <label className="block text-[11px] font-bold text-[#7A6C5E]">Resolution / Rectification Notes</label>
+            <div className="p-3 bg-rose-50/80 rounded-2xl border border-rose-200 text-xs text-rose-900 space-y-1.5">
+              <div className="flex items-center gap-1.5 font-bold text-[10px] uppercase text-rose-800 tracking-wider">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>QC Defect Finding:</span>
+              </div>
+              <p className="text-xs text-rose-900 font-medium leading-relaxed">{selectedReworkForDetail.rework_reason}</p>
+            </div>
+
+            {selectedReworkForDetail.required_changes && (
+              <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1">
+                <strong className="text-[10px] font-bold uppercase tracking-wider block text-amber-800">
+                  Required Workshop Rectification:
+                </strong>
+                <p className="text-xs text-amber-950 font-medium leading-relaxed">{selectedReworkForDetail.required_changes}</p>
+              </div>
+            )}
+
+            {selectedReworkForDetail.photos && (
+              <div className="flex items-center justify-between px-1">
+                <button
+                  type="button"
+                  onClick={() => openImageInNewTab(selectedReworkForDetail.photos!)}
+                  className="text-xs font-bold text-blue-600 hover:underline flex items-center gap-1 cursor-pointer"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Inspect Defect Photo Attachment</span>
+                </button>
+              </div>
+            )}
+
+            <div className="space-y-2 text-xs">
+              <label className="block text-[11px] font-bold text-[#7A6C5E]">Rectification & Resolution Work Notes</label>
               <textarea
                 rows={3}
                 value={reworkResolveNotes}
                 onChange={(e) => setReworkResolveNotes(e.target.value)}
-                placeholder="Describe rectifications performed (re-planed surface, replaced veneer...)"
-                className="w-full p-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#48A63E]"
+                placeholder="Describe rectifications performed (re-planed edge tolerances, re-secured joinery, reapplied lacquer)..."
+                className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium focus:outline-none focus:border-[#48A63E] text-xs text-[#2C241D]"
               />
             </div>
 
@@ -3188,9 +3394,10 @@ export const WorkerDashboardPage: React.FC = () => {
               <button
                 onClick={handleConfirmResolveRework}
                 disabled={isSubmittingRework}
-                className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F8829] text-white text-xs font-extrabold shadow-md shadow-[#38A132]/20 cursor-pointer flex items-center gap-1.5"
               >
-                {isSubmittingRework ? 'Submitting...' : 'Mark Resolved & Request QC'}
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{isSubmittingRework ? 'Submitting...' : 'Mark Rectified & Submit for Repeat QC'}</span>
               </button>
             </div>
           </div>
@@ -3377,7 +3584,8 @@ export const WorkerDashboardPage: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setIsProfileModalOpen(false);
-                          setActiveTab('queries');
+                          setActiveTab('admin_messages');
+                          setDirectivesView('inquiries');
                         }}
                         className="text-[10px] font-bold text-[#48A63E] hover:underline flex items-center gap-1 cursor-pointer"
                       >

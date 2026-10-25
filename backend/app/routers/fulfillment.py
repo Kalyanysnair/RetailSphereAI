@@ -103,15 +103,33 @@ class DeliveryStatusPayload(BaseModel):
     note: Optional[str] = None
 
 
+# Cache for fulfillment summary (15 seconds TTL)
+_FULFILLMENT_SUMMARY_CACHE = {"data": None, "timestamp": 0.0}
+
 # 1. GET /api/orders/fulfillment/summary
 @router.get("/fulfillment/summary")
 def get_fulfillment_summary(db: Session = Depends(get_db)):
-    all_fulfillments = db.query(models.OrderFulfillment).all()
-    all_orders = db.query(models.ReadymadeOrder).filter(
+    import time
+    now = time.time()
+    if _FULFILLMENT_SUMMARY_CACHE["data"] and (now - _FULFILLMENT_SUMMARY_CACHE["timestamp"]) < 15.0:
+        return _FULFILLMENT_SUMMARY_CACHE["data"]
+
+    # Select only required scalar columns rather than heavy ORM entities
+    ful_rows = db.query(
+        models.OrderFulfillment.order_id,
+        models.OrderFulfillment.fulfillment_status,
+        models.OrderFulfillment.delivery_status
+    ).filter(models.OrderFulfillment.order_id.isnot(None)).all()
+    ful_map = {f[0]: (f[1] or "", f[2] or "") for f in ful_rows}
+
+    ord_rows = db.query(
+        models.ReadymadeOrder.order_id,
+        models.ReadymadeOrder.order_status
+    ).filter(
         ~models.ReadymadeOrder.order_status.in_(["Cancelled", "Returned"])
     ).all()
 
-    total = len(all_orders)
+    total = len(ord_rows)
     to_pack = 0
     packed = 0
     to_dispatch = 0
@@ -119,23 +137,28 @@ def get_fulfillment_summary(db: Session = Depends(get_db)):
     out_for_delivery = 0
     delivered = 0
 
-    for o in all_orders:
-        st = (o.order_status or "Order Placed").strip()
-        if st in ["Order Placed", "Pending", "Processing", "Ready to Pack"]:
-            to_pack += 1
-        elif st in ["Packed", "PACKED"]:
+    for ord_id, ord_st_raw in ord_rows:
+        ful_st, del_st = ful_map.get(ord_id, ("", ""))
+        ful_st = ful_st.strip()
+        del_st = del_st.strip()
+        ord_st = (ord_st_raw or "Order Placed").strip()
+
+        # True effective status
+        if del_st in ["Delivered", "Completed"] or ful_st in ["Delivered", "Completed"] or ord_st in ["Delivered", "Completed"]:
+            delivered += 1
+        elif del_st in ["Out for Delivery", "OUT_FOR_DELIVERY"] or ful_st in ["Out for Delivery", "OUT_FOR_DELIVERY"] or ord_st in ["Out for Delivery", "OUT_FOR_DELIVERY"]:
+            out_for_delivery += 1
+        elif ful_st in ["Dispatched", "DISPATCHED", "In Transit"] or del_st in ["Dispatched", "DISPATCHED", "In Transit"] or ord_st in ["Dispatched", "DISPATCHED"]:
+            dispatched += 1
+        elif ful_st in ["Packed", "PACKED"] or ord_st in ["Packed", "PACKED"]:
             packed += 1
             to_dispatch += 1
-        elif st in ["Dispatched", "DISPATCHED"]:
-            dispatched += 1
-        elif st in ["Out for Delivery", "OUT_FOR_DELIVERY"]:
-            out_for_delivery += 1
-        elif st in ["Delivered", "Completed"]:
-            delivered += 1
+        else:
+            to_pack += 1
 
-    returns_count = db.query(models.OrderReturn).filter(models.OrderReturn.status != "Rejected").count()
+    returns_count = db.query(models.OrderReturn.return_id).filter(models.OrderReturn.status != "Rejected").count()
 
-    return {
+    summary_result = {
         "to_pack": to_pack,
         "packed": packed,
         "to_dispatch": to_dispatch,
@@ -145,6 +168,9 @@ def get_fulfillment_summary(db: Session = Depends(get_db)):
         "returns": returns_count,
         "total_orders": total
     }
+    _FULFILLMENT_SUMMARY_CACHE["data"] = summary_result
+    _FULFILLMENT_SUMMARY_CACHE["timestamp"] = now
+    return summary_result
 
 
 # 2. GET /api/orders/{order_id_str}/fulfillment-details
@@ -691,7 +717,9 @@ def get_all_return_requests(db: Session = Depends(get_db)):
             "order_number": f"RET-{r.order_id:06d}",
             "customer_id": r.customer_id,
             "customer_name": ord_obj.customer_name if ord_obj else "Valued Customer",
-            "customer_email": ord_obj.customer_email if ord_obj else "",
+            "customer_email": (ord_obj.customer_email if ord_obj else "") or ((ord_obj.customer.user.email if ord_obj.customer and ord_obj.customer.user else "") if ord_obj else "") or "customer@retailsphere.ai",
+            "customerEmail": (ord_obj.customer_email if ord_obj else "") or ((ord_obj.customer.user.email if ord_obj.customer and ord_obj.customer.user else "") if ord_obj else "") or "customer@retailsphere.ai",
+            "email": (ord_obj.customer_email if ord_obj else "") or ((ord_obj.customer.user.email if ord_obj.customer and ord_obj.customer.user else "") if ord_obj else "") or "customer@retailsphere.ai",
             "reason": r.reason,
             "description": r.description,
             "photo_url": r.photo_url,
@@ -826,6 +854,29 @@ def dispatch_fulfillment_job(fulfillment_id: int, payload: DispatchOrderPayload,
 
     if not fulfillment:
         raise HTTPException(status_code=404, detail="Fulfillment record not found")
+
+    # QC Gate: Prevent dispatch of failed, pending or incomplete QC jobs for Fabrication & Custom orders
+    if fulfillment.fabrication_id and fulfillment.job_type in ["FABRICATION_RETURN", "FURNITURE_DELIVERY"]:
+        latest_qc = db.query(models.QualityInspection).filter(
+            models.QualityInspection.order_type.in_(["Fabrication", "FABRICATION"]),
+            models.QualityInspection.order_id == fulfillment.fabrication_id
+        ).order_by(models.QualityInspection.inspected_at.desc()).first()
+        if not latest_qc or latest_qc.result != "PASS":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Dispatch blocked: Fabrication job must pass Quality Control (QC) inspection before dispatch."
+            )
+
+    if fulfillment.custom_order_id:
+        latest_qc = db.query(models.QualityInspection).filter(
+            models.QualityInspection.order_type.in_(["Custom", "CUSTOM", "Customization", "CUSTOMIZATION"]),
+            models.QualityInspection.order_id == fulfillment.custom_order_id
+        ).order_by(models.QualityInspection.inspected_at.desc()).first()
+        if not latest_qc or latest_qc.result != "PASS":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Dispatch blocked: Custom order must pass Quality Control (QC) inspection before dispatch."
+            )
 
     vehicle_obj = None
     target_driver_id = payload.driver_id

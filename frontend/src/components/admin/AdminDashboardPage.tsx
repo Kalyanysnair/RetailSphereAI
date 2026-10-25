@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
 import { fetchAllLeaveRequests, reviewLeaveRequest, WorkerLeaveItem } from '../../services/api_leave';
@@ -70,28 +70,32 @@ import {
   Boxes,
   ClipboardCheck,
   ShieldAlert,
-  FileCheck2,
   Globe,
   Star,
   Undo2,
   Cpu,
   FileSpreadsheet,
-  Scale
+  Scale,
+  Activity
 } from 'lucide-react';
 
 import { AdminReviewsSection } from './sections/AdminReviewsSection';
 import { AdminCarrierGovernanceSection } from './sections/AdminCarrierGovernanceSection';
 import { AdminReturnsCancellationsSection } from './sections/AdminReturnsCancellationsSection';
 import { AdminMachinesSection } from './sections/AdminMachinesSection';
-import { AdminAILogsSection } from './sections/AdminAILogsSection';
+import { AdminIoTInventorySection } from './sections/AdminIoTInventorySection';
+import { CustomSelect } from '../common/CustomSelect';
+import { QualityControlHub } from '../common/QualityControlHub';
 
 import {
   fetchRawMaterialsApi,
   createRawMaterialApi,
   updateRawMaterialStockApi,
   fetchCustomerMaterialsApi,
+  fetchMaterialTransactionsApi,
   RawMaterialItem,
-  CustomerMaterialItem
+  CustomerMaterialItem,
+  MaterialTransactionItem
 } from '../../services/api_materials';
 
 import {
@@ -165,6 +169,7 @@ import { fetchCustomOrders, updateOrderStatus, toggleLockOrderSpecifications, do
 import { getStoredAdminMessages, sendAdminMessage, deleteAdminMessage, AdminMessage } from '../../utils/adminMessagesStorage';
 import { getStoredUserAuthorities, saveUserAuthority, UserAuthorityRecord, CAPABILITY_DEFINITIONS, CapabilityKey } from '../../utils/userAuthoritiesStorage';
 import { parseReferenceImages, openImageInNewTab } from '../../utils/imageUtils';
+import { formatToIST } from '../../utils/timeUtils';
 
 export interface SystemUserItem {
   id: string;
@@ -312,13 +317,12 @@ export const AdminDashboardPage: React.FC = () => {
     | 'carriers'
     | 'materials'
     | 'quality'
-    | 'audit'
-    | 'export_excel'
     | 'reviews'
     | 'carrier_governance'
     | 'returns_cancellations'
     | 'machines'
     | 'ai_logs'
+    | 'iot_inventory'
   >('overview');
   const [analyticsTimeframe, setAnalyticsTimeframe] = useState('30days');
   const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
@@ -405,11 +409,31 @@ export const AdminDashboardPage: React.FC = () => {
   const [personnelActionMsg, setPersonnelActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
 
-  // System BI Dashboard & Real-Time Analytics State
-  const [dashboardSummary, setDashboardSummary] = useState<AdminDashboardSummary | null>(null);
-  const [revenueAnalytics, setRevenueAnalytics] = useState<RevenueAnalyticsData | null>(null);
-  const [bottlenecksList, setBottlenecksList] = useState<ProductionBottleneckItem[]>([]);
-  const [auditLogsList, setAuditLogsList] = useState<any[]>([]);
+  // System BI Dashboard & Real-Time Analytics State (SWR Instant Initialization)
+  const [dashboardSummary, setDashboardSummary] = useState<AdminDashboardSummary | null>(() => {
+    try {
+      const saved = localStorage.getItem('rs_admin_dashboard_summary') || sessionStorage.getItem('rs_admin_dashboard_summary');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [revenueAnalytics, setRevenueAnalytics] = useState<RevenueAnalyticsData | null>(() => {
+    try {
+      const saved = localStorage.getItem('rs_admin_revenue_analytics_30days') || sessionStorage.getItem('rs_admin_revenue_analytics_30days');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [bottlenecksList, setBottlenecksList] = useState<ProductionBottleneckItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('rs_admin_bottlenecks') || sessionStorage.getItem('rs_admin_bottlenecks');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [globalSearchResults, setGlobalSearchResults] = useState<SearchResultItem[]>([]);
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
@@ -506,15 +530,20 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadAdminLeaveRequests();
-    window.addEventListener('leave-requests-updated', loadAdminLeaveRequests);
-    return () => window.removeEventListener('leave-requests-updated', loadAdminLeaveRequests);
-  }, []);
+    const handleLeaveUpdate = () => {
+      if (activeTab === 'leaves' || activeTab === 'staff') {
+        loadAdminLeaveRequests();
+      }
+    };
+    window.addEventListener('leave-requests-updated', handleLeaveUpdate);
+    return () => window.removeEventListener('leave-requests-updated', handleLeaveUpdate);
+  }, [activeTab]);
 
   // Raw Materials Ledger State
   const [rawMaterialsList, setRawMaterialsList] = useState<RawMaterialItem[]>([]);
   const [customerMaterialsList, setCustomerMaterialsList] = useState<CustomerMaterialItem[]>([]);
-  const [materialsSubTab, setMaterialsSubTab] = useState<'raw' | 'customer'>('raw');
+  const [materialTransactionsList, setMaterialTransactionsList] = useState<MaterialTransactionItem[]>([]);
+  const [materialsSubTab, setMaterialsSubTab] = useState<'raw' | 'customer' | 'transactions'>('raw');
   const [materialsSearchQuery, setMaterialsSearchQuery] = useState('');
   const [materialsCategoryFilter, setMaterialsCategoryFilter] = useState('All');
   const [isLoadingMaterials, setIsLoadingMaterials] = useState(false);
@@ -567,12 +596,14 @@ export const AdminDashboardPage: React.FC = () => {
   const loadMaterialsDataFromDB = async () => {
     setIsLoadingMaterials(true);
     try {
-      const [raw, cust] = await Promise.all([
+      const [raw, cust, txs] = await Promise.all([
         fetchRawMaterialsApi(),
-        fetchCustomerMaterialsApi()
+        fetchCustomerMaterialsApi(),
+        fetchMaterialTransactionsApi()
       ]);
       setRawMaterialsList(raw || []);
       setCustomerMaterialsList(cust || []);
+      setMaterialTransactionsList(txs || []);
     } catch (err) {
       console.error('Error loading materials data:', err);
     } finally {
@@ -729,10 +760,6 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    loadMaterialsDataFromDB();
-    loadQualityDataFromDB();
-  }, []);
 
   useEffect(() => {
     if (activeTab === 'materials') {
@@ -752,6 +779,8 @@ export const AdminDashboardPage: React.FC = () => {
       }
     };
     loadNotifs();
+    window.addEventListener('notifications-updated', loadNotifs);
+    return () => window.removeEventListener('notifications-updated', loadNotifs);
   }, []);
 
   useEffect(() => {
@@ -761,23 +790,48 @@ export const AdminDashboardPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const loadSystemBIData = async () => {
-      setIsLoadingSummary(true);
-      const summary = await fetchAdminDashboardSummaryDB();
-      if (summary) setDashboardSummary(summary);
+    const loadSystemBIData = () => {
+      if (!dashboardSummary) {
+        setIsLoadingSummary(true);
+      }
 
-      const rev = await fetchRevenueAnalyticsDB(analyticsTimeframe);
-      if (rev) setRevenueAnalytics(rev);
+      fetchAdminDashboardSummaryDB().then((summary) => {
+        if (summary) {
+          setDashboardSummary(summary);
+          try {
+            localStorage.setItem('rs_admin_dashboard_summary', JSON.stringify(summary));
+            sessionStorage.setItem('rs_admin_dashboard_summary', JSON.stringify(summary));
+          } catch {}
+        }
+        setIsLoadingSummary(false);
+      }).catch(() => {
+        setIsLoadingSummary(false);
+      });
 
-      const bot = await fetchProductionBottlenecksDB();
-      setBottlenecksList(bot || []);
+      fetchRevenueAnalyticsDB(analyticsTimeframe).then((rev) => {
+        if (rev) {
+          setRevenueAnalytics(rev);
+          try {
+            localStorage.setItem(`rs_admin_revenue_analytics_${analyticsTimeframe}`, JSON.stringify(rev));
+            sessionStorage.setItem(`rs_admin_revenue_analytics_${analyticsTimeframe}`, JSON.stringify(rev));
+          } catch {}
+        }
+      });
 
-      const logs = await fetchAuditLogsDB(50);
-      setAuditLogsList(logs || []);
-      setIsLoadingSummary(false);
+      fetchProductionBottlenecksDB().then((bots) => {
+        if (bots) {
+          setBottlenecksList(bots);
+          try {
+            localStorage.setItem('rs_admin_bottlenecks', JSON.stringify(bots));
+            sessionStorage.setItem('rs_admin_bottlenecks', JSON.stringify(bots));
+          } catch {}
+        }
+      });
     };
 
-    loadSystemBIData();
+    if (activeTab === 'overview' || activeTab === 'analytics' || activeTab === 'reports') {
+      loadSystemBIData();
+    }
   }, [analyticsTimeframe, activeTab]);
 
   useEffect(() => {
@@ -800,7 +854,7 @@ export const AdminDashboardPage: React.FC = () => {
   // Current Admin Profile State
   const [currentUser, setCurrentUser] = useState<{ name: string; email: string; initials: string }>({
     name: 'Administrator',
-    email: 'admin@retailsphere.com',
+    email: 'kalyanys2004@gmail.com',
     initials: 'AD'
   });
 
@@ -810,7 +864,7 @@ export const AdminDashboardPage: React.FC = () => {
       if (stored) {
         const parsed = JSON.parse(stored);
         const name = parsed.full_name || parsed.fullName || parsed.name || parsed.email || 'Administrator';
-        const email = parsed.email || 'admin@retailsphere.com';
+        const email = parsed.email || 'kalyanys2004@gmail.com';
 
         let initials = 'AD';
         if (name) {
@@ -924,7 +978,17 @@ export const AdminDashboardPage: React.FC = () => {
         const name = (u.name || u.full_name || '').toLowerCase();
         const userId = u.user_id || u.id;
 
-        if (email === 'admin@retailsphere.com' || name === 'admin' || role === 'Admin' || role === 'Customer') {
+        if (
+          email === 'admin@retailsphere.com' ||
+          email === 'kalyanys2004@gmail.com' ||
+          name === 'admin' ||
+          role === 'Admin' ||
+          role === 'Customer' ||
+          email.includes('@example.com') ||
+          email.startsWith('test_') ||
+          email.includes('test') ||
+          name.includes('test')
+        ) {
           continue;
         }
 
@@ -962,10 +1026,6 @@ export const AdminDashboardPage: React.FC = () => {
       setStaffMembers([]);
     }
   };
-
-  useEffect(() => {
-    loadStaffFromDB();
-  }, []);
 
   const handleToggleStaffStatus = async (staff: StaffMember) => {
     if (!staff.user_id) return;
@@ -1013,8 +1073,10 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadFleetDataFromDB();
-    loadCarrierPartnersData();
+    if (activeTab === 'carrier_governance' || activeTab === 'fulfillment') {
+      loadFleetDataFromDB();
+      loadCarrierPartnersData();
+    }
   }, [fleetStatusFilter, activeTab]);
 
   const handleOpenAddVehicleModal = () => {
@@ -1255,7 +1317,19 @@ export const AdminDashboardPage: React.FC = () => {
           const role = u.role || u.role_name || '';
           const email = (u.email || '').toLowerCase();
           const name = (u.full_name || u.name || '').toLowerCase();
-          return role !== 'Admin' && email !== 'admin@retailsphere.com' && name !== 'admin';
+          if (
+            role === 'Admin' ||
+            email === 'admin@retailsphere.com' ||
+            email === 'kalyanys2004@gmail.com' ||
+            name === 'admin' ||
+            email.includes('@example.com') ||
+            email.startsWith('test_') ||
+            email.includes('test') ||
+            name.includes('test')
+          ) {
+            return false;
+          }
+          return true;
         });
         setAllUsersList(nonAdmin);
       } else {
@@ -1268,10 +1342,6 @@ export const AdminDashboardPage: React.FC = () => {
       setIsUsersLoading(false);
     }
   };
-
-  useEffect(() => {
-    loadAllUsersFromDB();
-  }, []);
 
   useEffect(() => {
     if (activeTab === 'users') {
@@ -1411,10 +1481,6 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    loadProductsFromDB();
-  }, []);
-
   // Stock Control State & Low Stock Modal
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [stockItemToEdit, setStockItemToEdit] = useState<RetailProduct | null>(null);
@@ -1449,10 +1515,6 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    loadSuppliersFromDB();
-  }, []);
-
   // Order Fulfillment Studio State
   const [orderList, setOrderList] = useState<RetailOrder[]>(() => getStoredRetailOrders() as any);
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('All');
@@ -1468,13 +1530,21 @@ export const AdminDashboardPage: React.FC = () => {
         fetch('/api/fabrication/requests').then(r => r.ok ? r.json() : []).catch(() => []),
         fetch('/api/services/requests').then(r => r.ok ? r.json() : []).catch(() => [])
       ]);
-      setAllAdminCustomOrders(allCustomOrders || []);
-      setAllAdminFabrications(Array.isArray(fabs) ? fabs : []);
-      setAllAdminServices(Array.isArray(srvs) ? srvs : []);
 
-      const retailStoreOrders = (dbStoreOrders || []).filter(
-        (o: any) => !String(o.orderId || '').toUpperCase().startsWith('CUSTOM-')
-      );
+      const isTestOrder = (o: any) => {
+        const id = String(o.id || o.orderId || o.order_id || '').toLowerCase();
+        const email = String(o.customer_email || o.email || (o.customer && o.customer.email) || '').toLowerCase();
+        const name = String(o.customer_name || o.name || (o.customer && o.customer.name) || '').toLowerCase();
+        return id.includes('test') || email.includes('@example.com') || email.startsWith('test_') || name.includes('test');
+      };
+
+      setAllAdminCustomOrders((allCustomOrders || []).filter((o: any) => !isTestOrder(o)));
+      setAllAdminFabrications((Array.isArray(fabs) ? fabs : []).filter((o: any) => !isTestOrder(o)));
+      setAllAdminServices((Array.isArray(srvs) ? srvs : []).filter((o: any) => !isTestOrder(o)));
+
+      const retailStoreOrders = (dbStoreOrders || [])
+        .filter((o: any) => !String(o.orderId || '').toUpperCase().startsWith('CUSTOM-'))
+        .filter((o: any) => !isTestOrder(o));
       retailStoreOrders.sort((a, b) => ((b as any).createdAt || 0) - ((a as any).createdAt || 0));
       setOrderList(retailStoreOrders as any);
     } catch (err) {
@@ -1483,16 +1553,20 @@ export const AdminDashboardPage: React.FC = () => {
   };
 
   useEffect(() => {
-    loadAllOrdersForAdmin();
-    window.addEventListener('retail-orders-updated', loadAllOrdersForAdmin);
-    window.addEventListener('custom-orders-updated', loadAllOrdersForAdmin);
-    window.addEventListener('storage', loadAllOrdersForAdmin);
-    return () => {
-      window.removeEventListener('retail-orders-updated', loadAllOrdersForAdmin);
-      window.removeEventListener('custom-orders-updated', loadAllOrdersForAdmin);
-      window.removeEventListener('storage', loadAllOrdersForAdmin);
+    const handleOrderEvent = () => {
+      if (['orders', 'custom_orders', 'fulfillment', 'overview'].includes(activeTab)) {
+        loadAllOrdersForAdmin();
+      }
     };
-  }, []);
+    window.addEventListener('retail-orders-updated', handleOrderEvent);
+    window.addEventListener('custom-orders-updated', handleOrderEvent);
+    window.addEventListener('storage', handleOrderEvent);
+    return () => {
+      window.removeEventListener('retail-orders-updated', handleOrderEvent);
+      window.removeEventListener('custom-orders-updated', handleOrderEvent);
+      window.removeEventListener('storage', handleOrderEvent);
+    };
+  }, [activeTab]);
 
   const handleUpdateOrderStatus = async (
     orderId: string,
@@ -1635,7 +1709,7 @@ export const AdminDashboardPage: React.FC = () => {
       (f: any) => (f.status || '').toUpperCase() === 'IN_PRODUCTION'
     ).length;
 
-    const csvContent = `Metric,Value\nGross Revenue,₹${realGrossRevenue}\nCatalog Revenue,₹${realStoreRevenue}\nCustomization Revenue,₹${realCustomRevenue}\nFabrication Revenue,₹${realFabRevenue}\nOn-Site Services Revenue,₹${realServiceRevenue}\nTotal Customer Orders & Requests,${totalOrdersCount}\nCompleted Orders & Visits,${completedOrdersCount}\nActive Workshop Builds,${activeCustomBuildsCount}\nTotal Registered System Accounts,${(allUsersList || []).length}\nReport Export Date,${new Date().toLocaleString()}\n`;
+    const csvContent = `Metric,Value\nGross Revenue,₹${realGrossRevenue}\nCatalog Revenue,₹${realStoreRevenue}\nCustomization Revenue,₹${realCustomRevenue}\nFabrication Revenue,₹${realFabRevenue}\nOn-Site Services Revenue,₹${realServiceRevenue}\nTotal Customer Orders & Requests,${totalOrdersCount}\nCompleted Orders & Visits,${completedOrdersCount}\nActive Workshop Builds,${activeCustomBuildsCount}\nTotal Registered System Accounts,${(allUsersList || []).length}\nReport Export Date,${formatToIST(new Date())}\n`;
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -2020,10 +2094,6 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  useEffect(() => {
-    loadQueriesFromDB();
-  }, []);
-
   // Coupons Management State
   const [couponsList, setCouponsList] = useState<Coupon[]>([]);
   const [couponSearchQuery, setCouponSearchQuery] = useState('');
@@ -2056,7 +2126,7 @@ export const AdminDashboardPage: React.FC = () => {
       setProfileForm((prev) => ({
         ...prev,
         full_name: currentUser.name || 'Administrator',
-        email: currentUser.email || 'admin@retailsphere.com',
+        email: currentUser.email || 'kalyanys2004@gmail.com',
         phone: '+91 98765 11223',
         department: 'Executive Administration & Management'
       }));
@@ -2446,9 +2516,38 @@ export const AdminDashboardPage: React.FC = () => {
     }
   };
 
+  // Tab-based on-demand lazy loader (drastically reduces initial dashboard mount time)
+  const loadedTabsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    refreshCoupons();
-  }, []);
+    const tab = activeTab;
+    if (!loadedTabsRef.current.has(tab)) {
+      loadedTabsRef.current.add(tab);
+      if (tab === 'products' || (tab as any) === 'inventory') {
+        loadProductsFromDB();
+      } else if (tab === 'orders' || tab === 'custom_orders' || tab === 'fulfillment') {
+        loadAllOrdersForAdmin();
+      } else if (tab === 'staff') {
+        loadStaffFromDB();
+      } else if (tab === 'users') {
+        loadAllUsersFromDB();
+      } else if (tab === 'materials') {
+        loadMaterialsDataFromDB();
+      } else if (tab === 'quality') {
+        loadQualityDataFromDB();
+      } else if (tab === 'suppliers') {
+        loadSuppliersFromDB();
+      } else if (tab === 'coupons') {
+        refreshCoupons();
+      } else if (tab === 'queries') {
+        loadQueriesFromDB();
+      } else if (tab === 'leaves') {
+        loadAdminLeaveRequests();
+      } else if (tab === 'fleet' || tab === 'carriers' || tab === 'carrier_governance') {
+        loadFleetDataFromDB();
+        loadCarrierPartnersData();
+      }
+    }
+  }, [activeTab]);
 
   const handleCreateCouponSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2705,7 +2804,7 @@ export const AdminDashboardPage: React.FC = () => {
       </div>
 
       {/* LEFT SIDEBAR NAVIGATION PANEL */}
-      <aside className={`${isSidebarCollapsed ? 'w-16 p-2' : 'w-56 p-3.5'} flex-shrink-0 min-h-screen hidden md:flex flex-col border-r border-[#DFD2C0] bg-[#F1E8DC]/95 backdrop-blur-2xl space-y-4 relative z-20 shadow-[2px_0_24px_rgba(58,40,24,0.04)] transition-[width,padding] duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-[width,padding] overflow-hidden`}>
+      <aside className={`${isSidebarCollapsed ? 'w-16 p-2' : 'w-56 p-3.5'} flex-shrink-0 min-h-screen hidden md:flex flex-col border-r border-[#DFD2C0] bg-[#F1E8DC]/95 backdrop-blur-2xl space-y-4 relative z-20 shadow-[2px_0_24px_rgba(58,40,24,0.04)] transition-[width,padding] duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)] will-change-[width,padding]`}>
         {/* Logo and Brand Title - Click to toggle Collapse/Expand */}
         <div className="pb-2.5 border-b border-[#DFD2C0]/80 overflow-hidden">
           <button
@@ -2741,7 +2840,7 @@ export const AdminDashboardPage: React.FC = () => {
         </div>
 
         {/* Sidebar Navigation */}
-        <nav className="flex-1 space-y-3.5 text-xs max-h-[calc(100vh-140px)] overflow-y-auto pr-0.5 scrollbar-none">
+        <nav className="flex-1 space-y-3.5 text-xs">
           {/* SECTION: MAIN */}
           <div className="space-y-0.5">
             <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
@@ -2858,16 +2957,15 @@ export const AdminDashboardPage: React.FC = () => {
             </div>
 
             {[
-              { id: 'inventory', label: 'Finished Goods Stock', icon: Boxes },
+              { id: 'products', label: 'Product Catalog & Stock', icon: Package, extraMatch: 'inventory' },
               { id: 'materials', label: 'Raw Materials Ledger', icon: Layers },
               { id: 'quality', label: 'Quality Assurance & QC', icon: ClipboardCheck },
               { id: 'fleet', label: 'Fleet & Vehicles', icon: Truck },
               { id: 'carriers', label: 'Carrier Partners', icon: Globe },
-              { id: 'products', label: 'Product Catalog', icon: Package },
               { id: 'suppliers', label: 'Supplier Directory', icon: Briefcase }
             ].map((item) => {
               const Icon = item.icon;
-              const isActive = activeTab === item.id;
+              const isActive = activeTab === item.id || (item.extraMatch && activeTab === item.extraMatch);
               return (
                 <button
                   key={item.id}
@@ -2949,59 +3047,6 @@ export const AdminDashboardPage: React.FC = () => {
             })}
           </div>
 
-          {/* SECTION: SYSTEM & GOVERNANCE */}
-          <div className="space-y-0.5">
-            <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
-              isSidebarCollapsed ? 'max-h-2 opacity-60 my-1' : 'max-h-8 opacity-100 my-0'
-            }`}>
-              {isSidebarCollapsed ? (
-                <div className="h-px bg-[#DFD2C0]/80 mx-1" />
-              ) : (
-                <div className="text-[9px] font-black tracking-widest text-[#8F745D] uppercase px-2 py-1 font-mono truncate">
-                  System & Governance
-                </div>
-              )}
-            </div>
-
-            {[
-              { id: 'audit', label: 'Audit & Activity Logs', icon: FileCheck2 },
-              { id: 'export_excel', label: 'Export System Report', icon: Download, isAction: true, onClick: handleExportDatabaseExcel }
-            ].map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    if (item.isAction && item.onClick) {
-                      item.onClick();
-                    } else {
-                      setActiveTab(item.id as any);
-                    }
-                    setHoveredSidebarTooltip(null);
-                  }}
-                  onMouseEnter={(e) => handleSidebarItemMouseEnter(e, item.label)}
-                  onMouseLeave={handleSidebarItemMouseLeave}
-                  title={!isSidebarCollapsed ? item.label : undefined}
-                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center p-2' : 'justify-start px-3 py-2'} rounded-lg transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] cursor-pointer overflow-hidden ${
-                    isActive
-                      ? 'bg-[#38A132] text-white shadow-md shadow-[#38A132]/25 font-bold hover:bg-[#2F8829]'
-                      : 'text-[#6B5542] hover:text-[#2C2016] hover:bg-[#E6DAC8]/80 font-semibold'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-300" />
-                    <span className={`text-xs truncate transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] whitespace-nowrap overflow-hidden ${
-                      isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-3 pointer-events-none' : 'max-w-[160px] opacity-100 translate-x-0'
-                    }`}>
-                      {item.label}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
           {/* SECTION: PLATFORM OVERSIGHT & INTELLIGENCE (Strictly Appended at End) */}
           <div className="space-y-0.5">
             <div className={`transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
@@ -3021,7 +3066,7 @@ export const AdminDashboardPage: React.FC = () => {
               { id: 'carrier_governance', label: 'Freight & Agreements', icon: FileSpreadsheet },
               { id: 'returns_cancellations', label: 'Returns & Cancellations', icon: Undo2 },
               { id: 'machines', label: 'Machinery & Equipment', icon: Cpu },
-              { id: 'ai_logs', label: 'AI Intelligence Logs', icon: Sparkles }
+              { id: 'iot_inventory', label: 'IoT Inventory', icon: Boxes }
             ].map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -3069,7 +3114,7 @@ export const AdminDashboardPage: React.FC = () => {
             <span className="font-extrabold text-sm text-[#2C2016]">Admin Suite</span>
           </div>
           <div className="flex items-center gap-1.5 overflow-x-auto max-w-[60vw] scrollbar-none">
-            {['overview', 'orders', 'custom_orders', 'inventory', 'materials', 'staff'].map((tab) => (
+            {['overview', 'orders', 'custom_orders', 'products', 'materials', 'staff'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as any)}
@@ -3112,8 +3157,7 @@ export const AdminDashboardPage: React.FC = () => {
                   {activeTab === 'users' && 'Customer Directory'}
                   {activeTab === 'staff' && 'Workers & Staff'}
                   {activeTab === 'leaves' && 'Leave Management'}
-                  {activeTab === 'products' && 'Product Catalog'}
-                  {activeTab === 'inventory' && 'Finished Goods Stock'}
+                  {(activeTab === 'products' || activeTab === 'inventory') && 'Product Catalog & Stock'}
                   {activeTab === 'suppliers' && 'Supplier Directory'}
                   {activeTab === 'orders' && 'Orders & Requests'}
                   {activeTab === 'custom_orders' && 'Customer Requests'}
@@ -3137,12 +3181,11 @@ export const AdminDashboardPage: React.FC = () => {
                   {activeTab === 'returns' && 'Returns & Replacements'}
                   {activeTab === 'communication' && 'Communications'}
                   {activeTab === 'reports' && 'Business Reports'}
-                  {activeTab === 'audit' && 'System Audit & Activity Logs'}
                   {activeTab === 'reviews' && 'Customer Reviews & Feedback'}
                   {activeTab === 'carrier_governance' && 'Logistics Agreements & Freight'}
                   {activeTab === 'returns_cancellations' && 'Returns, Replacements & Cancellations'}
                   {activeTab === 'machines' && 'Workshop Machinery & Equipment'}
-                  {activeTab === 'ai_logs' && 'AI Intelligence & Execution Logs'}
+                  {activeTab === 'iot_inventory' && 'IoT Inventory Monitoring'}
                 </h1>
                 <p className="text-xs text-[#7A6350] mt-1 font-medium">
                   {activeTab === 'overview' && 'Live store overview, revenue metrics, and order operations.'}
@@ -3150,8 +3193,7 @@ export const AdminDashboardPage: React.FC = () => {
                   {activeTab === 'users' && 'Manage registered customer accounts and access.'}
                   {activeTab === 'staff' && 'Manage retail staff, production team, and artisan workers.'}
                   {activeTab === 'leaves' && 'Review and manage worker leave applications.'}
-                  {activeTab === 'products' && 'Manage catalog products, pricing, and stock levels.'}
-                  {activeTab === 'inventory' && 'Monitor finished furniture inventory and catalog stock.'}
+                  {(activeTab === 'products' || activeTab === 'inventory') && 'Manage catalog products, pricing, and live warehouse stock levels.'}
                   {activeTab === 'materials' && 'Manage raw materials ledger, wood stock, and procurement.'}
                   {activeTab === 'quality' && 'Monitor quality inspection stages and tolerance checklists.'}
                   {activeTab === 'suppliers' && 'Manage raw materials suppliers and procurement channels.'}
@@ -3164,12 +3206,11 @@ export const AdminDashboardPage: React.FC = () => {
                   {activeTab === 'fleet' && 'Manage delivery fleet vehicles and driver allocations.'}
                   {activeTab === 'carriers' && 'Manage 3PL courier partners and shipping methods.'}
                   {activeTab === 'roles' && 'Configure role-based access permissions.'}
-                  {activeTab === 'audit' && 'Comprehensive live tracking of administrative changes, security actions, and user events.'}
                   {activeTab === 'reviews' && 'Monitor verified buyer reviews, ratings distribution, and moderate storefront feedback.'}
                   {activeTab === 'carrier_governance' && 'Carrier partner contracts, tariff rate cards, freight settlements, and driver email requests.'}
                   {activeTab === 'returns_cancellations' && 'Audit customer return claims, replacement dispatches, and order cancellation ledger.'}
                   {activeTab === 'machines' && 'Factory floor CNC machinery, operational availability, and preventive maintenance records.'}
-                  {activeTab === 'ai_logs' && 'System-wide AI execution logs for computer vision, 2D sheet cutting optimizer, and material inspections.'}
+                  {activeTab === 'iot_inventory' && 'Live dual-sensor optical tracking (Sensor A: GPIO 27 & Sensor B: GPIO 26) for warehouse furniture entry, exit, and automated stock count tracking.'}
                   {activeTab === 'requests' && 'Review custom build inquiries and quotations.'}
                   {activeTab === 'production' && 'Track workshop production and active jobs.'}
                   {activeTab === 'fabrication' && 'Manage fabrication and joinery milestones.'}
@@ -3233,8 +3274,12 @@ export const AdminDashboardPage: React.FC = () => {
                   className="px-3.5 py-2 rounded-xl bg-[#2C2016] hover:bg-[#1A130C] text-[#FAF5ED] font-bold text-xs flex items-center gap-2 border border-[#483726] shadow-sm transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-60"
                   title="Export full system report to Excel (.xlsx)"
                 >
-                  <Download className="w-3.5 h-3.5 text-[#DFCDBD]" />
-                  <span className="hidden sm:inline">{isExportingExcel ? 'Exporting...' : 'Export'}</span>
+                  {isExportingExcel ? (
+                    <div className="w-3.5 h-3.5 border-2 border-[#DFCDBD] border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5 text-[#DFCDBD]" />
+                  )}
+                  <span className="hidden sm:inline">{isExportingExcel ? 'Generating Export...' : 'Export'}</span>
                 </button>
 
                 {/* Notification Bell Dropdown */}
@@ -3370,7 +3415,11 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-2xl font-black text-[#2C2016] tracking-tight">
-                      ₹{(dashboardSummary?.revenue_metrics?.total_revenue || 0).toLocaleString('en-IN')}
+                      {isLoadingSummary && !dashboardSummary ? (
+                        <span className="inline-block w-28 h-7 bg-[#DECDB7]/60 rounded-md animate-pulse align-middle" />
+                      ) : (
+                        `₹${(dashboardSummary?.revenue_metrics?.total_revenue || 0).toLocaleString('en-IN')}`
+                      )}
                     </div>
                     <span className="text-[10px] font-bold text-[#166534] bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">
                       Verified Payments
@@ -3385,7 +3434,11 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-2xl font-black text-[#2C2016] tracking-tight">
-                      {dashboardSummary?.business_metrics?.total_orders || orderList.length}
+                      {isLoadingSummary && !dashboardSummary ? (
+                        <span className="inline-block w-16 h-7 bg-[#DECDB7]/60 rounded-md animate-pulse align-middle" />
+                      ) : (
+                        dashboardSummary?.business_metrics?.total_orders || orderList.length
+                      )}
                     </div>
                     <span className="text-[10px] font-bold text-blue-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">
                       Ready-made & Custom Builds
@@ -3400,7 +3453,11 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-2xl font-black text-[#2C2016] tracking-tight">
-                      {dashboardSummary?.business_metrics?.active_customers || allUsersList.length}
+                      {isLoadingSummary && !dashboardSummary ? (
+                        <span className="inline-block w-16 h-7 bg-[#DECDB7]/60 rounded-md animate-pulse align-middle" />
+                      ) : (
+                        dashboardSummary?.business_metrics?.active_customers || allUsersList.length
+                      )}
                     </div>
                     <span className="text-[10px] font-bold text-purple-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">
                       Registered Accounts
@@ -3415,7 +3472,11 @@ export const AdminDashboardPage: React.FC = () => {
                       </div>
                     </div>
                     <div className="text-2xl font-black text-[#b45309] tracking-tight">
-                      {dashboardSummary?.business_metrics?.low_stock_items || lowStockCount}
+                      {isLoadingSummary && !dashboardSummary ? (
+                        <span className="inline-block w-14 h-7 bg-[#DFCBB5]/60 rounded-md animate-pulse align-middle" />
+                      ) : (
+                        dashboardSummary?.business_metrics?.low_stock_items || lowStockCount
+                      )}
                     </div>
                     <span className="text-[10px] font-bold text-[#854d0e] bg-[#F2E5D5] px-2 py-0.5 rounded-full border border-[#DFCBB5] inline-block">
                       Under Reorder Level
@@ -3464,7 +3525,7 @@ export const AdminDashboardPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">
                         {analyticsTimeframe === 'today' ? "Today's Revenue" :
@@ -3474,7 +3535,11 @@ export const AdminDashboardPage: React.FC = () => {
                          analyticsTimeframe === 'this_year' ? 'This Year Revenue' : 'Period Revenue'}
                       </span>
                       <div className="text-xl font-black text-[#15803d] tracking-tight">
-                        ₹{(revenueAnalytics?.total_revenue ?? (analyticsTimeframe === 'today' ? dashboardSummary?.revenue_metrics?.todays_revenue : analyticsTimeframe === 'this_month' ? dashboardSummary?.revenue_metrics?.this_month_revenue : dashboardSummary?.revenue_metrics?.total_revenue) ?? 0).toLocaleString('en-IN')}
+                        {isLoadingSummary && !revenueAnalytics && !dashboardSummary ? (
+                          <span className="inline-block w-24 h-6 bg-[#DECDB7]/60 rounded-md animate-pulse align-middle" />
+                        ) : (
+                          `₹${(revenueAnalytics?.total_revenue ?? (analyticsTimeframe === 'today' ? dashboardSummary?.revenue_metrics?.todays_revenue : analyticsTimeframe === 'this_month' ? dashboardSummary?.revenue_metrics?.this_month_revenue : dashboardSummary?.revenue_metrics?.total_revenue) ?? 0).toLocaleString('en-IN')}`
+                        )}
                       </div>
                       <span className="text-[10px] font-bold text-[#166534] block">
                         {revenueAnalytics?.order_count ?? 0} Paid Order{(revenueAnalytics?.order_count ?? 0) === 1 ? '' : 's'}
@@ -3484,36 +3549,28 @@ export const AdminDashboardPage: React.FC = () => {
                     <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Net Realized Revenue</span>
                       <div className="text-xl font-black text-[#2C2016] tracking-tight">
-                        ₹{((revenueAnalytics?.net_revenue ?? ((revenueAnalytics?.total_revenue ?? 0) - (revenueAnalytics?.refund_amount ?? 0))) || 0).toLocaleString('en-IN')}
+                        {isLoadingSummary && !revenueAnalytics && !dashboardSummary ? (
+                          <span className="inline-block w-24 h-6 bg-[#DECDB7]/60 rounded-md animate-pulse align-middle" />
+                        ) : (
+                          `₹${((revenueAnalytics?.net_revenue ?? revenueAnalytics?.total_revenue) || 0).toLocaleString('en-IN')}`
+                        )}
                       </div>
                       <span className="text-[10px] font-bold text-[#7A6350] block">
-                        After processed refunds
+                        Completed sales revenue
                       </span>
                     </div>
 
                     <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Average Order Value</span>
                       <div className="text-xl font-black text-purple-700 tracking-tight">
-                        ₹{(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}
+                        {isLoadingSummary && !revenueAnalytics && !dashboardSummary ? (
+                          <span className="inline-block w-20 h-6 bg-[#DECDB7]/60 rounded-md animate-pulse align-middle" />
+                        ) : (
+                          `₹${(revenueAnalytics?.average_order_value || 0).toLocaleString('en-IN')}`
+                        )}
                       </div>
                       <span className="text-[10px] font-bold text-purple-700 block">
                         Per completed payment
-                      </span>
-                    </div>
-
-                    <div className="bg-[#FAF5ED] p-4 rounded-2xl border border-[#DECDB7] space-y-1">
-                      <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">
-                        {analyticsTimeframe === 'today' ? "Today's Refunds" :
-                         analyticsTimeframe === '7days' ? '7-Day Refunds' :
-                         analyticsTimeframe === '30days' ? '30-Day Refunds' :
-                         analyticsTimeframe === 'this_month' ? 'This Month Refunds' :
-                         analyticsTimeframe === 'this_year' ? 'This Year Refunds' : 'Period Refunds'}
-                      </span>
-                      <div className="text-xl font-black text-rose-600 tracking-tight">
-                        ₹{(revenueAnalytics?.refund_amount || 0).toLocaleString('en-IN')}
-                      </div>
-                      <span className="text-[10px] font-bold text-rose-600 block">
-                        Approved returns
                       </span>
                     </div>
                   </div>
@@ -3532,37 +3589,73 @@ export const AdminDashboardPage: React.FC = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                     <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Order Placed</span>
-                      <div className="text-xl font-black text-[#2C2016]">{dashboardSummary?.order_status_counts?.Placed || 0}</div>
+                      <div className="text-xl font-black text-[#2C2016]">
+                        {isLoadingSummary && !dashboardSummary ? (
+                          <span className="inline-block w-8 h-5 bg-[#DECDB7]/60 rounded animate-pulse align-middle" />
+                        ) : (
+                          dashboardSummary?.order_status_counts?.Placed || 0
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-blue-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">New Orders</span>
                     </div>
 
                     <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Tech Review</span>
-                      <div className="text-xl font-black text-[#2C2016]">{dashboardSummary?.production_status_summary?.technical_assessment || 0}</div>
+                      <div className="text-xl font-black text-[#2C2016]">
+                        {isLoadingSummary && !dashboardSummary ? (
+                          <span className="inline-block w-8 h-5 bg-[#DECDB7]/60 rounded animate-pulse align-middle" />
+                        ) : (
+                          dashboardSummary?.production_status_summary?.technical_assessment || 0
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-[#854d0e] bg-[#F2E5D5] px-2 py-0.5 rounded-full border border-[#DFCBB5] inline-block">Assessment</span>
                     </div>
 
                     <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Quotation</span>
-                      <div className="text-xl font-black text-[#2C2016]">{dashboardSummary?.production_status_summary?.customer_approval || 0}</div>
+                      <div className="text-xl font-black text-[#2C2016]">
+                        {isLoadingSummary && !dashboardSummary ? (
+                          <span className="inline-block w-8 h-5 bg-[#DECDB7]/60 rounded animate-pulse align-middle" />
+                        ) : (
+                          dashboardSummary?.production_status_summary?.customer_approval || 0
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-purple-800 bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">Approval</span>
                     </div>
 
                     <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">In Production</span>
-                      <div className="text-xl font-black text-[#15803d]">{dashboardSummary?.production_status_summary?.in_production || 0}</div>
+                      <div className="text-xl font-black text-[#15803d]">
+                        {isLoadingSummary && !dashboardSummary ? (
+                          <span className="inline-block w-8 h-5 bg-[#DECDB7]/60 rounded animate-pulse align-middle" />
+                        ) : (
+                          dashboardSummary?.production_status_summary?.in_production || 0
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-[#166534] bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">Workstation</span>
                     </div>
 
                     <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">QC Pending</span>
-                      <div className="text-xl font-black text-[#b45309]">{dashboardSummary?.production_status_summary?.qc_pending || 0}</div>
+                      <div className="text-xl font-black text-[#b45309]">
+                        {isLoadingSummary && !dashboardSummary ? (
+                          <span className="inline-block w-8 h-5 bg-[#DFCBB5]/60 rounded animate-pulse align-middle" />
+                        ) : (
+                          dashboardSummary?.production_status_summary?.qc_pending || 0
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-[#854d0e] bg-[#F2E5D5] px-2 py-0.5 rounded-full border border-[#DFCBB5] inline-block">Inspection</span>
                     </div>
 
                     <div className="bg-[#FAF5ED] p-3.5 rounded-2xl border border-[#DECDB7] space-y-1.5 text-center hover:bg-[#EFE5D7] transition-colors">
                       <span className="text-[10px] font-black text-[#8F745D] uppercase font-mono">Delivered</span>
-                      <div className="text-xl font-black text-[#15803d]">{dashboardSummary?.order_status_counts?.Delivered || 0}</div>
+                      <div className="text-xl font-black text-[#15803d]">
+                        {isLoadingSummary && !dashboardSummary ? (
+                          <span className="inline-block w-8 h-5 bg-[#DECDB7]/60 rounded animate-pulse align-middle" />
+                        ) : (
+                          dashboardSummary?.order_status_counts?.Delivered || 0
+                        )}
+                      </div>
                       <span className="text-[9px] font-bold text-[#166534] bg-[#EDE2D0] px-2 py-0.5 rounded-full border border-[#D0BEA9] inline-block">Completed</span>
                     </div>
                   </div>
@@ -3612,7 +3705,7 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
 
                   {/* Operational Alerts / Needs Attention Card */}
-                  <div className="rounded-3xl p-6 space-y-4 border border-[#DFD0BD] shadow-xs bg-[#F7F0E5]/90 backdrop-blur-xl">
+                  <div className="rounded-3xl p-6 space-y-4 border border-[#DFD0BD] shadow-xs bg-[#F7F0E5]/90 backdrop-blur-xl flex flex-col">
                     <h4 className="font-bold text-sm text-[#2C2016] flex items-center justify-between border-b border-[#DFD0BD]/80 pb-3">
                       <span className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-lg bg-[#F2E5D5] border border-[#DFCBB5] flex items-center justify-center text-[#d97706]">
@@ -3625,18 +3718,18 @@ export const AdminDashboardPage: React.FC = () => {
                       </span>
                     </h4>
 
-                    <div className="space-y-2.5 max-h-64 overflow-y-auto">
+                    <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1.5 pb-2">
                       {(dashboardSummary?.alerts || []).length === 0 ? (
                         <div className="p-4 text-center text-[#8F7864] text-xs italic">
                           All operations clear! No critical delays, QC failures, or inventory issues.
                         </div>
                       ) : (
                         (dashboardSummary?.alerts || []).map((alt) => (
-                          <div key={alt.id} className="bg-[#F6EADB] p-3.5 rounded-2xl border border-[#DECAB3] flex items-start gap-3">
+                          <div key={alt.id} className="bg-[#F6EADB] p-3.5 rounded-2xl border border-[#DECAB3] flex items-start gap-3 shadow-2xs">
                             <AlertTriangle className="w-4 h-4 text-[#d97706] shrink-0 mt-0.5" />
-                            <div className="flex-1">
-                              <h5 className="font-bold text-xs text-[#2C2016]">{alt.title}</h5>
-                              <p className="text-[11px] text-[#6B5542] mt-0.5">{alt.description}</p>
+                            <div className="flex-1 min-w-0">
+                              <h5 className="font-bold text-xs text-[#2C2016] break-words">{alt.title}</h5>
+                              <p className="text-[11px] text-[#6B5542] mt-0.5 break-words leading-relaxed">{alt.description}</p>
                             </div>
                           </div>
                         ))
@@ -3916,57 +4009,6 @@ export const AdminDashboardPage: React.FC = () => {
                             {tf.label}
                           </button>
                         ))}
-                      </div>
-
-                      {/* Export Dropdown Button with Elevated Stacking */}
-                      <div className="relative z-50 self-end sm:self-auto">
-                        <button
-                          onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
-                          className="px-4 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F872A] text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-[#38A132]/20 transition-all cursor-pointer whitespace-nowrap"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>Export Report</span>
-                          <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isExportMenuOpen ? 'rotate-180' : ''}`} />
-                        </button>
-
-                        {isExportMenuOpen && (
-                          <>
-                            {/* Click-away backdrop */}
-                            <div
-                              className="fixed inset-0 z-40"
-                              onClick={() => setIsExportMenuOpen(false)}
-                            />
-                            <div className="absolute right-0 top-full mt-2 w-56 bg-white border-2 border-[#E2D7CB] rounded-2xl shadow-2xl p-2 z-50 animate-fadeIn space-y-1">
-                              <button
-                                onClick={() => {
-                                  setIsExportMenuOpen(false);
-                                  handleExportAnalyticsPDF();
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#FAF7F2] transition-colors text-left cursor-pointer"
-                              >
-                                <FileText className="w-4 h-4 text-[#38A132]" />
-                                <div>
-                                  <span className="block font-black">Download PDF</span>
-                                  <span className="text-[10px] text-[#7A6C5E] font-medium block">Printable Executive Summary</span>
-                                </div>
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setIsExportMenuOpen(false);
-                                  handleExportAnalyticsReport();
-                                }}
-                                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#FAF7F2] transition-colors text-left cursor-pointer"
-                              >
-                                <Download className="w-4 h-4 text-[#38A132]" />
-                                <div>
-                                  <span className="block font-black">Export CSV</span>
-                                  <span className="text-[10px] text-[#7A6C5E] font-medium block">Spreadsheet Raw Data</span>
-                                </div>
-                              </button>
-                            </div>
-                          </>
-                        )}
                       </div>
                     </div>
 
@@ -5809,18 +5851,18 @@ export const AdminDashboardPage: React.FC = () => {
                 );
               })()}
 
-              {/* TAB 2: PRODUCTS CATALOG MANAGEMENT */}
-              {activeTab === 'products' && (
+              {/* UNIFIED PRODUCT CATALOG & FINISHED GOODS STOCK MANAGEMENT */}
+              {(activeTab === 'products' || activeTab === 'inventory') && (
                 <div className="space-y-5">
-                  {/* Product Catalog Summary Stat Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {/* Product Catalog & Finished Goods Stock Summary Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
                       <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
                         <span>Total Products</span>
                         <Package className="w-4 h-4 text-[#48A63E]" />
                       </div>
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{productList.length}</div>
-                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Furniture Store Catalog</div>
+                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">Catalog & Finished Goods</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
@@ -5831,7 +5873,18 @@ export const AdminDashboardPage: React.FC = () => {
                       <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
                         {productList.filter(p => p.stockCount >= 5).length}
                       </div>
-                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Available for Purchase</div>
+                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Sufficient Stock (5+ units)</div>
+                    </div>
+
+                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
+                        <span>Low Stock Alert</span>
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="text-2xl font-extrabold text-amber-700 mt-2">
+                        {productList.filter(p => p.stockCount > 0 && p.stockCount < 5).length}
+                      </div>
+                      <div className="text-[10px] text-amber-700 font-bold mt-1">Under 5 Units Left</div>
                     </div>
 
                     <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
@@ -5962,6 +6015,20 @@ export const AdminDashboardPage: React.FC = () => {
                             </td>
                             <td className="py-3.5 px-4 text-right">
                               <div className="flex items-center justify-end gap-2">
+                                {/* Update Stock Button */}
+                                <div className="relative group/tip">
+                                  <button
+                                    onClick={() => handleOpenStockModal(prod)}
+                                    className="p-2 rounded-xl text-[#6B5C4D] hover:text-[#48A63E] hover:bg-[#48A63E]/10 transition-all transform hover:scale-110 active:scale-95 border border-transparent hover:border-[#48A63E]/20 shadow-xs cursor-pointer"
+                                    aria-label="Update warehouse stock count"
+                                  >
+                                    <Boxes className="w-4 h-4" />
+                                  </button>
+                                  <div className="absolute right-0 -top-8 opacity-0 group-hover/tip:opacity-100 group-hover/tip:-translate-y-1 transition-all duration-200 pointer-events-none bg-[#2C241D] text-white text-[10px] font-extrabold px-2.5 py-1 rounded-lg shadow-xl whitespace-nowrap z-30 border border-white/10 flex items-center gap-1">
+                                    <span>Update Stock</span>
+                                  </div>
+                                </div>
+
                                 {/* Edit Product Button */}
                                 <div className="relative group/tip">
                                   <button
@@ -5999,171 +6066,6 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               </div>
             )}
-
-              {/* TAB 3: STOCK CONTROL & WAREHOUSE */}
-              {activeTab === 'inventory' && (
-                <div className="relative z-10 ultra-glass-card rounded-3xl p-6 space-y-5 border border-[#E2D7CB] shadow-xl">
-                  {/* Stock Summary Overview Cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Total Items</span>
-                        <Package className="w-4 h-4 text-[#48A63E]" />
-                      </div>
-                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">{totalProducts}</div>
-                      <div className="text-[10px] text-[#48A63E] font-bold mt-1">{totalInStock} Total Units</div>
-                    </div>
-
-                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>In Stock</span>
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                      </div>
-                      <div className="text-2xl font-extrabold text-[#2C241D] mt-2">
-                        {productList.filter((p) => p.stockCount >= 5).length}
-                      </div>
-                      <div className="text-[10px] text-emerald-700 font-bold mt-1">Sufficient Stock (5+ units)</div>
-                    </div>
-
-                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Low Stock Alert</span>
-                        <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      </div>
-                      <div className="text-2xl font-extrabold text-amber-700 mt-2">
-                        {productList.filter((p) => p.stockCount > 0 && p.stockCount < 5).length}
-                      </div>
-                      <div className="text-[10px] text-amber-700 font-bold mt-1">Under 5 Units Left</div>
-                    </div>
-
-                    <div className="ultra-glass-card bg-white/60 backdrop-blur-xl rounded-2xl p-4 border border-white/80 shadow-md transition-all hover:bg-white/75 hover:shadow-lg">
-                      <div className="text-[11px] font-bold uppercase tracking-wider text-[#7A6C5E] flex items-center justify-between">
-                        <span>Out of Stock</span>
-                        <AlertTriangle className="w-4 h-4 text-rose-600" />
-                      </div>
-                      <div className="text-2xl font-extrabold text-rose-700 mt-2">
-                        {productList.filter((p) => p.stockCount <= 0).length}
-                      </div>
-                      <div className="text-[10px] text-rose-700 font-bold mt-1">0 Units Available</div>
-                    </div>
-                  </div>
-
-                  {/* Controls Header */}
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-b border-[#EFE7DE] py-4">
-                    {/* Stock Status Filter Pills */}
-                    <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-                      {(['All', 'In Stock', 'Low Stock', 'Out of Stock'] as const).map((st) => (
-                        <button
-                          key={st}
-                          onClick={() => setStockStatusFilter(st)}
-                          className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
-                            stockStatusFilter === st
-                              ? st === 'Out of Stock'
-                                ? 'bg-rose-600 text-white shadow-xs'
-                                : st === 'Low Stock'
-                                ? 'bg-amber-600 text-white shadow-xs'
-                                : 'bg-[#48A63E] text-white shadow-xs'
-                              : 'bg-[#F9F6F0] text-[#6B5C4D] hover:bg-[#EFE7DE]'
-                          }`}
-                        >
-                          {st === 'All' ? 'All Stock' : st}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full sm:w-auto">
-                      <div className="relative flex-1 sm:w-64">
-                        <Search className="w-3.5 h-3.5 text-[#9E9082] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder="Search stock by name, SKU, category..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#48A63E]"
-                        />
-                      </div>
-
-                      <button
-                        onClick={() => setShowLowStockModal(true)}
-                        className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
-                      >
-                        <AlertTriangle className="w-4 h-4" />
-                        <span>Low Stock Alert ({lowStockProductsList.length})</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Stock Table */}
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-[#EFE7DE] text-[#7A6C5E] font-bold uppercase tracking-wider text-[10px]">
-                          <th className="py-3 px-4">Product</th>
-                          <th className="py-3 px-4">SKU / Code</th>
-                          <th className="py-3 px-4">Category</th>
-                          <th className="py-3 px-4">Unit Price</th>
-                          <th className="py-3 px-4">Available Units</th>
-                          <th className="py-3 px-4">Stock Status</th>
-                          <th className="py-3 px-4 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#EFE7DE] font-medium">
-                        {displayProducts.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="py-12 text-center text-[#7A6C5E]">
-                              <SlidersHorizontal className="w-8 h-8 text-[#9E9082] mx-auto opacity-50 mb-2" />
-                              <p className="font-extrabold text-xs text-[#2C241D]">No stock inventory items found</p>
-                              <p className="text-[11px] text-[#8C7C6D]">Try clearing search or choosing another stock status filter.</p>
-                            </td>
-                          </tr>
-                        ) : (
-                          displayProducts.map((item) => (
-                            <tr key={item.id} className="hover:bg-[#F5ECE1]/60 transition-colors">
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D] flex items-center gap-3">
-                                {item.image_url ? (
-                                  <img src={item.image_url} alt={item.name} className="w-9 h-9 rounded-xl object-cover border border-[#E2D7CB] flex-shrink-0" />
-                                ) : (
-                                  <div className="w-9 h-9 rounded-xl bg-[#48A63E]/10 text-[#48A63E] font-bold flex items-center justify-center flex-shrink-0">
-                                    <Package className="w-4 h-4" />
-                                  </div>
-                                )}
-                                <span>{item.name}</span>
-                              </td>
-                              <td className="py-4 px-4 font-mono text-[#48A63E] font-extrabold">
-                                <span className="bg-[#48A63E]/10 border border-[#48A63E]/20 px-2 py-0.5 rounded text-[11px]">
-                                  {item.sku}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 text-[#6B5C4D]">{item.category}</td>
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">₹{item.price.toLocaleString('en-IN')}</td>
-                              <td className="py-4 px-4 font-extrabold text-[#2C241D]">{item.stockCount} Units</td>
-                              <td className="py-4 px-4">
-                                <span className={`inline-flex items-center gap-1 text-[10px] font-extrabold px-2.5 py-0.5 rounded-md ${
-                                  item.status === 'In Stock'
-                                    ? 'bg-[#48A63E]/15 text-[#48A63E] border border-[#48A63E]/30'
-                                    : item.status === 'Low Stock'
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                                      : 'bg-rose-100 text-rose-700 border border-rose-300'
-                                }`}>
-                                  {item.status}
-                                </span>
-                              </td>
-                              <td className="py-4 px-4 text-right">
-                                <button
-                                  onClick={() => handleOpenStockModal(item)}
-                                  className="px-3 py-1.5 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs"
-                                >
-                                  Update Stock
-                                </button>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
 
               {/* TAB 4: SUPPLIER DIRECTORY */}
               {activeTab === 'suppliers' && (
@@ -6941,7 +6843,7 @@ export const AdminDashboardPage: React.FC = () => {
                               <div className="space-y-0.5 min-w-0">
                                 <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Details</span>
                                 <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {ord.customer_name}</span>
-                                <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || 'N/A'}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{ord.customer_email || (ord as any).customerEmail || (ord as any).email || 'customer@retailsphere.ai'}</span>
                               </div>
                               <div className="space-y-0.5 min-w-0">
                                 <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
@@ -7090,7 +6992,7 @@ export const AdminDashboardPage: React.FC = () => {
                               <div className="space-y-0.5 min-w-0">
                                 <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Client Details</span>
                                 <span className="font-extrabold text-[#2C241D] block truncate text-[11px]">👤 {fab.customer_name || 'Customer'}</span>
-                                <span className="text-[10px] text-[#7A6C5E] block truncate">{fab.customer_email || 'N/A'}</span>
+                                <span className="text-[10px] text-[#7A6C5E] block truncate">{fab.customer_email || (fab as any).customerEmail || (fab as any).email || 'customer@retailsphere.ai'}</span>
                               </div>
                               <div className="space-y-0.5 min-w-0">
                                 <span className="text-[9px] font-extrabold text-[#7A6C5E] uppercase tracking-wider block">Dimensions</span>
@@ -7280,25 +7182,6 @@ export const AdminDashboardPage: React.FC = () => {
                         Real-time operational alerts requiring administrative evaluation or immediate attention.
                       </p>
                     </div>
-
-                    <button
-                      onClick={async () => {
-                        setIsLoadingSummary(true);
-                        try {
-                          const summary = await fetchAdminDashboardSummaryDB();
-                          if (summary) setDashboardSummary(summary);
-                          await loadFleetDataFromDB();
-                        } catch (e) {
-                          console.warn('Failed to refresh alert metrics:', e);
-                        } finally {
-                          setIsLoadingSummary(false);
-                        }
-                      }}
-                      className="px-3.5 py-2 rounded-xl bg-[#FAF7F2] hover:bg-[#F2ECE1] border border-[#E2D7CB] text-[#2C241D] font-extrabold text-xs transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5 text-[#38A132]" />
-                      <span>Refresh Health Check</span>
-                    </button>
                   </div>
 
                   {/* Operational Health KPI Summary Cards */}
@@ -8127,7 +8010,6 @@ export const AdminDashboardPage: React.FC = () => {
                               <th className="py-3 px-4">Message Content</th>
                               <th className="py-3 px-4">Date Sent</th>
                               <th className="py-3 px-4">Status</th>
-                              <th className="py-3 px-4 text-right">Action</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-[#EFE7DE]">
@@ -8138,7 +8020,7 @@ export const AdminDashboardPage: React.FC = () => {
                               msg.recipientType === 'Specific Staff'
                             ).length === 0 ? (
                               <tr>
-                                <td colSpan={6} className="py-8 text-center text-[#7A6C5E]">
+                                <td colSpan={5} className="py-8 text-center text-[#7A6C5E]">
                                   No active staff admin messages dispatched.
                                 </td>
                               </tr>
@@ -8175,16 +8057,6 @@ export const AdminDashboardPage: React.FC = () => {
                                           Delivered (Unread)
                                         </span>
                                       )}
-                                    </td>
-                                    <td className="py-3.5 px-4 text-right">
-                                      <button
-                                        onClick={() => setAdminMessagesList(deleteAdminMessage(msg.id))}
-                                        className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-100 transition-colors inline-flex items-center gap-1 text-xs font-bold border border-rose-200 cursor-pointer"
-                                        title="Delete Message Record"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                        <span>Delete</span>
-                                      </button>
                                     </td>
                                   </tr>
                                 ))
@@ -8257,6 +8129,23 @@ export const AdminDashboardPage: React.FC = () => {
                             materialsSubTab === 'customer' ? 'bg-white text-[#38A132]' : 'bg-[#EAE0D4] text-[#2C241D]'
                           }`}>
                             {customerMaterialsList.length}
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMaterialsSubTab('transactions')}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                            materialsSubTab === 'transactions'
+                              ? 'bg-[#38A132] text-white shadow-xs'
+                              : 'text-[#5C4E42] hover:text-[#2C241D]'
+                          }`}
+                        >
+                          <FileText className="w-4 h-4" />
+                          <span>Ledger Audit Trail</span>
+                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
+                            materialsSubTab === 'transactions' ? 'bg-white text-[#38A132]' : 'bg-[#EAE0D4] text-[#2C241D]'
+                          }`}>
+                            {materialTransactionsList.length}
                           </span>
                         </button>
                       </div>
@@ -8549,376 +8438,86 @@ export const AdminDashboardPage: React.FC = () => {
                         </div>
                       </div>
                     )}
-                  </div>
-                );
-              })()}
 
-              {/* TAB: QUALITY ASSURANCE & STAGE INSPECTION HUB (QC) (OPTION 4) */}
-              {activeTab === 'quality' && (() => {
-                const totalInspections = qualityInspectionsList.length;
-                const passedCount = qualityInspectionsList.filter(i => i.result === 'PASS').length;
-                const passRate = totalInspections > 0 ? Math.round((passedCount / totalInspections) * 100) : 100;
-                const activeReworks = reworkJobsList.filter(r => r.status !== 'RESOLVED').length;
-
-                const filteredInspections = qualityInspectionsList.filter(i => {
-                  const matchSearch = qualitySearchQuery === '' ||
-                    i.inspector_name.toLowerCase().includes(qualitySearchQuery.toLowerCase()) ||
-                    String(i.order_id).includes(qualitySearchQuery) ||
-                    (i.inspection_notes && i.inspection_notes.toLowerCase().includes(qualitySearchQuery.toLowerCase()));
-                  const matchType = qualityOrderTypeFilter === 'All' || i.order_type === qualityOrderTypeFilter;
-                  const matchResult = qualityResultFilter === 'All' || i.result === qualityResultFilter;
-                  return matchSearch && matchType && matchResult;
-                });
-
-                const filteredReworks = reworkJobsList.filter(r => {
-                  return qualitySearchQuery === '' ||
-                    r.worker_name.toLowerCase().includes(qualitySearchQuery.toLowerCase()) ||
-                    String(r.order_id).includes(qualitySearchQuery) ||
-                    r.rework_reason.toLowerCase().includes(qualitySearchQuery.toLowerCase());
-                });
-
-                return (
-                  <div className="space-y-6 animate-fadeIn">
-                    {/* Top Bar: Sub-Tabs & Action Button */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 p-4 rounded-2xl border border-[#E2D7CB] shadow-xs">
-                      {/* Sub-Tab Switcher */}
-                      <div className="flex items-center gap-2 bg-[#FAF7F2] p-1.5 rounded-xl border border-[#E2D7CB]">
-                        <button
-                          type="button"
-                          onClick={() => setQualitySubTab('inspections')}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                            qualitySubTab === 'inspections'
-                              ? 'bg-[#38A132] text-white shadow-xs'
-                              : 'text-[#5C4E42] hover:text-[#2C241D]'
-                          }`}
-                        >
-                          <ClipboardCheck className="w-4 h-4" />
-                          <span>Quality Audit Logs</span>
-                          <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${
-                            qualitySubTab === 'inspections' ? 'bg-white text-[#38A132]' : 'bg-[#EAE0D4] text-[#2C241D]'
-                          }`}>
-                            {qualityInspectionsList.length}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setQualitySubTab('rework')}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-black transition-all cursor-pointer ${
-                            qualitySubTab === 'rework'
-                              ? 'bg-[#38A132] text-white shadow-xs'
-                              : 'text-[#5C4E42] hover:text-[#2C241D]'
-                          }`}
-                        >
-                          <ShieldAlert className="w-4 h-4" />
-                          <span>Active Rework Queue</span>
-                          {activeReworks > 0 && (
-                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-black animate-pulse ${
-                              qualitySubTab === 'rework' ? 'bg-rose-500 text-white' : 'bg-rose-600 text-white'
-                            }`}>
-                              {activeReworks}
-                            </span>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Right Action */}
-                      <button
-                        type="button"
-                        onClick={() => setIsRecordQCModalOpen(true)}
-                        className="flex items-center justify-center gap-2 px-4 py-2.5 bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-extrabold rounded-xl shadow-md transition-all cursor-pointer"
-                      >
-                        <Plus className="w-4 h-4" />
-                        <span>Record QC Inspection</span>
-                      </button>
-                    </div>
-
-                    {/* KPI Stat Cards */}
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Total QC Audits</span>
-                        <div className="text-2xl font-black text-[#2C241D]">{totalInspections} Recorded</div>
-                        <span className="text-[10px] font-bold text-[#38A132] block">Across All Workshop Stages</span>
-                      </div>
-
-                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">QC Pass Rate</span>
-                        <div className="text-2xl font-black text-emerald-600">{passRate}%</div>
-                        <span className="text-[10px] font-bold text-emerald-800 block">First-Time Inspection Compliance</span>
-                      </div>
-
-                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Active Rework Jobs</span>
-                        <div className={`text-2xl font-black ${activeReworks > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                          {activeReworks} Jobs
-                        </div>
-                        <span className="text-[10px] font-bold text-rose-700 block">Pending Artisan Rectification</span>
-                      </div>
-
-                      <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#E2D7CB] shadow-xs space-y-1">
-                        <span className="text-[10px] font-black uppercase text-[#7A6C5E] tracking-wider block">Passed Sign-Offs</span>
-                        <div className="text-2xl font-black text-[#2C241D]">{passedCount} Orders</div>
-                        <span className="text-[10px] font-bold text-[#38A132] block">Ready for Dispatch / Delivery</span>
-                      </div>
-                    </div>
-
-                    {/* Filter & Search Bar */}
-                    <div className="flex flex-col sm:flex-row items-center gap-3 bg-[#FAF7F2] p-3 rounded-2xl border border-[#E2D7CB]">
-                      <div className="relative flex-1 w-full">
-                        <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3 top-1/2 -translate-y-1/2" />
-                        <input
-                          type="text"
-                          placeholder={qualitySubTab === 'inspections' ? "Search QC logs by Order ID, Inspector, or notes..." : "Search rework by Worker or defect reason..."}
-                          value={qualitySearchQuery}
-                          onChange={(e) => setQualitySearchQuery(e.target.value)}
-                          className="w-full pl-9 pr-3 py-2 bg-white border border-[#E2D7CB] rounded-xl text-xs font-semibold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                        />
-                      </div>
-
-                      {qualitySubTab === 'inspections' && (
-                        <div className="flex items-center gap-3 w-full sm:w-auto">
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-xs font-bold text-[#5C4E42]">Type:</label>
-                            <select
-                              value={qualityOrderTypeFilter}
-                              onChange={(e) => setQualityOrderTypeFilter(e.target.value)}
-                              className="px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-extrabold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                            >
-                              <option value="All">All Types</option>
-                              <option value="Custom">Custom Builds</option>
-                              <option value="Fabrication">Fabrications</option>
-                              <option value="Readymade">Readymade Store</option>
-                            </select>
-                          </div>
-
-                          <div className="flex items-center gap-1.5">
-                            <label className="text-xs font-bold text-[#5C4E42]">Result:</label>
-                            <select
-                              value={qualityResultFilter}
-                              onChange={(e) => setQualityResultFilter(e.target.value)}
-                              className="px-2.5 py-1.5 bg-white border border-[#E2D7CB] rounded-xl text-xs font-extrabold focus:outline-none focus:border-[#38A132] text-[#2C241D]"
-                            >
-                              <option value="All">All Results</option>
-                              <option value="PASS">PASS Only</option>
-                              <option value="FAIL">FAIL Only</option>
-                            </select>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Tab 1: Quality Inspection Records Table */}
-                    {qualitySubTab === 'inspections' && (
+                    {/* Tab 3: Ledger Transactions Audit Trail Table */}
+                    {materialsSubTab === 'transactions' && (
                       <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden">
                         <div className="p-4 border-b border-[#EFE7DE] flex items-center justify-between">
                           <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
-                            <ClipboardCheck className="w-4 h-4 text-[#38A132]" />
-                            <span>Quality Control Inspection Records ({filteredInspections.length})</span>
+                            <FileText className="w-4 h-4 text-[#38A132]" />
+                            <span>Material Movements & Stock Depletion Audit ({materialTransactionsList.length})</span>
                           </h3>
-                          <span className="text-[11px] font-bold text-[#7A6C5E]">4-Point Technical Audit Compliance</span>
+                          <span className="text-[11px] font-bold text-[#7A6C5E]">Persistent atomic inventory transaction records</span>
                         </div>
 
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs">
                             <thead>
                               <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
-                                <th className="py-3 px-4">Audit ID & Order</th>
-                                <th className="py-3 px-4">Order Type</th>
-                                <th className="py-3 px-4">Quality Inspector</th>
-                                <th className="py-3 px-4">4-Point Compliance Checklist</th>
-                                <th className="py-3 px-4">Overall Result</th>
-                                <th className="py-3 px-4">Inspector Findings & Notes</th>
-                                <th className="py-3 px-4">Timestamp</th>
+                                <th className="py-3 px-4">Tx ID</th>
+                                <th className="py-3 px-4">Material Details</th>
+                                <th className="py-3 px-4">Ownership</th>
+                                <th className="py-3 px-4">Movement Type</th>
+                                <th className="py-3 px-4">Quantity & Unit</th>
+                                <th className="py-3 px-4">Linked Order</th>
+                                <th className="py-3 px-4">Performed By</th>
+                                <th className="py-3 px-4">Notes</th>
+                                <th className="py-3 px-4">Date</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-[#EFE7DE] font-semibold">
-                              {filteredInspections.length === 0 ? (
+                              {materialTransactionsList.length === 0 ? (
                                 <tr>
-                                  <td colSpan={7} className="py-10 text-center text-[#7A6C5E]">
-                                    No quality control inspections match your filter.
+                                  <td colSpan={9} className="py-10 text-center text-[#7A6C5E]">
+                                    No ledger movements recorded yet. Receipts, allocations, and consumption will appear here.
                                   </td>
                                 </tr>
                               ) : (
-                                filteredInspections.map((insp) => {
-                                  const isPass = insp.result === 'PASS';
-                                  const chk = insp.checklist || { dimensions: true, finishing: true, structure: true, specifications: true };
-                                  return (
-                                    <tr key={insp.inspection_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
-                                      <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                                        <div className="flex items-center gap-2">
-                                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                            QC-#{insp.inspection_id}
-                                          </span>
-                                          <div>
-                                            <span className="block font-black text-xs text-[#2C241D]">
-                                              {insp.order_type === 'Custom' ? `CUSTOM-${insp.order_id}` :
-                                               insp.order_type === 'Fabrication' ? `FAB-${insp.order_id}` : `ORDER-${insp.order_id}`}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </td>
-
-                                      <td className="py-3.5 px-4">
-                                        <span className={`inline-block px-2.5 py-0.5 rounded-md text-[10px] font-black border ${
-                                          insp.order_type === 'Custom' ? 'bg-purple-100 text-purple-900 border-purple-300' :
-                                          insp.order_type === 'Fabrication' ? 'bg-amber-100 text-amber-900 border-amber-300' :
-                                          'bg-blue-100 text-blue-900 border-blue-300'
-                                        }`}>
-                                          {insp.order_type}
-                                        </span>
-                                      </td>
-
-                                      <td className="py-3.5 px-4">
-                                        <div className="font-extrabold text-[#2C241D]">🧑‍🔧 {insp.inspector_name}</div>
-                                        <span className="text-[10px] text-[#7A6C5E]">QC Lead Auditor</span>
-                                      </td>
-
-                                      <td className="py-3.5 px-4">
-                                        <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-                                          <span className={`flex items-center gap-1 font-bold ${chk.dimensions ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                            {chk.dimensions ? '✓' : '✗'} Dimensions
-                                          </span>
-                                          <span className={`flex items-center gap-1 font-bold ${chk.finishing ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                            {chk.finishing ? '✓' : '✗'} Finishing
-                                          </span>
-                                          <span className={`flex items-center gap-1 font-bold ${chk.structure ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                            {chk.structure ? '✓' : '✗'} Structure
-                                          </span>
-                                          <span className={`flex items-center gap-1 font-bold ${chk.specifications ? 'text-emerald-700' : 'text-rose-700'}`}>
-                                            {chk.specifications ? '✓' : '✗'} CAD Specs
-                                          </span>
-                                        </div>
-                                      </td>
-
-                                      <td className="py-3.5 px-4">
-                                        {isPass ? (
-                                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
-                                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                                            PASSED ✓
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-black bg-rose-100 text-rose-900 border border-rose-300">
-                                            <X className="w-3.5 h-3.5 text-rose-600" />
-                                            FAILED (REWORK)
-                                          </span>
-                                        )}
-                                      </td>
-
-                                      <td className="py-3.5 px-4 text-xs text-[#4A3E32] max-w-xs">
-                                        {insp.inspection_notes || <span className="text-[#9E9082] italic">Passed tolerance check with zero defects.</span>}
-                                      </td>
-
-                                      <td className="py-3.5 px-4 font-mono text-[11px] text-[#7A6C5E]">
-                                        {insp.inspected_at ? new Date(insp.inspected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                                      </td>
-                                    </tr>
-                                  );
-                                })
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Tab 2: Active Rework Queue Table */}
-                    {qualitySubTab === 'rework' && (
-                      <div className="bg-white rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden">
-                        <div className="p-4 border-b border-[#EFE7DE] flex items-center justify-between">
-                          <h3 className="text-sm font-extrabold text-[#2C241D] flex items-center gap-2">
-                            <ShieldAlert className="w-4 h-4 text-rose-600" />
-                            <span>Active Rework & Defect Rectification Queue ({filteredReworks.length})</span>
-                          </h3>
-                          <span className="text-[11px] font-bold text-[#7A6C5E]">Artisan worker rework tasks</span>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left text-xs">
-                            <thead>
-                              <tr className="border-b border-[#EFE7DE] bg-[#FAF7F2] text-[#7A6C5E] font-black uppercase text-[10px] tracking-wider">
-                                <th className="py-3 px-4">Rework ID & Order</th>
-                                <th className="py-3 px-4">Assigned Artisan Worker</th>
-                                <th className="py-3 px-4">Defect Reason & Required Fix</th>
-                                <th className="py-3 px-4">Job Status</th>
-                                <th className="py-3 px-4">Logged At</th>
-                                <th className="py-3 px-4 text-right">Actions</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#EFE7DE] font-semibold">
-                              {filteredReworks.length === 0 ? (
-                                <tr>
-                                  <td colSpan={6} className="py-10 text-center text-[#7A6C5E]">
-                                    🎉 No pending rework jobs in queue! All products meet QC standards.
-                                  </td>
-                                </tr>
-                              ) : (
-                                filteredReworks.map((rw) => {
-                                  const isResolved = rw.status === 'RESOLVED';
-                                  return (
-                                    <tr key={rw.rework_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
-                                      <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
-                                        <div className="flex items-center gap-2">
-                                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-rose-50 text-rose-800 border border-rose-200">
-                                            RW-#{rw.rework_id}
-                                          </span>
-                                          <div>
-                                            <span className="block font-black text-xs text-[#2C241D]">
-                                              {rw.order_type} #{rw.order_id}
-                                            </span>
-                                            <span className="text-[10px] text-[#7A6C5E]">Inspection #{rw.inspection_id}</span>
-                                          </div>
-                                        </div>
-                                      </td>
-
-                                      <td className="py-3.5 px-4">
-                                        <div className="font-extrabold text-[#2C241D]">👷 {rw.worker_name}</div>
-                                        <span className="text-[10px] text-[#7A6C5E]">Assigned Workshop Craftsman</span>
-                                      </td>
-
-                                      <td className="py-3.5 px-4 text-xs text-[#4A3E32] max-w-sm">
-                                        <div className="font-bold text-rose-900 bg-rose-50/70 p-2 rounded-xl border border-rose-200">
-                                          ⚠️ {rw.rework_reason}
-                                        </div>
-                                      </td>
-
-                                      <td className="py-3.5 px-4">
-                                        {isResolved ? (
-                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 border border-emerald-300">
-                                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                            RESOLVED
-                                          </span>
-                                        ) : (
-                                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 border border-amber-300 animate-pulse">
-                                            <Clock className="w-3 h-3 text-amber-600" />
-                                            {rw.status}
-                                          </span>
-                                        )}
-                                      </td>
-
-                                      <td className="py-3.5 px-4 font-mono text-[11px] text-[#7A6C5E]">
-                                        {rw.created_at ? new Date(rw.created_at).toLocaleDateString() : 'Recent'}
-                                      </td>
-
-                                      <td className="py-3.5 px-4 text-right">
-                                        {!isResolved ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSelectedReworkForResolve(rw);
-                                              setReworkResolveNotes('Defect rectified by artisan. Joints planed and re-polished.');
-                                              setIsResolveReworkModalOpen(true);
-                                            }}
-                                            className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] shadow-sm transition-all cursor-pointer inline-flex items-center gap-1"
-                                          >
-                                            <Check className="w-3 h-3" />
-                                            <span>Resolve Rework</span>
-                                          </button>
-                                        ) : (
-                                          <span className="text-[11px] text-emerald-700 font-extrabold">Ready for Re-Audit ✓</span>
-                                        )}
-                                      </td>
-                                    </tr>
-                                  );
-                                })
+                                materialTransactionsList.map((tx) => (
+                                  <tr key={tx.transaction_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
+                                    <td className="py-3.5 px-4 font-mono font-black text-[#48A63E]">
+                                      #TX-{String(tx.transaction_id).padStart(4, '0')}
+                                    </td>
+                                    <td className="py-3.5 px-4 font-extrabold text-[#2C241D]">
+                                      {tx.material_name}
+                                    </td>
+                                    <td className="py-3.5 px-4">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                                        tx.ownership === 'Business Stock'
+                                          ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                                      }`}>
+                                        {tx.ownership}
+                                      </span>
+                                    </td>
+                                    <td className="py-3.5 px-4">
+                                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black border ${
+                                        tx.transaction_type === 'RECEIVED' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' :
+                                        tx.transaction_type === 'ALLOCATED' ? 'bg-amber-50 text-amber-800 border-amber-200' :
+                                        tx.transaction_type === 'CONSUMED' ? 'bg-purple-50 text-purple-800 border-purple-200' :
+                                        tx.transaction_type === 'WASTAGE' ? 'bg-red-50 text-red-800 border-red-200' :
+                                        'bg-neutral-50 text-neutral-800 border-neutral-200'
+                                      }`}>
+                                        {tx.transaction_type}
+                                      </span>
+                                    </td>
+                                    <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
+                                      {tx.quantity} {tx.unit}
+                                    </td>
+                                    <td className="py-3.5 px-4 font-mono text-[11px] text-[#5C4E42]">
+                                      {tx.order_type && tx.order_id ? `${tx.order_type} #${tx.order_id}` : 'General Stock'}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-[#5C4E42]">
+                                      {tx.performed_by}
+                                    </td>
+                                    <td className="py-3.5 px-4 text-[#7A6C5E] text-[11px] max-w-xs truncate">
+                                      {tx.notes || '-'}
+                                    </td>
+                                    <td className="py-3.5 px-4 font-mono text-[11px] text-[#7A6C5E] whitespace-nowrap">
+                                      {tx.created_at ? new Date(tx.created_at).toLocaleDateString() : 'Recent'}
+                                    </td>
+                                  </tr>
+                                ))
                               )}
                             </tbody>
                           </table>
@@ -8928,6 +8527,14 @@ export const AdminDashboardPage: React.FC = () => {
                   </div>
                 );
               })()}
+
+              {/* TAB: QUALITY ASSURANCE & STAGE INSPECTION HUB (QC) */}
+              {activeTab === 'quality' && (
+                <QualityControlHub
+                  userRole="admin"
+                  userName="System Administrator"
+                />
+              )}
 
               {/* TAB: ROLES & PERMISSIONS MANAGEMENT */}
               {activeTab === 'roles' && (
@@ -9069,110 +8676,6 @@ export const AdminDashboardPage: React.FC = () => {
                 </div>
               )}
 
-              {/* TAB: SYSTEM AUDIT & ACTIVITY LOGS */}
-              {activeTab === 'audit' && (
-                <div className="relative z-10 space-y-6 animate-fadeIn">
-                  {/* Top Bar: Title & Refresh */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 p-5 rounded-3xl border border-[#E2D7CB] shadow-xs">
-                    <div>
-                      <h3 className="text-base font-black text-[#2C241D] flex items-center gap-2">
-                        <FileCheck2 className="w-5 h-5 text-[#38A132]" />
-                        <span>System Audit & Security Activity Ledger</span>
-                      </h3>
-                      <p className="text-xs text-[#7A6350] font-medium mt-0.5">
-                        Real-time chronological log of administrative events, data modifications, and system authorizations.
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const logs = await fetchAuditLogsDB(100);
-                          setAuditLogsList(logs || []);
-                        }}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-[#FAF7F2] hover:bg-[#EFE7DE] border border-[#E2D7CB] rounded-xl text-xs font-bold text-[#2C241D] transition-all cursor-pointer"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5 text-[#38A132]" />
-                        <span>Refresh Logs</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={handleExportDatabaseExcel}
-                        className="flex items-center gap-1.5 px-4 py-2 bg-[#2C2016] hover:bg-[#1A130C] text-[#FAF5ED] rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs"
-                      >
-                        <Download className="w-3.5 h-3.5 text-[#DFCDBD]" />
-                        <span>Export Excel</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Audit Logs Table */}
-                  <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-[#E2D7CB] shadow-sm overflow-hidden p-5 sm:p-6 space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-black uppercase text-[#7A6350] tracking-wider">
-                        Live Event Records ({auditLogsList.length})
-                      </span>
-                      <span className="text-[11px] font-bold text-[#38A132] bg-[#38A132]/10 border border-[#38A132]/30 px-2.5 py-0.5 rounded-full">
-                        ● System Active
-                      </span>
-                    </div>
-
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead>
-                          <tr className="border-b border-[#E2D7CB] text-[11px] font-black uppercase text-[#7A6350]">
-                            <th className="py-3 px-4">Timestamp</th>
-                            <th className="py-3 px-4">Event / Action</th>
-                            <th className="py-3 px-4">Operator / User</th>
-                            <th className="py-3 px-4">Entity</th>
-                            <th className="py-3 px-4">Details</th>
-                            <th className="py-3 px-4 text-right">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#E2D7CB]/60">
-                          {auditLogsList.length === 0 ? (
-                            <tr>
-                              <td colSpan={6} className="py-8 text-center text-[#7A6350] font-bold">
-                                No audit log events recorded yet. System activities will appear here automatically.
-                              </td>
-                            </tr>
-                          ) : (
-                            auditLogsList.map((log: any, idx: number) => (
-                              <tr key={log.log_id || idx} className="hover:bg-[#FAF7F2] transition-colors">
-                                <td className="py-3 px-4 text-[#7A6350] font-mono text-[11px] whitespace-nowrap">
-                                  {log.created_at ? new Date(log.created_at).toLocaleString() : 'Recent'}
-                                </td>
-                                <td className="py-3 px-4 font-bold text-[#2C241D]">
-                                  <span className="px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[11px]">
-                                    {log.action || log.event || 'System Event'}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-4 font-mono text-[#2C241D] text-[11px]">
-                                  {log.user_email || log.user_name || log.operator || 'Admin System'}
-                                </td>
-                                <td className="py-3 px-4 text-[#7A6350] font-medium">
-                                  {log.target_table || log.entity_type || 'Platform'}
-                                </td>
-                                <td className="py-3 px-4 text-[#5C4D3E] max-w-xs truncate">
-                                  {log.description || log.details || (typeof log.changes === 'object' ? JSON.stringify(log.changes) : String(log.changes || 'Normal operation'))}
-                                </td>
-                                <td className="py-3 px-4 text-right">
-                                  <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                    VERIFIED
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* TAB: CUSTOMER REVIEWS & FEEDBACK */}
               {activeTab === 'reviews' && (
                 <AdminReviewsSection />
@@ -9193,9 +8696,9 @@ export const AdminDashboardPage: React.FC = () => {
                 <AdminMachinesSection />
               )}
 
-              {/* TAB: AI INTELLIGENCE & EXECUTION LOGS */}
-              {activeTab === 'ai_logs' && (
-                <AdminAILogsSection />
+              {/* TAB: IOT INVENTORY MONITORING */}
+              {activeTab === 'iot_inventory' && (
+                <AdminIoTInventorySection />
               )}
             </div>
           </main>
@@ -9259,32 +8762,32 @@ export const AdminDashboardPage: React.FC = () => {
 
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Role *</label>
-                <select
+                <CustomSelect
                   value={newStaffRole}
-                  onChange={(e) => setNewStaffRole(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-white border-2 border-[#E2D7CB] rounded-xl focus:outline-none focus:border-[#38A132] text-[#2C241D] font-extrabold cursor-pointer"
-                >
-                  <option value="Retail Staff" className="bg-white text-[#2C241D] font-bold">Retail Staff (Sales & Orders)</option>
-                  <option value="Production Staff" className="bg-white text-[#2C241D] font-bold">Production Staff (Studio Manager / QC)</option>
-                  <option value="Artisan Worker" className="bg-white text-[#2C241D] font-bold">Artisan Worker (Workshop Craftsman / Technician)</option>
-                </select>
+                  onChange={(val) => setNewStaffRole(val as any)}
+                  options={[
+                    { value: 'Retail Staff', label: 'Retail Staff (Sales & Orders)' },
+                    { value: 'Production Staff', label: 'Production Staff (Studio Manager / QC)' },
+                    { value: 'Artisan Worker', label: 'Artisan Worker (Workshop Craftsman / Technician)' },
+                  ]}
+                />
               </div>
 
               {newStaffRole === 'Artisan Worker' && (
                 <div className="animate-fadeIn">
                   <label className="block font-extrabold text-[#2C241D] mb-1">Craftsman Specialization / Primary Skill *</label>
-                  <select
+                  <CustomSelect
                     value={newStaffWorkerSkill}
-                    onChange={(e) => setNewStaffWorkerSkill(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-white border-2 border-purple-300 rounded-xl focus:outline-none focus:border-purple-600 text-[#2C241D] font-extrabold text-xs cursor-pointer"
-                  >
-                    <option value="Woodwork & Carpentry" className="bg-white text-[#2C241D]">Woodwork & Carpentry (Furniture Framing & Timber Joinery)</option>
-                    <option value="Upholstery & Cushioning" className="bg-white text-[#2C241D]">Upholstery & Cushioning (Fabric/Leather Padding)</option>
-                    <option value="Assembly & Fitting" className="bg-white text-[#2C241D]">Assembly & Fitting (Hardware & Structural Assembly)</option>
-                    <option value="Surface Finishing & Polishing" className="bg-white text-[#2C241D]">Surface Finishing & Polishing (Satin Varnish & Lacquer Polish)</option>
-                    <option value="Custom Metalwork & Forging" className="bg-white text-[#2C241D]">Custom Metalwork & Forging (Steel/Brass Frames)</option>
-                    <option value="Quality Inspection & QC" className="bg-white text-[#2C241D]">Quality Inspection & QC (Final Audit & Testing)</option>
-                  </select>
+                    onChange={(val) => setNewStaffWorkerSkill(val)}
+                    options={[
+                      { value: 'Woodwork & Carpentry', label: 'Woodwork & Carpentry (Furniture Framing & Timber Joinery)' },
+                      { value: 'Upholstery & Cushioning', label: 'Upholstery & Cushioning (Fabric/Leather Padding)' },
+                      { value: 'Assembly & Fitting', label: 'Assembly & Fitting (Hardware & Structural Assembly)' },
+                      { value: 'Surface Finishing & Polishing', label: 'Surface Finishing & Polishing (Satin Varnish & Lacquer Polish)' },
+                      { value: 'Custom Metalwork & Forging', label: 'Custom Metalwork & Forging (Steel/Brass Frames)' },
+                      { value: 'Quality Inspection & QC', label: 'Quality Inspection & QC (Final Audit & Testing)' },
+                    ]}
+                  />
                 </div>
               )}
 
@@ -10463,7 +9966,7 @@ export const AdminDashboardPage: React.FC = () => {
                 <label className="block font-bold text-[#2C241D] mb-1">Target Account Email *</label>
                 <input
                   type="email"
-                  placeholder="Enter email e.g. john.staff@retailsphere.com"
+                  placeholder="Enter email e.g. kalyanys2004@gmail.com"
                   value={authorityEmail}
                   onChange={(e) => setAuthorityEmail(e.target.value)}
                   className="w-full px-3 py-2 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-mono font-bold focus:outline-none focus:border-[#48A63E]"
@@ -11508,31 +11011,31 @@ export const AdminDashboardPage: React.FC = () => {
 
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Assigned Role *</label>
-                <select
+                <CustomSelect
                   value={editStaffRole}
-                  onChange={(e) => setEditStaffRole(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
-                >
-                  <option value="Retail Staff">Retail Staff (Store Operations & Orders)</option>
-                  <option value="Production Staff">Production Staff (Manager & Stage QC)</option>
-                  <option value="Artisan Worker">Artisan Worker (Workshop Technician)</option>
-                </select>
+                  onChange={(val) => setEditStaffRole(val as any)}
+                  options={[
+                    { value: 'Retail Staff', label: 'Retail Staff (Store Operations & Orders)' },
+                    { value: 'Production Staff', label: 'Production Staff (Manager & Stage QC)' },
+                    { value: 'Artisan Worker', label: 'Artisan Worker (Workshop Technician)' },
+                  ]}
+                />
               </div>
 
               {editStaffRole === 'Artisan Worker' && (
                 <div>
                   <label className="block font-extrabold text-[#2C241D] mb-1">Artisan Specialization Skill *</label>
-                  <select
+                  <CustomSelect
                     value={editStaffWorkerSkill}
-                    onChange={(e) => setEditStaffWorkerSkill(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
-                  >
-                    <option value="Woodwork & Carpentry">Woodwork & Carpentry</option>
-                    <option value="Finishing & Assembly">Finishing & Assembly</option>
-                    <option value="Upholstery">Upholstery</option>
-                    <option value="Metalwork & Framing">Metalwork & Framing</option>
-                    <option value="Quality Inspection & Polish">Quality Inspection & Polish</option>
-                  </select>
+                    onChange={(val) => setEditStaffWorkerSkill(val)}
+                    options={[
+                      { value: 'Woodwork & Carpentry', label: 'Woodwork & Carpentry' },
+                      { value: 'Finishing & Assembly', label: 'Finishing & Assembly' },
+                      { value: 'Upholstery', label: 'Upholstery' },
+                      { value: 'Metalwork & Framing', label: 'Metalwork & Framing' },
+                      { value: 'Quality Inspection & Polish', label: 'Quality Inspection & Polish' },
+                    ]}
+                  />
                 </div>
               )}
 
@@ -11679,18 +11182,18 @@ export const AdminDashboardPage: React.FC = () => {
             <form onSubmit={handleCreateRawMaterialSubmit} className="space-y-3.5 text-xs">
               <div>
                 <label className="block font-extrabold text-[#2C241D] mb-1">Material Category *</label>
-                <select
+                <CustomSelect
                   value={newMatCategory}
-                  onChange={(e) => setNewMatCategory(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
-                >
-                  <option value="Timber">Timber Logs & Planks</option>
-                  <option value="Plywood">Commercial Marine Plywood</option>
-                  <option value="Fabric">Upholstery Fabric (Bouclé / Velvet / Leather)</option>
-                  <option value="Foam">PU Cushioning Foam</option>
-                  <option value="Hardware">Hardware, Hinges & Fasteners</option>
-                  <option value="Finishing">Varnish, Polish & Stain</option>
-                </select>
+                  onChange={(val) => setNewMatCategory(val)}
+                  options={[
+                    { value: 'Timber', label: 'Timber Logs & Planks' },
+                    { value: 'Plywood', label: 'Commercial Marine Plywood' },
+                    { value: 'Fabric', label: 'Upholstery Fabric (Bouclé / Velvet / Leather)' },
+                    { value: 'Foam', label: 'PU Cushioning Foam' },
+                    { value: 'Hardware', label: 'Hardware, Hinges & Fasteners' },
+                    { value: 'Finishing', label: 'Varnish, Polish & Stain' },
+                  ]}
+                />
               </div>
 
               <div>
@@ -11721,18 +11224,18 @@ export const AdminDashboardPage: React.FC = () => {
 
                 <div>
                   <label className="block font-extrabold text-[#2C241D] mb-1">Unit of Measure *</label>
-                  <select
+                  <CustomSelect
                     value={newMatUnit}
-                    onChange={(e) => setNewMatUnit(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-[#F9F6F0] border border-[#E2D7CB] rounded-xl font-extrabold focus:outline-none focus:border-[#38A132] focus:bg-white text-[#2C241D]"
-                  >
-                    <option value="cu_ft">Cubic Feet (cu_ft)</option>
-                    <option value="pieces">Pieces / Boards</option>
-                    <option value="meters">Meters (Fabrics)</option>
-                    <option value="sq_ft">Square Feet (sq_ft)</option>
-                    <option value="kg">Kilograms (kg)</option>
-                    <option value="liters">Liters (Varnish)</option>
-                  </select>
+                    onChange={(val) => setNewMatUnit(val)}
+                    options={[
+                      { value: 'cu_ft', label: 'Cubic Feet (cu_ft)' },
+                      { value: 'pieces', label: 'Pieces / Boards' },
+                      { value: 'meters', label: 'Meters (Fabrics)' },
+                      { value: 'sq_ft', label: 'Square Feet (sq_ft)' },
+                      { value: 'kg', label: 'Kilograms (kg)' },
+                      { value: 'liters', label: 'Liters (Varnish)' },
+                    ]}
+                  />
                 </div>
               </div>
 

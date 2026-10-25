@@ -266,7 +266,14 @@ export const CartPage: React.FC = () => {
   const handleApplyPromo = async (e: React.FormEvent) => {
     e.preventDefault();
     const code = promoCodeInput.trim().toUpperCase();
-    if (!code) return;
+    if (!code) {
+      setPromoMessage({ type: 'error', text: 'Please enter a coupon code before applying.' });
+      return;
+    }
+    if (code.length < 3) {
+      setPromoMessage({ type: 'error', text: 'Coupon code must be at least 3 characters long.' });
+      return;
+    }
 
     const res = await validateCouponApi(code);
     if (res.valid && res.coupon) {
@@ -756,7 +763,10 @@ export const CartPage: React.FC = () => {
                           type="text"
                           placeholder="Enter promo code"
                           value={promoCodeInput}
-                          onChange={(e) => setPromoCodeInput(e.target.value)}
+                          onChange={(e) => {
+                            setPromoCodeInput(e.target.value);
+                            if (promoMessage) setPromoMessage(null);
+                          }}
                           className="flex-1 px-3.5 py-2 text-xs bg-white/80 border border-[#E2D7CB] rounded-full focus:outline-none focus:border-[#38A132] focus:ring-1 focus:ring-[#38A132] font-mono font-bold uppercase text-[#1A1410] placeholder-[#9E9082]"
                         />
                         <button

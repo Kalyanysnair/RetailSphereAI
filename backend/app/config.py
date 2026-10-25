@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     EMAILS_FROM_EMAIL: str = os.getenv("EMAILS_FROM_EMAIL", "")
     EMAILS_FROM_NAME: str = os.getenv("EMAILS_FROM_NAME", "RetailSphere Support")
 
+    # IoT Inventory Monitoring Configuration (ESP32 + Dual FC-51 IR Sensors: GPIO 27 & GPIO 26)
+    IOT_DEVICE_SECRET: str = os.getenv("IOT_DEVICE_SECRET", "retailsphere-iot-inventory-secret-2026")
+    IOT_STALE_TIMEOUT_SECONDS: int = int(os.getenv("IOT_STALE_TIMEOUT_SECONDS", "120"))
+    IOT_OFFLINE_TIMEOUT_SECONDS: int = int(os.getenv("IOT_OFFLINE_TIMEOUT_SECONDS", "300"))
+    IOT_DEFAULT_DEVICE_ID: str = os.getenv("IOT_DEFAULT_DEVICE_ID", "ESP32-WAREHOUSE-GATE-01")
+    IOT_INITIAL_BASELINE_STOCK: int = int(os.getenv("IOT_INITIAL_BASELINE_STOCK", "0"))
+
+
     model_config = {
         "env_file": env_path,
         "extra": "ignore"

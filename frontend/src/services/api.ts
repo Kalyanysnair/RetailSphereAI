@@ -168,30 +168,77 @@ export async function resetUserPassword(email: string, reset_code: string, new_p
   return await response.json();
 }
 
-export async function getCurrentUser(): Promise<UserProfile | null> {
+let inFlightCurrentUserPromise: Promise<UserProfile | null> | null = null;
+let cachedCurrentUser: { data: UserProfile; timestamp: number } | null = null;
+
+export async function getCurrentUser(forceRefresh = false): Promise<UserProfile | null> {
   const token = localStorage.getItem('access_token');
-  if (!token) return null;
-
-  try {
-    const response = await safeFetch('/auth/me', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      clearUserSession();
-      return null;
-    }
-
-    const data: UserProfile = await response.json();
-    localStorage.setItem('user', JSON.stringify(data));
-    return data;
-  } catch (err) {
-    console.error('Error fetching user profile:', err);
+  if (!token) {
+    cachedCurrentUser = null;
     return null;
   }
+
+  // 1. Check in-memory cache (valid for 30 seconds)
+  if (!forceRefresh && cachedCurrentUser && (Date.now() - cachedCurrentUser.timestamp < 30000)) {
+    return cachedCurrentUser.data;
+  }
+
+  // 2. Stale-while-revalidate: Instantly restore from localStorage to unblock dashboard render
+  if (!forceRefresh && !cachedCurrentUser) {
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && (parsed.email || parsed.user_id)) {
+          cachedCurrentUser = { data: parsed, timestamp: Date.now() };
+          // Asynchronously revalidate in background without blocking caller
+          safeFetch('/auth/me', {
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${token}` }
+          }).then(res => res.ok ? res.json() : null).then(data => {
+            if (data) {
+              cachedCurrentUser = { data, timestamp: Date.now() };
+              localStorage.setItem('user', JSON.stringify(data));
+            }
+          }).catch(() => {});
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  if (inFlightCurrentUserPromise) {
+    return inFlightCurrentUserPromise;
+  }
+
+  inFlightCurrentUserPromise = (async () => {
+    try {
+      const response = await safeFetch('/auth/me', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        clearUserSession();
+        cachedCurrentUser = null;
+        return null;
+      }
+
+      const data: UserProfile = await response.json();
+      cachedCurrentUser = { data, timestamp: Date.now() };
+      localStorage.setItem('user', JSON.stringify(data));
+      return data;
+    } catch (err) {
+      console.error('Error fetching user profile:', err);
+      return null;
+    } finally {
+      inFlightCurrentUserPromise = null;
+    }
+  })();
+
+  return inFlightCurrentUserPromise;
 }
 
 export function logoutUser(): void {
@@ -521,11 +568,46 @@ export async function respondToStaffQueryInDB(queryId: number, adminResponse: st
   });
 }
 
-export async function fetchNotificationsFromDB(): Promise<any[]> {
+const READ_NOTIFS_STORAGE_KEY = 'retailsphere_read_notifications';
+
+function getLocalReadNotifIds(): Set<string> {
   try {
-    const response = await fetch(`${BASE_URL}/admin/notifications`);
+    const raw = localStorage.getItem(READ_NOTIFS_STORAGE_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveLocalReadNotifId(id: string | number) {
+  try {
+    const current = getLocalReadNotifIds();
+    const strId = String(id);
+    const numId = strId.replace('notif-', '');
+    current.add(strId);
+    current.add(numId);
+    current.add(`notif-${numId}`);
+    localStorage.setItem(READ_NOTIFS_STORAGE_KEY, JSON.stringify(Array.from(current)));
+  } catch {}
+}
+
+export async function fetchNotificationsFromDB(): Promise<any[]> {
+  const readSet = getLocalReadNotifIds();
+  try {
+    const response = await safeFetch('/admin/notifications');
     if (response.ok) {
-      return await response.json();
+      const data: any[] = await response.json();
+      if (Array.isArray(data)) {
+        return data.map(n => {
+          const isLocallyRead = readSet.has(String(n.id)) || readSet.has(String(n.notification_id));
+          return {
+            ...n,
+            unread: isLocallyRead ? false : Boolean(n.unread)
+          };
+        });
+      }
     }
   } catch (err) {
     console.warn('API error fetching notifications from DB:', err);
@@ -534,9 +616,11 @@ export async function fetchNotificationsFromDB(): Promise<any[]> {
 }
 
 export async function markNotificationReadInDB(notificationId: number | string): Promise<boolean> {
+  saveLocalReadNotifId(notificationId);
+  window.dispatchEvent(new Event('notifications-updated'));
   try {
     const numericId = typeof notificationId === 'string' ? notificationId.replace('notif-', '') : notificationId;
-    const response = await fetch(`${BASE_URL}/admin/notifications/${numericId}/read`, {
+    const response = await safeFetch(`/admin/notifications/${numericId}/read`, {
       method: 'PUT',
     });
     return response.ok;
@@ -548,7 +632,15 @@ export async function markNotificationReadInDB(notificationId: number | string):
 
 export async function markAllNotificationsReadInDB(): Promise<boolean> {
   try {
-    const response = await fetch(`${BASE_URL}/admin/notifications/mark-all-read`, {
+    // Mark all existing cached as read locally
+    const currentNotifs = await fetchNotificationsFromDB().catch(() => []);
+    currentNotifs.forEach(n => {
+      saveLocalReadNotifId(n.id);
+      if (n.notification_id) saveLocalReadNotifId(n.notification_id);
+    });
+    window.dispatchEvent(new Event('notifications-updated'));
+
+    const response = await safeFetch('/admin/notifications/mark-all-read', {
       method: 'PUT',
     });
     return response.ok;

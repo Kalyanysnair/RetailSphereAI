@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, selectinload, defer
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date, timedelta
@@ -11,7 +11,24 @@ from app.database import get_db
 from app import models, auth
 from app.utils.distance_calculator import compute_transportation_charge, HUB_ADDRESS
 
+# High-performance in-memory cache for fabrication requests (15s TTL)
+_fabrication_requests_cache = {}
+
+def invalidate_fabrication_cache():
+    global _fabrication_requests_cache
+    _fabrication_requests_cache.clear()
+
 router = APIRouter(prefix="/api/fabrication", tags=["Fabrication Services"])
+
+class AttrDict(dict):
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key)
+
+    def __setattr__(self, key, value):
+        self[key] = value
 
 def generate_unique_tracking_number(db: Session) -> str:
     while True:
@@ -77,7 +94,18 @@ def get_fabrication_requests(
     all_requests: Optional[bool] = False,
     db: Session = Depends(get_db)
 ):
-    query = db.query(models.FabricationRequest)
+    cache_key = f"{customer_id}_{customer_email}_{all_requests}"
+    now_ts = time.time()
+    cached = _fabrication_requests_cache.get(cache_key)
+    if cached and (now_ts - cached.get("timestamp", 0) < 15.0):
+        return cached["data"]
+
+    query = db.query(models.FabricationRequest).options(
+        joinedload(models.FabricationRequest.customer).joinedload(models.Customer.user),
+        selectinload(models.FabricationRequest.fulfillments).joinedload(models.OrderFulfillment.carrier_partner),
+        selectinload(models.FabricationRequest.fulfillments).joinedload(models.OrderFulfillment.assigned_personnel),
+        selectinload(models.FabricationRequest.fulfillments).joinedload(models.OrderFulfillment.driver_user)
+    )
     if customer_id:
         query = query.filter(models.FabricationRequest.customer_id == customer_id)
     elif customer_email and customer_email.strip():
@@ -91,12 +119,36 @@ def get_fabrication_requests(
             or_(
                 models.FabricationRequest.review_status == "APPROVED",
                 models.FabricationRequest.status.in_([
-                    "APPROVED_BY_RETAIL", "ASSESSED", "QUOTED", "APPROVED", "PAID", "IN_PRODUCTION", "QC_PENDING", "COMPLETED"
+                    "APPROVED_BY_RETAIL", "ASSESSED", "QUOTED", "APPROVED", "PAID", "MATERIAL_DELIVERED_AT_HUB", "MATERIAL_RECEIVED", "IN_PRODUCTION", "QC_PENDING", "COMPLETED"
                 ])
             )
         )
 
     requests = query.order_by(models.FabricationRequest.created_at.desc()).all()
+    if not requests:
+        _fabrication_requests_cache[cache_key] = {"data": [], "timestamp": now_ts}
+        return []
+
+    fab_ids = [f.fabrication_id for f in requests]
+
+    # Pre-fetch all production stages for these requests in a single roundtrip
+    all_stages = db.query(models.ProductionStage).filter(
+        models.ProductionStage.order_type == "Fabrication",
+        models.ProductionStage.order_id.in_(fab_ids)
+    ).order_by(models.ProductionStage.sequence_order.asc()).all()
+
+    # Pre-fetch worker names in 1 query
+    worker_ids = {st.assigned_worker_id for st in all_stages if st.assigned_worker_id}
+    worker_name_map = {}
+    if worker_ids:
+        w_users = db.query(models.User.user_id, models.User.full_name).filter(models.User.user_id.in_(worker_ids)).all()
+        worker_name_map = {u[0]: u[1] for u in w_users}
+
+    stages_by_fab = {}
+    for st in all_stages:
+        stages_by_fab.setdefault(st.order_id, []).append(st)
+
+    import json
     res = []
     for f in requests:
         cust = f.customer
@@ -125,33 +177,27 @@ def get_fabrication_requests(
                 "delivered_at": ful.delivered_at.isoformat() if ful.delivered_at else None,
             })
 
-        # Gather any linked production stages and active stage details
-        prod_stages = db.query(models.ProductionStage).filter(
-            models.ProductionStage.order_type == "Fabrication",
-            models.ProductionStage.order_id == f.fabrication_id
-        ).order_by(models.ProductionStage.sequence_order.asc()).all()
-
+        prod_stages = stages_by_fab.get(f.fabrication_id, [])
         stages_list = []
         active_stg_obj = None
         for st in prod_stages:
             st_meta = {}
             if st.remarks:
                 try:
-                    import json
                     parsed = json.loads(st.remarks)
                     if isinstance(parsed, dict):
                         st_meta = parsed
                 except:
                     pass
 
-            w_user = db.query(models.User).filter(models.User.user_id == st.assigned_worker_id).first() if st.assigned_worker_id else None
+            w_name = worker_name_map.get(st.assigned_worker_id)
             st_dict = {
                 "stage_id": st.stage_id,
                 "stage_name": st.stage_name,
                 "sequence_order": st.sequence_order,
                 "status": "PAUSED" if st_meta.get("pause_reason") and (st.status or "").upper() in ["IN_PROGRESS", "PAUSED", "ON_HOLD"] else (st.status or "LOCKED").upper(),
                 "progress_percentage": st.progress_percentage or 0,
-                "assigned_worker_name": w_user.full_name if w_user else None,
+                "assigned_worker_name": w_name,
                 "required_skill": st.required_skill,
                 "completed_sections": st_meta.get("completed_sections", []),
                 "current_section": st_meta.get("current_section"),
@@ -202,13 +248,20 @@ def get_fabrication_requests(
             "pause_reason": active_stg_obj.get("pause_reason") if active_stg_obj else None,
             "created_at": f.created_at.isoformat() if f.created_at else None
         })
+    _fabrication_requests_cache[cache_key] = {"data": res, "timestamp": now_ts}
     return res
 
 
 @router.post("/requests", status_code=status.HTTP_201_CREATED)
-def create_fabrication_request(payload: FabricationRequestCreatePayload, db: Session = Depends(get_db)):
+def create_fabrication_request(
+    payload: FabricationRequestCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional)
+):
     customer = None
-    if payload.customer_email and payload.customer_email.strip():
+    if current_user and current_user.customer_profile:
+        customer = current_user.customer_profile
+    elif payload.customer_email and payload.customer_email.strip():
         user = db.query(models.User).filter(models.User.email.ilike(payload.customer_email.strip())).first()
         if user and user.customer_profile:
             customer = user.customer_profile
@@ -222,6 +275,26 @@ def create_fabrication_request(payload: FabricationRequestCreatePayload, db: Ses
         customer = db.query(models.Customer).first()
 
     cust_id = customer.customer_id if customer else 1
+
+    # Validate customer-owned material linkage if provided
+    if payload.customer_material_id:
+        c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == payload.customer_material_id).first()
+        if not c_mat:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Customer material lot #{payload.customer_material_id} was not found."
+            )
+        if c_mat.customer_id != cust_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Security violation: You cannot link another customer's material lot to this request."
+            )
+        rem_qty = float(c_mat.remaining_quantity if c_mat.remaining_quantity is not None else c_mat.quantity)
+        if rem_qty < float(payload.quantity):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Insufficient usable quantity in customer material lot #{c_mat.material_id}. Required: {payload.quantity}, Available: {rem_qty} {c_mat.unit}."
+            )
 
     deadline_obj = None
     if payload.deadline:
@@ -283,14 +356,17 @@ def create_fabrication_request(payload: FabricationRequestCreatePayload, db: Ses
     db.add(new_fab)
     db.commit()
     db.refresh(new_fab)
+    invalidate_fabrication_cache()
 
-    return {
+    return AttrDict({
         "message": "Fabrication request submitted successfully",
         "fabrication_id": new_fab.fabrication_id,
         "status": new_fab.status,
+        "customer_material_id": new_fab.customer_material_id,
+        "material_source": new_fab.material_source,
         "material_pickup_charge": pickup_charge,
         "return_delivery_charge": return_charge
-    }
+    })
 
 
 @router.put("/requests/{fabrication_id}/status")
@@ -305,6 +381,7 @@ def update_fabrication_status(fabrication_id: int, payload: FabricationStatusUpd
 
     db.commit()
     db.refresh(fab)
+    invalidate_fabrication_cache()
     return {"message": f"Fabrication request #{fabrication_id} status updated to {payload.status}", "fabrication_id": fabrication_id}
 
 
@@ -421,6 +498,7 @@ def pay_fabrication_request(fabrication_id: int, db: Session = Depends(get_db)):
             db.add(return_fulfillment)
 
     db.commit()
+    invalidate_fabrication_cache()
     return {
         "message": f"Payment recorded for Fabrication Request #{fabrication_id}",
         "status": "PAID",

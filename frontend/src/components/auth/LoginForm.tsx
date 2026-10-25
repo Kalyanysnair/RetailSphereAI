@@ -6,6 +6,7 @@ import { GoogleSignInButton } from './GoogleSignInButton';
 import { LoginCredentials, ValidationErrors, LoginFormProps } from '../../types/auth';
 import { Logo } from '../common/Logo';
 import { getRoleDashboardPath, markSessionActive } from '../../utils/sessionUtils';
+import { loginUser } from '../../services/api';
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = false }) => {
   const navigate = useNavigate();
@@ -74,7 +75,6 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onSubmit, isLoading = fals
       if (onSubmit) {
         res = await onSubmit(credentials);
       } else {
-        const { loginUser } = await import('../../services/api');
         res = await loginUser({
           email: credentials.username,
           password: credentials.password

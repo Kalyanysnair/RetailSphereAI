@@ -92,12 +92,37 @@ export const getMessagesForUser = (userEmail: string, role: string): AdminMessag
   });
 };
 
+const READ_MESSAGES_KEY = 'retailsphere_read_admin_message_ids';
+
+const getLocalReadMessageIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(READ_MESSAGES_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    return new Set(Array.isArray(parsed) ? parsed.map(String) : []);
+  } catch {
+    return new Set();
+  }
+};
+
+const saveLocalReadMessageId = (id: string) => {
+  try {
+    const set = getLocalReadMessageIds();
+    set.add(id);
+    localStorage.setItem(READ_MESSAGES_KEY, JSON.stringify(Array.from(set)));
+  } catch {}
+};
+
 export const markAdminMessageRead = (msgId: string, userEmail?: string) => {
+  saveLocalReadMessageId(msgId);
+  const cleanEmail = userEmail?.trim().toLowerCase();
   const current = getStoredAdminMessages();
   const updated = current.map(m => {
     if (m.id === msgId) {
       const readBy = m.readByEmails || [];
-      const updatedReadBy = userEmail && !readBy.includes(userEmail) ? [...readBy, userEmail] : readBy;
+      const updatedReadBy = cleanEmail && !readBy.map(e => e.trim().toLowerCase()).includes(cleanEmail) 
+        ? [...readBy, cleanEmail] 
+        : readBy;
       return {
         ...m,
         read: true,
@@ -112,12 +137,38 @@ export const markAdminMessageRead = (msgId: string, userEmail?: string) => {
 };
 
 export const markAllAdminMessagesReadForUser = (userEmail: string, role: string) => {
+  const cleanEmail = userEmail?.trim().toLowerCase();
   const userMsgs = getMessagesForUser(userEmail, role);
-  userMsgs.forEach(m => markAdminMessageRead(m.id, userEmail));
+  userMsgs.forEach(m => saveLocalReadMessageId(m.id));
+  
+  const current = getStoredAdminMessages();
+  const userMsgIds = new Set(userMsgs.map(m => m.id));
+  const updated = current.map(m => {
+    if (userMsgIds.has(m.id)) {
+      const readBy = m.readByEmails || [];
+      const updatedReadBy = cleanEmail && !readBy.map(e => e.trim().toLowerCase()).includes(cleanEmail)
+        ? [...readBy, cleanEmail]
+        : readBy;
+      return {
+        ...m,
+        read: true,
+        readByEmails: updatedReadBy,
+        readAt: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+      };
+    }
+    return m;
+  });
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+  window.dispatchEvent(new Event('admin-messages-updated'));
 };
 
 export const isMessageReadByUser = (msg: AdminMessage, userEmail?: string): boolean => {
+  const readSet = getLocalReadMessageIds();
+  if (readSet.has(msg.id)) return true;
   if (msg.read) return true;
-  if (userEmail && msg.readByEmails?.includes(userEmail)) return true;
+  if (userEmail) {
+    const cleanEmail = userEmail.trim().toLowerCase();
+    if (msg.readByEmails?.some(e => e.trim().toLowerCase() === cleanEmail)) return true;
+  }
   return false;
 };

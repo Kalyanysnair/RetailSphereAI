@@ -32,7 +32,7 @@ const STORAGE_KEY = 'retailsphere_user_authorities';
 
 const INITIAL_AUTHORITIES: UserAuthorityRecord[] = [
   {
-    email: 'admin@retailsphere.com',
+    email: 'kalyanys2004@gmail.com',
     role: 'Admin',
     isFullAdmin: true,
     capabilities: ['full_admin', 'user_management', 'staff_management', 'product_catalog', 'stock_inventory', 'supplier_management', 'coupon_management', 'order_fulfillment'],
@@ -49,7 +49,22 @@ export const getStoredUserAuthorities = (): UserAuthorityRecord[] => {
       return INITIAL_AUTHORITIES;
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : INITIAL_AUTHORITIES;
+    if (Array.isArray(parsed)) {
+      // Auto-migrate legacy emails (kalyanys20004@gmail.com, admin@retailsphere.com) to kalyanys2004@gmail.com
+      const updated = parsed.map((a: UserAuthorityRecord) => {
+        if (a.email && (a.email.toLowerCase() === 'admin@retailsphere.com' || a.email.toLowerCase() === 'kalyanys20004@gmail.com')) {
+          return { ...a, email: 'kalyanys2004@gmail.com' };
+        }
+        return a;
+      });
+      // Ensure kalyanys2004@gmail.com is present with full admin if not yet added
+      if (!updated.some((a: UserAuthorityRecord) => a.email.toLowerCase() === 'kalyanys2004@gmail.com')) {
+        updated.unshift(INITIAL_AUTHORITIES[0]);
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    }
+    return INITIAL_AUTHORITIES;
   } catch {
     return INITIAL_AUTHORITIES;
   }

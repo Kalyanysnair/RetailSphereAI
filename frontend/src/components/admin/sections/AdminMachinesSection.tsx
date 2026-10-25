@@ -37,12 +37,14 @@ export const AdminMachinesSection: React.FC = () => {
   const [newMachineName, setNewMachineName] = useState('');
   const [newMachineCategory, setNewMachineCategory] = useState('CNC Cutting');
   const [isSubmittingMachine, setIsSubmittingMachine] = useState(false);
+  const [addMachineError, setAddMachineError] = useState<string | null>(null);
 
   const [selectedMachineForMaint, setSelectedMachineForMaint] = useState<any | null>(null);
   const [maintType, setMaintType] = useState('Routine');
   const [maintTech, setMaintTech] = useState('Workshop Engineering Team');
   const [maintDesc, setMaintDesc] = useState('');
   const [isSubmittingMaint, setIsSubmittingMaint] = useState(false);
+  const [maintError, setMaintError] = useState<string | null>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -70,21 +72,28 @@ export const AdminMachinesSection: React.FC = () => {
 
   const handleCreateMachine = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMachineName.trim()) return;
+    setAddMachineError(null);
+
+    const trimmed = newMachineName.trim();
+    if (!trimmed || trimmed.length < 3) {
+      setAddMachineError('Station / Machine name must be at least 3 characters long (e.g. CNC Router Heavy Duty #2).');
+      return;
+    }
+
     setIsSubmittingMachine(true);
     try {
       await createAdminMachineDB({
-        machine_name: newMachineName.trim(),
+        machine_name: trimmed,
         category: newMachineCategory.trim()
       });
-      setActionMsg({ type: 'success', text: `Machine '${newMachineName}' registered successfully!` });
+      setActionMsg({ type: 'success', text: `Machine '${trimmed}' registered successfully!` });
       setIsAddMachineModalOpen(false);
       setNewMachineName('');
+      setAddMachineError(null);
       await loadData();
       setTimeout(() => setActionMsg(null), 4000);
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Failed to add machine.' });
-      setTimeout(() => setActionMsg(null), 5000);
+      setAddMachineError(err.message || 'Failed to register machine.');
     } finally {
       setIsSubmittingMachine(false);
     }
@@ -104,22 +113,40 @@ export const AdminMachinesSection: React.FC = () => {
 
   const handleLogMaintenance = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedMachineForMaint || !maintDesc.trim()) return;
+    setMaintError(null);
+
+    if (!selectedMachineForMaint) {
+      setMaintError('No machine selected for maintenance logging.');
+      return;
+    }
+
+    const trimmedTech = maintTech.trim();
+    if (!trimmedTech || trimmedTech.length < 2) {
+      setMaintError('Please specify the technician or engineering crew (at least 2 characters).');
+      return;
+    }
+
+    const trimmedDesc = maintDesc.trim();
+    if (!trimmedDesc || trimmedDesc.length < 5) {
+      setMaintError('Please provide servicing details explaining what actions were taken (at least 5 characters).');
+      return;
+    }
+
     setIsSubmittingMaint(true);
     try {
       await addAdminMachineMaintenanceDB(selectedMachineForMaint.machine_id, {
-        description: maintDesc.trim(),
-        performed_by: maintTech.trim() || 'Engineering Team',
+        description: trimmedDesc,
+        performed_by: trimmedTech,
         maintenance_type: maintType
       });
       setActionMsg({ type: 'success', text: `Maintenance logged for ${selectedMachineForMaint.machine_name}!` });
       setSelectedMachineForMaint(null);
       setMaintDesc('');
+      setMaintError(null);
       await loadData();
       setTimeout(() => setActionMsg(null), 4000);
     } catch (err: any) {
-      setActionMsg({ type: 'error', text: err.message || 'Failed to log maintenance.' });
-      setTimeout(() => setActionMsg(null), 5000);
+      setMaintError(err.message || 'Failed to log maintenance record.');
     } finally {
       setIsSubmittingMaint(false);
     }
@@ -227,7 +254,11 @@ export const AdminMachinesSection: React.FC = () => {
 
           {activeSubTab === 'directory' && (
             <button
-              onClick={() => setIsAddMachineModalOpen(true)}
+              onClick={() => {
+                setIsAddMachineModalOpen(true);
+                setAddMachineError(null);
+                setNewMachineName('');
+              }}
               className="px-4 py-2 bg-[#38A132] hover:bg-[#2E8529] text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-xs transition-all cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" />
@@ -342,6 +373,7 @@ export const AdminMachinesSection: React.FC = () => {
                               setSelectedMachineForMaint(m);
                               setMaintType('Routine');
                               setMaintDesc('');
+                              setMaintError(null);
                             }}
                             className="px-2.5 py-1 bg-white hover:bg-[#FAF7F2] border border-[#E2D7CB] rounded-lg text-[11px] font-bold text-[#2C241D] inline-flex items-center gap-1 cursor-pointer"
                           >
@@ -422,10 +454,23 @@ export const AdminMachinesSection: React.FC = () => {
                 <Cpu className="w-4 h-4 text-[#38A132]" />
                 <span>Register Machinery Station</span>
               </h4>
-              <button onClick={() => setIsAddMachineModalOpen(false)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
+              <button
+                onClick={() => {
+                  setIsAddMachineModalOpen(false);
+                  setAddMachineError(null);
+                }}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D]"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {addMachineError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{addMachineError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleCreateMachine} className="space-y-3 text-xs">
               <div>
@@ -434,7 +479,10 @@ export const AdminMachinesSection: React.FC = () => {
                   type="text"
                   placeholder="e.g. CNC Router Heavy Duty #2"
                   value={newMachineName}
-                  onChange={(e) => setNewMachineName(e.target.value)}
+                  onChange={(e) => {
+                    setNewMachineName(e.target.value);
+                    if (addMachineError) setAddMachineError(null);
+                  }}
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 />
@@ -459,15 +507,18 @@ export const AdminMachinesSection: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAddMachineModalOpen(false)}
-                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42]"
+                  onClick={() => {
+                    setIsAddMachineModalOpen(false);
+                    setAddMachineError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42] hover:bg-[#EFE7DE] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingMachine}
-                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-md"
                 >
                   {isSubmittingMachine ? 'Adding...' : 'Add Station'}
                 </button>
@@ -486,10 +537,23 @@ export const AdminMachinesSection: React.FC = () => {
                 <Wrench className="w-4 h-4 text-[#38A132]" />
                 <span>Log Maintenance: {selectedMachineForMaint.machine_name}</span>
               </h4>
-              <button onClick={() => setSelectedMachineForMaint(null)} className="p-1 text-[#7A6C5E] hover:text-[#2C241D]">
+              <button
+                onClick={() => {
+                  setSelectedMachineForMaint(null);
+                  setMaintError(null);
+                }}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D]"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {maintError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{maintError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleLogMaintenance} className="space-y-3 text-xs">
               <div>
@@ -510,7 +574,11 @@ export const AdminMachinesSection: React.FC = () => {
                 <input
                   type="text"
                   value={maintTech}
-                  onChange={(e) => setMaintTech(e.target.value)}
+                  onChange={(e) => {
+                    setMaintTech(e.target.value);
+                    if (maintError) setMaintError(null);
+                  }}
+                  placeholder="e.g. Workshop Engineering Team"
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-bold text-[#2C241D]"
                   required
                 />
@@ -521,7 +589,10 @@ export const AdminMachinesSection: React.FC = () => {
                 <textarea
                   rows={3}
                   value={maintDesc}
-                  onChange={(e) => setMaintDesc(e.target.value)}
+                  onChange={(e) => {
+                    setMaintDesc(e.target.value);
+                    if (maintError) setMaintError(null);
+                  }}
                   placeholder="e.g. Cleaned router spindle, lubricated guide rails, calibrated laser zero point."
                   className="w-full p-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl font-medium text-[#2C241D]"
                   required
@@ -531,15 +602,18 @@ export const AdminMachinesSection: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedMachineForMaint(null)}
-                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42]"
+                  onClick={() => {
+                    setSelectedMachineForMaint(null);
+                    setMaintError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#5C4E42] hover:bg-[#EFE7DE] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingMaint}
-                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50"
+                  className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2E8529] text-white text-xs font-bold transition-all disabled:opacity-50 cursor-pointer shadow-md"
                 >
                   {isSubmittingMaint ? 'Logging...' : 'Save Maintenance Record'}
                 </button>

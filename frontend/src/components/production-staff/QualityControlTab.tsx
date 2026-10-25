@@ -71,18 +71,38 @@ export const QualityControlTab: React.FC = () => {
     fetchData();
   }, []);
 
+  const [qcError, setQcError] = useState<string | null>(null);
+  const [isSubmittingInspection, setIsSubmittingInspection] = useState(false);
+
   const handleRecordInspection = async (e: React.FormEvent) => {
     e.preventDefault();
+    setQcError(null);
+
+    const oIdNum = parseInt(orderId, 10);
+    if (isNaN(oIdNum) || oIdNum <= 0) {
+      setQcError('Please enter a valid positive Order ID number (e.g. 1, 24).');
+      return;
+    }
+
+    const notesTrim = (notes || '').trim();
+    if (result === 'FAIL') {
+      if (!notesTrim || notesTrim.length < 5) {
+        setQcError('When marking an inspection as FAIL, inspector notes are required (min. 5 characters) to explain the defect and corrective rework required.');
+        return;
+      }
+    }
+
+    setIsSubmittingInspection(true);
     try {
       const payload = {
         order_type: orderType,
-        order_id: parseInt(orderId) || 1,
+        order_id: oIdNum,
         result,
         dimensions_check: dimCheck,
         finishing_check: finishCheck,
         structure_check: structCheck,
         specifications_check: specCheck,
-        inspection_notes: notes,
+        inspection_notes: notesTrim,
       };
 
       const res = await fetch('/api/quality/inspections', {
@@ -93,10 +113,17 @@ export const QualityControlTab: React.FC = () => {
 
       if (res.ok) {
         setIsModalOpen(false);
+        setQcError(null);
         fetchData();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setQcError(errJson.detail || 'Failed to record QC inspection. Please verify order ID.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('QC Record error:', e);
+      setQcError(e?.message || 'Connection error while recording QC inspection.');
+    } finally {
+      setIsSubmittingInspection(false);
     }
   };
 
@@ -127,7 +154,10 @@ export const QualityControlTab: React.FC = () => {
         </div>
 
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setIsModalOpen(true);
+            setQcError(null);
+          }}
           className="px-4 py-2.5 rounded-2xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-2 cursor-pointer"
         >
           <Plus className="w-4 h-4" /> Record Inspection
@@ -229,6 +259,14 @@ export const QualityControlTab: React.FC = () => {
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <h3 className="text-base font-extrabold text-[#2C241D]">Record Quality Control Inspection</h3>
+            
+            {qcError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{qcError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleRecordInspection} className="space-y-3 text-xs font-semibold">
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -240,13 +278,31 @@ export const QualityControlTab: React.FC = () => {
                 </div>
                 <div>
                   <label className="block text-[#7A6C5E] mb-1">Order ID</label>
-                  <input type="number" value={orderId} onChange={(e) => setOrderId(e.target.value)} required className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white font-bold" />
+                  <input
+                    type="number"
+                    min="1"
+                    value={orderId}
+                    onChange={(e) => {
+                      setOrderId(e.target.value);
+                      if (qcError) setQcError(null);
+                    }}
+                    required
+                    placeholder="e.g. 101"
+                    className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white font-bold"
+                  />
                 </div>
               </div>
 
               <div>
                 <label className="block text-[#7A6C5E] mb-1">Inspection Result</label>
-                <select value={result} onChange={(e) => setResult(e.target.value)} className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white font-extrabold">
+                <select
+                  value={result}
+                  onChange={(e) => {
+                    setResult(e.target.value);
+                    if (qcError) setQcError(null);
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white font-extrabold"
+                >
                   <option value="PASS">PASS — Approved for Dispatch</option>
                   <option value="FAIL">FAIL — Rework Required</option>
                 </select>
@@ -273,13 +329,39 @@ export const QualityControlTab: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-[#7A6C5E] mb-1">Inspector Notes</label>
-                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white" />
+                <label className="block text-[#7A6C5E] mb-1">
+                  Inspector Notes {result === 'FAIL' && <span className="text-rose-600 font-bold">* (Required for FAIL)</span>}
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => {
+                    setNotes(e.target.value);
+                    if (qcError) setQcError(null);
+                  }}
+                  rows={2}
+                  placeholder={result === 'FAIL' ? 'Detail defects and specific rework steps needed...' : 'Enter any observations...'}
+                  className="w-full p-2.5 rounded-xl border border-[#E2D7CB] bg-white"
+                />
               </div>
 
               <div className="pt-2 flex justify-end gap-3">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 rounded-xl border border-[#E2D7CB]">Cancel</button>
-                <button type="submit" className="px-4 py-2 rounded-xl bg-[#48A63E] text-white font-extrabold">Save Inspection</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setQcError(null);
+                  }}
+                  className="px-4 py-2 rounded-xl border border-[#E2D7CB] font-bold text-[#7A6C5E] hover:bg-[#EAE4DC] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingInspection}
+                  className="px-4 py-2 rounded-xl bg-[#48A63E] hover:bg-[#3D9134] text-white font-extrabold disabled:opacity-50 cursor-pointer shadow-md transition-all"
+                >
+                  {isSubmittingInspection ? 'Saving...' : 'Save Inspection'}
+                </button>
               </div>
             </form>
           </div>

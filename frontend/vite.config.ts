@@ -11,6 +11,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: '0.0.0.0',
     port: 3000,
     open: true,
     proxy: {
@@ -43,6 +44,19 @@ export default defineConfig({
               (res as any).end();
             }
           });
+        },
+      },
+    },
+  },
+  build: {
+    target: 'esnext',
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-icons': ['lucide-react'],
+          'vendor-maps': ['leaflet'],
         },
       },
     },

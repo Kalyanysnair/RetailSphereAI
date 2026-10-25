@@ -81,12 +81,17 @@ export interface WorkerOnsiteJobItem {
 
 export interface WorkerReworkItem {
   rework_id: number;
-  inspection_id: number;
+  ticket_code?: string;
+  inspection_id?: number;
   order_type: string;
   order_id: string;
   raw_order_id: number;
   order_title: string;
+  customer_name?: string;
   rework_reason: string;
+  required_changes?: string;
+  issue_description?: string;
+  responsibility_type?: string;
   status: string;
   inspection_notes?: string;
   checklist?: {
@@ -94,11 +99,16 @@ export interface WorkerReworkItem {
     finishing?: boolean;
     structure?: boolean;
     specifications?: boolean;
+    material?: boolean;
+    functionality?: boolean;
+    fabrication?: boolean;
+    customer_specs?: boolean;
   };
   photos?: string;
   reference_image?: string;
   dimensions?: string;
   material?: string;
+  assigned_to_me?: boolean;
   created_at?: string;
   resolved_at?: string;
 }

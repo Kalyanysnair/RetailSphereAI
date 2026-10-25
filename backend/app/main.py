@@ -33,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 import traceback
@@ -49,45 +52,40 @@ async def global_exception_handler(request: Request, exc: Exception):
         content={"detail": f"Internal Server Error: {str(exc)}"}
     )
 
-# Startup event to auto-create database tables
-@app.on_event("startup")
-def startup_db():
+# Startup event to auto-create database tables (executed non-blocking in background thread)
+def _run_startup_db_worker():
     try:
-        Base.metadata.create_all(bind=engine)
         from sqlalchemy import text
         with engine.connect() as conn:
+            # Quick check if tables are already initialized to avoid redundant DDL queries
+            table_check = conn.execute(text("SELECT to_regclass('tbl_iot_inventory_state');")).scalar()
+            if table_check:
+                print("[DATABASE] Tables already initialized. Bypassing heavy DDL migration loops.")
+                return
+
+            Base.metadata.create_all(bind=engine)
             try:
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN DEFAULT FALSE;"))
                 conn.execute(text("ALTER TABLE tbl_users ADD COLUMN IF NOT EXISTS specialization VARCHAR(100);"))
                 conn.execute(text("ALTER TABLE tbl_product ADD COLUMN IF NOT EXISTS available_colors TEXT;"))
-                
-                # Readymade Order completion & staff assignment columns
                 conn.execute(text("ALTER TABLE tbl_readymade_order ADD COLUMN IF NOT EXISTS completion_status VARCHAR(100);"))
                 conn.execute(text("ALTER TABLE tbl_readymade_order ADD COLUMN IF NOT EXISTS retail_staff_id INT;"))
-                
-                # Custom Order review & priority columns
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
                 conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
-
-                # Fabrication Request review & priority columns
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
                 conn.execute(text("ALTER TABLE tbl_fabrication_request ADD COLUMN IF NOT EXISTS cutting_layout TEXT;"))
-
-                # Service Request review & priority columns
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS review_status VARCHAR(50) DEFAULT 'NEW';"))
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS reviewed_by_id INT;"))
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;"))
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS review_notes TEXT;"))
                 conn.execute(text("ALTER TABLE tbl_service_request ADD COLUMN IF NOT EXISTS priority VARCHAR(20) DEFAULT 'NORMAL';"))
-
-                # Production Stage & Quotation Breakdown migrations
                 conn.execute(text("ALTER TABLE tbl_production_stage ADD COLUMN IF NOT EXISTS required_skill VARCHAR(100);"))
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS version INT DEFAULT 1;"))
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS is_latest BOOLEAN DEFAULT TRUE;"))
@@ -97,24 +95,63 @@ def startup_db():
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS created_by_id INT;"))
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP;"))
                 conn.execute(text("ALTER TABLE tbl_quotation_breakdown ADD COLUMN IF NOT EXISTS rejected_at TIMESTAMP;"))
-
-                # Production Progress migrations
                 conn.execute(text("ALTER TABLE tbl_production_progress ADD COLUMN IF NOT EXISTS progress_percentage INT DEFAULT 0;"))
                 conn.execute(text("ALTER TABLE tbl_production_progress ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;"))
-
+                conn.execute(text("ALTER TABLE tbl_custom_order ADD COLUMN IF NOT EXISTS customer_material_id INT REFERENCES tbl_customer_material(material_id);"))
+                conn.execute(text("ALTER TABLE tbl_material_transaction ALTER COLUMN raw_material_id DROP NOT NULL;"))
+                conn.execute(text("ALTER TABLE tbl_material_transaction ADD COLUMN IF NOT EXISTS customer_material_id INT REFERENCES tbl_customer_material(material_id);"))
+                conn.execute(text("ALTER TABLE tbl_material_transaction ADD COLUMN IF NOT EXISTS unit VARCHAR(20) DEFAULT 'sq_ft';"))
+                conn.execute(text("ALTER TABLE tbl_material_transaction ADD COLUMN IF NOT EXISTS notes TEXT;"))
+                conn.execute(text("ALTER TABLE tbl_material_transaction ADD COLUMN IF NOT EXISTS performed_by_id INT REFERENCES tbl_users(user_id);"))
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS tbl_iot_inventory_state (
+                        state_id SERIAL PRIMARY KEY,
+                        device_id VARCHAR(100) UNIQUE NOT NULL,
+                        current_stock INT DEFAULT 0 NOT NULL,
+                        total_entries INT DEFAULT 0 NOT NULL,
+                        total_exits INT DEFAULT 0 NOT NULL,
+                        last_movement_direction VARCHAR(10),
+                        last_movement_at TIMESTAMP,
+                        last_heartbeat_at TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                    );
+                """))
+                conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS tbl_iot_inventory_movement (
+                        movement_id SERIAL PRIMARY KEY,
+                        device_id VARCHAR(100) NOT NULL,
+                        direction VARCHAR(10) NOT NULL,
+                        stock_delta INT NOT NULL,
+                        stock_after INT NOT NULL,
+                        raw_sequence VARCHAR(50),
+                        event_id VARCHAR(100) UNIQUE,
+                        notes VARCHAR(255),
+                        device_timestamp TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+                    );
+                """))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_iot_mov_created ON tbl_iot_inventory_movement(created_at DESC);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_iot_mov_device ON tbl_iot_inventory_movement(device_id, created_at DESC);"))
                 conn.commit()
-                print("[MIGRATION] Added review metadata, production stage skills, and quotation breakdown columns.")
+                print("[MIGRATION] Added review metadata, production stage skills, quotation breakdown, material ledger columns, and IoT inventory monitoring tables.")
             except Exception as mig_err:
                 print(f"[MIGRATION WARNING] Column migration notice: {mig_err}")
+
         print("Database tables initialized successfully.")
         from seed_admin import seed_admin_user
         seed_admin_user()
     except Exception as e:
         print(f"Warning: Could not automatically initialize database tables: {e}")
 
+@app.on_event("startup")
+def startup_db():
+    import threading
+    threading.Thread(target=_run_startup_db_worker, daemon=True).start()
+    threading.Thread(target=admin.warm_dashboard_cache, daemon=True).start()
+
 import os
 from fastapi.staticfiles import StaticFiles
-from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff, fleet, worker_ops, reviews, carrier_portal, delivery_personnel_portal
+from app.routers import auth, admin, production, coupons, uploads, materials, fabrication, services, machines, quality, ai_services, fulfillment, retail_staff, fleet, worker_ops, reviews, carrier_portal, delivery_personnel_portal, iot
 
 # Mount static uploads directory safely across local and Vercel environments
 def _get_upload_dir() -> str:
@@ -152,6 +189,9 @@ app.include_router(worker_ops.router)
 app.include_router(reviews.router)
 app.include_router(carrier_portal.router)
 app.include_router(delivery_personnel_portal.router)
+app.include_router(iot.router)
+app.include_router(iot.admin_router)
+
 
 from fastapi.responses import RedirectResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -211,3 +251,9 @@ def read_api_root():
         "docs": "/api/docs",
         "openapi": "/api/openapi.json"
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    # Default host 0.0.0.0 allows incoming connections from LAN devices (like ESP32 on Wi-Fi)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+

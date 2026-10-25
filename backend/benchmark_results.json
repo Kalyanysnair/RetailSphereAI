@@ -1,0 +1,182 @@
+[
+  {
+    "role": "Customer",
+    "label": "Product Inventory Catalog",
+    "endpoint": "/api/admin/inventory",
+    "cold_ms": 2070.92,
+    "warm_ms": 16.61,
+    "repeat_ms": 5.93,
+    "status": 200,
+    "payload_bytes": 6205
+  },
+  {
+    "role": "Customer",
+    "label": "My Fabrication Requests",
+    "endpoint": "/api/fabrication/requests",
+    "cold_ms": 3090.99,
+    "warm_ms": 6.1,
+    "repeat_ms": 7.95,
+    "status": 200,
+    "payload_bytes": 14715
+  },
+  {
+    "role": "Customer",
+    "label": "My Custom Orders",
+    "endpoint": "/api/production/custom-orders",
+    "cold_ms": 3966.02,
+    "warm_ms": 26.0,
+    "repeat_ms": 31.06,
+    "status": 200,
+    "payload_bytes": 52310
+  },
+  {
+    "role": "Retail Staff",
+    "label": "Request Inbox Overview",
+    "endpoint": "/api/retail-staff/request-inbox",
+    "cold_ms": 2417.7,
+    "warm_ms": 2854.28,
+    "repeat_ms": 2810.91,
+    "status": 200,
+    "payload_bytes": 12406
+  },
+  {
+    "role": "Retail Staff",
+    "label": "Workload Recommendations",
+    "endpoint": "/api/retail-staff/workload-recommendations",
+    "cold_ms": 2364.11,
+    "warm_ms": 2650.77,
+    "repeat_ms": 2298.18,
+    "status": 200,
+    "payload_bytes": 288
+  },
+  {
+    "role": "Retail Staff",
+    "label": "Orders Operations Overview",
+    "endpoint": "/api/retail-staff/orders",
+    "cold_ms": 7.73,
+    "warm_ms": 25.01,
+    "repeat_ms": 28.43,
+    "status": 404,
+    "payload_bytes": 22
+  },
+  {
+    "role": "Production Staff",
+    "label": "Active Custom Orders",
+    "endpoint": "/api/production/custom-orders",
+    "cold_ms": 4047.25,
+    "warm_ms": 21.37,
+    "repeat_ms": 40.98,
+    "status": 200,
+    "payload_bytes": 52310
+  },
+  {
+    "role": "Production Staff",
+    "label": "Worker Directory",
+    "endpoint": "/api/production/workers",
+    "cold_ms": 1419.23,
+    "warm_ms": 1405.36,
+    "repeat_ms": 1487.38,
+    "status": 200,
+    "payload_bytes": 605
+  },
+  {
+    "role": "Production Staff",
+    "label": "Raw Material Stock",
+    "endpoint": "/api/materials/raw-materials",
+    "cold_ms": 24.42,
+    "warm_ms": 27.69,
+    "repeat_ms": 31.15,
+    "status": 404,
+    "payload_bytes": 22
+  },
+  {
+    "role": "Worker",
+    "label": "Workspace Summary KPIs",
+    "endpoint": "/api/worker/my-summary",
+    "cold_ms": 3961.35,
+    "warm_ms": 33.05,
+    "repeat_ms": 29.89,
+    "status": 200,
+    "payload_bytes": 285
+  },
+  {
+    "role": "Worker",
+    "label": "Assigned Work Tasks",
+    "endpoint": "/api/worker/my-tasks",
+    "cold_ms": 2377.3,
+    "warm_ms": 2705.1,
+    "repeat_ms": 2617.12,
+    "status": 200,
+    "payload_bytes": 4451
+  },
+  {
+    "role": "Delivery Personnel",
+    "label": "Driver Summary KPIs",
+    "endpoint": "/api/delivery-personnel/summary",
+    "cold_ms": 2228.62,
+    "warm_ms": 1815.63,
+    "repeat_ms": 1843.38,
+    "status": 200,
+    "payload_bytes": 437
+  },
+  {
+    "role": "Delivery Personnel",
+    "label": "Assigned Delivery Tasks",
+    "endpoint": "/api/delivery-personnel/tasks",
+    "cold_ms": 4718.84,
+    "warm_ms": 4729.65,
+    "repeat_ms": 4621.67,
+    "status": 200,
+    "payload_bytes": 2906
+  },
+  {
+    "role": "Carrier Partner",
+    "label": "Partner Fleet Summary",
+    "endpoint": "/api/carrier/summary",
+    "cold_ms": 2419.68,
+    "warm_ms": 2110.49,
+    "repeat_ms": 2086.72,
+    "status": 200,
+    "payload_bytes": 530
+  },
+  {
+    "role": "Carrier Partner",
+    "label": "Active Carrier Deliveries",
+    "endpoint": "/api/carrier/deliveries",
+    "cold_ms": 7.89,
+    "warm_ms": 20.73,
+    "repeat_ms": 30.87,
+    "status": 404,
+    "payload_bytes": 22
+  },
+  {
+    "role": "Admin",
+    "label": "BI Executive Dashboard Summary",
+    "endpoint": "/api/admin/dashboard-summary",
+    "cold_ms": 1121.74,
+    "warm_ms": 22.73,
+    "repeat_ms": 29.22,
+    "status": 200,
+    "payload_bytes": 2051
+  },
+  {
+    "role": "Admin",
+    "label": "Full Product Inventory",
+    "endpoint": "/api/admin/inventory",
+    "cold_ms": 1750.95,
+    "warm_ms": 26.17,
+    "repeat_ms": 5.07,
+    "status": 200,
+    "payload_bytes": 6205
+  },
+  {
+    "role": "Admin",
+    "label": "Platform User Roster",
+    "endpoint": "/api/admin/users",
+    "cold_ms": 1586.51,
+    "warm_ms": 8.47,
+    "repeat_ms": 28.27,
+    "status": 200,
+    "payload_bytes": 6997
+  }
+]

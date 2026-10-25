@@ -96,3 +96,32 @@ export async function fetchCustomerMaterialsApi(): Promise<CustomerMaterialItem[
   }
   return [];
 }
+
+export interface MaterialTransactionItem {
+  transaction_id: number;
+  raw_material_id?: number | null;
+  customer_material_id?: number | null;
+  material_name: string;
+  ownership: string;
+  transaction_type: string;
+  quantity: number;
+  unit: string;
+  order_type?: string | null;
+  order_id?: number | null;
+  notes?: string | null;
+  performed_by: string;
+  created_at?: string | null;
+}
+
+export async function fetchMaterialTransactionsApi(limit: number = 100): Promise<MaterialTransactionItem[]> {
+  try {
+    const res = await fetch(`${BASE_URL}/transactions?limit=${limit}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Failed to fetch material transactions:', err);
+  }
+  return [];
+}
+

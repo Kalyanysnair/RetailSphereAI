@@ -198,12 +198,48 @@ export const ServicesTab: React.FC = () => {
     setGpsStatusMessage(`📍 Map Pinned: ${preset.name} (${preset.lat}° N, ${preset.lng}° E)`);
   };
 
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [coverageNotice, setCoverageNotice] = useState<string | null>(null);
+  const [isSubmittingBooking, setIsSubmittingBooking] = useState(false);
+
   const handleBookService = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!address.trim() || !city.trim() || !pincode.trim() || pincode.trim().length !== 6) {
-      alert('Please provide a complete service address with city and 6-digit PIN code.');
+    setModalError(null);
+    setCoverageNotice(null);
+
+    const descTrim = description.trim();
+    if (!descTrim || descTrim.length < 10) {
+      setModalError('Please describe the work required with at least 10 characters.');
       return;
     }
+
+    const addrTrim = address.trim();
+    if (!addrTrim || addrTrim.length < 5) {
+      setModalError('Please provide a complete street/house address (min. 5 characters).');
+      return;
+    }
+
+    const cityTrim = city.trim();
+    if (!cityTrim || cityTrim.length < 2) {
+      setModalError('City or district name is required.');
+      return;
+    }
+
+    const pinTrim = pincode.trim().replace(/\D/g, '');
+    if (!pinTrim || !/^\d{6}$/.test(pinTrim) || pinTrim === '000000') {
+      setModalError('Please enter a valid 6-digit postal PIN code (e.g. 686631).');
+      return;
+    }
+
+    if (preferredDate) {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (preferredDate < todayStr) {
+        setModalError('Preferred appointment date cannot be in the past.');
+        return;
+      }
+    }
+
+    setIsSubmittingBooking(true);
     try {
       const rawUser = localStorage.getItem('user');
       const user = rawUser ? JSON.parse(rawUser) : null;
@@ -212,10 +248,10 @@ export const ServicesTab: React.FC = () => {
         customer_id: user?.customer_id || user?.user_id || 1,
         customer_email: user?.email || '',
         service_category: category,
-        description,
-        address,
-        city,
-        pincode,
+        description: descTrim,
+        address: addrTrim,
+        city: cityTrim,
+        pincode: pinTrim,
         preferred_date: preferredDate || new Date().toISOString().split('T')[0],
         preferred_time: preferredTime,
         photos,
@@ -229,18 +265,25 @@ export const ServicesTab: React.FC = () => {
 
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || 'Service booking failed. Please check address details.');
+        setModalError(data.detail || 'Service booking failed. Please verify address details.');
         return;
       }
 
       if (data.service_coverage === 'PENDING_COVERAGE_REVIEW') {
-        alert('📍 Note on Service Coverage: Service location is outside our standard local service radius (60 km from central hub in Ettumanoor, Kottayam). Your request has been registered and submitted for supervisor travel feasibility and coverage review.');
+        setCoverageNotice('📍 Note on Service Coverage: Service location is outside our standard local service radius (60 km from central hub in Ettumanoor, Kottayam). Your request has been registered and submitted for supervisor travel feasibility and coverage review.');
+        setTimeout(() => {
+          setIsBookModalOpen(false);
+          fetchServices();
+        }, 3500);
+      } else {
+        setIsBookModalOpen(false);
+        fetchServices();
       }
-
-      setIsBookModalOpen(false);
-      fetchServices();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to book service:', err);
+      setModalError(err?.message || 'Connection error. Failed to book service.');
+    } finally {
+      setIsSubmittingBooking(false);
     }
   };
 
@@ -411,6 +454,20 @@ export const ServicesTab: React.FC = () => {
               </div>
               <button onClick={() => setIsBookModalOpen(false)} className="text-[#7A6C5E] hover:text-[#2C241D] font-bold text-lg cursor-pointer">✕</button>
             </div>
+
+            {modalError && (
+              <div className="p-3 text-xs text-rose-800 bg-rose-50 border border-rose-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+                <CheckCircle2 className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            {coverageNotice && (
+              <div className="p-3 text-xs text-amber-900 bg-amber-50 border border-amber-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+                <MapPin className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>{coverageNotice}</span>
+              </div>
+            )}
 
             <form onSubmit={handleBookService} className="space-y-4 text-xs font-semibold text-[#2C241D]">
               <div>

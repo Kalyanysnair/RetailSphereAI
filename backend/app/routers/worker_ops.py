@@ -93,12 +93,22 @@ def format_duration(started: Optional[datetime], completed: Optional[datetime]) 
     return f"{minutes}m"
 
 
+# User-scoped cache for worker summary: {worker_id: (data, timestamp)}
+_worker_summary_cache = {}
+
 @router.get("/my-summary")
 def get_worker_summary(
     current_user: models.User = Depends(auth.get_current_user),
     db: Session = Depends(get_db)
 ):
+    import time
     worker_id = current_user.user_id
+    now_ts = time.time()
+    if worker_id in _worker_summary_cache:
+        c_data, c_ts = _worker_summary_cache[worker_id]
+        if now_ts - c_ts < 10:
+            return c_data
+
     tasks = get_worker_tasks(status_filter=None, current_user=current_user, db=db)
 
     # Active tasks (in progress)
@@ -143,7 +153,7 @@ def get_worker_summary(
 
     is_driver_val = bool(current_user.is_driver or driver_deliveries > 0)
 
-    return {
+    summary_result = {
         "worker_id": worker_id,
         "worker_name": current_user.full_name,
         "role": current_user.role.role_name if current_user.role else "Worker",
@@ -157,6 +167,8 @@ def get_worker_summary(
         "driver_deliveries_count": driver_deliveries,
         "pending_leaves_count": pending_leaves
     }
+    _worker_summary_cache[worker_id] = (summary_result, now_ts)
+    return summary_result
 
 
 @router.get("/my-tasks")
@@ -173,6 +185,32 @@ def get_worker_tasks(
         models.ProductionStage.assigned_worker_id == worker_id
     ).all()
 
+    # 2. WorkerAssignment records (for Custom Orders not already covered by ProductionStage)
+    assignments = db.query(models.WorkerAssignment).filter(
+        models.WorkerAssignment.worker_id == worker_id
+    ).all()
+
+    # Bulk prefetch related CustomOrder, FabricationRequest, and OrderFulfillment records
+    custom_ids = {stg.order_id for stg in prod_stages if stg.order_type == "Custom"}
+    custom_ids.update(asgn.custom_order_id for asgn in assignments)
+
+    fab_ids = {stg.order_id for stg in prod_stages if stg.order_type == "Fabrication"}
+
+    custom_map = {
+        o.custom_order_id: o for o in db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.in_(list(custom_ids))).all()
+    } if custom_ids else {}
+
+    fab_map = {
+        f.fabrication_id: f for f in db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id.in_(list(fab_ids))).all()
+    } if fab_ids else {}
+
+    ful_map = {
+        ful.fabrication_id: ful for ful in db.query(models.OrderFulfillment).filter(
+            models.OrderFulfillment.fabrication_id.in_(list(fab_ids)),
+            models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+        ).all()
+    } if fab_ids else {}
+
     covered_custom_orders = set()
 
     for stg in prod_stages:
@@ -181,7 +219,7 @@ def get_worker_tasks(
 
         if stg.order_type == "Custom":
             covered_custom_orders.add(stg.order_id)
-            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == stg.order_id).first()
+            ord_obj = custom_map.get(stg.order_id)
             if ord_obj:
                 job_title = f"Custom {ord_obj.furniture_type}"
                 dims = ord_obj.dimensions
@@ -192,12 +230,13 @@ def get_worker_tasks(
                 prio = getattr(ord_obj, "priority", "NORMAL") or "NORMAL"
             else:
                 dims, mat, col, desc, img, prio = "N/A", "Wood", "Natural", "", "", "NORMAL"
+
         is_pickup_pending = False
         pickup_carrier_name = None
         pickup_status_str = None
 
         if stg.order_type == "Fabrication":
-            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == stg.order_id).first()
+            fab_obj = fab_map.get(stg.order_id)
             if fab_obj:
                 job_title = f"Fabrication {fab_obj.service_type}"
                 dims = fab_obj.dimensions
@@ -210,10 +249,7 @@ def get_worker_tasks(
                 mat_src = getattr(fab_obj, "material_source", "") or ""
                 needs_pk = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or ("Customer" in mat_src and arr_mode != "CUSTOMER_BRINGS")
                 if needs_pk:
-                    ful = db.query(models.OrderFulfillment).filter(
-                        models.OrderFulfillment.fabrication_id == fab_obj.fabrication_id,
-                        models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
-                    ).first()
+                    ful = ful_map.get(fab_obj.fabrication_id)
                     if ful:
                         pickup_carrier_name = ful.carrier
                         pickup_status_str = ful.delivery_status
@@ -264,17 +300,12 @@ def get_worker_tasks(
             "pickup_status": pickup_status_str
         })
 
-    # 2. WorkerAssignment records (for Custom Orders not already covered by ProductionStage)
-    assignments = db.query(models.WorkerAssignment).filter(
-        models.WorkerAssignment.worker_id == worker_id
-    ).all()
-
     for asgn in assignments:
         if asgn.custom_order_id in covered_custom_orders:
             # Stage record is authoritative; skip duplicating with generic assignment
             continue
 
-        order = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == asgn.custom_order_id).first()
+        order = custom_map.get(asgn.custom_order_id)
         if not order:
             continue
 
@@ -1071,53 +1102,109 @@ def get_worker_rework_jobs(
     db: Session = Depends(get_db)
 ):
     worker_id = current_user.user_id
+
+    # Retrieve rework tickets assigned to this worker OR open in the workshop
+    from sqlalchemy import or_, and_
+    worker_custom_ids = [
+        wa.custom_order_id for wa in db.query(models.WorkerAssignment.custom_order_id).filter(
+            models.WorkerAssignment.worker_id == worker_id
+        ).all()
+    ]
+    worker_fab_ids = [
+        fr.fabrication_id for fr in db.query(models.FabricationRequest.fabrication_id).filter(
+            (models.FabricationRequest.assigned_artisan_id == worker_id) |
+            (models.FabricationRequest.assigned_worker_id == worker_id)
+        ).all()
+    ]
+
+    filter_conditions = [
+        models.ReworkJob.assigned_worker_id == worker_id,
+        models.ReworkJob.assigned_worker_id.is_(None),
+        models.ReworkJob.assigned_worker_id == 0,
+    ]
+    if worker_custom_ids:
+        filter_conditions.append(
+            and_(
+                models.ReworkJob.order_type.in_(["Custom", "Customization"]),
+                models.ReworkJob.order_id.in_(worker_custom_ids)
+            )
+        )
+    if worker_fab_ids:
+        filter_conditions.append(
+            and_(
+                models.ReworkJob.order_type == "Fabrication",
+                models.ReworkJob.order_id.in_(worker_fab_ids)
+            )
+        )
+
     reworks = db.query(models.ReworkJob).filter(
-        models.ReworkJob.assigned_worker_id == worker_id
+        or_(*filter_conditions)
     ).order_by(models.ReworkJob.created_at.desc()).all()
 
     res = []
     for r in reworks:
         insp = r.inspection
+        order_type = (r.order_type or (insp.order_type if insp else "Custom")).capitalize()
+        order_id_num = r.order_id or (insp.order_id if insp else (r.custom_order_id or 0))
+        ticket_code = r.ticket_code or f"RWK-{r.rework_id:04d}"
+
         order_title = "Custom Production"
         ref_image = None
         dimensions = None
         material = None
+        customer_name = None
 
-        if insp and insp.order_type == "Custom":
-            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == insp.order_id).first()
+        if order_type in ["Custom", "Customization"]:
+            ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id_num).first()
             if ord_obj:
                 order_title = f"Custom {ord_obj.furniture_type}"
                 ref_image = ord_obj.reference_image
                 dimensions = ord_obj.dimensions
                 material = ord_obj.material
-        elif insp and insp.order_type == "Fabrication":
-            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == insp.order_id).first()
+                if ord_obj.customer and ord_obj.customer.user:
+                    customer_name = ord_obj.customer.user.full_name
+            order_id_str = f"ORD-{order_id_num:04d}"
+        else:
+            fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == order_id_num).first()
             if fab_obj:
                 order_title = f"Fabrication {fab_obj.service_type}"
                 ref_image = fab_obj.drawing_image
                 dimensions = fab_obj.dimensions
                 material = fab_obj.material_source
+                if fab_obj.customer and fab_obj.customer.user:
+                    customer_name = fab_obj.customer.user.full_name
+            order_id_str = f"FAB-{order_id_num:04d}"
 
         res.append({
             "rework_id": r.rework_id,
+            "ticket_code": ticket_code,
             "inspection_id": r.inspection_id,
-            "order_type": insp.order_type if insp else "Custom",
-            "order_id": f"ORD-{insp.order_id:04d}" if (insp and insp.order_type == "Custom") else (f"FAB-{insp.order_id:04d}" if insp else "N/A"),
-            "raw_order_id": insp.order_id if insp else 0,
+            "order_type": order_type,
+            "order_id": order_id_str,
+            "raw_order_id": order_id_num,
             "order_title": order_title,
-            "rework_reason": r.rework_reason,
-            "status": r.status or "ASSIGNED",
-            "inspection_notes": insp.inspection_notes if insp else "",
+            "customer_name": customer_name or "Valued Customer",
+            "rework_reason": r.rework_reason or r.issue_description or "QC Defect / Customer Rework Required",
+            "required_changes": r.required_changes or "",
+            "issue_description": r.issue_description or "",
+            "responsibility_type": r.responsibility_type or "RETAILSPHERE_ERROR",
+            "status": r.status or "OPEN",
+            "inspection_notes": (insp.inspection_notes if insp else "") or (r.rework_reason or ""),
             "checklist": {
                 "dimensions": insp.dimensions_check if insp else True,
                 "finishing": insp.finishing_check if insp else True,
                 "structure": insp.structure_check if insp else True,
                 "specifications": insp.specifications_check if insp else True,
+                "material": insp.material_check if insp else True,
+                "functionality": insp.functionality_check if insp else True,
+                "fabrication": insp.fabrication_check if insp else True,
+                "customer_specs": insp.customer_specs_check if insp else True,
             } if insp else {},
-            "photos": insp.photos if insp else "",
+            "photos": r.evidence_photos or (insp.photos if insp else ""),
             "reference_image": ref_image,
             "dimensions": dimensions,
             "material": material,
+            "assigned_to_me": r.assigned_worker_id == worker_id,
             "created_at": r.created_at.isoformat() if r.created_at else None,
             "resolved_at": r.resolved_at.isoformat() if r.resolved_at else None,
         })
@@ -1133,28 +1220,36 @@ def resolve_worker_rework_job(
 ):
     worker_id = current_user.user_id
     rw = db.query(models.ReworkJob).filter(
-        models.ReworkJob.rework_id == rework_id,
-        models.ReworkJob.assigned_worker_id == worker_id
+        models.ReworkJob.rework_id == rework_id
     ).first()
 
     if not rw:
-        raise HTTPException(status_code=404, detail="Rework job not found or unauthorized.")
+        raise HTTPException(status_code=404, detail="Rework ticket not found.")
 
-    rw.status = "RESOLVED"
+    rw.status = "REWORK_COMPLETED"
     rw.resolved_at = datetime.utcnow()
+    rw.updated_at = datetime.utcnow()
+    if payload.notes:
+        rw.rework_reason = f"{rw.rework_reason or ''} | Rectification Note: {payload.notes.strip()}"
 
-    # Reset order status to In Production for re-inspection
-    if rw.inspection and rw.inspection.order_type == "Custom":
-        ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == rw.inspection.order_id).first()
+    # Reset order status to QC_PENDING for Retail Staff Repeat Inspection
+    order_type = rw.order_type or (rw.inspection.order_type if rw.inspection else "Custom")
+    order_id = rw.order_id or (rw.inspection.order_id if rw.inspection else (rw.custom_order_id or 0))
+
+    if order_type in ["Custom", "Customization"]:
+        ord_obj = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == order_id).first()
         if ord_obj:
-            ord_obj.order_status = "In Production"
-    elif rw.inspection and rw.inspection.order_type == "Fabrication":
-        fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == rw.inspection.order_id).first()
+            ord_obj.order_status = "QC_PENDING"
+    elif order_type == "Fabrication":
+        fab_obj = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == order_id).first()
         if fab_obj:
-            fab_obj.status = "IN_PRODUCTION"
+            fab_obj.status = "QC_PENDING"
 
     db.commit()
-    return {"message": f"Rework job #{rework_id} marked as resolved and submitted for re-inspection.", "status": "RESOLVED"}
+    return {
+        "message": f"Rework Ticket #{rw.ticket_code or rework_id} marked as completed and submitted for Repeat QC inspection.",
+        "status": "REWORK_COMPLETED"
+    }
 
 
 # ==================================================

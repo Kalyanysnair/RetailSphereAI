@@ -177,41 +177,49 @@ input::-webkit-credentials-auto-fill-button {
 }
 
 /* Custom Global Luxury Dropdown Styling for Select & Option Elements */
+:root {
+  color-scheme: light;
+}
+
 select {
   appearance: none !important;
   -webkit-appearance: none !important;
   -moz-appearance: none !important;
+  color-scheme: light !important;
+  accent-color: #38A132 !important;
   background-color: #FAF5ED !important;
   color: #2C2016 !important;
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
-  font-weight: 600 !important;
+  font-weight: 700 !important;
   border: 1.5px solid #DACAB8 !important;
   border-radius: 0.85rem !important;
-  padding-right: 2.25rem !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23855829' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") !important;
+  padding: 0.65rem 2.5rem 0.65rem 1rem !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2338A132' stroke-width='2.5'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
-  background-position: right 0.75rem center !important;
-  background-size: 1rem 1rem !important;
+  background-position: right 0.85rem center !important;
+  background-size: 1.1rem 1.1rem !important;
   cursor: pointer !important;
   box-shadow: 0 1px 3px rgba(44, 32, 22, 0.04) !important;
-  transition: all 0.2s ease-in-out !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
 select:hover {
-  border-color: #A88B70 !important;
+  border-color: #38A132 !important;
   background-color: #FCF8F2 !important;
-  box-shadow: 0 4px 12px rgba(133, 88, 41, 0.1) !important;
+  box-shadow: 0 4px 14px rgba(56, 161, 50, 0.12) !important;
 }
 
 select:focus {
   outline: none !important;
-  border-color: #166534 !important;
-  box-shadow: 0 0 0 3px rgba(22, 101, 52, 0.15) !important;
-  background-color: #FCF8F2 !important;
+  border-color: #38A132 !important;
+  box-shadow: 0 0 0 3px rgba(56, 161, 50, 0.2) !important;
+  background-color: #FFFFFF !important;
 }
 
 /* Custom Styling for Option Tags inside Dropdowns */
-select option {
+select option,
+select optgroup {
+  color-scheme: light !important;
   background-color: #FAF5ED !important;
   color: #2C2016 !important;
   font-family: 'Plus Jakarta Sans', system-ui, sans-serif !important;
@@ -220,12 +228,54 @@ select option {
   padding: 10px 14px !important;
 }
 
+select option:checked {
+  background-color: #38A132 !important;
+  background: linear-gradient(0deg, #38A132 0%, #38A132 100%) !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  box-shadow: 0 0 10px 100px #38A132 inset !important;
+}
+
 select option:hover,
 select option:focus,
-select option:active,
-select option:checked {
-  background-color: #166534 !important;
+select option:active {
+  background-color: #2E8529 !important;
   color: #ffffff !important;
+}
+
+/* Modern Chrome 135+ / Safari customizable select */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select !important;
+  }
+  
+  ::picker(select) {
+    background-color: #FAF5ED !important;
+    border: 1.5px solid #DACAB8 !important;
+    border-radius: 1rem !important;
+    box-shadow: 0 20px 45px -10px rgba(44, 32, 22, 0.25) !important;
+    padding: 6px !important;
+    margin-top: 4px !important;
+  }
+  
+  select option {
+    border-radius: 0.65rem !important;
+    padding: 9px 14px !important;
+    margin: 2px 0 !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease !important;
+  }
+  
+  select option:hover {
+    background-color: rgba(56, 161, 50, 0.12) !important;
+    color: #166534 !important;
+  }
+  
+  select option:checked {
+    background-color: #38A132 !important;
+    color: #ffffff !important;
+  }
 }
 
 /* ==========================================================================

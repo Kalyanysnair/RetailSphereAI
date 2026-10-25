@@ -68,6 +68,7 @@ import {
 } from '../../services/api_carrier_portal';
 
 import { getCurrentUser, updateUserProfile, changePasswordUser } from '../../services/api';
+import { validatePhoneNumber } from '../auth/SignupForm';
 import DeliveryRouteMap from '../common/DeliveryRouteMap';
 
 export const CarrierDashboardPage: React.FC = () => {
@@ -75,7 +76,7 @@ export const CarrierDashboardPage: React.FC = () => {
 
   // Active Tab State
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'current_deliveries' | 'previous_deliveries' | 'personnel' | 'fleet_vehicles' | 'settlements' | 'agreements' | 'coverage_zones'
+    'dashboard' | 'current_deliveries' | 'previous_deliveries' | 'personnel' | 'fleet_vehicles' | 'agreements' | 'coverage_zones'
   >('dashboard');
 
   // Loading & Error States
@@ -146,9 +147,74 @@ export const CarrierDashboardPage: React.FC = () => {
     notes: ''
   });
   const [isSavingPersonnel, setIsSavingPersonnel] = useState<boolean>(false);
+  const [personnelModalError, setPersonnelModalError] = useState<string | null>(null);
 
   const [viewingAgreement, setViewingAgreement] = useState<CarrierAgreementItem | null>(null);
   const [viewingRouteDelivery, setViewingRouteDelivery] = useState<CarrierDeliveryItem | null>(null);
+
+  // Delivery Personnel Inspector State
+  const [showPersonnelInspector, setShowPersonnelInspector] = useState<boolean>(false);
+  const [selectedInspectorPersonnelId, setSelectedInspectorPersonnelId] = useState<number | null>(null);
+  const [personnelDeliveriesTab, setPersonnelDeliveriesTab] = useState<'allotted' | 'completed'>('allotted');
+
+  useEffect(() => {
+    if (selectedInspectorPersonnelId !== null && personnelList.length > 0 && !personnelList.some(p => p.personnel_id === selectedInspectorPersonnelId)) {
+      setSelectedInspectorPersonnelId(personnelList[0].personnel_id);
+    }
+  }, [personnelList, selectedInspectorPersonnelId]);
+
+  const selectedInspectorPersonnel = useMemo(() => {
+    if (!selectedInspectorPersonnelId) return null;
+    return personnelList.find(p => p.personnel_id === selectedInspectorPersonnelId) || null;
+  }, [personnelList, selectedInspectorPersonnelId]);
+
+  const personnelDeliveriesSummary = useMemo(() => {
+    if (!selectedInspectorPersonnel) {
+      return { allotted: [], completed: [] };
+    }
+    const targetId = Number(selectedInspectorPersonnel.personnel_id);
+    const targetName = (selectedInspectorPersonnel.name || '').trim().toLowerCase();
+
+    const isMatch = (d: CarrierDeliveryItem) => {
+      if (!d.assigned_personnel) return false;
+      if (typeof d.assigned_personnel === 'object') {
+        if (d.assigned_personnel.personnel_id && Number(d.assigned_personnel.personnel_id) === targetId) return true;
+        if (d.assigned_personnel.name && d.assigned_personnel.name.trim().toLowerCase() === targetName) return true;
+        return false;
+      }
+      if (typeof d.assigned_personnel === 'string') {
+        const norm = d.assigned_personnel.trim().toLowerCase();
+        return norm.includes(targetName) || targetName.includes(norm);
+      }
+      return false;
+    };
+
+    const allotted: CarrierDeliveryItem[] = [];
+    const completed: CarrierDeliveryItem[] = [];
+
+    // Check active current deliveries
+    currentDeliveries.forEach(d => {
+      if (isMatch(d)) {
+        const st = (d.delivery_status || '').toLowerCase();
+        if (st.includes('delivered') || st.includes('completed')) {
+          completed.push(d);
+        } else {
+          allotted.push(d);
+        }
+      }
+    });
+
+    // Check previous deliveries (which are completed)
+    previousDeliveries.forEach(d => {
+      if (isMatch(d)) {
+        if (!completed.some(c => c.fulfillment_id === d.fulfillment_id || c.order_id === d.order_id)) {
+          completed.push(d);
+        }
+      }
+    });
+
+    return { allotted, completed };
+  }, [selectedInspectorPersonnel, currentDeliveries, previousDeliveries]);
 
   // Profile Form States (No old password required)
   const [profilePhone, setProfilePhone] = useState<string>('');
@@ -181,27 +247,25 @@ export const CarrierDashboardPage: React.FC = () => {
         setProfilePhone(user.phone);
       }
 
-      const [summary, current, prev, personnel, agreements, settlements, emailReqs] = await Promise.all([
-        fetchCarrierSummary().catch(() => null),
-        fetchCurrentDeliveries().catch(() => []),
-        fetchPreviousDeliveries().catch(() => []),
-        fetchDeliveryPersonnel().catch(() => []),
-        fetchCarrierAgreements().catch(() => []),
-        fetchCarrierSettlements().catch(() => []),
-        fetchPersonnelEmailChangeRequests().catch(() => [])
-      ]);
+      // 1. Fetch Priority 1 Carrier Summary and Active Deliveries to paint UI in <1s
+      fetchCarrierSummary().then(summary => {
+        if (summary) setCarrierSummary(summary);
+      }).catch(() => {});
 
-      if (summary) setCarrierSummary(summary);
-      setCurrentDeliveries(current);
-      setPreviousDeliveries(prev);
-      setPersonnelList(personnel);
-      setAgreementsList(agreements);
-      setSettlementsList(settlements);
-      setEmailChangeRequests(emailReqs);
+      fetchCurrentDeliveries().then(current => {
+        setCurrentDeliveries(current || []);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+
+      // 2. Concurrently stream secondary tabs in background
+      fetchPreviousDeliveries().then(prev => setPreviousDeliveries(prev || [])).catch(() => {});
+      fetchDeliveryPersonnel().then(personnel => setPersonnelList(personnel || [])).catch(() => {});
+      fetchCarrierAgreements().then(agreements => setAgreementsList(agreements || [])).catch(() => {});
+      fetchCarrierSettlements().then(settlements => setSettlementsList(settlements || [])).catch(() => {});
+      fetchPersonnelEmailChangeRequests().then(emailReqs => setEmailChangeRequests(emailReqs || [])).catch(() => {});
     } catch (err: any) {
       console.error('Failed to load carrier portal data:', err);
       setErrorNotice(err.message || 'Failed to connect to Carrier Portal. Please verify your session.');
-    } finally {
       setLoading(false);
     }
   };
@@ -363,14 +427,36 @@ export const CarrierDashboardPage: React.FC = () => {
     }
   };
 
-  // Handle Personnel Assignment
+  // Open Assign / Edit Driver Modal with preselected personnel
+  const handleOpenAssignModal = (delivery: CarrierDeliveryItem) => {
+    let initialId: number | '' = '';
+    if (typeof delivery.assigned_personnel === 'object' && delivery.assigned_personnel?.personnel_id) {
+      initialId = Number(delivery.assigned_personnel.personnel_id);
+    } else if (typeof delivery.assigned_personnel === 'string') {
+      const match = personnelList.find(
+        (p) => p.name.toLowerCase() === (delivery.assigned_personnel as string).toLowerCase()
+      );
+      if (match) initialId = Number(match.personnel_id);
+    }
+    setAssignModalDelivery(delivery);
+    setSelectedPersonnelId(initialId);
+  };
+
+  // Handle Personnel Assignment / Reassignment
   const handleAssignPersonnelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assignModalDelivery || !selectedPersonnelId) return;
+    const isAlreadyAssigned = Boolean(
+      assignModalDelivery.assigned_personnel && assignModalDelivery.assigned_personnel !== 'Unassigned'
+    );
     setIsAssigningPersonnel(true);
     try {
       await assignPersonnelToDelivery(assignModalDelivery.fulfillment_id, Number(selectedPersonnelId));
-      setSuccessNotice('Assigned delivery personnel successfully.');
+      setSuccessNotice(
+        isAlreadyAssigned
+          ? 'Driver allotment updated successfully.'
+          : 'Assigned delivery personnel successfully.'
+      );
       setAssignModalDelivery(null);
       setSelectedPersonnelId('');
       await loadDashboardData();
@@ -384,21 +470,60 @@ export const CarrierDashboardPage: React.FC = () => {
   // Handle Personnel Form Submit (Add or Edit)
   const handleSavePersonnelSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!personnelFormData.name.trim() || !personnelFormData.phone.trim()) {
-      setErrorNotice('Name and Phone number are required fields.');
+    setPersonnelModalError(null);
+
+    const trimmedName = personnelFormData.name.trim();
+    if (!trimmedName || trimmedName.length < 2) {
+      setPersonnelModalError('Full name must be at least 2 characters long.');
       return;
     }
+    if (!/^[a-zA-Z\s.'-]+$/.test(trimmedName)) {
+      setPersonnelModalError('Full name should contain letters only (e.g. Rajesh Nair).');
+      return;
+    }
+
+    const phoneErr = validatePhoneNumber(personnelFormData.phone);
+    if (phoneErr) {
+      setPersonnelModalError(phoneErr);
+      return;
+    }
+
+    const trimmedEmail = (personnelFormData.email || '').trim();
+    if (trimmedEmail && !/^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(trimmedEmail)) {
+      setPersonnelModalError('Please enter a valid email address (e.g. rajesh@carrier.com).');
+      return;
+    }
+
+    const trimmedReg = (personnelFormData.vehicle_reg || '').trim();
+    if (trimmedReg && trimmedReg.length < 4) {
+      setPersonnelModalError('Vehicle registration number must be at least 4 characters (e.g. KL-05-AB-1234).');
+      return;
+    }
+
     setIsSavingPersonnel(true);
     try {
       if (editingPersonnel) {
-        await updateDeliveryPersonnel(editingPersonnel.personnel_id, personnelFormData);
-        setSuccessNotice(`Updated personnel details for '${personnelFormData.name}'.`);
+        await updateDeliveryPersonnel(editingPersonnel.personnel_id, {
+          ...personnelFormData,
+          name: trimmedName,
+          phone: personnelFormData.phone.trim(),
+          email: trimmedEmail,
+          vehicle_reg: trimmedReg
+        });
+        setSuccessNotice(`Updated personnel details for '${trimmedName}'.`);
       } else {
-        await createDeliveryPersonnel(personnelFormData);
-        setSuccessNotice(`Added new Delivery Personnel '${personnelFormData.name}'.`);
+        await createDeliveryPersonnel({
+          ...personnelFormData,
+          name: trimmedName,
+          phone: personnelFormData.phone.trim(),
+          email: trimmedEmail,
+          vehicle_reg: trimmedReg
+        });
+        setSuccessNotice(`Added new Delivery Personnel '${trimmedName}'.`);
       }
       setIsAddPersonnelModalOpen(false);
       setEditingPersonnel(null);
+      setPersonnelModalError(null);
       setPersonnelFormData({
         name: '',
         phone: '',
@@ -409,7 +534,7 @@ export const CarrierDashboardPage: React.FC = () => {
       });
       await loadDashboardData();
     } catch (err: any) {
-      setErrorNotice(err.message || 'Failed to save delivery personnel.');
+      setPersonnelModalError(err.message || 'Failed to save delivery personnel.');
     } finally {
       setIsSavingPersonnel(false);
     }
@@ -440,6 +565,14 @@ export const CarrierDashboardPage: React.FC = () => {
       }
       if (newPassword !== confirmPassword) {
         setProfileMessage({ type: 'error', text: 'New password and confirmation do not match.' });
+        return;
+      }
+    }
+
+    if (profilePhone.trim()) {
+      const phoneErr = validatePhoneNumber(profilePhone);
+      if (phoneErr) {
+        setProfileMessage({ type: 'error', text: phoneErr });
         return;
       }
     }
@@ -515,13 +648,8 @@ export const CarrierDashboardPage: React.FC = () => {
       ]
     },
     {
-      title: 'Financials & Coverage',
+      title: 'Commercial & Coverage',
       items: [
-        {
-          id: 'settlements',
-          label: 'Payout Settlements',
-          icon: BadgeDollarSign
-        },
         {
           id: 'agreements',
           label: 'Commercial SLAs',
@@ -717,7 +845,6 @@ export const CarrierDashboardPage: React.FC = () => {
                   {activeTab === 'previous_deliveries' && 'Previous Deliveries History'}
                   {activeTab === 'personnel' && 'Agency Delivery Personnel & Drivers'}
                   {activeTab === 'fleet_vehicles' && 'Vehicle Fleet & Registry'}
-                  {activeTab === 'settlements' && 'Payout Settlements & Earnings'}
                   {activeTab === 'agreements' && 'Carrier Agreements & SLAs'}
                   {activeTab === 'coverage_zones' && 'Service Hub & Coverage Areas'}
                 </h1>
@@ -727,7 +854,6 @@ export const CarrierDashboardPage: React.FC = () => {
                   {activeTab === 'previous_deliveries' && 'Review fulfilled delivery logs, completed dispatches, and proof of deliveries.'}
                   {activeTab === 'personnel' && 'Manage registered drivers, availability, and active job loads.'}
                   {activeTab === 'fleet_vehicles' && 'Monitor vehicle fleet specifications, registration numbers, and driver allocations.'}
-                  {activeTab === 'settlements' && 'Review completed delivery payout invoices, per-km transit rates, and settlement ledgers.'}
                   {activeTab === 'agreements' && 'View binding Master Service Agreements, per-km rates, base payouts, and SLA terms.'}
                   {activeTab === 'coverage_zones' && 'Operational dispatch hubs, covered pin codes, and emergency logistics contact lines.'}
                 </p>
@@ -846,16 +972,6 @@ export const CarrierDashboardPage: React.FC = () => {
                       >
                         <User className="w-4 h-4 text-[#48A63E]" />
                         <span>View Profile</span>
-                      </button>
-                      <button
-                        onClick={() => {
-                          setActiveTab('agreements');
-                          setIsUserMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-extrabold text-[#2C241D] hover:bg-[#EAE0D4] transition-colors text-left cursor-pointer"
-                      >
-                        <FileCheck2 className="w-4 h-4 text-[#48A63E]" />
-                        <span>SLA Agreements</span>
                       </button>
                       <div className="border-t border-[#E2D7CB] my-1" />
                       <button
@@ -1012,115 +1128,125 @@ export const CarrierDashboardPage: React.FC = () => {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                      {currentDeliveries.slice(0, 4).map((d) => (
-                        <div
-                          key={d.fulfillment_id}
-                          className="p-5 rounded-2xl bg-white border border-[#E2D7CB]/80 shadow-sm hover:shadow-md transition-all space-y-3"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono text-xs font-extrabold text-[#2C241D]">{d.order_id}</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-blue-50 text-blue-700 uppercase">
+                      {currentDeliveries.slice(0, 4).map((d) => {
+                        const isAssigned = Boolean(d.assigned_personnel && d.assigned_personnel !== 'Unassigned');
+                        return (
+                          <div
+                            key={d.fulfillment_id}
+                            className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#E2D7CB]/80 shadow-sm hover:shadow-md transition-all space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-[#E2D7CB]/50">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs font-black text-[#2C241D]">{d.order_id}</span>
+                                <span className="text-[9px] px-2 py-0.5 rounded-md font-bold bg-blue-50 text-blue-700 uppercase border border-blue-200">
                                   {d.job_type.replace('_', ' ')}
                                 </span>
+                                <span className="text-[10px] text-[#7A6C5E] hidden sm:inline">
+                                  • <strong className="font-mono text-[#2C241D]">{d.tracking_number}</strong>
+                                </span>
                               </div>
-                              <p className="text-xs font-bold text-[#7A6C5E] mt-0.5">Tracking: {d.tracking_number}</p>
+                              <div className="shrink-0">
+                                {getDeliveryStatusBadge(
+                                  d.delivery_status,
+                                  isAssigned
+                                )}
+                              </div>
                             </div>
-                            {getDeliveryStatusBadge(
-                              d.delivery_status,
-                              Boolean(d.assigned_personnel && d.assigned_personnel !== 'Unassigned')
-                            )}
-                          </div>
 
-                          {/* Consignment Items from DB */}
-                          {d.items && d.items.length > 0 && (
-                            <div className="p-3 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]/60 space-y-2">
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5 text-[10px]">
-                                  <Layers className="w-3.5 h-3.5 text-[#38A132]" />
-                                  Ordered Products ({d.items.length})
-                                </span>
-                                <span className="font-extrabold text-[#2C241D]">
-                                  Value: ₹{d.total_amount.toLocaleString()}
-                                </span>
-                              </div>
-                              <div className="space-y-1.5">
-                                {d.items.map((it) => (
-                                  <div key={it.item_id} className="flex items-center gap-2.5 p-1.5 rounded-lg bg-white border border-[#E2D7CB]/50">
-                                    {it.image_url ? (
-                                      <img src={it.image_url} alt={it.product_name} className="w-9 h-9 rounded-md object-cover border border-[#E2D7CB] flex-shrink-0" />
-                                    ) : (
-                                      <div className="w-9 h-9 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center text-[#7A6C5E] flex-shrink-0">
-                                        <Layers className="w-4 h-4" />
-                                      </div>
-                                    )}
-                                    <div className="min-w-0 flex-1 text-xs">
-                                      <p className="font-bold text-[#2C241D] truncate leading-tight">{it.product_name}</p>
-                                      <div className="flex items-center justify-between text-[10px] text-[#7A6C5E] mt-0.5">
-                                        <span>Qty: <strong className="text-[#2C241D]">{it.quantity}</strong></span>
-                                        <span className="font-bold text-[#38A132]">₹{it.unit_price.toLocaleString()}</span>
+                            {/* Consignment Items from DB */}
+                            {d.items && d.items.length > 0 && (
+                              <div className="p-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]/60 space-y-1">
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1 text-[9px]">
+                                    <Layers className="w-3 h-3 text-[#38A132]" />
+                                    Products ({d.items.length})
+                                  </span>
+                                  <span className="font-extrabold text-[#2C241D]">
+                                    ₹{d.total_amount.toLocaleString()}
+                                  </span>
+                                </div>
+                                <div className="space-y-1">
+                                  {d.items.map((it) => (
+                                    <div key={it.item_id} className="flex items-center gap-2 p-1.5 rounded-lg bg-white border border-[#E2D7CB]/50">
+                                      {it.image_url ? (
+                                        <img src={it.image_url} alt={it.product_name} className="w-7 h-7 rounded-md object-cover border border-[#E2D7CB] shrink-0" />
+                                      ) : (
+                                        <div className="w-7 h-7 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center text-[#7A6C5E] shrink-0">
+                                          <Layers className="w-3.5 h-3.5" />
+                                        </div>
+                                      )}
+                                      <div className="min-w-0 flex-1 text-xs">
+                                        <p className="font-bold text-[#2C241D] truncate leading-tight text-[11px]">{it.product_name}</p>
+                                        <div className="flex items-center justify-between text-[10px] text-[#7A6C5E]">
+                                          <span>Qty: <strong className="text-[#2C241D]">{it.quantity}</strong></span>
+                                          <span className="font-bold text-[#38A132]">₹{it.unit_price.toLocaleString()}</span>
+                                        </div>
                                       </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="space-y-1 text-xs text-[#5C4E42] pt-1 border-t border-[#E2D7CB]/50">
+                              <div className="flex items-start gap-1.5">
+                                <MapPin className="w-3 h-3 text-emerald-600 shrink-0 mt-0.5" />
+                                <p className="font-semibold truncate text-[11px] flex-1">{d.destination_address}</p>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-[#7A6C5E]">
+                                <span>Dist: <strong className="text-[#2C241D]">{d.distance_km} km</strong></span>
+                                <span>Client: <strong className="text-[#2C241D]">{d.customer_name}</strong></span>
                               </div>
                             </div>
-                          )}
 
-                          <div className="space-y-1.5 text-xs text-[#5C4E42] pt-2 border-t border-[#E2D7CB]/50">
-                            <div className="flex items-start gap-2">
-                              <MapPin className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[11px] text-[#7A6C5E]">Destination:</p>
-                                <p className="font-semibold truncate">{d.destination_address}</p>
+                            <div className="flex items-center justify-between pt-1 border-t border-[#E2D7CB]/50">
+                              <div className="text-xs">
+                                <span className="text-[10px] text-[#7A6C5E]">Driver: </span>
+                                <span className="font-bold text-[#2C241D] text-[11px]">
+                                  {typeof d.assigned_personnel === 'object' && d.assigned_personnel
+                                    ? d.assigned_personnel.name
+                                    : typeof d.assigned_personnel === 'string'
+                                    ? d.assigned_personnel
+                                    : 'Unassigned'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => handleOpenAssignModal(d)}
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    isAssigned
+                                      ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                                      : 'bg-[#F5ECE1] text-[#2C241D] hover:bg-[#E2D7CB]'
+                                  }`}
+                                  title={isAssigned ? 'Edit assigned driver' : 'Assign a driver to this delivery'}
+                                >
+                                  {isAssigned ? (
+                                    <>
+                                      <Edit3 className="w-3 h-3 text-amber-800" />
+                                      <span>Edit</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Truck className="w-3 h-3 text-[#7A6C5E]" />
+                                      <span>Assign Driver</span>
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setStatusModalDelivery(d);
+                                    setNewStatusValue(d.delivery_status || 'Dispatched');
+                                    setStatusNotes(d.delivery_notes || '');
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-[#38A132] text-white text-[10px] font-bold hover:bg-[#2F852A] transition-all cursor-pointer"
+                                >
+                                  Update Status
+                                </button>
                               </div>
                             </div>
-                            <div className="flex items-center justify-between text-[11px] pt-1 text-[#7A6C5E]">
-                              <span>Distance: <strong className="text-[#2C241D]">{d.distance_km} km</strong></span>
-                              <span>Recipient: <strong className="text-[#2C241D]">{d.customer_name}</strong></span>
-                            </div>
                           </div>
-
-                          <div className="flex items-center justify-between pt-2 border-t border-[#E2D7CB]/50">
-                            <div className="text-xs">
-                              <span className="text-[11px] text-[#7A6C5E]">Assigned Driver: </span>
-                              <span className="font-bold text-[#2C241D]">
-                                {typeof d.assigned_personnel === 'object' && d.assigned_personnel
-                                  ? d.assigned_personnel.name
-                                  : typeof d.assigned_personnel === 'string'
-                                  ? d.assigned_personnel
-                                  : 'Unassigned'}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => {
-                                  setAssignModalDelivery(d);
-                                  setSelectedPersonnelId(
-                                    typeof d.assigned_personnel === 'object' && d.assigned_personnel
-                                      ? d.assigned_personnel.personnel_id
-                                      : ''
-                                  );
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-[#F5ECE1] text-[#2C241D] text-[11px] font-bold hover:bg-[#E2D7CB] transition-all cursor-pointer"
-                              >
-                                Assign Driver
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setStatusModalDelivery(d);
-                                  setNewStatusValue(d.delivery_status || 'Dispatched');
-                                  setStatusNotes(d.delivery_notes || '');
-                                }}
-                                className="px-2.5 py-1 rounded-lg bg-[#38A132] text-white text-[11px] font-bold hover:bg-[#2F852A] transition-all cursor-pointer"
-                              >
-                                Update Status
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1159,160 +1285,187 @@ export const CarrierDashboardPage: React.FC = () => {
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-4">
-                    {filteredCurrentDeliveries.map((d) => (
-                      <div
-                        key={d.fulfillment_id}
-                        className="p-6 rounded-3xl bg-white/80 backdrop-blur-xl border border-[#E2D7CB] shadow-lg hover:shadow-xl transition-all space-y-4"
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#E2D7CB]/60">
-                          <div>
-                            <div className="flex items-center gap-3">
-                              <span className="font-mono text-sm font-extrabold text-[#2C241D]">{d.order_id}</span>
-                              <span className="text-[10px] px-2.5 py-0.5 rounded-full font-extrabold bg-blue-50 text-blue-700 uppercase tracking-wide border border-blue-200">
+                    {filteredCurrentDeliveries.map((d) => {
+                      const isAssigned = Boolean(d.assigned_personnel && d.assigned_personnel !== 'Unassigned');
+                      return (
+                        <div
+                          key={d.fulfillment_id}
+                          className="p-4 sm:p-4.5 rounded-2xl bg-white/90 backdrop-blur-md border border-[#E2D7CB] shadow-sm hover:shadow-md transition-all space-y-2.5"
+                        >
+                          {/* Streamlined Header Bar */}
+                          <div className="flex items-center justify-between gap-3 pb-2 border-b border-[#E2D7CB]/60">
+                            <div className="flex items-center flex-wrap gap-2 text-xs">
+                              <span className="font-mono text-xs sm:text-sm font-black text-[#2C241D]">{d.order_id}</span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-blue-50 text-blue-700 uppercase border border-blue-200">
                                 {d.job_type.replace('_', ' ')}
                               </span>
-                            </div>
-                            <p className="text-xs font-bold text-[#7A6C5E] mt-1">
-                              Waybill / Tracking: <strong className="text-[#2C241D]">{d.tracking_number}</strong>
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {getDeliveryStatusBadge(
-                              d.delivery_status,
-                              Boolean(d.assigned_personnel && d.assigned_personnel !== 'Unassigned')
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Full Items list from DB */}
-                        {d.items && d.items.length > 0 && (
-                          <div className="p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]/70 space-y-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[11px] font-black uppercase tracking-wider text-[#7A6C5E] flex items-center gap-2">
-                                <Layers className="w-4 h-4 text-[#38A132]" />
-                                Consignment Cargo Items ({d.items.length} products)
-                              </span>
-                              <span className="text-xs font-black text-[#2C241D]">
-                                Order Total: ₹{d.total_amount.toLocaleString()}
+                              <span className="text-[#7A6C5E] text-[11px] hidden sm:inline">•</span>
+                              <span className="text-[11px] text-[#7A6C5E]">
+                                Waybill / Tracking: <strong className="font-mono text-[#2C241D]">{d.tracking_number}</strong>
                               </span>
                             </div>
+                            <div className="shrink-0">
+                              {getDeliveryStatusBadge(
+                                d.delivery_status,
+                                isAssigned
+                              )}
+                            </div>
+                          </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              {d.items.map((it) => (
-                                <div
-                                  key={it.item_id}
-                                  className="flex items-center gap-3 p-3 rounded-xl bg-white border border-[#E2D7CB]/70 shadow-2xs"
-                                >
-                                  {it.image_url ? (
-                                    <img
-                                      src={it.image_url}
-                                      alt={it.product_name}
-                                      className="w-12 h-12 rounded-xl object-cover border border-[#E2D7CB] flex-shrink-0"
-                                    />
-                                  ) : (
-                                    <div className="w-12 h-12 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center text-[#7A6C5E] flex-shrink-0">
-                                      <Layers className="w-6 h-6" />
-                                    </div>
-                                  )}
-                                  <div className="min-w-0 flex-1 text-xs">
-                                    <h5 className="font-extrabold text-[#2C241D] truncate">{it.product_name}</h5>
-                                    <div className="flex items-center justify-between text-[11px] text-[#7A6C5E] mt-1">
-                                      <span>Quantity: <strong className="text-[#2C241D] font-mono">{it.quantity}</strong></span>
-                                      <span className="font-bold text-[#38A132]">₹{it.unit_price.toLocaleString()}</span>
-                                    </div>
-                                    {it.dimensions && (
-                                      <p className="text-[10px] text-[#7A6C5E] mt-0.5 truncate">Dimensions: {it.dimensions}</p>
+                          {/* Compact Items strip */}
+                          {d.items && d.items.length > 0 && (
+                            <div className="p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]/70 space-y-1.5">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-extrabold text-[#7A6C5E] uppercase tracking-wider flex items-center gap-1.5 text-[10px]">
+                                  <Layers className="w-3.5 h-3.5 text-[#38A132]" />
+                                  Cargo Items ({d.items.length})
+                                </span>
+                                <span className="font-extrabold text-[#2C241D] text-xs">
+                                  Order Total: ₹{d.total_amount.toLocaleString()}
+                                </span>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                {d.items.map((it) => (
+                                  <div
+                                    key={it.item_id}
+                                    className="flex items-center gap-2.5 p-2 rounded-lg bg-white border border-[#E2D7CB]/60 shadow-2xs"
+                                  >
+                                    {it.image_url ? (
+                                      <img
+                                        src={it.image_url}
+                                        alt={it.product_name}
+                                        className="w-9 h-9 rounded-md object-cover border border-[#E2D7CB] shrink-0"
+                                      />
+                                    ) : (
+                                      <div className="w-9 h-9 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] flex items-center justify-center text-[#7A6C5E] shrink-0">
+                                        <Layers className="w-4 h-4" />
+                                      </div>
                                     )}
+                                    <div className="min-w-0 flex-1 text-xs">
+                                      <p className="font-bold text-[#2C241D] truncate leading-tight text-[11px]">{it.product_name}</p>
+                                      <div className="flex items-center justify-between text-[10px] text-[#7A6C5E] mt-0.5">
+                                        <span>Qty: <strong className="text-[#2C241D]">{it.quantity}</strong>{it.dimensions ? ` (${it.dimensions})` : ''}</span>
+                                        <span className="font-bold text-[#38A132]">₹{it.unit_price.toLocaleString()}</span>
+                                      </div>
+                                    </div>
                                   </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Compact 3-Column Info Strip */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                            {/* Destination */}
+                            <div className="p-2 sm:p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]/60 flex items-start gap-2">
+                              <div className="w-6 h-6 rounded-md bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0 mt-0.5 border border-emerald-200">
+                                <MapPin className="w-3 h-3" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[9px] uppercase font-bold text-[#7A6C5E] tracking-wider">Destination</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewingRouteDelivery(d)}
+                                    className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline flex items-center gap-0.5 cursor-pointer text-[10px]"
+                                    title="Open route map"
+                                  >
+                                    <Navigation className="w-2.5 h-2.5" />
+                                    <span>Route Map</span>
+                                  </button>
                                 </div>
-                              ))}
+                                <p className="font-bold text-[#2C241D] truncate leading-tight text-[11px] mt-0.5" title={d.destination_address}>
+                                  {d.destination_address}
+                                </p>
+                                <span className="text-[10px] text-[#7A6C5E]">Distance: <strong className="text-[#2C241D]">{d.distance_km} km</strong></span>
+                              </div>
+                            </div>
+
+                            {/* Recipient */}
+                            <div className="p-2 sm:p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]/60 flex items-start gap-2">
+                              <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-700 flex items-center justify-center shrink-0 mt-0.5 border border-blue-200">
+                                <User className="w-3 h-3" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className="text-[9px] uppercase font-bold text-[#7A6C5E] tracking-wider block">Recipient Contact</span>
+                                <p className="font-bold text-[#2C241D] truncate leading-tight text-[11px] mt-0.5">{d.customer_name}</p>
+                                <p className="text-[10px] text-[#7A6C5E] truncate">{d.customer_phone || 'Contact on file'}</p>
+                              </div>
+                            </div>
+
+                            {/* Assigned Driver */}
+                            <div className="p-2 sm:p-2.5 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB]/60 flex items-start gap-2">
+                              <div className="w-6 h-6 rounded-md bg-purple-50 text-purple-700 flex items-center justify-center shrink-0 mt-0.5 border border-purple-200">
+                                <Users className="w-3 h-3" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <span className="text-[9px] uppercase font-bold text-[#7A6C5E] tracking-wider block">Assigned Driver</span>
+                                <p className="font-bold text-[#2C241D] truncate leading-tight text-[11px] mt-0.5">
+                                  {typeof d.assigned_personnel === 'object' && d.assigned_personnel
+                                    ? d.assigned_personnel.name
+                                    : typeof d.assigned_personnel === 'string'
+                                    ? d.assigned_personnel
+                                    : 'Unassigned'}
+                                </p>
+                                <p className="text-[10px] text-[#7A6C5E] truncate">
+                                  {typeof d.assigned_personnel === 'object' && d.assigned_personnel?.phone
+                                    ? d.assigned_personnel.phone
+                                    : isAssigned ? 'Active Fleet Driver' : 'Pending allotment'}
+                                </p>
+                              </div>
                             </div>
                           </div>
-                        )}
 
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                          <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]/60 space-y-1">
-                            <p className="text-[10px] uppercase font-bold text-[#7A6C5E] flex items-center gap-1.5">
-                              <MapPin className="w-3.5 h-3.5 text-emerald-600" /> Destination
-                            </p>
-                            <p className="font-bold text-[#2C241D] leading-snug">{d.destination_address}</p>
-                            <p className="text-[11px] text-[#7A6C5E] pt-1 flex items-center justify-between">
-                              <span>Distance: <strong>{d.distance_km} km</strong></span>
+                          {d.delivery_notes && (
+                            <div className="p-2 rounded-lg bg-amber-50/70 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
+                              <strong className="shrink-0">Notes:</strong>
+                              <span className="truncate">{d.delivery_notes}</span>
+                            </div>
+                          )}
+
+                          {/* Compact Footer */}
+                          <div className="flex items-center justify-between pt-1 border-t border-[#E2D7CB]/50 text-xs">
+                            <span className="text-[10px] text-[#7A6C5E]">
+                              Dispatched: <strong className="text-[#2C241D]">{d.dispatched_at ? new Date(d.dispatched_at).toLocaleString() : 'Recent'}</strong>
+                            </span>
+                            <div className="flex items-center gap-1.5">
                               <button
-                                type="button"
-                                onClick={() => setViewingRouteDelivery(d)}
-                                className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline flex items-center gap-1 cursor-pointer bg-transparent border-0 p-0"
-                                title="Open driving route from shop hub to customer destination"
+                                onClick={() => handleOpenAssignModal(d)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                                  isAssigned
+                                    ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300'
+                                    : 'bg-[#F5ECE1] text-[#2C241D] hover:bg-[#E2D7CB]'
+                                }`}
+                                title={isAssigned ? 'Edit assigned driver' : 'Assign a driver to this delivery'}
                               >
-                                <Navigation className="w-3 h-3" />
-                                <span>Route Map</span>
+                                {isAssigned ? (
+                                  <>
+                                    <Edit3 className="w-3 h-3 text-amber-800" />
+                                    <span>Edit</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Truck className="w-3 h-3 text-[#7A6C5E]" />
+                                    <span>Assign Driver</span>
+                                  </>
+                                )}
                               </button>
-                            </p>
-                          </div>
-
-                          <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]/60 space-y-1">
-                            <p className="text-[10px] uppercase font-bold text-[#7A6C5E] flex items-center gap-1.5">
-                              <User className="w-3.5 h-3.5 text-blue-600" /> Recipient Contact
-                            </p>
-                            <p className="font-bold text-[#2C241D]">{d.customer_name}</p>
-                            <p className="text-[11px] text-[#7A6C5E]">{d.customer_phone || 'Contact on file'}</p>
-                          </div>
-
-                          <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]/60 space-y-1">
-                            <p className="text-[10px] uppercase font-bold text-[#7A6C5E] flex items-center gap-1.5">
-                              <Users className="w-3.5 h-3.5 text-purple-600" /> Assigned Personnel
-                            </p>
-                            <p className="font-bold text-[#2C241D]">
-                              {typeof d.assigned_personnel === 'object' && d.assigned_personnel
-                                ? d.assigned_personnel.name
-                                : typeof d.assigned_personnel === 'string'
-                                ? d.assigned_personnel
-                                : 'Unassigned'}
-                            </p>
-                            {typeof d.assigned_personnel === 'object' && d.assigned_personnel?.phone && (
-                              <p className="text-[11px] text-[#7A6C5E]">Phone: {d.assigned_personnel.phone}</p>
-                            )}
+                              <button
+                                onClick={() => {
+                                  setStatusModalDelivery(d);
+                                  setNewStatusValue(d.delivery_status || 'Dispatched');
+                                  setStatusNotes(d.delivery_notes || '');
+                                }}
+                                className="px-3 py-1 rounded-lg bg-[#38A132] text-white text-[11px] font-bold hover:bg-[#2F852A] shadow-xs shadow-[#38A132]/20 transition-all cursor-pointer"
+                              >
+                                Update Status
+                              </button>
+                            </div>
                           </div>
                         </div>
-
-                        {d.delivery_notes && (
-                          <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-xs text-amber-900">
-                            <strong>Latest Transit Notes:</strong> {d.delivery_notes}
-                          </div>
-                        )}
-
-                        <div className="flex items-center justify-between pt-2">
-                          <span className="text-[11px] text-[#7A6C5E]">
-                            Dispatched: {d.dispatched_at ? new Date(d.dispatched_at).toLocaleString() : 'Recent'}
-                          </span>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => {
-                                setAssignModalDelivery(d);
-                                setSelectedPersonnelId(
-                                  typeof d.assigned_personnel === 'object' && d.assigned_personnel
-                                    ? d.assigned_personnel.personnel_id
-                                    : ''
-                                );
-                              }}
-                              className="px-3 py-1.5 rounded-xl bg-[#F5ECE1] text-[#2C241D] text-xs font-bold hover:bg-[#E2D7CB] transition-all cursor-pointer"
-                            >
-                              Assign Driver
-                            </button>
-                            <button
-                              onClick={() => {
-                                setStatusModalDelivery(d);
-                                setNewStatusValue(d.delivery_status || 'Dispatched');
-                                setStatusNotes(d.delivery_notes || '');
-                              }}
-                              className="px-4 py-1.5 rounded-xl bg-[#38A132] text-white text-xs font-bold hover:bg-[#2F852A] shadow-md shadow-[#38A132]/20 transition-all cursor-pointer"
-                            >
-                              Update Status
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -1446,6 +1599,271 @@ export const CarrierDashboardPage: React.FC = () => {
             {/* ===================================================================== */}
             {activeTab === 'personnel' && (
               <div className="space-y-6 relative z-10 animate-fadeIn">
+                {/* PROVISION: CHOOSE A PERSONNEL & DISPLAY ALLOTTED & COMPLETED DELIVERIES (DISPLAYED ONLY ON BUTTON CLICK) */}
+                {showPersonnelInspector && (
+                  <div id="personnel-inspector-section" className="ultra-glass-card rounded-3xl p-5 sm:p-6 border-2 border-[#38A132]/40 shadow-2xl bg-white/95 space-y-5 animate-in fade-in duration-300">
+                    <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[#EFE7DE] pb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="p-2 rounded-xl bg-[#38A132]/10 text-[#38A132]">
+                            <Truck className="w-5 h-5" />
+                          </span>
+                          <h3 className="text-lg sm:text-xl font-extrabold text-[#2C241D] tracking-tight">
+                            Delivery Personnel Deliveries Inspector
+                          </h3>
+                        </div>
+                        <p className="text-xs text-[#7A6C5E] font-medium mt-1">
+                          Choose any delivery personnel or fleet driver to view all deliveries currently allotted to them and their completed shipments.
+                        </p>
+                      </div>
+
+                      {/* Choose a Personnel Dropdown Provision & Close button */}
+                      <div className="flex items-center gap-2.5 w-full lg:w-auto">
+                        <label className="text-xs font-black text-[#5C4E42] whitespace-nowrap">Choose Personnel:</label>
+                        <div className="relative flex-1 lg:w-72">
+                          <User className="w-4 h-4 text-[#38A132] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                          <select
+                            value={selectedInspectorPersonnelId || ''}
+                            onChange={(e) => setSelectedInspectorPersonnelId(Number(e.target.value))}
+                            className="w-full pl-9 pr-8 py-2.5 rounded-xl bg-[#FAF7F2] border-2 border-[#D5C6B4] font-extrabold text-xs text-[#2C241D] focus:outline-none focus:border-[#38A132] cursor-pointer appearance-none shadow-xs"
+                          >
+                            {personnelList.map((p) => (
+                              <option key={p.personnel_id} value={p.personnel_id}>
+                                {p.name} — {p.vehicle_type || 'Mini Truck'} ({p.status})
+                              </option>
+                            ))}
+                          </select>
+                          <ChevronDown className="w-4 h-4 text-[#7A6C5E] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowPersonnelInspector(false)}
+                          className="p-2.5 rounded-xl bg-[#FAF7F2] hover:bg-[#F0E6D8] border border-[#DECDB7] text-[#7A6C5E] hover:text-[#2C241D] transition-colors shrink-0 cursor-pointer"
+                          title="Close Inspector"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                  {selectedInspectorPersonnel ? (
+                    <div className="space-y-4">
+                      {/* Selected Personnel Info Banner */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB]">
+                        <div className="flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#38A132] to-emerald-400 text-white font-black text-base flex items-center justify-center shadow-md shrink-0">
+                            {selectedInspectorPersonnel.name.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-base font-black text-[#2C241D]">{selectedInspectorPersonnel.name}</h4>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                selectedInspectorPersonnel.status === 'ACTIVE'
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                  : 'bg-stone-100 text-stone-600 border border-stone-200'
+                              }`}>
+                                {selectedInspectorPersonnel.status}
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#38A132] font-bold mt-0.5">
+                              {selectedInspectorPersonnel.vehicle_type || 'Fleet Delivery Vehicle'} {selectedInspectorPersonnel.vehicle_reg ? `• ${selectedInspectorPersonnel.vehicle_reg}` : ''}
+                            </p>
+                            <div className="flex items-center gap-3 text-[11px] text-[#7A6C5E] font-medium mt-1 flex-wrap">
+                              <span>📞 {selectedInspectorPersonnel.phone}</span>
+                              {selectedInspectorPersonnel.email && <span>📧 {selectedInspectorPersonnel.email}</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Quick View Switcher Badges */}
+                        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => setPersonnelDeliveriesTab('allotted')}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                              personnelDeliveriesTab === 'allotted'
+                                ? 'bg-[#2C241D] text-white shadow-md'
+                                : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                            }`}
+                          >
+                            <Truck className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Currently Allotted Deliveries</span>
+                            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-black">
+                              {personnelDeliveriesSummary.allotted.length}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setPersonnelDeliveriesTab('completed')}
+                            className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+                              personnelDeliveriesTab === 'completed'
+                                ? 'bg-[#38A132] text-white shadow-md'
+                                : 'bg-white border border-[#E2D7CB] text-[#5C4E42] hover:bg-[#F3EDE5]'
+                            }`}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                            <span>Completed Deliveries</span>
+                            <span className="ml-1 px-1.5 py-0.2 rounded-full bg-white/30 text-white text-[10px] font-black">
+                              {personnelDeliveriesSummary.completed.length}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* SUB-VIEW 1: CURRENTLY ALLOTTED DELIVERIES */}
+                      {personnelDeliveriesTab === 'allotted' && (
+                        <div className="space-y-3 animate-fadeIn">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
+                              <span>Currently Allotted Shipments & Active Transits</span>
+                              <span className="text-[#38A132]">({personnelDeliveriesSummary.allotted.length})</span>
+                            </h4>
+                          </div>
+
+                          {personnelDeliveriesSummary.allotted.length === 0 ? (
+                            <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-1">
+                              <p className="text-xs font-black text-[#2C241D]">No deliveries currently allotted to {selectedInspectorPersonnel.name}</p>
+                              <p className="text-[11px] text-[#7A6C5E]">This driver is available for shipment allotment. Go to the Current Deliveries tab to allot orders.</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {personnelDeliveriesSummary.allotted.map((d) => (
+                                <div key={d.fulfillment_id || d.order_id} className="p-4 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-2.5 hover:border-[#38A132] transition-all">
+                                  <div className="flex items-center justify-between gap-2 border-b border-[#EFE7DE] pb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-mono font-extrabold text-[#38A132] bg-[#38A132]/10 px-2.5 py-0.5 rounded-lg border border-[#38A132]/20">
+                                        {d.order_id}
+                                      </span>
+                                      <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[#5C4E42]">
+                                        {d.job_type ? d.job_type.replace('_', ' ') : 'RETAIL ORDER'}
+                                      </span>
+                                    </div>
+                                    {getDeliveryStatusBadge(d.delivery_status, true)}
+                                  </div>
+
+                                  <div className="space-y-1 text-xs">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[#7A6C5E] font-medium">Tracking Number:</span>
+                                      <span className="font-mono font-extrabold text-[#2C241D]">{d.tracking_number}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[#7A6C5E] font-medium">Recipient Customer:</span>
+                                      <span className="font-extrabold text-[#2C241D]">{d.customer_name} {d.customer_phone ? `(${d.customer_phone})` : ''}</span>
+                                    </div>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span className="text-[#7A6C5E] font-medium shrink-0">Destination:</span>
+                                      <span className="font-bold text-[#2C241D] text-right truncate max-w-[220px]" title={d.destination_address}>
+                                        {d.destination_address}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between pt-2 border-t border-[#EFE7DE] text-[11px]">
+                                    <span className="text-[#7A6C5E]">
+                                      Distance: <strong className="text-[#2C241D]">{d.distance_km} km</strong>
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setViewingRouteDelivery(d)}
+                                        className="text-emerald-700 hover:text-emerald-900 font-bold hover:underline flex items-center gap-1 cursor-pointer text-[11px]"
+                                      >
+                                        <Navigation className="w-3 h-3" />
+                                        <span>Route Map</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setStatusModalDelivery(d);
+                                          setNewStatusValue(d.delivery_status || 'Dispatched');
+                                          setStatusNotes(d.delivery_notes || '');
+                                        }}
+                                        className="px-2.5 py-1 rounded-lg bg-[#38A132] text-white text-[11px] font-bold hover:bg-[#2F852A] shadow-xs cursor-pointer"
+                                      >
+                                        Update Status
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* SUB-VIEW 2: COMPLETED DELIVERIES */}
+                      {personnelDeliveriesTab === 'completed' && (
+                        <div className="space-y-3 animate-fadeIn">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-xs font-black text-[#5C4E42] uppercase tracking-wider flex items-center gap-1.5">
+                              <span>Completed Deliveries & Confirmed Drop-offs</span>
+                              <span className="text-[#38A132]">({personnelDeliveriesSummary.completed.length})</span>
+                            </h4>
+                          </div>
+
+                          {personnelDeliveriesSummary.completed.length === 0 ? (
+                            <div className="p-8 text-center bg-[#FAF7F2] rounded-2xl border border-dashed border-[#E2D7CB] space-y-1">
+                              <p className="text-xs font-black text-[#2C241D]">No completed deliveries logged yet for {selectedInspectorPersonnel.name}</p>
+                              <p className="text-[11px] text-[#7A6C5E]">When this driver completes deliveries and items are marked as Delivered, delivery records will appear here.</p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {personnelDeliveriesSummary.completed.map((d) => (
+                                <div key={d.fulfillment_id || d.order_id} className="p-4 rounded-2xl bg-white border border-emerald-200 shadow-xs space-y-2.5 hover:border-[#38A132] transition-all">
+                                  <div className="flex items-center justify-between gap-2 border-b border-emerald-100 pb-2">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-mono font-extrabold text-[#38A132] bg-[#38A132]/10 px-2.5 py-0.5 rounded-lg border border-[#38A132]/20">
+                                        {d.order_id}
+                                      </span>
+                                      <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-[#FAF7F2] border border-[#E2D7CB] text-[#5C4E42]">
+                                        {d.job_type ? d.job_type.replace('_', ' ') : 'RETAIL ORDER'}
+                                      </span>
+                                    </div>
+                                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-900 border border-emerald-300 flex items-center gap-1">
+                                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                      <span>Delivered ✓</span>
+                                    </span>
+                                  </div>
+
+                                  <div className="space-y-1 text-xs">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[#7A6C5E] font-medium">Tracking Number:</span>
+                                      <span className="font-mono font-extrabold text-[#2C241D]">{d.tracking_number}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-[#7A6C5E] font-medium">Delivered To:</span>
+                                      <span className="font-extrabold text-[#2C241D]">{d.customer_name}</span>
+                                    </div>
+                                    <div className="flex items-start justify-between gap-2">
+                                      <span className="text-[#7A6C5E] font-medium shrink-0">Address:</span>
+                                      <span className="font-bold text-[#2C241D] text-right truncate max-w-[220px]" title={d.destination_address}>
+                                        {d.destination_address}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center justify-between pt-2 border-t border-emerald-100 text-[11px]">
+                                    <span className="text-[#7A6C5E]">
+                                      Delivered on: <strong className="text-[#2C241D]">{d.delivered_at ? new Date(d.delivered_at).toLocaleDateString() : 'Recent'}</strong>
+                                    </span>
+                                    {d.transportation_charge && d.transportation_charge > 0 && (
+                                      <span className="font-extrabold text-[#38A132]">
+                                        Payout: ₹{d.transportation_charge.toLocaleString('en-IN')}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white/80 backdrop-blur-xl p-4 rounded-3xl border border-[#E2D7CB] shadow-sm">
                   <div className="relative flex-1 min-w-[240px]">
                     <Search className="w-4 h-4 text-[#7A6C5E] absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -1482,6 +1900,7 @@ export const CarrierDashboardPage: React.FC = () => {
                           vehicle_reg: '',
                           notes: ''
                         });
+                        setPersonnelModalError(null);
                         setIsAddPersonnelModalOpen(true);
                       }}
                       className="px-5 py-2.5 rounded-2xl bg-[#38A132] text-white text-xs font-black hover:bg-[#2E8B29] shadow-md shadow-[#38A132]/20 inline-flex items-center gap-2 cursor-pointer"
@@ -1543,6 +1962,34 @@ export const CarrierDashboardPage: React.FC = () => {
                           </p>
                         )}
 
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (showPersonnelInspector && selectedInspectorPersonnelId === p.personnel_id) {
+                              setShowPersonnelInspector(false);
+                            } else {
+                              setSelectedInspectorPersonnelId(p.personnel_id);
+                              setShowPersonnelInspector(true);
+                              setTimeout(() => {
+                                document.getElementById('personnel-inspector-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                              }, 60);
+                            }
+                          }}
+                          className={`w-full py-2 px-3 border font-black text-[11px] rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                            showPersonnelInspector && selectedInspectorPersonnelId === p.personnel_id
+                              ? 'bg-[#38A132] text-white border-[#38A132] shadow-sm'
+                              : 'bg-[#38A132]/10 hover:bg-[#38A132]/20 border-[#38A132]/40 text-[#38A132]'
+                          }`}
+                          title="Inspect deliveries allotted to and completed by this driver"
+                        >
+                          <Truck className={`w-3.5 h-3.5 ${showPersonnelInspector && selectedInspectorPersonnelId === p.personnel_id ? 'text-white' : 'text-[#38A132]'}`} />
+                          <span>
+                            {showPersonnelInspector && selectedInspectorPersonnelId === p.personnel_id
+                              ? 'Inspecting Deliveries (Click to Hide)'
+                              : 'View Deliveries (Allotted & Completed)'}
+                          </span>
+                        </button>
+
                         <div className="flex items-center justify-between pt-2 border-t border-[#E2D7CB]/60">
                           <button
                             onClick={() => handleTogglePersonnelStatus(p)}
@@ -1561,6 +2008,7 @@ export const CarrierDashboardPage: React.FC = () => {
                                 vehicle_reg: p.vehicle_reg || '',
                                 notes: p.notes || ''
                               });
+                              setPersonnelModalError(null);
                               setIsAddPersonnelModalOpen(true);
                             }}
                             className="px-3 py-1 rounded-xl bg-[#FAF7F2] hover:bg-[#E2D7CB] text-[#2C241D] text-xs font-extrabold transition-all cursor-pointer"
@@ -1815,96 +2263,7 @@ export const CarrierDashboardPage: React.FC = () => {
               </div>
             )}
 
-            {/* ===================================================================== */}
-            {/* TAB 6: SETTLEMENTS & PAYOUTS                                          */}
-            {/* ===================================================================== */}
-            {activeTab === 'settlements' && (
-              <div className="space-y-6 relative z-10 animate-fadeIn">
-                {/* Financial Summary */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="ultra-glass-card rounded-2xl p-5 border border-[#E2D7CB] shadow-sm">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Total Logistics Earnings</span>
-                    <p className="text-3xl font-black text-emerald-700 mt-1">₹{totalSettledEarnings.toFixed(2)}</p>
-                    <p className="text-[11px] text-emerald-700 mt-0.5">Dispatched fulfillment payouts</p>
-                  </div>
-                  <div className="ultra-glass-card rounded-2xl p-5 border border-[#E2D7CB] shadow-sm">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Contracted Payout Rate</span>
-                    <p className="text-3xl font-black text-[#2C241D] mt-1">
-                      ₹{carrierSummary?.active_agreement?.per_km_payout_rate ?? 15}/km
-                    </p>
-                    <p className="text-[11px] text-[#7A6C5E] mt-0.5">
-                      Base rate: ₹{carrierSummary?.active_agreement?.base_payout_rate ?? 100} / trip
-                    </p>
-                  </div>
-                  <div className="ultra-glass-card rounded-2xl p-5 border border-[#E2D7CB] shadow-sm">
-                    <span className="text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">Settled Shipments</span>
-                    <p className="text-3xl font-black text-blue-700 mt-1">{settlementsList.length}</p>
-                    <p className="text-[11px] text-blue-700 mt-0.5">Completed consignments ledger</p>
-                  </div>
-                </div>
 
-                {settlementsList.length === 0 ? (
-                  <div className="bg-white/80 backdrop-blur-xl p-16 text-center rounded-3xl border border-[#E2D7CB] shadow-lg space-y-3">
-                    <BadgeDollarSign className="w-10 h-10 text-[#7A6C5E]/40 mx-auto" />
-                    <p className="text-sm font-extrabold text-[#2C241D]">No payout settlements yet</p>
-                    <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto font-medium">
-                      As soon as your drivers complete assigned deliveries, earnings records and financial payout ledgers will automatically populate here.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="bg-white/80 backdrop-blur-xl rounded-3xl border border-[#E2D7CB] overflow-hidden shadow-lg">
-                    <div className="p-4 bg-[#FAF7F2] border-b border-[#E2D7CB] flex items-center justify-between">
-                      <span className="font-extrabold text-xs text-[#2C241D]">Consignment Payout Ledger</span>
-                      <span className="text-[11px] font-mono text-[#7A6C5E]">{settlementsList.length} Records</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
-                        <thead className="bg-[#FAF7F2]/60 border-b border-[#E2D7CB] text-[#7A6C5E] uppercase text-[10px] font-black tracking-wider">
-                          <tr>
-                            <th className="py-3.5 px-4">Settlement #</th>
-                            <th className="py-3.5 px-4">Order ID</th>
-                            <th className="py-3.5 px-4">Distance (km)</th>
-                            <th className="py-3.5 px-4">Carrier Payout</th>
-                            <th className="py-3.5 px-4">Status</th>
-                            <th className="py-3.5 px-4">Notes</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-[#E2D7CB]/60">
-                          {settlementsList.map((s) => (
-                            <tr key={s.settlement_id} className="hover:bg-[#FAF7F2]/60 transition-colors">
-                              <td className="py-3.5 px-4 font-mono font-bold text-[#2C241D]">
-                                SETT-RS-{s.settlement_id.toString().padStart(4, '0')}
-                              </td>
-                              <td className="py-3.5 px-4 font-mono font-bold text-blue-700">
-                                {s.order_id ? `ORD-RS-${s.order_id}` : 'Direct Fulfillment'}
-                              </td>
-                              <td className="py-3.5 px-4 font-bold text-[#2C241D]">
-                                {s.distance_km} km
-                              </td>
-                              <td className="py-3.5 px-4 font-black text-emerald-700 text-sm">
-                                ₹{s.carrier_payout.toFixed(2)}
-                              </td>
-                              <td className="py-3.5 px-4">
-                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                  s.settlement_status === 'PAID'
-                                    ? 'bg-emerald-100 text-emerald-800'
-                                    : 'bg-amber-100 text-amber-800'
-                                }`}>
-                                  {s.settlement_status}
-                                </span>
-                              </td>
-                              <td className="py-3.5 px-4 text-[#7A6C5E] text-[11px]">
-                                {s.notes || 'Standard Delivery Fulfillment'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* ===================================================================== */}
             {/* TAB 7: CARRIER AGREEMENTS                                             */}
@@ -2027,17 +2386,11 @@ export const CarrierDashboardPage: React.FC = () => {
                           {carrierSummary?.coverage_areas || 'Standard Operating Hub - Kerala State'}
                         </p>
                       </div>
-                      <div className="pt-2 border-t border-[#E2D7CB]/60 grid grid-cols-2 gap-2 text-[11px]">
-                        <div>
-                          <span className="text-[#7A6C5E] block">Delivery SLA Window:</span>
-                          <span className="font-bold text-[#2C241D]">24 to 48 Hours</span>
-                        </div>
-                        <div>
-                          <span className="text-[#7A6C5E] block">Agency Helpline:</span>
-                          <span className="font-bold text-[#38A132]">
-                            {carrierSummary?.contact_phone || currentUser?.phone || 'On file'}
-                          </span>
-                        </div>
+                      <div className="pt-2 border-t border-[#E2D7CB]/60 flex items-center justify-between text-[11px]">
+                        <span className="text-[#7A6C5E]">Agency Helpline:</span>
+                        <span className="font-bold text-[#38A132]">
+                          {carrierSummary?.contact_phone || currentUser?.phone || 'On file'}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -2198,8 +2551,7 @@ export const CarrierDashboardPage: React.FC = () => {
                   onClick={() => {
                     const d = statusModalDelivery;
                     setStatusModalDelivery(null);
-                    setAssignModalDelivery(d);
-                    setSelectedPersonnelId('');
+                    handleOpenAssignModal(d);
                   }}
                   className="w-full py-2 px-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-black text-xs transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
@@ -2284,8 +2636,16 @@ export const CarrierDashboardPage: React.FC = () => {
                   <Truck className="w-5 h-5 text-amber-800" />
                 </div>
                 <div>
-                  <h3 className="font-black text-base text-[#2C241D]">Assign Delivery Personnel</h3>
-                  <p className="text-[11px] font-bold text-amber-800">Fleet Dispatch & Driver Allotment</p>
+                  <h3 className="font-black text-base text-[#2C241D]">
+                    {assignModalDelivery.assigned_personnel && assignModalDelivery.assigned_personnel !== 'Unassigned'
+                      ? 'Edit Assigned Driver'
+                      : 'Assign Delivery Personnel'}
+                  </h3>
+                  <p className="text-[11px] font-bold text-amber-800">
+                    {assignModalDelivery.assigned_personnel && assignModalDelivery.assigned_personnel !== 'Unassigned'
+                      ? 'Reassign or Update Driver Allotment'
+                      : 'Fleet Dispatch & Driver Allotment'}
+                  </p>
                 </div>
               </div>
               <button
@@ -2401,7 +2761,13 @@ export const CarrierDashboardPage: React.FC = () => {
                   ) : (
                     <UserCheck className="w-4 h-4" />
                   )}
-                  <span>{isAssigningPersonnel ? 'Assigning...' : 'Confirm Driver Allotment'}</span>
+                  <span>
+                    {isAssigningPersonnel
+                      ? 'Saving...'
+                      : assignModalDelivery.assigned_personnel && assignModalDelivery.assigned_personnel !== 'Unassigned'
+                      ? 'Update Driver Allotment'
+                      : 'Confirm Driver Allotment'}
+                  </span>
                 </button>
               </div>
             </form>
@@ -2420,10 +2786,23 @@ export const CarrierDashboardPage: React.FC = () => {
                 </h3>
                 <p className="text-[11px] text-[#7A6C5E]">Carrier Agency Logistics Staff & Fleet Registration</p>
               </div>
-              <button onClick={() => setIsAddPersonnelModalOpen(false)} className="text-[#7A6C5E] hover:text-[#2C241D] cursor-pointer">
+              <button
+                onClick={() => {
+                  setIsAddPersonnelModalOpen(false);
+                  setPersonnelModalError(null);
+                }}
+                className="text-[#7A6C5E] hover:text-[#2C241D] cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {personnelModalError && (
+              <div className="p-3 bg-rose-50 border border-rose-300 rounded-xl text-xs font-semibold text-rose-800 flex items-start gap-2">
+                <span className="font-bold">⚠️</span>
+                <span>{personnelModalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSavePersonnelSubmit} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2433,7 +2812,10 @@ export const CarrierDashboardPage: React.FC = () => {
                     type="text"
                     required
                     value={personnelFormData.name}
-                    onChange={(e) => setPersonnelFormData({ ...personnelFormData, name: e.target.value })}
+                    onChange={(e) => {
+                      setPersonnelFormData({ ...personnelFormData, name: e.target.value });
+                      if (personnelModalError) setPersonnelModalError(null);
+                    }}
                     placeholder="e.g. Rajesh Nair"
                     className="w-full px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
                   />
@@ -2444,7 +2826,10 @@ export const CarrierDashboardPage: React.FC = () => {
                     type="tel"
                     required
                     value={personnelFormData.phone}
-                    onChange={(e) => setPersonnelFormData({ ...personnelFormData, phone: e.target.value })}
+                    onChange={(e) => {
+                      setPersonnelFormData({ ...personnelFormData, phone: e.target.value });
+                      if (personnelModalError) setPersonnelModalError(null);
+                    }}
                     placeholder="e.g. +91 9876543210"
                     className="w-full px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
                   />
@@ -2457,7 +2842,10 @@ export const CarrierDashboardPage: React.FC = () => {
                   <input
                     type="email"
                     value={personnelFormData.email}
-                    onChange={(e) => setPersonnelFormData({ ...personnelFormData, email: e.target.value })}
+                    onChange={(e) => {
+                      setPersonnelFormData({ ...personnelFormData, email: e.target.value });
+                      if (personnelModalError) setPersonnelModalError(null);
+                    }}
                     placeholder="e.g. rajesh@carrier.com"
                     className="w-full px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] focus:outline-none focus:border-[#38A132]"
                   />
@@ -2482,7 +2870,10 @@ export const CarrierDashboardPage: React.FC = () => {
                 <input
                   type="text"
                   value={personnelFormData.vehicle_reg}
-                  onChange={(e) => setPersonnelFormData({ ...personnelFormData, vehicle_reg: e.target.value })}
+                  onChange={(e) => {
+                    setPersonnelFormData({ ...personnelFormData, vehicle_reg: e.target.value });
+                    if (personnelModalError) setPersonnelModalError(null);
+                  }}
                   placeholder="e.g. KL-05-AB-1234"
                   className="w-full px-3 py-2 rounded-xl bg-[#FAF7F2] border border-[#E2D7CB] text-xs text-[#2C241D] font-mono font-bold focus:outline-none focus:border-[#38A132]"
                 />
@@ -2502,7 +2893,10 @@ export const CarrierDashboardPage: React.FC = () => {
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E2D7CB]/60">
                 <button
                   type="button"
-                  onClick={() => setIsAddPersonnelModalOpen(false)}
+                  onClick={() => {
+                    setIsAddPersonnelModalOpen(false);
+                    setPersonnelModalError(null);
+                  }}
                   className="px-4 py-2 rounded-xl bg-[#F5ECE1] text-[#2C241D] text-xs font-bold hover:bg-[#E2D7CB] cursor-pointer"
                 >
                   Cancel
@@ -2510,7 +2904,7 @@ export const CarrierDashboardPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={isSavingPersonnel}
-                  className="px-5 py-2 rounded-xl bg-[#38A132] text-white text-xs font-bold hover:bg-[#2F852A] shadow-md shadow-[#38A132]/20 flex items-center gap-1.5 cursor-pointer"
+                  className="px-5 py-2 rounded-xl bg-[#38A132] text-white text-xs font-bold hover:bg-[#2F852A] shadow-md shadow-[#38A132]/20 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isSavingPersonnel && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{editingPersonnel ? 'Update Personnel' : 'Add Personnel'}</span>

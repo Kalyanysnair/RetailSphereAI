@@ -37,8 +37,17 @@ import { openRazorpayCheckout } from '../../services/razorpay';
 import { validateAddressApi } from '../../services/api';
 import { addToCart, getCartItems } from '../../utils/cartStorage';
 import { getStoredRetailOrders, cancelStoredRetailOrder, fetchRetailOrdersFromDB } from '../../utils/retailOrdersStorage';
+import { CustomerReworkTicketCard } from './CustomerReworkTicketCard';
+import { CustomerReworkRequestModal } from './CustomerReworkRequestModal';
+import {
+  fetchReworkTicketsApi,
+  customerDecisionReworkTicketApi,
+  payReworkTicketApi,
+  ReworkTicketItem
+} from '../../services/api_quality';
 import { parseReferenceImages } from '../../utils/imageUtils';
 import { formatStatusLabel, getStatusBadgeColor } from '../../utils/statusUtils';
+import { formatToIST } from '../../utils/timeUtils';
 import { 
   fetchOrderFulfillmentDetails,
   fetchOrderHistoryAPI,
@@ -214,11 +223,82 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   const [newMessageText, setNewMessageText] = useState('');
   const [sendingMessage, setSendingMessage] = useState(false);
 
+  // Customer Quality Rework State
+  const [customerReworkTickets, setCustomerReworkTickets] = useState<ReworkTicketItem[]>([]);
+  const [reworkModalItem, setReworkModalItem] = useState<{
+    orderType: 'CUSTOM' | 'FABRICATION';
+    orderId: number;
+    itemTitle: string;
+    approvedSpecs: string;
+  } | null>(null);
+  const [actionLoadingTicketId, setActionLoadingTicketId] = useState<number | null>(null);
+
+  const handleCustomerApproveReworkQuotation = async (ticketId: number) => {
+    setActionLoadingTicketId(ticketId);
+    try {
+      await customerDecisionReworkTicketApi(ticketId, true);
+      setToastMessage('Quotation approved! Please proceed with payment if applicable.');
+      setTimeout(() => setToastMessage(null), 3500);
+      loadOrdersFromDB();
+    } catch (err: any) {
+      alert(err.message || 'Failed to approve quotation');
+    } finally {
+      setActionLoadingTicketId(null);
+    }
+  };
+
+  const handleCustomerDeclineReworkQuotation = async (ticketId: number) => {
+    if (!window.confirm('Are you sure you want to decline this rework quotation?')) return;
+    setActionLoadingTicketId(ticketId);
+    try {
+      await customerDecisionReworkTicketApi(ticketId, false);
+      setToastMessage('Quotation declined. Our support team will follow up.');
+      setTimeout(() => setToastMessage(null), 3500);
+      loadOrdersFromDB();
+    } catch (err: any) {
+      alert(err.message || 'Failed to decline quotation');
+    } finally {
+      setActionLoadingTicketId(null);
+    }
+  };
+
+  const handleCustomerPayRework = async (ticket: ReworkTicketItem) => {
+    const ticketId = ticket.id || ticket.rework_id;
+    setActionLoadingTicketId(ticketId);
+    try {
+      await openRazorpayCheckout({
+        amount: Math.round((ticket.additional_cost || 0) * 100),
+        name: 'RetailSphere Rework & Modification',
+        description: `Rework Ticket #${ticket.ticket_code}`,
+        prefill: {
+          name: userName,
+          email: userEmail || 'customer@retailsphere.com',
+        },
+        onSuccess: async (paymentId) => {
+          try {
+            await payReworkTicketApi(ticketId, paymentId);
+            setToastMessage('Rework payment received! Workshop artisan assigned.');
+            setTimeout(() => setToastMessage(null), 3500);
+            loadOrdersFromDB();
+          } catch (e) {
+            console.warn('Rework payment record error:', e);
+          }
+        },
+        onFailure: (err) => console.warn('Payment failed:', err)
+      });
+    } catch (err: any) {
+      alert(err.message || 'Payment failed');
+    } finally {
+      setActionLoadingTicketId(null);
+    }
+  };
+
   // Return Request Modal State
   const [returnModalOrder, setReturnModalOrder] = useState<OrderData | null>(null);
   const [returnReason, setReturnReason] = useState('Damaged');
   const [returnDescription, setReturnDescription] = useState('');
   const [returnPhotoUrl, setReturnPhotoUrl] = useState('');
+  const [returnErrorMsg, setReturnErrorMsg] = useState<string | null>(null);
   const [submittingReturn, setSubmittingReturn] = useState(false);
 
   const handleOpenTrackingModal = async (ord: OrderData) => {
@@ -237,7 +317,8 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!messagingModalOrder || !newMessageText.trim()) return;
+    const cleanMsg = newMessageText.trim();
+    if (!messagingModalOrder || !cleanMsg) return;
 
     setSendingMessage(true);
     const userId = userObj?.user_id || userObj?.id || userObj?.customer_id;
@@ -245,7 +326,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
       messagingModalOrder.orderId,
       'Customer',
       userName,
-      newMessageText.trim(),
+      cleanMsg,
       userId
     );
     if (ok) {
@@ -259,25 +340,46 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
   const handleSubmitReturnRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!returnModalOrder) return;
+    setReturnErrorMsg(null);
+
+    const descTrim = returnDescription.trim();
+    if (!descTrim || descTrim.length < 10) {
+      setReturnErrorMsg('Please describe the return reason with at least 10 characters.');
+      return;
+    }
+
+    const photoTrim = returnPhotoUrl.trim();
+    if (photoTrim && !/^https?:\/\//i.test(photoTrim) && !photoTrim.startsWith('data:image/')) {
+      setReturnErrorMsg('Please enter a valid image URL starting with http:// or https://');
+      return;
+    }
 
     const custId = userObj?.customer_id || userObj?.user_id || 1;
     setSubmittingReturn(true);
-    const res = await submitReturnRequestAPI(
-      returnModalOrder.orderId,
-      custId,
-      returnReason,
-      returnDescription,
-      returnPhotoUrl
-    );
+    try {
+      const res = await submitReturnRequestAPI(
+        returnModalOrder.orderId,
+        custId,
+        returnReason,
+        descTrim,
+        photoTrim
+      );
 
-    setSubmittingReturn(false);
-    if (res.success) {
-      setReturnModalOrder(null);
-      setToastMessage('Return request submitted! Our team will review it shortly.');
-      setTimeout(() => setToastMessage(null), 3500);
-      loadOrdersFromDB();
-    } else {
-      alert(res.message || 'Could not submit return request.');
+      if (res.success) {
+        setReturnModalOrder(null);
+        setReturnDescription('');
+        setReturnPhotoUrl('');
+        setReturnErrorMsg(null);
+        setToastMessage('Return request submitted! Our team will review it shortly.');
+        setTimeout(() => setToastMessage(null), 3500);
+        loadOrdersFromDB();
+      } else {
+        setReturnErrorMsg(res.message || 'Could not submit return request. Please try again.');
+      }
+    } catch (err: any) {
+      setReturnErrorMsg(err?.message || 'Failed to submit return request.');
+    } finally {
+      setSubmittingReturn(false);
     }
   };
 
@@ -593,6 +695,14 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
         }
       } catch (e) {
         console.warn('Materials load err:', e);
+      }
+
+      // 6. Quality Rework Tickets
+      try {
+        const reworkTickets = await fetchReworkTicketsApi();
+        setCustomerReworkTickets(Array.isArray(reworkTickets) ? reworkTickets : []);
+      } catch (e) {
+        console.warn('Customer rework tickets load err:', e);
       }
 
       const isExcludedId = (idVal: any) => {
@@ -1288,6 +1398,25 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                               </button>
                             )}
 
+                            {/* Customer Quality Rework Request Button for Custom Build Orders */}
+                            {order.isCustomBuild && (
+                              <button
+                                onClick={() => {
+                                  setReworkModalItem({
+                                    orderType: 'CUSTOM',
+                                    orderId: Number(order.numericId || order.orderId),
+                                    itemTitle: order.items[0]?.name || 'Custom Build Furniture',
+                                    approvedSpecs: order.items[0]?.specifications || 'Approved Custom Workshop Specifications'
+                                  });
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-300 text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                                title="Report quality defect or request specification rework"
+                              >
+                                <Wrench className="w-3.5 h-3.5 text-amber-600" />
+                                <span>QC Rework / Issue</span>
+                              </button>
+                            )}
+
                             {/* Cancel Button */}
                             {order.status !== 'Cancelled' && order.status !== 'Completed' && order.status !== 'Delivered' && order.status !== 'Dispatched' && order.status !== 'Out for Delivery' && (
                               <button
@@ -1300,6 +1429,26 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                             )}
                           </div>
                         </div>
+
+                        {/* Active Quality Rework Ticket Banner for Custom Order */}
+                        {(() => {
+                          const customTicket = customerReworkTickets.find(
+                            (t) => (t.custom_order_id && t.custom_order_id === Number(order.numericId)) ||
+                                   (t.order_type === 'Custom' && t.order_id === Number(order.numericId))
+                          );
+                          if (!customTicket) return null;
+                          return (
+                            <div className="pt-1 pb-2">
+                              <CustomerReworkTicketCard
+                                ticket={customTicket}
+                                onApproveQuotation={handleCustomerApproveReworkQuotation}
+                                onDeclineQuotation={handleCustomerDeclineReworkQuotation}
+                                onPayQuotation={handleCustomerPayRework}
+                                actionLoading={actionLoadingTicketId === (customTicket.id || customTicket.rework_id)}
+                              />
+                            </div>
+                          );
+                        })()}
 
                         {/* MAIN CONTENT ROW: Product Items List vs Payment Breakdown Box */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -1474,6 +1623,23 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                               </button>
                             )}
 
+                            {/* Customer Quality Rework Request Button for Fabrication */}
+                            <button
+                              onClick={() => {
+                                setReworkModalItem({
+                                  orderType: 'FABRICATION',
+                                  orderId: f.fabrication_id,
+                                  itemTitle: `${f.service_type} (${f.dimensions})`,
+                                  approvedSpecs: `Dimensions: ${f.dimensions} • Material: ${f.material_source} • Quantity: ${f.quantity} sheet(s) • Requirements: ${f.requirements || 'N/A'}`
+                                });
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 border border-amber-300 text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer"
+                              title="Report fabrication defect or request specification rework"
+                            >
+                              <Wrench className="w-3.5 h-3.5 text-amber-600" />
+                              <span>QC Rework / Issue</span>
+                            </button>
+
                             {/* Cancel Button */}
                             {f.status !== 'Cancelled' && f.status !== 'Completed' && f.payment_status !== 'Paid' && (
                               <button
@@ -1486,6 +1652,26 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                             )}
                           </div>
                         </div>
+
+                        {/* Active Quality Rework Ticket Banner for Fabrication Request */}
+                        {(() => {
+                          const fabTicket = customerReworkTickets.find(
+                            (t) => (t.fabrication_id && t.fabrication_id === f.fabrication_id) ||
+                                   (t.order_type === 'Fabrication' && t.order_id === f.fabrication_id)
+                          );
+                          if (!fabTicket) return null;
+                          return (
+                            <div className="pt-1 pb-2">
+                              <CustomerReworkTicketCard
+                                ticket={fabTicket}
+                                onApproveQuotation={handleCustomerApproveReworkQuotation}
+                                onDeclineQuotation={handleCustomerDeclineReworkQuotation}
+                                onPayQuotation={handleCustomerPayRework}
+                                actionLoading={actionLoadingTicketId === (fabTicket.id || fabTicket.rework_id)}
+                              />
+                            </div>
+                          );
+                        })()}
 
                         {/* Content Row */}
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
@@ -1984,7 +2170,7 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                         <div key={h.history_id} className="bg-[#FAF7F2] p-2.5 rounded-xl border border-[#E2D7CB] text-[11px] font-semibold space-y-0.5">
                           <div className="flex justify-between text-[#2C241D]">
                             <span className="font-extrabold text-[#38A132]">{h.new_status}</span>
-                            <span className="text-[10px] text-[#7A6C5E]">{h.changed_at ? new Date(h.changed_at).toLocaleString() : ''}</span>
+                            <span className="text-[10px] text-[#7A6C5E]">{formatToIST(h.changed_at)}</span>
                           </div>
                           {h.note && <p className="text-[#6E6458] text-[10px] italic">{h.note}</p>}
                         </div>
@@ -2066,6 +2252,23 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
         </div>
       )}
 
+      {/* CUSTOMER QUALITY REWORK REQUEST MODAL */}
+      {reworkModalItem && (
+        <CustomerReworkRequestModal
+          isOpen={!!reworkModalItem}
+          onClose={() => setReworkModalItem(null)}
+          orderType={reworkModalItem.orderType}
+          orderId={reworkModalItem.orderId}
+          itemTitle={reworkModalItem.itemTitle}
+          approvedSpecs={reworkModalItem.approvedSpecs}
+          onSubmitted={() => {
+            setToastMessage('Rework request submitted! Our quality engineering team is auditing the issue against approved specifications.');
+            setTimeout(() => setToastMessage(null), 4000);
+            loadOrdersFromDB();
+          }}
+        />
+      )}
+
       {/* RETURN REQUEST MODAL */}
       {returnModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
@@ -2082,6 +2285,13 @@ export const MyOrdersPage: React.FC<MyOrdersPageProps> = ({ hideHeader = false }
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {returnErrorMsg && (
+              <div className="p-3 text-xs text-rose-800 bg-rose-50 border border-rose-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{returnErrorMsg}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmitReturnRequest} className="space-y-4 text-xs font-semibold">
               <div>

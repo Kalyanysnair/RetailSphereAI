@@ -102,14 +102,16 @@ export const CustomizationModal: React.FC<CustomizationModalProps> = ({ product,
         notes.trim() || 'Floor plan customization request',
         validRefImages || undefined
       );
-    } catch (err) {
+
+      setSubmitted(true);
+      setTimeout(() => {
+        setSubmitted(false);
+        onClose();
+      }, 2200);
+    } catch (err: any) {
       console.error('Error submitting order:', err);
+      setErrorMsg(err?.message || 'Failed to submit customization request. Please check your connection and login status.');
     }
-    setSubmitted(true);
-    setTimeout(() => {
-      setSubmitted(false);
-      onClose();
-    }, 2200);
   };
 
   return (

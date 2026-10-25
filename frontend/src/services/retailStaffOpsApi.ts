@@ -98,12 +98,14 @@ export async function fetchRequestInbox(
   categoryFilter: string = 'ALL',
   statusFilter: string = 'ALL',
   staffId?: number,
-  unassignedOnly?: boolean
+  unassignedOnly?: boolean,
+  includeImages: boolean = false
 ): Promise<RequestInboxItem[]> {
   try {
     const params: Record<string, string> = {
       category_filter: categoryFilter,
       status_filter: statusFilter,
+      include_images: includeImages ? 'true' : 'false'
     };
     if (staffId) params['staff_id'] = String(staffId);
     if (unassignedOnly) params['unassigned_only'] = 'true';
@@ -117,6 +119,22 @@ export async function fetchRequestInbox(
     console.warn('Error fetching request inbox:', err);
   }
   return [];
+}
+
+// 2a. Fetch On-Demand Request Item Image (lazy loaded when staff opens detail modal)
+export async function fetchRequestInboxItemImage(
+  requestType: string,
+  requestId: number
+): Promise<{ reference_image: string; drawing_image: string }> {
+  try {
+    const res = await fetch(`/api/retail-staff/request-inbox/item-image?type=${encodeURIComponent(requestType)}&id=${requestId}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('Error fetching item image:', err);
+  }
+  return { reference_image: '', drawing_image: '' };
 }
 
 // 2b. Fetch Retail Staff Workload Recommendations

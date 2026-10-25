@@ -356,13 +356,20 @@ def update_carrier_delivery_status(
     if payload.notes:
         fulfillment.delivery_notes = payload.notes.strip()
 
+    if fulfillment.order:
+        fulfillment.order.order_status = new_st
+
     if new_st.lower() == "delivered":
         fulfillment.delivered_at = datetime.utcnow()
-        if fulfillment.order:
-            fulfillment.order.order_status = "Delivered"
         if fulfillment.fabrication_request:
             if fulfillment.job_type == "FABRICATION_PICKUP":
-                fulfillment.fabrication_request.status = "IN_PRODUCTION"
+                fulfillment.fabrication_request.status = "MATERIAL_DELIVERED_AT_HUB"
+                if fulfillment.fabrication_request.customer_material_id:
+                    c_mat = db.query(models.CustomerMaterial).filter(
+                        models.CustomerMaterial.material_id == fulfillment.fabrication_request.customer_material_id
+                    ).first()
+                    if c_mat:
+                        c_mat.status = "DELIVERED_AT_HUB"
             elif fulfillment.job_type == "FABRICATION_RETURN":
                 fulfillment.fabrication_request.status = "COMPLETED"
 

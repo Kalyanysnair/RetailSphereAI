@@ -2,8 +2,8 @@ from typing import Optional, List
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy.orm import Session, joinedload, defer
+from sqlalchemy import or_, text
 from app import models
 from app.database import get_db
 
@@ -21,59 +21,61 @@ def notify_user(db: Session, user_id: int, title: str, message: str):
 
 
 # 1. GET /api/retail-staff/dashboard/summary
-# 1. GET /api/retail-staff/dashboard/summary
+# Cache for retail staff dashboard summary (TTL: 15 seconds)
+_retail_summary_cache = {"data": None, "timestamp": 0.0}
+
 @router.get("/dashboard/summary")
 def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
-    # 1. Ready-made orders counts
-    all_readymade = db.query(models.ReadymadeOrder).all()
-    to_pack = 0
-    ready_to_dispatch = 0
-    out_for_delivery = 0
-    new_orders = len(all_readymade)  # Total Ready-made Purchases in DB
+    import time
+    now_ts = time.time()
+    if _retail_summary_cache["data"] and (now_ts - _retail_summary_cache["timestamp"] < 15):
+        return _retail_summary_cache["data"]
 
-    for o in all_readymade:
-        st = (o.order_status or "").strip().lower()
-        if st in ["order placed", "payment confirmed", "order confirmed", "pending", "paid", "paid & placed", "processing"]:
-            to_pack += 1
-        elif st in ["packed", "ready to dispatch", "ready_to_dispatch"]:
-            ready_to_dispatch += 1
-        elif st in ["dispatched", "out for delivery", "out_for_delivery", "in transit", "shipped"]:
-            out_for_delivery += 1
+    # 1. Consolidated scalar counts in a single network roundtrip to Neon (instead of 8 separate roundtrips)
+    counts = db.execute(text("""
+        SELECT
+          (SELECT COUNT(*) FROM tbl_readymade_order WHERE LOWER(order_status) IN ('order placed', 'payment confirmed', 'order confirmed', 'pending', 'paid', 'paid & placed', 'processing')) as to_pack,
+          (SELECT COUNT(*) FROM tbl_readymade_order WHERE LOWER(order_status) IN ('packed', 'ready to dispatch', 'ready_to_dispatch')) as ready_to_dispatch,
+          (SELECT COUNT(*) FROM tbl_readymade_order WHERE LOWER(order_status) IN ('dispatched', 'out for delivery', 'out_for_delivery', 'in transit', 'shipped')) as out_for_delivery,
+          (SELECT COUNT(*) FROM tbl_readymade_order) as total_readymade,
+          (SELECT COUNT(*) FROM tbl_order_return) as returns_count,
+          (SELECT COUNT(*) FROM tbl_custom_order WHERE custom_order_id NOT IN (103, 102, 13, 28, 101, 14, 40)) as new_customizations,
+          (SELECT COUNT(*) FROM tbl_fabrication_request) as new_fabrications,
+          (SELECT COUNT(*) FROM tbl_service_request) as new_services,
+          (SELECT COUNT(*) FROM tbl_custom_order WHERE (review_status IN ('NEW', 'UNDER_REVIEW') OR review_status IS NULL) AND custom_order_id NOT IN (103, 102, 13, 28, 101, 14, 40)) as pending_custom_reviews,
+          (SELECT COUNT(*) FROM tbl_fabrication_request WHERE review_status IN ('NEW', 'UNDER_REVIEW') OR review_status IS NULL) as pending_fab_reviews,
+          (SELECT COUNT(*) FROM tbl_service_request WHERE review_status IN ('NEW', 'UNDER_REVIEW') OR review_status IS NULL) as pending_srv_reviews
+    """)).mappings().one()
 
-    # Return requests count from DB
-    returns_count = db.query(models.OrderReturn).count()
+    to_pack = counts["to_pack"]
+    ready_to_dispatch = counts["ready_to_dispatch"]
+    out_for_delivery = counts["out_for_delivery"]
+    new_orders = counts["total_readymade"]
+    returns_count = counts["returns_count"]
+    new_customizations = counts["new_customizations"]
+    new_fabrications = counts["new_fabrications"]
+    new_services = counts["new_services"]
 
-    # 2. Request Inbox counts from DB
-    customizations_query = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
-    new_customizations = customizations_query.count()
-
-    fabrication_query = db.query(models.FabricationRequest)
-    new_fabrications = fabrication_query.count()
-
-    services_query = db.query(models.ServiceRequest)
-    new_services = services_query.count()
-
-    # Count items needing initial review or active coordination
-    pending_reviews = (
-        customizations_query.filter(or_(models.CustomOrder.review_status.in_(["NEW", "UNDER_REVIEW"]), models.CustomOrder.review_status.is_(None))).count() +
-        fabrication_query.filter(or_(models.FabricationRequest.review_status.in_(["NEW", "UNDER_REVIEW"]), models.FabricationRequest.review_status.is_(None))).count() +
-        services_query.filter(or_(models.ServiceRequest.review_status.in_(["NEW", "UNDER_REVIEW"]), models.ServiceRequest.review_status.is_(None))).count()
-    )
+    pending_reviews = counts["pending_custom_reviews"] + counts["pending_fab_reviews"] + counts["pending_srv_reviews"]
     if pending_reviews == 0 and (new_customizations + new_fabrications + new_services) > 0:
         pending_reviews = new_customizations + new_fabrications + new_services
 
-    # 3. Priority Action Items (Real DB Items needing staff attention)
+    # 2. Priority items & Recent Activity (Limit 6 to avoid full table transfers)
+    latest_orders = (
+        db.query(models.ReadymadeOrder)
+        .options(joinedload(models.ReadymadeOrder.customer).joinedload(models.Customer.user))
+        .order_by(models.ReadymadeOrder.order_id.desc())
+        .limit(6)
+        .all()
+    )
+
     priority_items = []
-    
-    # Priority Ready-made Orders (Packed or To Pack)
-    for o in all_readymade:
+    recent_activity = []
+
+    for o in latest_orders:
         st = (o.order_status or "").strip()
         st_lower = st.lower()
-        cust_name = o.customer_name
-        if not cust_name and o.customer_id:
-            c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
-            if c and c.user:
-                cust_name = c.user.full_name
+        cust_name = o.customer_name or (o.customer.user.full_name if o.customer and o.customer.user else None)
 
         if st_lower in ["packed", "ready to dispatch"]:
             priority_items.append({
@@ -96,8 +98,33 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
                 "action": "Complete 5-pt Packing"
             })
 
-    # Priority Customizations
-    for c in customizations_query.limit(4).all():
+        recent_activity.append({
+            "time": o.order_date.isoformat() if o.order_date else None,
+            "text": f"New Store Order RET-{o.order_id:06d} placed by {cust_name or 'Valued Customer'}",
+            "category": "Retail Order"
+        })
+
+    # Custom Orders (top 6 latest, deferring multi-megabyte base64 reference_image & specs)
+    latest_customs = (
+        db.query(models.CustomOrder)
+        .options(
+            defer(models.CustomOrder.reference_image),
+            defer(models.CustomOrder.design_description),
+            joinedload(models.CustomOrder.customer).joinedload(models.Customer.user)
+        )
+        .filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
+        .order_by(models.CustomOrder.order_date.desc())
+        .limit(6)
+        .all()
+    )
+    for c in latest_customs:
+        cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
+        recent_activity.append({
+            "time": c.order_date.isoformat() if c.order_date else None,
+            "text": f"Customization request CUS-{c.custom_order_id:04d} ({c.furniture_type}) submitted by {cust_name}",
+            "category": "Customization"
+        })
+    for c in latest_customs[:4]:
         cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
         priority_items.append({
             "id": f"CUS-{c.custom_order_id:04d}",
@@ -109,8 +136,27 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "action": "Review Specs & Pricing" if c.review_status in ["NEW", "UNDER_REVIEW", None] else "Staff Coordination"
         })
 
-    # Priority Fabrications
-    for f in fabrication_query.limit(4).all():
+    # Fabrication Requests (top 6 latest, deferring drawing_image and cutting_layout)
+    latest_fabs = (
+        db.query(models.FabricationRequest)
+        .options(
+            defer(models.FabricationRequest.drawing_image),
+            defer(models.FabricationRequest.cutting_layout),
+            defer(models.FabricationRequest.requirements),
+            joinedload(models.FabricationRequest.customer).joinedload(models.Customer.user)
+        )
+        .order_by(models.FabricationRequest.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    for f in latest_fabs:
+        cust_name = f.customer.user.full_name if f.customer and f.customer.user else "Customer"
+        recent_activity.append({
+            "time": f.created_at.isoformat() if f.created_at else None,
+            "text": f"Wood fabrication request FAB-{f.fabrication_id:04d} ({f.service_type}) submitted by {cust_name}",
+            "category": "Fabrication"
+        })
+    for f in latest_fabs[:4]:
         cust_name = f.customer.user.full_name if f.customer and f.customer.user else "Customer"
         priority_items.append({
             "id": f"FAB-{f.fabrication_id:04d}",
@@ -122,8 +168,26 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "action": "Technical Sizing & Quote"
         })
 
-    # Priority Services
-    for s in services_query.limit(4).all():
+    # Service Requests (top 6 latest, deferring photos)
+    latest_srvs = (
+        db.query(models.ServiceRequest)
+        .options(
+            defer(models.ServiceRequest.photos),
+            defer(models.ServiceRequest.description),
+            joinedload(models.ServiceRequest.customer).joinedload(models.Customer.user)
+        )
+        .order_by(models.ServiceRequest.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    for s in latest_srvs:
+        cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
+        recent_activity.append({
+            "time": s.created_at.isoformat() if s.created_at else None,
+            "text": f"On-site service booking SRV-{s.service_id:04d} ({s.service_category}) submitted by {cust_name}",
+            "category": "On-Site Service"
+        })
+    for s in latest_srvs[:4]:
         cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
         priority_items.append({
             "id": f"SRV-{s.service_id:04d}",
@@ -135,57 +199,10 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
             "action": "Coordinate Carpenter Visit"
         })
 
-    # 4. Recent Activity (Live log from all real customer operations in DB)
-    recent_activity = []
-    
-    # Store Orders
-    latest_orders = db.query(models.ReadymadeOrder).order_by(models.ReadymadeOrder.order_date.desc()).all()
-    for o in latest_orders:
-        cust_n = o.customer_name
-        if not cust_n and o.customer_id:
-            c = db.query(models.Customer).filter(models.Customer.customer_id == o.customer_id).first()
-            if c and c.user:
-                cust_n = c.user.full_name
-        recent_activity.append({
-            "time": o.order_date.isoformat() if o.order_date else None,
-            "text": f"New Store Order RET-{o.order_id:06d} placed by {cust_n or 'Valued Customer'}",
-            "category": "Retail Order"
-        })
-
-    # Custom Orders
-    latest_customs = db.query(models.CustomOrder).order_by(models.CustomOrder.order_date.desc()).all()
-    for c in latest_customs:
-        cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
-        recent_activity.append({
-            "time": c.order_date.isoformat() if c.order_date else None,
-            "text": f"Customization request CUS-{c.custom_order_id:04d} ({c.furniture_type}) submitted by {cust_name}",
-            "category": "Customization"
-        })
-
-    # Fabrication Requests
-    latest_fabs = db.query(models.FabricationRequest).order_by(models.FabricationRequest.created_at.desc()).all()
-    for f in latest_fabs:
-        cust_name = f.customer.user.full_name if f.customer and f.customer.user else "Customer"
-        recent_activity.append({
-            "time": f.created_at.isoformat() if f.created_at else None,
-            "text": f"Wood fabrication request FAB-{f.fabrication_id:04d} ({f.service_type}) submitted by {cust_name}",
-            "category": "Fabrication"
-        })
-
-    # Service Requests
-    latest_srvs = db.query(models.ServiceRequest).order_by(models.ServiceRequest.created_at.desc()).all()
-    for s in latest_srvs:
-        cust_name = s.customer.user.full_name if s.customer and s.customer.user else "Customer"
-        recent_activity.append({
-            "time": s.created_at.isoformat() if s.created_at else None,
-            "text": f"On-site service booking SRV-{s.service_id:04d} ({s.service_category}) submitted by {cust_name}",
-            "category": "On-Site Service"
-        })
-
     # Sort recent activity by timestamp descending
     recent_activity.sort(key=lambda x: x["time"] or "", reverse=True)
 
-    return {
+    result_data = {
         "today": {
             "new_orders": new_orders,
             "pending_reviews": pending_reviews,
@@ -203,6 +220,10 @@ def get_retail_staff_dashboard_summary(db: Session = Depends(get_db)):
         "recent_activity": recent_activity[:15]
     }
 
+    _retail_summary_cache["data"] = result_data
+    _retail_summary_cache["timestamp"] = now_ts
+    return result_data
+
 
 # 2. GET /api/retail-staff/request-inbox
 @router.get("/request-inbox")
@@ -211,31 +232,36 @@ def get_unified_request_inbox(
     status_filter: Optional[str] = "ALL",    # ALL, NEW, UNDER_REVIEW, MORE_INFO_REQUESTED, APPROVED, REJECTED
     staff_id: Optional[int] = None,          # Filter by specific assigned Retail Staff member
     unassigned_only: Optional[bool] = False, # Filter unassigned requests
+    include_images: Optional[bool] = False,  # Defer heavy base64 images by default for ultra-fast table rendering
     db: Session = Depends(get_db)
 ):
     items = []
 
+    # Pre-fetch all user names into an in-memory dictionary to eliminate N+1 queries
+    users_map = {u.user_id: u.full_name for u in db.query(models.User.user_id, models.User.full_name).all()}
     def get_staff_name(u_id):
         if not u_id:
             return "Unassigned"
-        st = db.query(models.User).filter(models.User.user_id == u_id).first()
-        return st.full_name if st else "Unassigned"
+        return users_map.get(u_id, "Unassigned")
 
     # 1. Customization Requests
     if category_filter.upper() in ["ALL", "CUSTOMIZATION"]:
-        q_cust = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
+        q_cust_opts = [joinedload(models.CustomOrder.customer).joinedload(models.Customer.user)]
+        if not include_images:
+            q_cust_opts.append(defer(models.CustomOrder.reference_image))
+
+        q_cust = db.query(models.CustomOrder).options(*q_cust_opts).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
         if status_filter.upper() != "ALL":
             if status_filter.upper() == "MORE_INFORMATION":
                 q_cust = q_cust.filter(models.CustomOrder.review_status == "MORE_INFO_REQUESTED")
             else:
                 q_cust = q_cust.filter(models.CustomOrder.review_status == status_filter.upper())
         
-        # Return all customization requests matching status filter
-
         customs = q_cust.order_by(models.CustomOrder.order_date.desc()).all()
         for c in customs:
             cust_name = c.customer.user.full_name if c.customer and c.customer.user else "Customer"
             cust_email = c.customer.user.email if c.customer and c.customer.user else ""
+            img_val = c.reference_image if include_images else None
             items.append({
                 "request_id": f"CUS-{c.custom_order_id:04d}",
                 "numeric_id": c.custom_order_id,
@@ -247,7 +273,8 @@ def get_unified_request_inbox(
                 "dimensions": c.dimensions,
                 "color": c.color,
                 "description": c.design_description,
-                "reference_image": c.reference_image,
+                "reference_image": img_val,
+                "has_reference_image": bool(img_val) if include_images else True,
                 "estimated_price": float(c.estimated_price) if c.estimated_price else None,
                 "date": c.order_date.isoformat() if c.order_date else None,
                 "review_status": c.review_status or "NEW",
@@ -260,7 +287,12 @@ def get_unified_request_inbox(
 
     # 2. Fabrication Requests
     if category_filter.upper() in ["ALL", "FABRICATION"]:
-        q_fab = db.query(models.FabricationRequest)
+        q_fab_opts = [joinedload(models.FabricationRequest.customer).joinedload(models.Customer.user)]
+        if not include_images:
+            q_fab_opts.append(defer(models.FabricationRequest.drawing_image))
+            q_fab_opts.append(defer(models.FabricationRequest.cutting_layout))
+
+        q_fab = db.query(models.FabricationRequest).options(*q_fab_opts)
         if status_filter.upper() != "ALL":
             if status_filter.upper() == "MORE_INFORMATION":
                 q_fab = q_fab.filter(models.FabricationRequest.review_status == "MORE_INFO_REQUESTED")
@@ -271,6 +303,7 @@ def get_unified_request_inbox(
         for f in fabs:
             cust_name = f.customer.user.full_name if f.customer and f.customer.user else "Customer"
             cust_email = f.customer.user.email if f.customer and f.customer.user else ""
+            img_val = f.drawing_image if include_images else None
             items.append({
                 "request_id": f"FAB-{f.fabrication_id:04d}",
                 "numeric_id": f.fabrication_id,
@@ -282,7 +315,8 @@ def get_unified_request_inbox(
                 "dimensions": f.dimensions,
                 "quantity": f.quantity,
                 "description": f.requirements,
-                "reference_image": f.drawing_image,
+                "reference_image": img_val,
+                "has_reference_image": bool(img_val) if include_images else True,
                 "estimated_price": float(f.estimated_price) if f.estimated_price else None,
                 "date": f.created_at.isoformat() if f.created_at else None,
                 "review_status": f.review_status or "NEW",
@@ -295,7 +329,11 @@ def get_unified_request_inbox(
 
     # 3. On-Site Service Requests
     if category_filter.upper() in ["ALL", "ON-SITE SERVICES", "SERVICES"]:
-        q_srv = db.query(models.ServiceRequest)
+        q_srv_opts = [joinedload(models.ServiceRequest.customer).joinedload(models.Customer.user)]
+        if not include_images:
+            q_srv_opts.append(defer(models.ServiceRequest.photos))
+
+        q_srv = db.query(models.ServiceRequest).options(*q_srv_opts)
         if status_filter.upper() != "ALL":
             if status_filter.upper() == "MORE_INFORMATION":
                 q_srv = q_srv.filter(models.ServiceRequest.review_status == "MORE_INFO_REQUESTED")
@@ -319,6 +357,9 @@ def get_unified_request_inbox(
                 "pincode": s.pincode,
                 "preferred_date": s.preferred_date.isoformat() if s.preferred_date else None,
                 "preferred_time": s.preferred_time,
+                "reference_image": s.photos if include_images else None,
+                "has_reference_image": bool(s.photos),
+                "estimated_price": float(s.estimated_price) if s.estimated_price else None,
                 "date": s.created_at.isoformat() if s.created_at else None,
                 "review_status": s.review_status or "NEW",
                 "order_status": s.status,
@@ -331,6 +372,22 @@ def get_unified_request_inbox(
     # Sort all combined items by date descending
     items.sort(key=lambda x: x["date"] or "", reverse=True)
     return items
+
+
+# 2b. GET /api/retail-staff/request-inbox/item-image: High-speed on-demand image loader for review modal
+@router.get("/request-inbox/item-image")
+def get_request_inbox_item_image(type: str, id: int, db: Session = Depends(get_db)):
+    t = type.upper().strip()
+    if t in ["CUSTOMIZATION", "CUSTOM"]:
+        c = db.query(models.CustomOrder.reference_image).filter(models.CustomOrder.custom_order_id == id).first()
+        return {"reference_image": c[0] if c else None}
+    elif t in ["FABRICATION", "FAB"]:
+        f = db.query(models.FabricationRequest.drawing_image).filter(models.FabricationRequest.fabrication_id == id).first()
+        return {"reference_image": f[0] if f else None}
+    elif t in ["ON-SITE SERVICES", "SERVICES", "SERVICE"]:
+        s = db.query(models.ServiceRequest.photos).filter(models.ServiceRequest.service_id == id).first()
+        return {"reference_image": s[0] if s else None}
+    return {"reference_image": None}
 
 
 # Payloads for Review Actions

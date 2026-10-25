@@ -225,23 +225,49 @@ def update_task_status(
     if not fulfillment:
         raise HTTPException(status_code=404, detail="Assigned delivery task not found.")
 
+    new_st = payload.status.strip()
+
+    # Handle driver rejection / decline of assigned delivery
+    if new_st.lower() in ["rejected", "declined", "rejected by driver"]:
+        fulfillment.assigned_personnel_id = None
+        fulfillment.delivery_status = "Pending Reassignment"
+        fulfillment.fulfillment_status = "Pending Reassignment"
+        rejection_reason = payload.notes.strip() if payload.notes else "No specific reason provided"
+        fulfillment.delivery_notes = f"Declined by driver {personnel.name}: {rejection_reason}"
+        if fulfillment.order:
+            fulfillment.order.order_status = "Pending Reassignment"
+        db.commit()
+        db.refresh(fulfillment)
+        return {
+            "success": True,
+            "message": "Delivery assignment declined and returned to dispatch for reassignment.",
+            "fulfillment_id": fulfillment.fulfillment_id,
+            "delivery_status": fulfillment.delivery_status
+        }
+
     # Assign to personnel if not already assigned
     if not fulfillment.assigned_personnel_id:
         fulfillment.assigned_personnel_id = personnel.personnel_id
 
-    new_st = payload.status.strip()
     fulfillment.delivery_status = new_st
     fulfillment.fulfillment_status = new_st
     if payload.notes:
         fulfillment.delivery_notes = payload.notes.strip()
 
+    if fulfillment.order:
+        fulfillment.order.order_status = new_st
+
     if new_st.lower() == "delivered":
         fulfillment.delivered_at = datetime.utcnow()
-        if fulfillment.order:
-            fulfillment.order.order_status = "Delivered"
         if fulfillment.fabrication_request:
             if fulfillment.job_type == "FABRICATION_PICKUP":
-                fulfillment.fabrication_request.status = "IN_PRODUCTION"
+                fulfillment.fabrication_request.status = "MATERIAL_DELIVERED_AT_HUB"
+                if fulfillment.fabrication_request.customer_material_id:
+                    c_mat = db.query(models.CustomerMaterial).filter(
+                        models.CustomerMaterial.material_id == fulfillment.fabrication_request.customer_material_id
+                    ).first()
+                    if c_mat:
+                        c_mat.status = "DELIVERED_AT_HUB"
             elif fulfillment.job_type == "FABRICATION_RETURN":
                 fulfillment.fabrication_request.status = "COMPLETED"
 

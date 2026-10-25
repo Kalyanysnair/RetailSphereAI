@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, Plus, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { CustomSelect } from '../common/CustomSelect';
 
 export interface RawMaterialData {
   material_id: number;
@@ -91,31 +92,72 @@ export const RawMaterialsTab: React.FC = () => {
     fetchRawMaterials();
   }, []);
 
+  const [addError, setAddError] = useState<string | null>(null);
+  const [isSubmittingMaterial, setIsSubmittingMaterial] = useState(false);
+
   const handleAddRawMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    setAddError(null);
 
+    const nameTrim = name.trim();
+    if (!nameTrim || nameTrim.length < 2) {
+      setAddError('Please enter a valid material name (min. 2 characters).');
+      return;
+    }
+
+    const qtyNum = parseFloat(qty);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      setAddError('Available quantity must be a positive number greater than 0.');
+      return;
+    }
+
+    const unitTrim = unit.trim();
+    if (!unitTrim) {
+      setAddError('Unit of measurement is required (e.g. CFT, sq ft, Units, Kg).');
+      return;
+    }
+
+    const reorderNum = parseFloat(reorder);
+    if (isNaN(reorderNum) || reorderNum < 0) {
+      setAddError('Reorder threshold must be 0 or a positive number.');
+      return;
+    }
+
+    const costNum = parseFloat(unitCost);
+    if (isNaN(costNum) || costNum <= 0) {
+      setAddError('Unit cost must be a positive price value greater than ₹0.');
+      return;
+    }
+
+    setIsSubmittingMaterial(true);
     try {
       const res = await fetch('/api/materials/raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           category,
-          material_name: name.trim(),
-          available_qty: parseFloat(qty) || 0,
-          unit,
-          reorder_level: parseFloat(reorder) || 10,
-          unit_cost: parseFloat(unitCost) || 0,
+          material_name: nameTrim,
+          available_qty: qtyNum,
+          unit: unitTrim,
+          reorder_level: reorderNum,
+          unit_cost: costNum,
         }),
       });
 
       if (res.ok) {
         setIsAddModalOpen(false);
         setName('');
+        setAddError(null);
         fetchRawMaterials();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setAddError(errJson.detail || 'Failed to add raw material. Please check inputs.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to add raw material:', e);
+      setAddError(e?.message || 'Connection error while saving raw material.');
+    } finally {
+      setIsSubmittingMaterial(false);
     }
   };
 
@@ -190,16 +232,26 @@ export const RawMaterialsTab: React.FC = () => {
         <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-[#FAF7F2] border-2 border-[#D9CEBF] rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <h3 className="text-base font-extrabold text-[#2C241D]">Add Raw Manufacturing Material</h3>
+            {addError && (
+              <div className="p-3 text-xs text-rose-800 bg-rose-50 border border-rose-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{addError}</span>
+              </div>
+            )}
             <form onSubmit={handleAddRawMaterial} className="space-y-3 text-xs font-semibold">
               <div>
                 <label className="block text-[#7A6C5E] mb-1">Category</label>
-                <select value={category} onChange={(e) => setCategory(e.target.value)} className="w-full p-3 rounded-xl border border-[#E2D7CB] bg-white font-bold">
-                  <option value="Timber">Timber Wood</option>
-                  <option value="Plywood">Plywood / MDF</option>
-                  <option value="Fabric">Upholstery Fabric</option>
-                  <option value="Foam">High-Density PU Foam</option>
-                  <option value="Hardware">Hardware & Fasteners</option>
-                </select>
+                <CustomSelect
+                  value={category}
+                  onChange={(val) => setCategory(val)}
+                  options={[
+                    { value: 'Timber', label: 'Timber Wood' },
+                    { value: 'Plywood', label: 'Plywood / MDF' },
+                    { value: 'Fabric', label: 'Upholstery Fabric' },
+                    { value: 'Foam', label: 'High-Density PU Foam' },
+                    { value: 'Hardware', label: 'Hardware & Fasteners' },
+                  ]}
+                />
               </div>
               <div>
                 <label className="block text-[#7A6C5E] mb-1">Material Name</label>

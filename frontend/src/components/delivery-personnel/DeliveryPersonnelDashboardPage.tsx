@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { clearUserSession } from '../../utils/sessionUtils';
+import { formatToIST } from '../../utils/timeUtils';
 import {
   Truck,
   History,
@@ -23,7 +24,17 @@ import {
   AlertTriangle,
   Car,
   ShieldCheck,
-  ExternalLink
+  ExternalLink,
+  Calendar,
+  MessageSquare,
+  XCircle,
+  Send,
+  RefreshCw,
+  FileText,
+  AlertCircle,
+  Inbox,
+  Eye,
+  HelpCircle
 } from 'lucide-react';
 
 import {
@@ -39,13 +50,17 @@ import {
 } from '../../services/api_delivery_personnel';
 
 import { getCurrentUser, updateUserProfile, changePasswordUser } from '../../services/api';
+import { validatePhoneNumber } from '../auth/SignupForm';
+import { applyWorkerLeave, fetchMyLeaveApplications, WorkerLeaveItem } from '../../services/api_leave';
+import { getStaffQueries, addStaffQuery, StaffQuery } from '../../utils/staffQueriesStorage';
+import { getMessagesForUser, markAdminMessageRead, AdminMessage } from '../../utils/adminMessagesStorage';
 import DeliveryRouteMap from '../common/DeliveryRouteMap';
 
 export const DeliveryPersonnelDashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   // Active Tab - Only essential distinct pages
-  const [activeTab, setActiveTab] = useState<'active_tasks' | 'completed_tasks' | 'vehicle_info' | 'carrier_info'>('active_tasks');
+  const [activeTab, setActiveTab] = useState<'active_tasks' | 'completed_tasks' | 'vehicle_info' | 'carrier_info' | 'leave_application' | 'messages'>('active_tasks');
 
   // Loading & Notice states
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -90,6 +105,35 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
   const [completionNotes, setCompletionNotes] = useState<string>('Delivered successfully to recipient.');
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
 
+  // Delivery Rejection Modal States
+  const [rejectingTask, setRejectingTask] = useState<DeliveryPersonnelTask | null>(null);
+  const [rejectionCategory, setRejectionCategory] = useState<string>('Vehicle Breakdown / Mechanical Failure');
+  const [rejectionNotes, setRejectionNotes] = useState<string>('');
+  const [isSubmittingRejection, setIsSubmittingRejection] = useState<boolean>(false);
+  const [rejectionError, setRejectionError] = useState<string | null>(null);
+
+  // Delivery History Receipt Detail Modal (Space-saving compact detail view, NO MAP)
+  const [selectedHistoryTask, setSelectedHistoryTask] = useState<DeliveryPersonnelTask | null>(null);
+
+  // Leave Application States
+  const [leavesList, setLeavesList] = useState<WorkerLeaveItem[]>([]);
+  const [leaveType, setLeaveType] = useState<string>('Casual Leave');
+  const [leaveStartDate, setLeaveStartDate] = useState<string>('');
+  const [leaveEndDate, setLeaveEndDate] = useState<string>('');
+  const [leaveReason, setLeaveReason] = useState<string>('');
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState<boolean>(false);
+  const [leaveNotice, setLeaveNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Messaging & Dispatch Support States
+  const [messagesTab, setMessagesTab] = useState<'helpdesk' | 'broadcasts'>('helpdesk');
+  const [driverQueries, setDriverQueries] = useState<StaffQuery[]>([]);
+  const [queryCategory, setQueryCategory] = useState<'Email Change Request' | 'Role & Access Permission' | 'General Query'>('General Query');
+  const [querySubject, setQuerySubject] = useState<string>('');
+  const [queryMessage, setQueryMessage] = useState<string>('');
+  const [isSubmittingQuery, setIsSubmittingQuery] = useState<boolean>(false);
+  const [queryFormNotice, setQueryFormNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [broadcastMessages, setBroadcastMessages] = useState<AdminMessage[]>([]);
+
   // Profile Form States
   const [profilePhone, setProfilePhone] = useState<string>('');
   const [newPassword, setNewPassword] = useState<string>('');
@@ -123,11 +167,140 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
       if (summaryRes) setSummary(summaryRes);
       setTasks(tasksRes);
       setEmailRequests(emailReqRes);
+      setLoading(false);
+      loadLeavesData();
+      loadDriverMessages();
     } catch (err: any) {
       console.error('Failed to load driver dashboard:', err);
       setErrorNotice(err.message || 'Failed to load assigned tasks. Please verify your session.');
-    } finally {
       setLoading(false);
+    }
+  };
+
+  const loadLeavesData = async () => {
+    try {
+      const leaves = await fetchMyLeaveApplications();
+      setLeavesList(leaves);
+    } catch (err) {
+      console.error('Error fetching leaves:', err);
+    }
+  };
+
+  const loadDriverMessages = () => {
+    const userEmail = currentUser?.email || summary?.email || '';
+    const userName = currentUser?.full_name || summary?.name || '';
+    const allQueries = getStaffQueries();
+    const myQueries = allQueries.filter((q) =>
+      (userEmail && q.staffEmail && q.staffEmail.toLowerCase() === userEmail.toLowerCase()) ||
+      (userName && q.staffName && q.staffName.toLowerCase() === userName.toLowerCase())
+    );
+    setDriverQueries(myQueries);
+
+    const broadcast = getMessagesForUser(userEmail || 'driver@retailsphere.ai', 'Delivery Personnel');
+    setBroadcastMessages(broadcast);
+  };
+
+  // Decline / Reject Delivery Assignment
+  const handleConfirmRejection = async () => {
+    if (!rejectingTask) return;
+    setRejectionError(null);
+    const trimmed = rejectionNotes.trim();
+    if (!trimmed || trimmed.length < 5) {
+      setRejectionError('Please provide an operational explanation (at least 5 characters) for declining this run.');
+      return;
+    }
+
+    setIsSubmittingRejection(true);
+    try {
+      await updatePersonnelTaskStatus(
+        rejectingTask.fulfillment_id,
+        'Rejected',
+        `${rejectionCategory}: ${trimmed}`
+      );
+      setSuccessNotice(`Consignment #${rejectingTask.order_id} declined and returned to dispatch for reassignment.`);
+      setRejectingTask(null);
+      setRejectionNotes('');
+      setTimeout(() => setSuccessNotice(null), 5000);
+      await loadData();
+    } catch (err: any) {
+      setRejectionError(err.message || 'Failed to decline assignment.');
+    } finally {
+      setIsSubmittingRejection(false);
+    }
+  };
+
+  // Submit Leave Application
+  const handleApplyLeaveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLeaveNotice(null);
+    if (!leaveStartDate || !leaveEndDate) {
+      setLeaveNotice({ type: 'error', text: 'Please specify both start date and end date.' });
+      return;
+    }
+    if (new Date(leaveEndDate) < new Date(leaveStartDate)) {
+      setLeaveNotice({ type: 'error', text: 'Leave end date cannot be earlier than start date.' });
+      return;
+    }
+    const trimmed = leaveReason.trim();
+    if (!trimmed || trimmed.length < 5) {
+      setLeaveNotice({ type: 'error', text: 'Please provide a reason with at least 5 characters.' });
+      return;
+    }
+
+    setIsSubmittingLeave(true);
+    try {
+      const newLeave = await applyWorkerLeave({
+        leave_type: leaveType,
+        start_date: leaveStartDate,
+        end_date: leaveEndDate,
+        reason: trimmed
+      });
+      setLeavesList((prev) => [newLeave, ...prev]);
+      setLeaveNotice({ type: 'success', text: `Time-off application for ${leaveType} submitted successfully!` });
+      setLeaveStartDate('');
+      setLeaveEndDate('');
+      setLeaveReason('');
+      setTimeout(() => setLeaveNotice(null), 5000);
+    } catch (err: any) {
+      setLeaveNotice({ type: 'error', text: err.message || 'Failed to submit leave application.' });
+    } finally {
+      setIsSubmittingLeave(false);
+    }
+  };
+
+  // Submit Query to Dispatch
+  const handleSendQuerySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setQueryFormNotice(null);
+    const sub = querySubject.trim();
+    const msg = queryMessage.trim();
+    if (!sub || sub.length < 3) {
+      setQueryFormNotice({ type: 'error', text: 'Please enter a query subject (at least 3 characters).' });
+      return;
+    }
+    if (!msg || msg.length < 5) {
+      setQueryFormNotice({ type: 'error', text: 'Please provide detailed message notes (at least 5 characters).' });
+      return;
+    }
+
+    setIsSubmittingQuery(true);
+    try {
+      const newQ = addStaffQuery({
+        staffName: summary?.name || currentUser?.full_name || 'Delivery Personnel',
+        staffEmail: summary?.email || currentUser?.email || 'driver@retailsphere.ai',
+        category: queryCategory,
+        subject: sub,
+        message: msg
+      });
+      setDriverQueries((prev) => [newQ, ...prev]);
+      setQueryFormNotice({ type: 'success', text: 'Inquiry submitted to dispatch desk successfully!' });
+      setQuerySubject('');
+      setQueryMessage('');
+      setTimeout(() => setQueryFormNotice(null), 5000);
+    } catch (err: any) {
+      setQueryFormNotice({ type: 'error', text: err.message || 'Failed to submit inquiry.' });
+    } finally {
+      setIsSubmittingQuery(false);
     }
   };
 
@@ -135,13 +308,19 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
     e.preventDefault();
     setEmailRequestMsg(null);
     const target = requestedNewEmail.trim().toLowerCase();
-    if (!target || !target.includes('@')) {
-      setEmailRequestMsg({ type: 'error', text: 'Please enter a valid email address.' });
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!target || !emailRegex.test(target)) {
+      setEmailRequestMsg({ type: 'error', text: 'Please enter a valid RFC-compliant email address (e.g. driver@domain.com).' });
       return;
     }
     const current = (summary?.email || currentUser?.email || '').trim().toLowerCase();
     if (target === current) {
-      setEmailRequestMsg({ type: 'error', text: 'New email cannot be identical to current email.' });
+      setEmailRequestMsg({ type: 'error', text: 'New email cannot be identical to your current email address.' });
+      return;
+    }
+    const reasonTrim = emailChangeReason.trim();
+    if (!reasonTrim || reasonTrim.length < 5) {
+      setEmailRequestMsg({ type: 'error', text: 'Please provide a reason for the email update (min. 5 characters).' });
       return;
     }
 
@@ -149,7 +328,7 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
     try {
       const res = await submitEmailChangeRequest({
         requested_email: target,
-        reason: emailChangeReason.trim() || 'Driver requested updated login email.'
+        reason: reasonTrim
       });
       setEmailRequestMsg({ type: 'success', text: res.message || 'Request submitted for Carrier approval.' });
       setRequestedNewEmail('');
@@ -166,6 +345,19 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
+    const handleQueriesUpdate = () => loadDriverMessages();
+    const handleMessagesUpdate = () => loadDriverMessages();
+    const handleLeavesUpdate = () => loadLeavesData();
+
+    window.addEventListener('staff-queries-updated', handleQueriesUpdate);
+    window.addEventListener('admin-messages-updated', handleMessagesUpdate);
+    window.addEventListener('leave-requests-updated', handleLeavesUpdate);
+
+    return () => {
+      window.removeEventListener('staff-queries-updated', handleQueriesUpdate);
+      window.removeEventListener('admin-messages-updated', handleMessagesUpdate);
+      window.removeEventListener('leave-requests-updated', handleLeavesUpdate);
+    };
   }, []);
 
   // Status helper checkers
@@ -237,12 +429,18 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
   // Complete Delivery
   const handleCompleteDeliverySubmit = async () => {
     if (!completingTask) return;
+    const trimmedNotes = completionNotes.trim();
+    if (!trimmedNotes || trimmedNotes.length < 3) {
+      setErrorNotice('Please provide delivery completion remarks (at least 3 characters).');
+      return;
+    }
+
     setIsSubmittingCompletion(true);
     try {
       await updatePersonnelTaskStatus(
         completingTask.fulfillment_id,
         'Delivered',
-        completionNotes.trim() || 'Delivered to recipient.'
+        trimmedNotes
       );
       setSuccessNotice(`Shipment #${completingTask.order_id} successfully marked as Delivered!`);
       setCompletingTask(null);
@@ -267,6 +465,14 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
       }
       if (newPassword !== confirmPassword) {
         setProfileMessage({ type: 'error', text: 'New password and confirmation do not match.' });
+        return;
+      }
+    }
+
+    if (profilePhone.trim()) {
+      const phoneErr = validatePhoneNumber(profilePhone);
+      if (phoneErr) {
+        setProfileMessage({ type: 'error', text: phoneErr });
         return;
       }
     }
@@ -310,7 +516,7 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
   const activeCount = activeTasksList.length;
   const completedCount = completedTasksList.length;
 
-  // Clean Sidebar Navigation (No redundant pages, No count badges)
+  // Clean Sidebar Navigation
   const navCategories = [
     {
       title: 'Logistics Operations',
@@ -324,6 +530,13 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
       items: [
         { id: 'vehicle_info', label: 'Vehicle Fleet & Registry', icon: Car },
         { id: 'carrier_info', label: 'Carrier Partner Agency', icon: Building2 }
+      ]
+    },
+    {
+      title: 'Driver Services',
+      items: [
+        { id: 'leave_application', label: 'Time-Off & Leave', icon: Calendar },
+        { id: 'messages', label: 'Messages & Support', icon: MessageSquare }
       ]
     }
   ];
@@ -480,14 +693,14 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
         <div className="flex flex-wrap items-center justify-between text-[11px] text-[#7A6C5E] pt-1">
           <span>Expected: <strong className="text-[#2C241D]">{t.expected_delivery_date}</strong></span>
           {delivered && t.delivered_at && (
-            <span>Delivered At: <strong className="text-[#38A132]">{new Date(t.delivered_at).toLocaleString()}</strong></span>
+            <span>Delivered At: <strong className="text-[#38A132]">{formatToIST(t.delivered_at)}</strong></span>
           )}
         </div>
 
         {/* Action Buttons for Driver (if not delivered) */}
         {!delivered && !isHistoryView && (
           <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#E2D7CB]/60">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {!accepted && !inTransit && (
                 <button
                   onClick={() => handleAcknowledge(t)}
@@ -505,6 +718,23 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
                 >
                   <Truck className="w-3.5 h-3.5" />
                   <span>Start Delivery Run (Out for Delivery)</span>
+                </button>
+              )}
+
+              {!inTransit && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRejectingTask(t);
+                    setRejectionCategory('Vehicle Breakdown / Mechanical Failure');
+                    setRejectionNotes('');
+                    setRejectionError(null);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-extrabold border border-rose-200 transition-all cursor-pointer flex items-center gap-1.5"
+                  title="Decline this delivery assignment and return to dispatch"
+                >
+                  <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Decline Assignment</span>
                 </button>
               )}
             </div>
@@ -640,36 +870,7 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
           ))}
         </nav>
 
-        {/* Sidebar Footer: Partner Carrier & Vehicle Fleet Pill Card at Bottom Left */}
-        <div className={`transition-all duration-400 ease-[cubic-bezier(0.2,0.8,0.2,1)] overflow-hidden ${
-          isSidebarCollapsed ? 'max-h-0 opacity-0 pointer-events-none pt-0' : 'max-h-32 opacity-100 pt-2'
-        }`}>
-          <div className="p-2.5 rounded-xl bg-white/70 border border-[#E2D7CB] shadow-xs space-y-1.5 backdrop-blur-md">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-[#38A132]/10 border border-[#38A132]/20 flex items-center justify-center text-[#38A132] flex-shrink-0">
-                <Building2 className="w-3.5 h-3.5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="text-[8px] font-black uppercase text-[#8F745D] tracking-wider block font-mono">
-                  Carrier Agency
-                </span>
-                <p className="font-extrabold text-[11px] text-[#2C2016] truncate leading-tight">
-                  {summary?.carrier?.carrier_name || 'RetailSphere Logistics'}
-                </p>
-              </div>
-            </div>
 
-            <div className="flex items-center justify-between pt-1 border-t border-[#E2D7CB]/60 text-[10px]">
-              <span className="font-bold text-[#8F745D] flex items-center gap-1">
-                <Car className="w-3 h-3 text-[#38A132]" />
-                Plate:
-              </span>
-              <span className="font-mono font-bold text-[10px] text-[#2C2016] bg-[#FAF7F2] px-1.5 py-0.5 rounded border border-[#E2D7CB]">
-                {summary?.vehicle_reg || 'KL-05-AT-4482'}
-              </span>
-            </div>
-          </div>
-        </div>
       </aside>
 
       {/* MAIN RIGHT CONTENT AREA */}
@@ -733,16 +934,22 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
                   {activeTab === 'completed_tasks' && 'Fulfilled Deliveries History'}
                   {activeTab === 'vehicle_info' && 'Vehicle Fleet & Allocation Specs'}
                   {activeTab === 'carrier_info' && 'Carrier Agency & Logistics Partner'}
+                  {activeTab === 'leave_application' && 'Driver Time-Off & Leave Applications'}
+                  {activeTab === 'messages' && 'Driver Dispatch Helpdesk & Messages'}
                 </h1>
                 <p className="text-xs text-[#6B5C4D] mt-0.5 font-medium">
                   {activeTab === 'active_tasks' &&
                     'Review assigned consignments, cargo items, road transit route, and confirm recipient drop-offs.'}
                   {activeTab === 'completed_tasks' &&
-                    'Historical log of delivered orders with customer handover confirmations.'}
+                    'Historical record of fulfilled orders with verified handover documentation.'}
                   {activeTab === 'vehicle_info' &&
                     'Registered transport vehicle specifications, registration plate, and fleet status.'}
                   {activeTab === 'carrier_info' &&
                     'Partner agency contact lines, hub locations, and dispatch manager details.'}
+                  {activeTab === 'leave_application' &&
+                    'Submit absence requests for vehicle scheduling and driver shift coverage.'}
+                  {activeTab === 'messages' &&
+                    'Communicate directly with Carrier Dispatch and review official announcements.'}
                 </p>
               </div>
 
@@ -945,27 +1152,127 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
             {/* =================================================================== */}
             {activeTab === 'completed_tasks' && (
               <div className="space-y-4 relative z-10 animate-fadeIn">
-                <div className="flex items-center justify-between border-b border-[#E2D7CB]/60 pb-3">
+                {/* Header & Metric Strip */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E2D7CB]/60 pb-3">
                   <div>
-                    <h3 className="text-base font-black text-[#2C241D]">Fulfilled Deliveries History</h3>
-                    <p className="text-xs text-[#7A6C5E]">Record of successfully completed drop-offs and handovers</p>
+                    <h3 className="text-base font-black text-[#2C241D]">Fulfilled Deliveries Archive</h3>
+                    <p className="text-xs text-[#7A6C5E]">Compact log of verified doorstep completions and recipient handovers</p>
                   </div>
-                  <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold border border-emerald-300">
-                    {filterBySearch(completedTasksList).length} Fulfilled
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-black border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {filterBySearch(completedTasksList).length} Delivered
+                    </span>
+                    <span className="px-3 py-1 rounded-full bg-[#FAF7F2] text-[#5C4E42] text-xs font-black border border-[#E2D7CB]">
+                      Value: ₹{completedTasksList.reduce((acc, t) => acc + (t.total_amount || 0), 0).toLocaleString('en-IN')}
+                    </span>
+                  </div>
                 </div>
 
                 {filterBySearch(completedTasksList).length === 0 ? (
-                  <div className="bg-white/80 backdrop-blur-xl p-16 text-center rounded-3xl border border-[#E2D7CB] shadow-lg space-y-3">
+                  <div className="bg-white/80 backdrop-blur-xl p-12 text-center rounded-3xl border border-[#E2D7CB] shadow-sm space-y-3">
                     <History className="w-10 h-10 text-[#7A6C5E]/40 mx-auto" />
-                    <p className="text-sm font-extrabold text-[#2C241D]">No completed deliveries in history</p>
+                    <p className="text-sm font-extrabold text-[#2C241D]">No fulfilled deliveries matching query</p>
                     <p className="text-xs text-[#7A6C5E] max-w-sm mx-auto">
-                      Completed consignments will appear here once marked as delivered.
+                      Completed consignments will appear here once marked as delivered to recipient.
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 gap-4">
-                    {filterBySearch(completedTasksList).map((t) => renderShipmentCard(t, true))}
+                  <div className="space-y-3">
+                    {/* Desktop & Tablet Compact Table */}
+                    <div className="hidden md:block overflow-hidden rounded-2xl border border-[#E2D7CB] bg-white shadow-sm">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-[#FAF7F2] border-b border-[#E2D7CB] text-[10px] font-black uppercase tracking-wider text-[#7A6C5E]">
+                          <tr>
+                            <th className="py-3 px-4">Waybill / Order</th>
+                            <th className="py-3 px-4">Recipient & Destination</th>
+                            <th className="py-3 px-4">Cargo Items</th>
+                            <th className="py-3 px-4">Delivered Time</th>
+                            <th className="py-3 px-4">Handover Remarks</th>
+                            <th className="py-3 px-4 text-center">Status</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#EFE7DE] font-semibold text-[#2C241D]">
+                          {filterBySearch(completedTasksList).map((t) => (
+                            <tr key={t.fulfillment_id} className="hover:bg-[#FCF9F5] transition-colors">
+                              <td className="py-3 px-4">
+                                <div className="font-mono font-black text-xs text-[#2C241D]">{t.order_id}</div>
+                                <div className="text-[10px] text-[#7A6C5E] font-mono">{t.tracking_number}</div>
+                              </td>
+                              <td className="py-3 px-4 max-w-xs">
+                                <div className="font-bold text-[#2C241D] truncate">{t.customer_name}</div>
+                                <div className="text-[11px] text-[#7A6C5E] truncate" title={t.destination_address}>
+                                  {t.destination_address}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4">
+                                <div className="font-bold text-[#2C241D]">
+                                  {t.items.length} Product{t.items.length > 1 ? 's' : ''}
+                                </div>
+                                <div className="text-[11px] font-extrabold text-[#38A132]">
+                                  ₹{t.total_amount.toLocaleString('en-IN')}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-[11px] text-[#5C4E42] whitespace-nowrap">
+                                {t.delivered_at ? formatToIST(t.delivered_at) : 'Completed'}
+                              </td>
+                              <td className="py-3 px-4 max-w-[200px] text-[11px] text-[#7A6C5E] truncate" title={t.delivery_notes || ''}>
+                                {t.delivery_notes || 'Handed over in verified condition'}
+                              </td>
+                              <td className="py-3 px-4 text-center whitespace-nowrap">
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  <Check className="w-3 h-3 text-emerald-700" /> Fulfilled
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedHistoryTask(t)}
+                                  className="px-3 py-1.5 rounded-xl bg-[#FAF7F2] hover:bg-[#EAE0D4] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold transition-all inline-flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                                  title="View consignment receipt without map"
+                                >
+                                  <Eye className="w-3.5 h-3.5 text-[#38A132]" />
+                                  <span>Receipt</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Mobile Compact Cards (No map, highly space-efficient) */}
+                    <div className="grid grid-cols-1 gap-2.5 md:hidden">
+                      {filterBySearch(completedTasksList).map((t) => (
+                        <div
+                          key={t.fulfillment_id}
+                          className="p-3.5 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-mono font-black text-xs text-[#2C241D]">{t.order_id}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                              ✓ Delivered
+                            </span>
+                          </div>
+                          <div className="text-xs">
+                            <div className="font-bold text-[#2C241D]">{t.customer_name}</div>
+                            <div className="text-[11px] text-[#7A6C5E] truncate">{t.destination_address}</div>
+                          </div>
+                          <div className="flex items-center justify-between pt-1 border-t border-[#EFE7DE] text-[11px]">
+                            <span className="font-extrabold text-[#38A132]">₹{t.total_amount.toLocaleString('en-IN')}</span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedHistoryTask(t)}
+                              className="px-2.5 py-1 rounded-lg bg-[#FAF7F2] border border-[#E2D7CB] text-xs font-bold text-[#2C241D] inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Eye className="w-3 h-3 text-[#38A132]" />
+                              <span>Receipt</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1060,6 +1367,438 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
                 </div>
               </div>
             )}
+
+            {/* =================================================================== */}
+            {/* TAB 5: LEAVE APPLICATION                                            */}
+            {/* =================================================================== */}
+            {activeTab === 'leave_application' && (
+              <div className="space-y-6 relative z-10 animate-fadeIn">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Left Column: Apply for Leave Form (5 cols) */}
+                  <div className="lg:col-span-5 ultra-glass-card rounded-3xl p-6 border border-[#E2D7CB] shadow-lg space-y-5">
+                    <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-4">
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-[#38A132] flex items-center justify-center font-bold">
+                        <Calendar className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-black text-[#2C241D]">Apply for Time-Off</h3>
+                        <p className="text-xs text-[#7A6C5E]">Submit absence request for dispatch vehicle coverage</p>
+                      </div>
+                    </div>
+
+                    {leaveNotice && (
+                      <div
+                        className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+                          leaveNotice.type === 'success'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-rose-50 text-rose-800 border border-rose-200'
+                        }`}
+                      >
+                        {leaveNotice.type === 'success' ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                        )}
+                        <span>{leaveNotice.text}</span>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleApplyLeaveSubmit} className="space-y-4 text-xs font-semibold">
+                      <div>
+                        <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                          Leave Category *
+                        </label>
+                        <select
+                          value={leaveType}
+                          onChange={(e) => setLeaveType(e.target.value)}
+                          className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                        >
+                          <option value="Casual Leave">Casual Leave (Personal / Urgent)</option>
+                          <option value="Sick Leave">Sick / Medical Recovery</option>
+                          <option value="Privilege Leave">Privilege / Annual Vacation</option>
+                          <option value="Emergency Leave">Emergency / Family Support</option>
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                            Start Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={leaveStartDate}
+                            onChange={(e) => setLeaveStartDate(e.target.value)}
+                            min={new Date().toISOString().split('T')[0]}
+                            required
+                            className="w-full px-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                            End Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={leaveEndDate}
+                            onChange={(e) => setLeaveEndDate(e.target.value)}
+                            min={leaveStartDate || new Date().toISOString().split('T')[0]}
+                            required
+                            className="w-full px-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                          Reason & Vehicle Handover Notes *
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={leaveReason}
+                          onChange={(e) => setLeaveReason(e.target.value)}
+                          placeholder="e.g. Attending family function; keys returned to dispatch garage."
+                          required
+                          className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isSubmittingLeave}
+                        className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F852A] text-white font-black text-xs shadow-md shadow-[#38A132]/25 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+                      >
+                        <Calendar className="w-4 h-4" />
+                        <span>{isSubmittingLeave ? 'Submitting Application...' : 'Submit Leave Request'}</span>
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Right Column: Leave History (7 cols) */}
+                  <div className="lg:col-span-7 ultra-glass-card rounded-3xl p-6 border border-[#E2D7CB] shadow-lg space-y-4">
+                    <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                      <div>
+                        <h3 className="text-base font-black text-[#2C241D]">My Leave Request History</h3>
+                        <p className="text-xs text-[#7A6C5E]">Track approvals by carrier partner and workshop admin</p>
+                      </div>
+                      <button
+                        onClick={loadLeavesData}
+                        className="p-2 rounded-xl bg-[#FAF7F2] hover:bg-[#EAE0D4] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer"
+                        title="Refresh leave requests"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5 text-[#38A132]" />
+                        <span>Refresh</span>
+                      </button>
+                    </div>
+
+                    {leavesList.length === 0 ? (
+                      <div className="bg-white/80 p-12 text-center rounded-2xl border border-[#E2D7CB] space-y-2">
+                        <Calendar className="w-8 h-8 text-[#7A6C5E]/40 mx-auto" />
+                        <p className="text-xs font-extrabold text-[#2C241D]">No leave applications submitted yet</p>
+                        <p className="text-[11px] text-[#7A6C5E]">Your leave history will show up here once submitted.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                        {leavesList.map((l) => {
+                          const isApproved = l.status === 'Approved';
+                          const isPending = l.status === 'Pending';
+                          return (
+                            <div
+                              key={l.leave_id}
+                              className="p-4 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-2 hover:shadow-sm transition-all"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-extrabold text-xs text-[#2C241D]">{l.leave_type}</span>
+                                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#FAF7F2] border border-[#E2D7CB] text-[#7A6C5E]">
+                                    {l.duration_days} Day{l.duration_days > 1 ? 's' : ''}
+                                  </span>
+                                </div>
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border ${
+                                    isApproved
+                                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                      : isPending
+                                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                      : 'bg-rose-100 text-rose-800 border-rose-300'
+                                  }`}
+                                >
+                                  {l.status}
+                                </span>
+                              </div>
+
+                              <div className="text-xs text-[#5C4E42] flex items-center gap-2 font-medium">
+                                <span>📅 {l.start_date}</span>
+                                <span>to</span>
+                                <span>{l.end_date}</span>
+                              </div>
+
+                              <p className="text-xs text-[#7A6C5E] bg-[#FAF7F2] p-2.5 rounded-xl border border-[#EFE7DE] italic">
+                                "{l.reason}"
+                              </p>
+
+                              {l.review_notes && (
+                                <div className="text-[11px] text-emerald-900 bg-emerald-50/80 p-2 rounded-xl border border-emerald-200">
+                                  <strong>Admin Review:</strong> {l.review_notes}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* =================================================================== */}
+            {/* TAB 6: MESSAGES & DISPATCH INQUIRIES                                */}
+            {/* =================================================================== */}
+            {activeTab === 'messages' && (
+              <div className="space-y-6 relative z-10 animate-fadeIn">
+                {/* Sub Tab Switcher */}
+                <div className="flex items-center gap-3 border-b border-[#E2D7CB]/60 pb-3">
+                  <button
+                    type="button"
+                    onClick={() => setMessagesTab('helpdesk')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                      messagesTab === 'helpdesk'
+                        ? 'bg-[#38A132] text-white shadow-sm shadow-[#38A132]/25'
+                        : 'bg-white text-[#5C4E42] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                    }`}
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    <span>Dispatch Helpdesk & Queries</span>
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 font-bold">
+                      {driverQueries.length}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMessagesTab('broadcasts')}
+                    className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
+                      messagesTab === 'broadcasts'
+                        ? 'bg-[#38A132] text-white shadow-sm shadow-[#38A132]/25'
+                        : 'bg-white text-[#5C4E42] border border-[#E2D7CB] hover:bg-[#FAF7F2]'
+                    }`}
+                  >
+                    <Bell className="w-4 h-4" />
+                    <span>Official Directives & Broadcasts</span>
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-white/20 font-bold">
+                      {broadcastMessages.length}
+                    </span>
+                  </button>
+                </div>
+
+                {messagesTab === 'helpdesk' ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    {/* Send Inquiry Form */}
+                    <div className="lg:col-span-5 ultra-glass-card rounded-3xl p-6 border border-[#E2D7CB] shadow-lg space-y-4">
+                      <div className="flex items-center gap-3 border-b border-[#E2D7CB] pb-3">
+                        <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-[#38A132] flex items-center justify-center font-bold">
+                          <Send className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-black text-[#2C241D]">Send Dispatch Inquiry</h3>
+                          <p className="text-xs text-[#7A6C5E]">Message carrier managers and support team</p>
+                        </div>
+                      </div>
+
+                      {queryFormNotice && (
+                        <div
+                          className={`p-3 rounded-2xl text-xs font-bold flex items-center gap-2 ${
+                            queryFormNotice.type === 'success'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : 'bg-rose-50 text-rose-800 border border-rose-200'
+                          }`}
+                        >
+                          {queryFormNotice.type === 'success' ? (
+                            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+                          ) : (
+                            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                          )}
+                          <span>{queryFormNotice.text}</span>
+                        </div>
+                      )}
+
+                      <form onSubmit={handleSendQuerySubmit} className="space-y-4 text-xs font-semibold">
+                        <div>
+                          <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                            Query Category *
+                          </label>
+                          <select
+                            value={queryCategory}
+                            onChange={(e: any) => setQueryCategory(e.target.value)}
+                            className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                          >
+                            <option value="General Query">General Logistics Query</option>
+                            <option value="Role & Access Permission">Vehicle / Route Permission</option>
+                            <option value="Email Change Request">Driver Profile / Credentials</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                            Subject *
+                          </label>
+                          <input
+                            type="text"
+                            placeholder="e.g. Fuel allowance claim / Route closure near Aluva"
+                            value={querySubject}
+                            onChange={(e) => setQuerySubject(e.target.value)}
+                            required
+                            className="w-full px-3.5 py-2 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                            Message Notes *
+                          </label>
+                          <textarea
+                            rows={4}
+                            placeholder="Detail your question or operational update for carrier management..."
+                            value={queryMessage}
+                            onChange={(e) => setQueryMessage(e.target.value)}
+                            required
+                            className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-xs text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          disabled={isSubmittingQuery}
+                          className="w-full py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F852A] text-white font-black text-xs shadow-md shadow-[#38A132]/25 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 transition-all"
+                        >
+                          <Send className="w-4 h-4" />
+                          <span>{isSubmittingQuery ? 'Sending...' : 'Send to Dispatch'}</span>
+                        </button>
+                      </form>
+                    </div>
+
+                    {/* Inquiries Thread History */}
+                    <div className="lg:col-span-7 ultra-glass-card rounded-3xl p-6 border border-[#E2D7CB] shadow-lg space-y-4">
+                      <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                        <div>
+                          <h3 className="text-base font-black text-[#2C241D]">Inquiries & Resolution Thread</h3>
+                          <p className="text-xs text-[#7A6C5E]">Responses from dispatch coordination desk</p>
+                        </div>
+                        <button
+                          onClick={loadDriverMessages}
+                          className="p-2 rounded-xl bg-[#FAF7F2] hover:bg-[#EAE0D4] border border-[#E2D7CB] text-[#2C241D] text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-[#38A132]" />
+                          <span>Refresh</span>
+                        </button>
+                      </div>
+
+                      {driverQueries.length === 0 ? (
+                        <div className="bg-white/80 p-12 text-center rounded-2xl border border-[#E2D7CB] space-y-2">
+                          <Inbox className="w-8 h-8 text-[#7A6C5E]/40 mx-auto" />
+                          <p className="text-xs font-extrabold text-[#2C241D]">No inquiries sent yet</p>
+                          <p className="text-[11px] text-[#7A6C5E]">Submitted inquiries and dispatch answers will appear here.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3.5 max-h-[520px] overflow-y-auto pr-1">
+                          {driverQueries.map((q) => {
+                            const isResolved = q.status === 'Resolved' || q.status === 'Approved';
+                            const isPending = q.status === 'Pending';
+                            return (
+                              <div
+                                key={q.id}
+                                className="p-4 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-2.5 hover:shadow-sm transition-all"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <span className="text-[10px] font-black uppercase text-[#7A6C5E] block">
+                                      {q.category}
+                                    </span>
+                                    <h4 className="font-extrabold text-sm text-[#2C241D]">{q.subject}</h4>
+                                  </div>
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase border shrink-0 ${
+                                      isResolved
+                                        ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                        : isPending
+                                        ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                        : 'bg-blue-100 text-blue-800 border-blue-300'
+                                    }`}
+                                  >
+                                    {q.status}
+                                  </span>
+                                </div>
+
+                                <p className="text-xs text-[#5C4E42] bg-[#FAF7F2] p-3 rounded-xl border border-[#EFE7DE] leading-relaxed">
+                                  {q.message}
+                                </p>
+
+                                <div className="flex items-center justify-between text-[10px] text-[#7A6C5E] pt-0.5">
+                                  <span>Sent: {q.createdAt}</span>
+                                </div>
+
+                                {q.adminResponse && (
+                                  <div className="p-3 rounded-xl bg-emerald-50/90 border border-emerald-200 text-xs text-emerald-950 space-y-1">
+                                    <div className="flex items-center gap-1.5 font-bold text-emerald-800">
+                                      <Building2 className="w-3.5 h-3.5" />
+                                      <span>Dispatch Manager Response:</span>
+                                    </div>
+                                    <p className="leading-relaxed pl-5">{q.adminResponse}</p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Official Broadcast Directives View */
+                  <div className="ultra-glass-card rounded-3xl p-6 border border-[#E2D7CB] shadow-lg space-y-4">
+                    <div className="flex items-center justify-between border-b border-[#E2D7CB] pb-3">
+                      <div>
+                        <h3 className="text-base font-black text-[#2C241D]">Fleet Directives & Policy Updates</h3>
+                        <p className="text-xs text-[#7A6C5E]">Official announcements sent by administration and carrier partner</p>
+                      </div>
+                      <span className="px-3 py-1 rounded-full bg-blue-100 text-blue-800 text-xs font-black border border-blue-200">
+                        {broadcastMessages.length} Notice{broadcastMessages.length > 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    {broadcastMessages.length === 0 ? (
+                      <div className="bg-white/80 p-12 text-center rounded-2xl border border-[#E2D7CB] space-y-2">
+                        <Bell className="w-8 h-8 text-[#7A6C5E]/40 mx-auto" />
+                        <p className="text-xs font-extrabold text-[#2C241D]">No active broadcast directives</p>
+                        <p className="text-[11px] text-[#7A6C5E]">Official updates will be displayed here.</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {broadcastMessages.map((m) => (
+                          <div
+                            key={m.id}
+                            className="p-4 rounded-2xl bg-white border border-[#E2D7CB] shadow-xs space-y-2 hover:shadow-sm transition-all"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black uppercase text-[#7A6C5E] flex items-center gap-1.5">
+                                <Building2 className="w-3.5 h-3.5 text-[#38A132]" />
+                                From: {m.sender}
+                              </span>
+                              <span className="text-[10px] text-[#7A6C5E] font-medium">{m.createdDate}</span>
+                            </div>
+                            <h4 className="font-extrabold text-sm text-[#2C241D]">{m.subject}</h4>
+                            <p className="text-xs text-[#5C4E42] bg-[#FAF7F2] p-3 rounded-xl border border-[#EFE7DE] leading-relaxed">
+                              {m.message}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </main>
       </div>
@@ -1126,6 +1865,192 @@ export const DeliveryPersonnelDashboardPage: React.FC = () => {
                 className="px-5 py-2.5 rounded-xl bg-[#38A132] hover:bg-[#2F852A] text-white font-extrabold text-xs shadow-md shadow-[#38A132]/25 cursor-pointer disabled:opacity-50 flex items-center gap-2 transition-all"
               >
                 {isSubmittingCompletion ? 'Updating Status...' : 'Confirm Delivery Drop-Off'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* DECLINE / REJECT DELIVERY ASSIGNMENT MODAL                                */}
+      {/* ========================================================================= */}
+      {rejectingTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl border border-[#E2D7CB] p-6 sm:p-7 max-w-md w-full shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E2D7CB]/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold">
+                  <XCircle className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#2C241D]">Decline Delivery Assignment</h3>
+                  <p className="text-[11px] text-[#7A6C5E]">
+                    Order #{rejectingTask.order_id} • Waybill {rejectingTask.tracking_number}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRejectingTask(null)}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#FAF7F2] rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 space-y-1">
+              <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                <AlertTriangle className="w-4 h-4" />
+                <span>Notice to Driver</span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-amber-800">
+                Declining will return this consignment to your carrier dispatch pool so another vehicle can be assigned without customer delay.
+              </p>
+            </div>
+
+            {rejectionError && (
+              <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-800 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{rejectionError}</span>
+              </div>
+            )}
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                  Decline Reason Category *
+                </label>
+                <select
+                  value={rejectionCategory}
+                  onChange={(e) => setRejectionCategory(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-[#FAF7F2] border border-[#E2D7CB] rounded-xl text-[#2C241D] font-bold focus:outline-none focus:border-[#38A132]"
+                >
+                  <option value="Vehicle Breakdown / Mechanical Failure">Vehicle Breakdown / Mechanical Issue</option>
+                  <option value="Cargo Exceeds Vehicle Capacity">Cargo Dimensions / Weight Exceeds Capacity</option>
+                  <option value="Route Inaccessible / Road Closure">Route Inaccessible / Road Blocked</option>
+                  <option value="Shift Hours Limit Reached">Driver Shift Ended / Hours Limit</option>
+                  <option value="Medical / Personal Emergency">Medical or Personal Emergency</option>
+                  <option value="Other Operational Reason">Other Operational Constraint</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-black uppercase text-[#7A6C5E] mb-1.5">
+                  Explanation & Dispatch Handover Notes *
+                </label>
+                <textarea
+                  rows={3}
+                  value={rejectionNotes}
+                  onChange={(e) => setRejectionNotes(e.target.value)}
+                  placeholder="Detail why this shipment cannot be delivered on your shift (min. 5 chars)..."
+                  className="w-full p-3 bg-[#FAF7F2] border border-[#E2D7CB] rounded-2xl text-xs font-bold text-[#2C241D] focus:outline-none focus:border-[#38A132]"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#E2D7CB]/60">
+              <button
+                type="button"
+                onClick={() => setRejectingTask(null)}
+                className="px-4 py-2 rounded-xl bg-[#F5ECE1] hover:bg-[#E2D7CB] text-[#2C241D] text-xs font-bold transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmRejection}
+                disabled={isSubmittingRejection}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs shadow-md shadow-rose-600/25 cursor-pointer disabled:opacity-50 flex items-center gap-1.5 transition-all"
+              >
+                <XCircle className="w-4 h-4" />
+                <span>{isSubmittingRejection ? 'Declining...' : 'Confirm Decline & Return'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* COMPACT DELIVERY HISTORY RECEIPT MODAL (NO MAP)                           */}
+      {/* ========================================================================= */}
+      {selectedHistoryTask && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-3xl border border-[#E2D7CB] p-6 sm:p-7 max-w-lg w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E2D7CB]/60">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-[#2C241D]">Consignment Delivery Receipt</h3>
+                  <p className="text-[11px] text-[#7A6C5E]">
+                    Order #{selectedHistoryTask.order_id} • {selectedHistoryTask.tracking_number}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedHistoryTask(null)}
+                className="p-1 text-[#7A6C5E] hover:text-[#2C241D] hover:bg-[#FAF7F2] rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div className="p-3.5 rounded-2xl bg-[#FAF7F2] border border-[#E2D7CB] space-y-2">
+                <span className="text-[10px] font-black uppercase text-[#7A6C5E] block">
+                  Customer & Drop-off Location
+                </span>
+                <div className="font-extrabold text-[#2C241D] text-sm">{selectedHistoryTask.customer_name}</div>
+                <div className="text-xs text-[#5C4E42]">{selectedHistoryTask.destination_address}</div>
+                {selectedHistoryTask.customer_phone && (
+                  <div className="text-[11px] text-[#7A6C5E]">Phone: {selectedHistoryTask.customer_phone}</div>
+                )}
+              </div>
+
+              {/* Items Breakdown */}
+              <div className="space-y-2">
+                <span className="text-[10px] font-black uppercase text-[#7A6C5E] block">
+                  Delivered Cargo Items ({selectedHistoryTask.items.length})
+                </span>
+                <div className="divide-y divide-[#EFE7DE] border border-[#E2D7CB] rounded-2xl bg-[#FAF7F2]/60 overflow-hidden">
+                  {selectedHistoryTask.items.map((it) => (
+                    <div key={it.item_id} className="p-2.5 flex items-center justify-between text-xs">
+                      <div>
+                        <div className="font-bold text-[#2C241D]">{it.product_name}</div>
+                        <div className="text-[10px] text-[#7A6C5E]">Qty: {it.quantity}</div>
+                      </div>
+                      <div className="font-black text-[#38A132]">₹{it.unit_price.toLocaleString('en-IN')}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Handover & Completion Proof */}
+              <div className="p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs space-y-1">
+                <span className="text-[10px] font-black uppercase text-emerald-800 block">
+                  Handover & Verification Details
+                </span>
+                <p className="font-bold text-emerald-950">
+                  {selectedHistoryTask.delivery_notes || 'Handed over in verified condition to customer recipient.'}
+                </p>
+                <div className="text-[11px] text-emerald-800 pt-1">
+                  Completed on:{' '}
+                  <strong>
+                    {selectedHistoryTask.delivered_at
+                      ? formatToIST(selectedHistoryTask.delivered_at)
+                      : 'Delivered'}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-3 border-t border-[#E2D7CB]/60">
+              <button
+                type="button"
+                onClick={() => setSelectedHistoryTask(null)}
+                className="px-5 py-2 rounded-xl bg-[#38A132] hover:bg-[#2F852A] text-white font-bold text-xs cursor-pointer"
+              >
+                Done
               </button>
             </div>
           </div>

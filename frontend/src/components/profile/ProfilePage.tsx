@@ -84,25 +84,47 @@ export const ProfilePage: React.FC = () => {
 
   const hasSavedAddress = isProfileAddressValid(userProfile).isValid;
 
+  const stripDefaultValue = (val: string | null | undefined): string => {
+    if (!val) return '';
+    const trimmed = val.trim();
+    const lower = trimmed.toLowerCase();
+    if (
+      lower === 'default address' ||
+      lower === 'default city' ||
+      lower === 'default state' ||
+      lower === '000000' ||
+      lower === '0' ||
+      lower === 'not provided' ||
+      lower === 'unknown' ||
+      lower === 'null' ||
+      lower === 'undefined'
+    ) {
+      return '';
+    }
+    return trimmed;
+  };
+
   const fetchProfileFromDB = async () => {
-    setLoading(true);
+    // Instant pre-population from cached user in localStorage to prevent unnecessary loading spinner delay
+    const stored = localStorage.getItem('user');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        setUserProfile(parsed);
+      } catch (e) {}
+    } else {
+      setLoading(true);
+    }
     try {
       const data = await getCurrentUser();
       if (data) {
         setUserProfile(data);
+        try {
+          localStorage.setItem('user', JSON.stringify(data));
+        } catch (e) {}
         const val = isProfileAddressValid(data);
         if (isAddressRequired && !val.isValid) {
           handleOpenAddressModal(data);
-        }
-      } else {
-        const stored = localStorage.getItem('user');
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          setUserProfile(parsed);
-          const val = isProfileAddressValid(parsed);
-          if (isAddressRequired && !val.isValid) {
-            handleOpenAddressModal(parsed);
-          }
         }
       }
     } catch (err) {
@@ -143,10 +165,10 @@ export const ProfilePage: React.FC = () => {
     setEditForm({
       full_name: userProfile.full_name || '',
       phone: userProfile.phone || '',
-      address: userProfile.customer?.address || '',
-      city: userProfile.customer?.city || '',
-      state: userProfile.customer?.state || '',
-      pincode: userProfile.customer?.pincode || '',
+      address: stripDefaultValue(userProfile.customer?.address),
+      city: stripDefaultValue(userProfile.customer?.city),
+      state: stripDefaultValue(userProfile.customer?.state),
+      pincode: stripDefaultValue(userProfile.customer?.pincode),
     });
     setErrorMsg(null);
     setIsEditing(true);
@@ -156,7 +178,7 @@ export const ProfilePage: React.FC = () => {
     const prof = profileOverride || userProfile;
     if (!prof) return;
 
-    const existingAddr = prof.customer?.address || '';
+    const existingAddr = stripDefaultValue(prof.customer?.address);
     let line1 = existingAddr;
     let line2 = '';
     let lmark = '';
@@ -180,9 +202,9 @@ export const ProfilePage: React.FC = () => {
       phone: prof.phone || '',
       address_line1: line1,
       address_line2: line2,
-      city: prof.customer?.city || '',
-      state: prof.customer?.state || '',
-      pincode: prof.customer?.pincode || '',
+      city: stripDefaultValue(prof.customer?.city),
+      state: stripDefaultValue(prof.customer?.state),
+      pincode: stripDefaultValue(prof.customer?.pincode),
       landmark: lmark,
     });
     setAddressErrorMsg(null);

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, defer
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime, date
@@ -39,6 +39,13 @@ def generate_strong_password(length: int = 14) -> str:
     secrets.SystemRandom().shuffle(chars)
     return "".join(chars)
 
+# High-performance in-memory cache for custom orders (15s TTL)
+_custom_orders_cache = {}
+
+def invalidate_custom_orders_cache():
+    global _custom_orders_cache
+    _custom_orders_cache.clear()
+
 router = APIRouter(prefix="/api/production", tags=["Production Management"])
 
 class CustomOrderCreatePayload(BaseModel):
@@ -52,6 +59,7 @@ class CustomOrderCreatePayload(BaseModel):
     color: str
     design_description: Optional[str] = None
     reference_image: Optional[str] = None
+    customer_material_id: Optional[int] = None
 
 class OrderStatusUpdatePayload(BaseModel):
     order_status: str  # "Approved", "Rejected", "In Production", "Completed"
@@ -98,6 +106,12 @@ def get_custom_orders(
     customer_email: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    cache_key = f"{status_filter}_{worker_id}_{production_staff_id}_{customer_id}_{customer_email}"
+    now_ts = time.time()
+    cached = _custom_orders_cache.get(cache_key)
+    if cached and (now_ts - cached.get("timestamp", 0) < 15.0):
+        return cached["data"]
+
     query = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
     if status_filter and status_filter.strip() and status_filter != "All":
         query = query.filter(models.CustomOrder.order_status == status_filter.strip())
@@ -135,25 +149,86 @@ def get_custom_orders(
         if c_ids:
             query = query.filter(models.CustomOrder.customer_id.in_(list(c_ids)))
 
-    orders = query.order_by(models.CustomOrder.order_date.desc()).all()
+    orders = (
+        query.options(
+            joinedload(models.CustomOrder.customer).joinedload(models.Customer.user),
+            joinedload(models.CustomOrder.customer_material)
+        )
+        .order_by(models.CustomOrder.order_date.desc())
+        .all()
+    )
+
+    if not orders:
+        return []
+
+    order_ids = [ord_obj.custom_order_id for ord_obj in orders]
+
+    # 1. Batch fetch all worker assignments
+    all_assignments = (
+        db.query(models.WorkerAssignment)
+        .filter(models.WorkerAssignment.custom_order_id.in_(order_ids))
+        .all()
+    )
+    assignments_by_order = {}
+    worker_user_ids = set()
+    for asgn in all_assignments:
+        assignments_by_order.setdefault(asgn.custom_order_id, []).append(asgn)
+        if asgn.worker_id:
+            worker_user_ids.add(asgn.worker_id)
+
+    # 2. Batch fetch all stages
+    all_stages = (
+        db.query(models.ProductionStage)
+        .filter(
+            models.ProductionStage.order_id.in_(order_ids),
+            models.ProductionStage.order_type.in_(["Custom", "CUSTOM"])
+        )
+        .all()
+    )
+    stages_by_order = {}
+    for stg in all_stages:
+        stages_by_order.setdefault(stg.order_id, []).append(stg)
+        if stg.assigned_worker_id:
+            worker_user_ids.add(stg.assigned_worker_id)
+
+    for o in orders:
+        if o.production_staff_id:
+            worker_user_ids.add(o.production_staff_id)
+
+    # 3. Batch fetch all needed users (workers + supervisors)
+    user_map = {}
+    if worker_user_ids:
+        users = db.query(models.User).filter(models.User.user_id.in_(list(worker_user_ids))).all()
+        user_map = {u.user_id: u for u in users}
+
+    # 4. Batch fetch latest progress
+    all_progress = (
+        db.query(models.ProductionProgress)
+        .filter(models.ProductionProgress.custom_order_id.in_(order_ids))
+        .order_by(models.ProductionProgress.progress_id.desc())
+        .all()
+    )
+    latest_progress_map = {}
+    for prog in all_progress:
+        if prog.custom_order_id not in latest_progress_map:
+            latest_progress_map[prog.custom_order_id] = prog
 
     def get_supervisor_name(u_id):
         if not u_id:
             return "Unassigned Supervisor"
-        u = db.query(models.User).filter(models.User.user_id == u_id).first()
+        u = user_map.get(u_id)
         return u.full_name if u else "Unassigned Supervisor"
 
     result = []
     for ord_obj in orders:
         cust = ord_obj.customer
         cust_user = cust.user if cust else None
-        
-        # Get assigned workers from WorkerAssignment (legacy)
-        assignments = db.query(models.WorkerAssignment).filter(models.WorkerAssignment.custom_order_id == ord_obj.custom_order_id).all()
+
+        assignments = assignments_by_order.get(ord_obj.custom_order_id, [])
         assigned_workers = []
         seen_worker_ids = set()
         for asgn in assignments:
-            w_user = db.query(models.User).filter(models.User.user_id == asgn.worker_id).first()
+            w_user = user_map.get(asgn.worker_id)
             if w_user:
                 seen_worker_ids.add(w_user.user_id)
                 assigned_workers.append({
@@ -167,14 +242,10 @@ def get_custom_orders(
                     "assignment_source": "order_level"
                 })
 
-        # Also aggregate stage-assigned workers from tbl_production_stage
-        stages = db.query(models.ProductionStage).filter(
-            models.ProductionStage.order_id == ord_obj.custom_order_id,
-            models.ProductionStage.order_type.in_(["Custom", "CUSTOM"])
-        ).all()
+        stages = stages_by_order.get(ord_obj.custom_order_id, [])
         for stg in stages:
             if stg.assigned_worker_id and stg.assigned_worker_id not in seen_worker_ids:
-                w_user = db.query(models.User).filter(models.User.user_id == stg.assigned_worker_id).first()
+                w_user = user_map.get(stg.assigned_worker_id)
                 if w_user:
                     seen_worker_ids.add(w_user.user_id)
                     assigned_workers.append({
@@ -189,10 +260,7 @@ def get_custom_orders(
                         "assignment_source": "stage_level"
                     })
 
-        # Get latest progress
-        latest_progress = db.query(models.ProductionProgress).filter(
-            models.ProductionProgress.custom_order_id == ord_obj.custom_order_id
-        ).order_by(models.ProductionProgress.progress_id.desc()).first()
+        latest_progress = latest_progress_map.get(ord_obj.custom_order_id)
 
         result.append({
             "custom_order_id": ord_obj.custom_order_id,
@@ -216,14 +284,35 @@ def get_custom_orders(
             "current_stage": latest_progress.stage if latest_progress else "Pending Approval",
             "progress_percentage": latest_progress.progress_percentage if latest_progress else 0,
             "latest_remarks": latest_progress.remarks if latest_progress else None,
+            "customer_material_id": ord_obj.customer_material_id,
+            "customer_material": {
+                "material_id": ord_obj.customer_material.material_id,
+                "material_type": ord_obj.customer_material.material_type,
+                "wood_type": ord_obj.customer_material.wood_type,
+                "quantity": float(ord_obj.customer_material.quantity),
+                "remaining_quantity": float(ord_obj.customer_material.remaining_quantity if ord_obj.customer_material.remaining_quantity is not None else ord_obj.customer_material.quantity),
+                "unit": ord_obj.customer_material.unit,
+                "status": ord_obj.customer_material.status,
+                "condition": ord_obj.customer_material.condition
+            } if ord_obj.customer_material else None,
         })
+    _custom_orders_cache[cache_key] = {"data": result, "timestamp": now_ts}
     return result
 
 # 1b. Create New Custom Order in DB
 @router.post("/custom-orders")
-def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends(get_db)):
+def create_custom_order(
+    payload: CustomOrderCreatePayload,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional)
+):
     customer = None
-    if payload.customer_email and payload.customer_email.strip():
+    user = None
+
+    if hasattr(current_user, "customer_profile") and current_user.customer_profile:
+        customer = current_user.customer_profile
+        user = current_user
+    elif payload.customer_email and payload.customer_email.strip():
         clean_email = payload.customer_email.strip()
         user = db.query(models.User).filter(models.User.email.ilike(clean_email)).first()
         if not user:
@@ -257,6 +346,20 @@ def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends
 
     cust_id = customer.customer_id if customer else None
 
+    # Validate customer-owned material linkage if provided
+    if payload.customer_material_id:
+        c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == payload.customer_material_id).first()
+        if not c_mat:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Customer material lot #{payload.customer_material_id} was not found."
+            )
+        if cust_id and c_mat.customer_id != cust_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Security violation: You cannot link another customer's material lot to this custom order."
+            )
+
     new_order = models.CustomOrder(
         customer_id=cust_id,
         furniture_type=payload.furniture_type,
@@ -265,6 +368,7 @@ def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends
         color=payload.color,
         design_description=payload.design_description,
         reference_image=payload.reference_image,
+        customer_material_id=payload.customer_material_id,
         order_status="Pending",
         order_date=datetime.utcnow()
     )
@@ -284,10 +388,13 @@ def create_custom_order(payload: CustomOrderCreatePayload, db: Session = Depends
     )
     db.add(prog)
     db.commit()
+    invalidate_custom_orders_cache()
 
     return {
         "custom_order_id": new_order.custom_order_id,
+        "order_id": new_order.custom_order_id,
         "customer_id": new_order.customer_id,
+        "customer_material_id": new_order.customer_material_id,
         "customer_name": payload.customer_name or "Customer",
         "customer_email": payload.customer_email or "",
         "customer_phone": payload.customer_phone or "",
@@ -361,6 +468,7 @@ def update_custom_order_status(
 
     db.commit()
     db.refresh(order)
+    invalidate_custom_orders_cache()
     return {"message": f"Order #{order_id} status updated to {payload.order_status}", "order_id": order_id}
 
 class SupervisorAssignPayload(BaseModel):
@@ -1016,14 +1124,40 @@ def log_production_history(
     db.add(hist)
 
 
+# Cache for production dashboard overview (TTL: 15 seconds)
+_production_overview_cache = {"data": None, "timestamp": 0.0}
+
 # 8. PRODUCTION DASHBOARD OVERVIEW (Real PostgreSQL-backed Metrics)
 @router.get("/dashboard/overview")
 def get_production_dashboard_overview(db: Session = Depends(get_db)):
-    # 1. Custom Orders
-    customs = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40])).all()
+    import time
+    now_ts = time.time()
+    if _production_overview_cache["data"] and (now_ts - _production_overview_cache["timestamp"] < 15):
+        return _production_overview_cache["data"]
 
-    # 2. Fabrication Requests
-    fabs = db.query(models.FabricationRequest).all()
+    # 1. Custom Orders with eager loaded customer (deferring multi-megabyte base64 reference_image & specs)
+    customs = (
+        db.query(models.CustomOrder)
+        .options(
+            defer(models.CustomOrder.reference_image),
+            defer(models.CustomOrder.design_description),
+            joinedload(models.CustomOrder.customer).joinedload(models.Customer.user)
+        )
+        .filter(models.CustomOrder.custom_order_id.notin_([103, 102, 13, 28, 101, 14, 40]))
+        .all()
+    )
+
+    # 2. Fabrication Requests with eager loaded customer (deferring drawing_image and cutting_layout)
+    fabs = (
+        db.query(models.FabricationRequest)
+        .options(
+            defer(models.FabricationRequest.drawing_image),
+            defer(models.FabricationRequest.cutting_layout),
+            defer(models.FabricationRequest.requirements),
+            joinedload(models.FabricationRequest.customer).joinedload(models.Customer.user)
+        )
+        .all()
+    )
 
     # Assessments map (Normalize order_type to both 'Custom' and original string)
     assessments = db.query(models.TechnicalAssessment).all()
@@ -1040,6 +1174,25 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
         ot = "Custom" if q.order_type in ["Custom", "Customization", "customization", "custom"] else "Fabrication"
         quote_map[(ot, q.order_id)] = q
         quote_map[(q.order_type, q.order_id)] = q
+
+    # Prefetch active stages and assigned worker users to eliminate N+1 queries
+    active_stages = db.query(models.ProductionStage).filter(
+        models.ProductionStage.status.in_(["READY_FOR_ASSIGNMENT", "ASSIGNED", "IN_PROGRESS"])
+    ).order_by(models.ProductionStage.sequence_order.asc()).all()
+    active_stage_map = {}
+    worker_ids_needed = set()
+    for stg in active_stages:
+        ot_key = "Custom" if stg.order_type in ["Custom", "Customization", "customization", "custom"] else "Fabrication"
+        key = (ot_key, stg.order_id)
+        if key not in active_stage_map:
+            active_stage_map[key] = stg
+            if stg.assigned_worker_id:
+                worker_ids_needed.add(stg.assigned_worker_id)
+
+    worker_user_map = {}
+    if worker_ids_needed:
+        worker_users = db.query(models.User).filter(models.User.user_id.in_(worker_ids_needed)).all()
+        worker_user_map = {u.user_id: u.full_name for u in worker_users}
 
     pending_assessment_cnt = 0
     quotation_pending_cnt = 0
@@ -1096,18 +1249,8 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
         if st_upper in ["IN PRODUCTION", "IN_PRODUCTION", "STAGE_ASSIGNED", "STAGE_IN_PROGRESS"]:
             in_production_cnt += 1
 
-            # Fetch active stage & worker info
-            active_stage = db.query(models.ProductionStage).filter(
-                models.ProductionStage.order_type == "Custom",
-                models.ProductionStage.order_id == c.custom_order_id,
-                models.ProductionStage.status.in_(["READY_FOR_ASSIGNMENT", "ASSIGNED", "IN_PROGRESS"])
-            ).order_by(models.ProductionStage.sequence_order.asc()).first()
-
-            worker_name = "Unassigned"
-            if active_stage and active_stage.assigned_worker_id:
-                w_u = db.query(models.User).filter(models.User.user_id == active_stage.assigned_worker_id).first()
-                if w_u:
-                    worker_name = w_u.full_name
+            active_stage = active_stage_map.get(("Custom", c.custom_order_id))
+            worker_name = worker_user_map.get(active_stage.assigned_worker_id, "Unassigned") if (active_stage and active_stage.assigned_worker_id) else "Unassigned"
 
             cust_u = c.customer.user if c.customer and c.customer.user else None
             active_production_items.append({
@@ -1173,17 +1316,8 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
 
         if st_upper in ["IN_PRODUCTION", "IN PRODUCTION"]:
             in_production_cnt += 1
-            active_stage = db.query(models.ProductionStage).filter(
-                models.ProductionStage.order_type == "Fabrication",
-                models.ProductionStage.order_id == f.fabrication_id,
-                models.ProductionStage.status.in_(["READY_FOR_ASSIGNMENT", "ASSIGNED", "IN_PROGRESS"])
-            ).order_by(models.ProductionStage.sequence_order.asc()).first()
-
-            worker_name = "Unassigned"
-            if active_stage and active_stage.assigned_worker_id:
-                w_u = db.query(models.User).filter(models.User.user_id == active_stage.assigned_worker_id).first()
-                if w_u:
-                    worker_name = w_u.full_name
+            active_stage = active_stage_map.get(("Fabrication", f.fabrication_id))
+            worker_name = worker_user_map.get(active_stage.assigned_worker_id, "Unassigned") if (active_stage and active_stage.assigned_worker_id) else "Unassigned"
 
             cust_u = f.customer.user if f.customer and f.customer.user else None
             active_production_items.append({
@@ -1250,7 +1384,7 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
                 "priority": s.priority or "NORMAL"
             })
 
-    return {
+    overview_result = {
         "metrics": {
             "pending_assessment": pending_assessment_cnt,
             "quotation_pending": quotation_pending_cnt,
@@ -1264,6 +1398,9 @@ def get_production_dashboard_overview(db: Session = Depends(get_db)):
         "priorities": priorities[:8],
         "active_production": active_production_items
     }
+    _production_overview_cache["data"] = overview_result
+    _production_overview_cache["timestamp"] = now_ts
+    return overview_result
 
 
 # 9. ASSESSMENT QUEUE API (Retail Staff Approved Requests ONLY)
@@ -1374,7 +1511,9 @@ def get_assessment_queue(
                 "customer_email": cust_u.email if cust_u else "",
                 "title": f"{f.service_type}",
                 "furniture_type": f.service_type,
-                "material": f.material_source,
+                "material": f.material_source or "Company Stock Material",
+                "material_source": f.material_source or "Company Stock Material",
+                "customer_material_id": f.customer_material_id,
                 "dimensions": f.dimensions,
                 "quantity": f.quantity,
                 "description": f.requirements,
@@ -2213,33 +2352,106 @@ class MaterialReceivePayload(BaseModel):
 
 
 @router.post("/materials/receive")
-def receive_customer_material(payload: MaterialReceivePayload, db: Session = Depends(get_db)):
-    if payload.order_type == "Custom":
+def receive_customer_material(
+    payload: MaterialReceivePayload,
+    db: Session = Depends(get_db),
+    current_user: Optional[models.User] = Depends(auth.get_current_user_optional)
+):
+    if payload.quantity <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Received material quantity must be strictly greater than zero."
+        )
+
+    eff_user_id = current_user.user_id if hasattr(current_user, "user_id") else (payload.received_by_id or 1)
+    c_mat = None
+    ot_clean = payload.order_type.strip().capitalize()
+
+    if ot_clean in ["Custom", "Customization"]:
         c_ord = db.query(models.CustomOrder).filter(models.CustomOrder.custom_order_id == payload.order_id).first()
-        if c_ord:
-            c_ord.order_status = "READY_FOR_PRODUCTION"
-    elif payload.order_type == "Fabrication":
+        if not c_ord:
+            raise HTTPException(status_code=404, detail=f"Custom Order #{payload.order_id} not found.")
+        c_ord.order_status = "READY_FOR_PRODUCTION"
+        if getattr(c_ord, "customer_material_id", None):
+            c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == c_ord.customer_material_id).first()
+    elif ot_clean in ["Fabrication"]:
         f_ord = db.query(models.FabricationRequest).filter(models.FabricationRequest.fabrication_id == payload.order_id).first()
-        if f_ord:
-            f_ord.status = "MATERIAL_RECEIVED"
-            if f_ord.customer_material_id:
-                mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == f_ord.customer_material_id).first()
-                if mat:
-                    mat.status = "RECEIVED"
-                    mat.condition = payload.condition
+        if not f_ord:
+            raise HTTPException(status_code=404, detail=f"Fabrication Request #{payload.order_id} not found.")
+        f_ord.status = "MATERIAL_RECEIVED"
+        if f_ord.customer_material_id:
+            c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == f_ord.customer_material_id).first()
+
+    if c_mat:
+        from app.utils.material_ledger import record_customer_material_transaction
+        record_customer_material_transaction(
+            db=db,
+            customer_material_id=c_mat.material_id,
+            quantity=payload.quantity,
+            transaction_type="RECEIVED",
+            order_id=payload.order_id,
+            order_type=ot_clean,
+            unit=payload.unit,
+            notes=f"Physical receipt & verification. Condition: {payload.condition}. {payload.notes or ''}".strip(),
+            user_id=eff_user_id,
+            new_status="RECEIVED",
+            new_remaining_qty=payload.quantity
+        )
+        c_mat.condition = payload.condition
+        if payload.photos:
+            c_mat.photos = payload.photos
 
     log_production_history(
         db,
-        order_type=payload.order_type,
+        order_type=ot_clean,
         order_id=payload.order_id,
         action="Customer Material Received",
-        action_by_id=payload.received_by_id,
+        action_by_id=eff_user_id,
         new_status="MATERIAL_RECEIVED",
         notes=f"Received {payload.quantity} {payload.unit}. Condition: {payload.condition}. {payload.notes or ''}"
     )
 
     db.commit()
-    return {"message": "Customer material receipt recorded successfully"}
+    return {"message": "Customer material receipt recorded and verified successfully"}
+
+
+@router.get("/materials/receipts")
+def get_customer_material_receipts(db: Session = Depends(get_db)):
+    txs = db.query(models.MaterialTransaction).filter(
+        models.MaterialTransaction.customer_material_id.isnot(None),
+        models.MaterialTransaction.transaction_type == "RECEIVED"
+    ).order_by(models.MaterialTransaction.created_at.desc()).all()
+
+    receipts = []
+    for tx in txs:
+        mat = tx.customer_material
+        client_name = "Customer"
+        if mat and mat.customer:
+            client_name = mat.customer.user.full_name if (mat.customer.user and mat.customer.user.full_name) else (getattr(mat.customer, "company_name", None) or "Customer")
+
+        ord_label = f"{tx.order_type[:3].upper()}-{tx.order_id:04d}" if tx.order_id and tx.order_type else "Direct Lot"
+        mat_desc = f"{mat.wood_type or mat.material_type} ({mat.dimensions or 'Standard'})" if mat else "Customer Timber"
+
+        receipts.append({
+            "log_receipt_id": f"REC-CS-{tx.transaction_id:04d}",
+            "transaction_id": tx.transaction_id,
+            "client_name": client_name,
+            "order_id": ord_label,
+            "order_type": tx.order_type,
+            "numeric_order_id": tx.order_id,
+            "material_id": tx.customer_material_id,
+            "material_details": mat_desc,
+            "quantity_condition": f"{tx.quantity} {tx.unit or 'pcs'} • {mat.condition if mat else 'Inspected'}",
+            "quantity": tx.quantity,
+            "unit": tx.unit or "pcs",
+            "condition": mat.condition if mat else "Good",
+            "status": "Verified & Inspected",
+            "receipt_date": tx.created_at.strftime("%d %b %Y") if tx.created_at else datetime.utcnow().strftime("%d %b %Y"),
+            "received_by": tx.performed_by.full_name if (tx.performed_by and tx.performed_by.full_name) else "Production Staff",
+            "notes": tx.notes or ""
+        })
+
+    return receipts
 
 
 # 18. PRODUCTION HISTORY / AUDIT LOG
@@ -2429,6 +2641,26 @@ def get_fabrication_jobs_for_production(db: Session = Depends(get_db)):
         elif fst in ["IN_PRODUCTION", "IN PRODUCTION", "PAID"] or any(st.status in ["ASSIGNED", "IN_PROGRESS"] for st in stages) or len(assigned_workers_list) > 0:
             card_status = "In Progress"
 
+        c_mat = f.customer_material if f.customer_material else (db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == f.customer_material_id).first() if f.customer_material_id else None)
+        c_mat_summary = None
+        is_mat_received = True
+        if "Customer" in (mat_src or "") or f.customer_material_id:
+            if c_mat:
+                is_mat_received = (c_mat.status or "").upper() in ["RECEIVED", "INSPECTED", "VERIFIED", "APPROVED"]
+                c_mat_summary = {
+                    "material_id": c_mat.material_id,
+                    "material_type": c_mat.material_type,
+                    "wood_type": c_mat.wood_type,
+                    "quantity": c_mat.quantity,
+                    "unit": c_mat.unit,
+                    "dimensions": c_mat.dimensions,
+                    "condition": c_mat.condition,
+                    "status": c_mat.status,
+                    "remaining_quantity": c_mat.remaining_quantity
+                }
+            else:
+                is_mat_received = False
+
         res.append({
             "fabrication_id": f"FAB-{f.fabrication_id:04d}",
             "numeric_id": f.fabrication_id,
@@ -2455,6 +2687,9 @@ def get_fabrication_jobs_for_production(db: Session = Depends(get_db)):
             "customer_phone": cust_u.phone if cust_u else "",
             "dimensions": f.dimensions,
             "requirements": f.requirements,
+            "customer_material_id": f.customer_material_id,
+            "customer_material": c_mat_summary,
+            "is_material_received": is_mat_received,
             "stages": stages_list
         })
     return res

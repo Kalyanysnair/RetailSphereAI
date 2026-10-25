@@ -41,8 +41,11 @@ export const CustomerMaterialsTab: React.FC = () => {
       const rawUser = localStorage.getItem('user');
       const user = rawUser ? JSON.parse(rawUser) : null;
       const uEmail = user?.email || '';
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      const res = await fetch(`/api/materials/customer?customer_email=${encodeURIComponent(uEmail)}`);
+      const res = await fetch(`/api/materials/customer?customer_email=${encodeURIComponent(uEmail)}`, { headers });
       if (res.ok) {
         const data = await res.json();
         setMaterials(data);
@@ -83,28 +86,54 @@ export const CustomerMaterialsTab: React.FC = () => {
     }
   };
 
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleRegisterMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
+    setModalError(null);
+
+    const qtyVal = parseFloat(quantity);
+    if (isNaN(qtyVal) || qtyVal <= 0) {
+      setModalError('Material quantity must be a valid number strictly greater than 0.');
+      return;
+    }
+
+    if (!dimensions.trim() || dimensions.trim().length < 3) {
+      setModalError('Please specify plank/sheet dimensions (min. 3 characters, e.g. 8ft x 1ft x 2in).');
+      return;
+    }
+
+    if (!condition.trim() || condition.trim().length < 3) {
+      setModalError('Please describe the material condition (e.g. Seasoned, Kiln-dried, Raw).');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
       const rawUser = localStorage.getItem('user');
       const user = rawUser ? JSON.parse(rawUser) : null;
+      const token = localStorage.getItem('token');
 
       const payload = {
         customer_id: user?.customer_id || user?.user_id || 1,
         customer_email: user?.email || '',
         material_type: materialType,
-        wood_type: woodType,
-        quantity: parseFloat(quantity) || 0,
+        wood_type: woodType.trim(),
+        quantity: qtyVal,
         unit,
-        dimensions,
-        condition,
+        dimensions: dimensions.trim(),
+        condition: condition.trim(),
         photos,
-        notes,
+        notes: notes.trim(),
       };
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
       const res = await fetch('/api/materials/customer', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       });
 
@@ -112,10 +141,17 @@ export const CustomerMaterialsTab: React.FC = () => {
         setIsRegisterModalOpen(false);
         setNotes('');
         setPhotos('');
+        setModalError(null);
         fetchMaterials();
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setModalError(errJson.detail || 'Failed to register customer material. Please check inputs.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to register material:', err);
+      setModalError(err?.message || 'Failed to register material. Please check your connection.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -242,6 +278,13 @@ export const CustomerMaterialsTab: React.FC = () => {
               </div>
               <button onClick={() => setIsRegisterModalOpen(false)} className="text-[#7A6C5E] hover:text-[#2C241D] font-bold text-lg cursor-pointer">✕</button>
             </div>
+
+            {modalError && (
+              <div className="p-3 text-xs text-rose-800 bg-rose-50 border border-rose-300 rounded-2xl font-bold flex items-center gap-2 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleRegisterMaterial} className="space-y-4 text-xs font-semibold text-[#2C241D]">
               <div>

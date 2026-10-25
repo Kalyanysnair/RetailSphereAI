@@ -108,7 +108,20 @@ def validate_worker_eligibility(
     return worker
 
 def validate_custom_order_assignment_prerequisites(*args, **kwargs):
-    order = kwargs.get("order") or (args[1] if len(args) > 1 else args[0])
+    db: Optional[Session] = kwargs.get("db")
+    order = kwargs.get("order")
+    if not order and len(args) > 0:
+        if isinstance(args[0], Session):
+            db = args[0]
+            order = args[1] if len(args) > 1 else None
+        else:
+            order = args[0]
+            if len(args) > 1 and isinstance(args[1], Session):
+                db = args[1]
+
+    if not order:
+        return
+
     rev_st = (order.review_status or "").upper().strip()
     ord_st = (order.order_status or "").upper().strip()
     is_approved = (rev_st in ["APPROVED", "APPROVED_BY_RETAIL"]) or (ord_st in ["APPROVED", "APPROVED_BY_RETAIL", "IN PRODUCTION", "QC_PENDING", "COMPLETED"])
@@ -126,16 +139,77 @@ def validate_custom_order_assignment_prerequisites(*args, **kwargs):
             detail=f"Cannot assign worker: Custom Order #{order.custom_order_id} advance payment is pending."
         )
 
+    # Check customer material if custom order links customer-owned material
+    if getattr(order, "customer_material_id", None):
+        c_mat = getattr(order, "customer_material", None)
+        if not c_mat and db:
+            c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == order.customer_material_id).first()
+        if c_mat:
+            valid_statuses = ["RECEIVED", "INSPECTED", "APPROVED", "ALLOCATED", "IN_PRODUCTION", "PARTIALLY_USED"]
+            if c_mat.status not in valid_statuses:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot assign worker: Customer-owned material lot #{c_mat.material_id} for Custom Order #{order.custom_order_id} has not been physically received and inspected by Production Staff (current status: {c_mat.status})."
+                )
+
+    return True, "Prerequisites satisfied"
+
 def validate_fabrication_assignment_prerequisites(*args, **kwargs):
-    fab = kwargs.get("fab") or (args[1] if len(args) > 1 else args[0])
+    db: Optional[Session] = kwargs.get("db")
+    fab = kwargs.get("fab")
+    if not fab and len(args) > 0:
+        if isinstance(args[0], Session):
+            db = args[0]
+            fab = args[1] if len(args) > 1 else None
+        else:
+            fab = args[0]
+
+    if not fab:
+        return
+
     fab_st = (fab.status or "").upper().strip()
     pay_st = (fab.payment_status or "").upper().strip()
-    is_approved_and_paid = (fab_st in ["APPROVED", "APPROVED_BY_RETAIL", "PAID", "IN_PRODUCTION", "QC_PENDING", "COMPLETED"]) or (pay_st == "PAID")
+    is_approved_and_paid = (fab_st in ["APPROVED", "APPROVED_BY_RETAIL", "PAID", "MATERIAL_DELIVERED_AT_HUB", "MATERIAL_RECEIVED", "IN_PRODUCTION", "QC_PENDING", "COMPLETED"]) or (pay_st == "PAID")
     if not is_approved_and_paid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot assign worker: Fabrication Job #{fab.fabrication_id} must be approved and paid before assignment (current status: {fab.status})."
         )
+
+    # Enforce customer-owned material prerequisites
+    mat_src = (getattr(fab, "material_source", "") or "").lower()
+    if "customer" in mat_src:
+        if not fab.customer_material_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot assign worker: Fabrication Job #{fab.fabrication_id} specifies customer-owned material, but no customer material record is linked."
+            )
+        c_mat = None
+        if db:
+            c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == fab.customer_material_id).first()
+        elif hasattr(fab, "customer_material"):
+            c_mat = fab.customer_material
+
+        if not c_mat:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot assign worker: Linked customer material record #{fab.customer_material_id} not found."
+            )
+
+        valid_statuses = ["RECEIVED", "INSPECTED", "APPROVED", "ALLOCATED", "IN_PRODUCTION", "PARTIALLY_USED"]
+        if c_mat.status not in valid_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot assign worker: Customer-owned material lot #{c_mat.material_id} has not been physically received and verified by Production Staff (current material status: '{c_mat.status}')."
+            )
+
+        rem_qty = float(c_mat.remaining_quantity if c_mat.remaining_quantity is not None else c_mat.quantity)
+        req_qty = float(fab.quantity or 1)
+        if rem_qty < req_qty:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot assign worker: Insufficient usable quantity in customer material lot #{c_mat.material_id} (available: {rem_qty} {c_mat.unit}, required: {req_qty})."
+            )
 
 def validate_service_assignment_prerequisites(*args, **kwargs):
     srv = kwargs.get("srv") or (args[1] if len(args) > 1 else args[0])
@@ -150,32 +224,59 @@ def validate_service_assignment_prerequisites(*args, **kwargs):
 
 def validate_fabrication_material_prerequisite(db: Session, fab_obj: models.FabricationRequest):
     """
-    Validates that customer-owned material has been received at the workshop hub before cutting/fabrication starts.
+    Validates that customer-owned material has been received and inspected at the workshop hub before cutting/fabrication starts.
     Applies both to doorstep carrier pickup and customer direct drop-off.
     """
     if not fab_obj:
         return
 
+    mat_src = (getattr(fab_obj, "material_source", "") or "").lower()
     arr_mode = getattr(fab_obj, "material_arrival_mode", "") or "CUSTOMER_BRINGS"
-    mat_src = getattr(fab_obj, "material_source", "") or ""
-    needs_pk = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"] or ("Customer" in mat_src and arr_mode != "CUSTOMER_BRINGS")
-    if needs_pk:
-        ful = db.query(models.OrderFulfillment).filter(
-            models.OrderFulfillment.fabrication_id == fab_obj.fabrication_id,
-            models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
-        ).first()
-        if not ful or ful.delivery_status not in ["Delivered", "COMPLETED", "Received", "RECEIVED_AT_WORKSHOP"]:
-            c_title = ful.carrier if (ful and ful.carrier) else "an assigned Carrier Partner"
+    is_customer_material = "customer" in mat_src
+
+    if is_customer_material:
+        # 1. Must have customer_material_id linked
+        if not fab_obj.customer_material_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Cannot start fabrication stage yet. Customer-owned material pickup by {c_title} is still pending receipt at workshop hub."
+                detail="Cannot start fabrication stage: Customer-owned material is required for this job, but no customer material record is linked."
             )
 
-    if fab_obj.customer_material_id:
+        # 2. Check carrier delivery if pickup was requested
+        needs_pk = arr_mode in ["DOORSTEP_PICKUP", "RETAILSPHERE_PICKUP"]
+        if needs_pk:
+            ful = db.query(models.OrderFulfillment).filter(
+                models.OrderFulfillment.fabrication_id == fab_obj.fabrication_id,
+                models.OrderFulfillment.job_type == "FABRICATION_PICKUP"
+            ).first()
+            if not ful or ful.delivery_status not in ["Delivered", "COMPLETED", "Received", "RECEIVED_AT_WORKSHOP"]:
+                c_title = ful.carrier if (ful and ful.carrier) else "an assigned Carrier Partner"
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot start fabrication stage yet. Customer-owned material pickup by {c_title} is still pending transit to workshop hub."
+                )
+
+        # 3. Check customer material record itself
         c_mat = db.query(models.CustomerMaterial).filter(models.CustomerMaterial.material_id == fab_obj.customer_material_id).first()
-        if c_mat and c_mat.status in ["REGISTERED", "SUBMITTED"] and fab_obj.status not in ["MATERIAL_RECEIVED", "IN_PRODUCTION"]:
+        if not c_mat:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Cannot start fabrication stage yet. Customer-owned material has not been received at workshop hub."
+                detail=f"Cannot start fabrication stage: Linked customer material record #{fab_obj.customer_material_id} not found."
+            )
+
+        # Customer material must be verified/received by Production Staff (DELIVERED_AT_HUB is not enough!)
+        valid_statuses = ["RECEIVED", "INSPECTED", "APPROVED", "ALLOCATED", "IN_PRODUCTION", "PARTIALLY_USED"]
+        if c_mat.status not in valid_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot start fabrication stage: Customer-owned material lot #{c_mat.material_id} has not been physically received and inspected by Production Staff (current status: '{c_mat.status}')."
+            )
+
+        rem_qty = float(c_mat.remaining_quantity if c_mat.remaining_quantity is not None else c_mat.quantity)
+        req_qty = float(fab_obj.quantity or 1)
+        if rem_qty < req_qty:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Cannot start fabrication stage: Insufficient usable quantity in customer material lot #{c_mat.material_id} (available: {rem_qty} {c_mat.unit}, required: {req_qty})."
             )
 
